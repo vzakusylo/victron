@@ -6,8 +6,6 @@ const voltage = msg.payload;
 // ==========================
 // TIME
 // ==========================
-const nightWindow = hour < 6;
-
 const now = new Date();
 const hour = now.getHours();
 const minute = now.getMinutes();
@@ -18,18 +16,12 @@ const minute = now.getMinutes();
 let boostActive = context.get("boostActive") || false;
 const previousWindow = context.get("activeWindow") || "none";
 
-let forceCharge = false;
 // ==========================
 // TIME WINDOWS
 // ==========================
 const nightWindow = (hour >= 22 || hour < 6);
-// Night window
-if (nightWindow) {
-    forceCharge = true;
-    windowName = "NIGHT";
-}
 
-else if (morningWindow) {
+const morningWindow =
     (hour > 6 && hour < 11) ||
     (hour === 6) ||
     (hour === 11 && minute <= 59);
@@ -97,14 +89,12 @@ if (previousWindow !== windowName) {
 // ==========================
 // HYSTERESIS LOGIC
 // ==========================
-if (!forceCharge) {
-    if (!boostActive && voltage < onThreshold) {
-        boostActive = true;
-    }
+if (!boostActive && voltage < onThreshold) {
+    boostActive = true;
+}
 
-    if (boostActive && voltage > offThreshold) {
-        boostActive = false;
-    }
+if (boostActive && voltage > offThreshold) {
+    boostActive = false;
 }
 
 // ==========================
@@ -116,13 +106,13 @@ context.set("activeWindow", windowName);
 // ==========================
 // OUTPUT CURRENT
 // ==========================
-const chargeCurrent = forceCharge || boostActive ? 25 : 0;
+const chargeCurrent = boostActive ? 25 : 0;
 
 // ==========================
 // VISUAL INDICATOR
 // ==========================
 node.status({
-    fill: forceCharge || boostActive ? "green" : "yellow",
+    fill: boostActive ? "green" : "yellow",
     shape: "dot",
     text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
 });
