@@ -115,8 +115,11 @@ The latest logic is based on **battery voltage + time window + hysteresis + cont
 
 #### Night window
 - **22:00-05:59**
-- Always set charge current to **25 A**
-- This is a fixed forced charge-current limit at night
+- Use hysteresis at night instead of charging unconditionally:
+  - turn ON night charging again if voltage is at or below **54.5 V**
+  - turn OFF night charging if voltage is at or above **54.8 V**
+- Charge current when active: **25 A**
+- Charge current when inactive: **0 A**
 
 #### Morning window
 - **06:00-11:59**
@@ -145,6 +148,8 @@ The logic uses `context`:
 
 This avoids noisy oscillation when the voltage hovers around the threshold.
 
+At night the same remembered state is also used so the charger does not chatter around the stop threshold.
+
 ### Night priority
 The night rule is checked first and returns immediately.
 Night behavior therefore has priority over morning/evening logic.
@@ -155,7 +160,7 @@ Night behavior therefore has priority over morning/evening logic.
 
 This is the latest function logic state from the chat, conceptually:
 
-- If time is between 22:00 and 06:00 -> charge current = 25 A
+- If time is between 22:00 and 06:00 -> apply night hysteresis using 54.5 / 54.8 and set charge current to 25 A only when night boost is active
 - Else if in morning window -> apply hysteresis using 53.5 / 53.8
 - Else if in evening window -> apply hysteresis using 54.0 / 54.4
 - Else -> do nothing
@@ -224,7 +229,7 @@ It may mean the system was not actually commanded to charge, or a different cont
 The Function node status indicator was used for real-time visibility.
 Typical statuses:
 
-- **Blue** for NIGHT fixed charging
+- **Blue** for NIGHT charging active
 - **Green** when boost is active in morning/evening
 - **Yellow** when inside a controlled window but charge current is `0 A`
 - **Grey** when outside all windows
@@ -269,6 +274,15 @@ These were not finalized into the final active code in the last steps, but they 
 5. **Window transition reset is necessary**
    - otherwise `boostActive` can leak from one time window into another
 
+6. **Night charging is no longer unconditional**
+  - current active rule is night hysteresis with `54.5 V` ON and `54.8 V` OFF
+  - this protects against overcharging when battery voltage is already high
+
+7. **Keep script files synchronized**
+  - `day-night.txt` is the readable source copy of the active Function node logic
+  - the embedded `func` code inside `flows.json` must match `day-night.txt`
+  - whenever one is changed, the other must be updated as well
+
 ---
 
 ## 13. Suggested Next Development Steps
@@ -310,8 +324,10 @@ For future programming in VS Code, likely next useful tasks are:
 
 When using this context in future programming tasks, keep these assumptions explicit:
 
-- Night charging is currently intended to be **fixed 25 A from 22:00 to 06:00**
+- Night charging is currently intended to be **25 A only while night hysteresis allows it**
+- Current night hysteresis is **ON at 54.5 V or lower** and **OFF at 54.8 V or higher**
 - Morning and evening charging are **voltage-triggered with hysteresis**
+- `day-night.txt` and the embedded Function code in `flows.json` should always stay synchronized
 - Actual charging behavior depends on actual Victron ESS / charger mode
 - Elvenett app raw `kW` values are not the same as the adjusted nighttime capacity values
 - Future automation may need both:
@@ -323,7 +339,7 @@ When using this context in future programming tasks, keep these assumptions expl
 ## 16. Current Function Logic Snapshot (Short Form)
 
 ### Current target behavior snapshot
-- **22:00-05:59** -> 25 A always
+- **22:00-05:59** -> 25 A if night state is active, OFF at V >= 54.8, ON again at V <= 54.5
 - **06:00-11:59** -> 25 A if V < 53.5, off if V > 53.8
 - **17:00+** -> 25 A if V < 54.0, off if V > 54.4
 - otherwise -> no action

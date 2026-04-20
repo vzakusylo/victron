@@ -1,4 +1,33 @@
 // ==========================
+// LOGIC SUMMARY / CHANGE NOTES
+// ==========================
+// Current behavior implemented after iterative tuning:
+// 1. Night window was added first as fixed charging from 22:00 to 05:59.
+// 2. Night charging was then protected with hysteresis to avoid rapid ON/OFF switching.
+// 3. Current active night hysteresis:
+//    - ON again at 54.5V or lower
+//    - OFF at 54.8V or higher
+// 4. Morning window uses voltage hysteresis:
+//    - ON below 53.5V
+//    - OFF above 53.8V
+// 5. Evening window uses voltage hysteresis:
+//    - ON below 54.0V
+//    - OFF above 54.4V
+// 6. `boostActive` is stored in context so the node remembers state.
+// 7. `activeWindow` is stored in context so state can be reset when time window changes.
+// 8. When switching between NIGHT, MORNING, and EVENING, state is reset to stop one window
+//    from leaking into another.
+// 9. Outside the configured windows the function returns `null` and does not change charging.
+// 10. Status colors:
+//     - blue = night charging active
+//     - green = morning/evening boost active
+//     - yellow = inside a control window but charging is off
+//     - grey = outside all control windows
+// Notes from previous experiments:
+// - A night stop threshold of 54.6V was tested.
+// - Dynamic high-voltage reduction of grid setpoint/current was also discussed and tested,
+//   but is not part of the current active logic in this file.
+// ==========================
 // INPUT
 // ==========================
 const voltage = msg.payload;
