@@ -138,13 +138,28 @@ The latest logic is based on **battery voltage + time window + hysteresis + cont
 - Charge current when inactive: **0 A**
 
 #### Outside defined windows
-- Function returns `null`
-- It does not modify charge current
+- Charge current is `0 A`
+- Grid setpoint control can still remain active
+
+#### Grid setpoint control
+- Base grid setpoint schedule:
+  - **night:** `2700 W`
+  - **rest of day:** `1950 W`
+- Final grid setpoint is dynamically limited by additional rules:
+  - high battery voltage protection
+  - hourly grid budget controller
 
 ### State handling
 The logic uses `context`:
 - `boostActive`
 - `activeWindow`
+
+The current implementation also stores additional controller state such as:
+- last known battery voltage
+- last known grid import power
+- hourly energy budget state
+- active high-voltage limiting state
+- previous grid setpoint for smooth ramping
 
 This avoids noisy oscillation when the voltage hovers around the threshold.
 
@@ -163,15 +178,21 @@ This is the latest function logic state from the chat, conceptually:
 - If time is between 22:00 and 06:00 -> apply night hysteresis using 54.5 / 54.8 and set charge current to 25 A only when night boost is active
 - Else if in morning window -> apply hysteresis using 53.5 / 53.8
 - Else if in evening window -> apply hysteresis using 54.0 / 54.4
-- Else -> do nothing
+- Else -> charge current stays at 0 A
+
+In addition, the active implementation now also:
+- limits grid setpoint smoothly when battery voltage rises above `55.0 V`
+- releases that voltage limit only when voltage falls back to `54.8 V`
+- tapers down to a minimum voltage-protection setpoint of `200 W` by `55.2 V`
+- counts hourly imported energy and limits grid setpoint by the remaining hourly power budget
 
 The final implementation also resets state when switching between windows so that a night state does not leak into morning or evening logic.
 
 ---
 
-## 8. Dynamic Hourly Budget Controller Idea (For Future Work)
+## 8. Dynamic Hourly Budget Controller
 
-A future direction discussed in the chat is a **real-time hourly grid budget controller**.
+The controller discussed in the chat is now part of the active implementation.
 
 ### Goal
 Calculate, within the current clock hour, how much grid import budget remains before reaching the hourly target.
@@ -202,6 +223,43 @@ P_allow_rest_W = E_left_Wh / t_left_h
 ```
 
 This is intended for future Node-RED development.
+
+### Active implementation notes
+- The current implementation integrates **positive grid import only**
+- It resets the budget every new clock hour
+- Day budget target is **2000 Wh / hour**
+- Night budget target is **2700 Wh / hour**
+- The remaining-hour budget can reduce the final grid setpoint below the voltage-protection minimum of `200 W` if necessary
+
+### Final grid setpoint logic
+
+The final `grid setpoint` is the minimum of:
+
+```text
+base schedule
+high-voltage limit
+hourly budget limit
+```
+
+This means hourly budget protection has the highest practical priority.
+
+---
+
+## 8A. Dynamic High-Voltage Grid Setpoint Limiter
+
+This controller was added because an external MPPT can charge the battery without Victron being fully aware of it.
+
+### Goal
+Reduce Victron-driven charging pressure when the battery voltage is already high.
+
+### Active thresholds
+- start limiting when battery voltage is above **55.0 V**
+- keep the limiter active until voltage falls to **54.8 V** or lower
+- taper down smoothly to **200 W** by **55.2 V**
+
+### Smoothing
+- grid setpoint reduction is smoothed between updates
+- this avoids abrupt load changes on the battery
 
 ---
 
@@ -283,6 +341,10 @@ These were not finalized into the final active code in the last steps, but they 
   - the embedded `func` code inside `flows.json` must match `day-night.txt`
   - whenever one is changed, the other must be updated as well
 
+8. **Hourly budget can override the voltage minimum setpoint**
+  - voltage protection uses a nominal minimum of `200 W`
+  - but if the hourly import budget is nearly exhausted, final grid setpoint may go below `200 W`
+
 ---
 
 ## 13. Suggested Next Development Steps
@@ -328,6 +390,9 @@ When using this context in future programming tasks, keep these assumptions expl
 - Current night hysteresis is **ON at 54.5 V or lower** and **OFF at 54.8 V or higher**
 - Morning and evening charging are **voltage-triggered with hysteresis**
 - `day-night.txt` and the embedded Function code in `flows.json` should always stay synchronized
+- Grid setpoint is now controlled dynamically, not only by fixed schedule injects
+- High battery voltage can reduce the grid setpoint smoothly
+- Hourly import budget can reduce grid setpoint further based on the remaining energy budget of the current hour
 - Actual charging behavior depends on actual Victron ESS / charger mode
 - Elvenett app raw `kW` values are not the same as the adjusted nighttime capacity values
 - Future automation may need both:
@@ -342,6 +407,9 @@ When using this context in future programming tasks, keep these assumptions expl
 - **22:00-05:59** -> 25 A if night state is active, OFF at V >= 54.8, ON again at V <= 54.5
 - **06:00-11:59** -> 25 A if V < 53.5, off if V > 53.8
 - **17:00+** -> 25 A if V < 54.0, off if V > 54.4
-- otherwise -> no action
+- outside charge windows -> charge current 0 A
+- base grid setpoint -> 2700 W at night, 1950 W otherwise
+- high-voltage limiter -> taper grid setpoint down from 55.0 V to 55.2 V, release at 54.8 V
+- hourly budget limiter -> dynamic setpoint based on remaining hourly energy budget
 
 This snapshot is the most important quick reference for future coding.

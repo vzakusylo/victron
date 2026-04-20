@@ -2,35 +2,77 @@
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
 // Current behavior implemented after iterative tuning:
-// 1. Night window was added first as fixed charging from 22:00 to 05:59.
-// 2. Night charging was then protected with hysteresis to avoid rapid ON/OFF switching.
-// 3. Current active night hysteresis:
+// 1. This function now has 2 outputs:
+//    - output 1 -> DVCC charge current limit (A)
+//    - output 2 -> ESS grid setpoint (W)
+// 2. The function accepts multiple message types:
+//    - `topic = battery-voltage` -> updates battery voltage state
+//    - `topic = grid-power` -> updates measured grid import power in W
+//    - any other topic / inject -> recalculates outputs using stored state
+// 3. Night charging uses hysteresis:
 //    - ON again at 54.5V or lower
 //    - OFF at 54.8V or higher
-// 4. Morning window uses voltage hysteresis:
+// 4. Morning charging uses hysteresis:
 //    - ON below 53.5V
 //    - OFF above 53.8V
-// 5. Evening window uses voltage hysteresis:
+// 5. Evening charging uses hysteresis:
 //    - ON below 54.0V
 //    - OFF above 54.4V
-// 6. `boostActive` is stored in context so the node remembers state.
-// 7. `activeWindow` is stored in context so state can be reset when time window changes.
-// 8. When switching between NIGHT, MORNING, and EVENING, state is reset to stop one window
-//    from leaking into another.
-// 9. Outside the configured windows the function returns `null` and does not change charging.
-// 10. Status colors:
-//     - blue = night charging active
-//     - green = morning/evening boost active
-//     - yellow = inside a control window but charging is off
-//     - grey = outside all control windows
-// Notes from previous experiments:
-// - A night stop threshold of 54.6V was tested.
-// - Dynamic high-voltage reduction of grid setpoint/current was also discussed and tested,
-//   but is not part of the current active logic in this file.
+// 6. Base grid setpoint schedule:
+//    - 2700W at night
+//    - 1950W during the rest of the day
+// 7. High-voltage protection for unknown external MPPT charging:
+//    - start limiting when battery voltage rises above 55.0V
+//    - release only after voltage drops back to 54.8V or lower
+//    - taper grid setpoint smoothly down to a minimum of 200W by 55.2V
+// 8. Hourly budget control:
+//    - integrate positive grid import every hour in Wh
+//    - day budget = 2000Wh / hour
+//    - night budget = 2700Wh / hour
+//    - allowed remaining average power is recalculated continuously
+// 9. Final grid setpoint is the minimum of:
+//    - base schedule
+//    - high-voltage limit
+//    - hourly budget limit
+// 10. Hourly budget has higher priority than the 200W voltage minimum.
+//     If the hour budget is exhausted, setpoint may drop below 200W.
+// 11. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
+//     see large sudden load changes.
+// 12. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
+//     all stored in context.
+// 13. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
+
 // ==========================
-// INPUT
+// INPUT / OUTPUT TOPICS
 // ==========================
-const voltage = msg.payload;
+const BATTERY_TOPIC = "battery-voltage";
+const GRID_TOPIC = "grid-power";
+
+// ==========================
+// CONSTANTS
+// ==========================
+const MAX_CHARGE_CURRENT = 25;
+
+const DAY_BASE_GRID_SETPOINT = 1950;
+const NIGHT_BASE_GRID_SETPOINT = 2700;
+
+const DAY_HOURLY_BUDGET_W = 2000;
+const NIGHT_HOURLY_BUDGET_W = 2700;
+
+const NIGHT_ON_VOLTAGE = 54.5;
+const NIGHT_OFF_VOLTAGE = 54.8;
+
+const MORNING_ON_VOLTAGE = 53.5;
+const MORNING_OFF_VOLTAGE = 53.8;
+
+const EVENING_ON_VOLTAGE = 54.0;
+const EVENING_OFF_VOLTAGE = 54.4;
+
+const HIGH_VOLTAGE_LIMIT_START = 55.0;
+const HIGH_VOLTAGE_LIMIT_RELEASE = 54.8;
+const HIGH_VOLTAGE_LIMIT_FULL = 55.2;
+const MIN_GRID_SETPOINT = 200;
+const MAX_GRID_STEP_W = 100;
 
 // ==========================
 // TIME
@@ -38,12 +80,142 @@ const voltage = msg.payload;
 const now = new Date();
 const hour = now.getHours();
 const minute = now.getMinutes();
+const second = now.getSeconds();
 
 // ==========================
 // CONTEXT MEMORY
 // ==========================
 let boostActive = context.get("boostActive") || false;
 const previousWindow = context.get("activeWindow") || "none";
+let batteryVoltage = Number(context.get("batteryVoltage"));
+const storedGridPowerW = Math.max(0, Number(context.get("gridPowerW")) || 0);
+let gridPowerW = storedGridPowerW;
+let voltageLimitActive = context.get("voltageLimitActive") || false;
+const previousGridSetpoint = Number(context.get("gridSetpoint"));
+let hourBudget = context.get("hourBudget") || {
+    hourKey: "",
+    lastTs: 0,
+    usedWh: 0
+};
+
+// ==========================
+// HELPERS
+// ==========================
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function round1(value) {
+    return Math.round(value * 10) / 10;
+}
+
+function getHourKey(date) {
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-") + " " + String(date.getHours()).padStart(2, "0");
+}
+
+function getHourStartTs(date) {
+    return new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        date.getHours(),
+        0,
+        0,
+        0
+    ).getTime();
+}
+
+function advanceHourBudget(state, date, importPowerW) {
+    const nextState = {
+        hourKey: state.hourKey || "",
+        lastTs: Number(state.lastTs) || 0,
+        usedWh: Number(state.usedWh) || 0
+    };
+
+    const nowTs = date.getTime();
+    const hourKey = getHourKey(date);
+    const hourStartTs = getHourStartTs(date);
+
+    if (!nextState.lastTs || nextState.hourKey !== hourKey || nextState.lastTs < hourStartTs) {
+        nextState.hourKey = hourKey;
+        nextState.lastTs = hourStartTs;
+        nextState.usedWh = 0;
+    }
+
+    if (nowTs > nextState.lastTs) {
+        const deltaHours = (nowTs - nextState.lastTs) / 3600000;
+        nextState.usedWh += Math.max(0, importPowerW) * deltaHours;
+        nextState.lastTs = nowTs;
+    }
+
+    return nextState;
+}
+
+function smoothReduction(previousValue, targetValue, maxStep) {
+    if (!Number.isFinite(previousValue)) {
+        return targetValue;
+    }
+
+    if (targetValue < previousValue - maxStep) {
+        return previousValue - maxStep;
+    }
+
+    if (targetValue > previousValue + maxStep) {
+        return previousValue + maxStep;
+    }
+
+    return targetValue;
+}
+
+function buildOutputs(chargeCurrent, gridSetpoint) {
+    return [
+        {
+            topic: "charge-current-limit",
+            payload: chargeCurrent
+        },
+        {
+            topic: "grid-setpoint",
+            payload: gridSetpoint
+        }
+    ];
+}
+
+// ==========================
+// UPDATE STORED INPUTS
+// ==========================
+hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
+
+if (msg.topic === BATTERY_TOPIC) {
+    const incomingVoltage = Number(msg.payload);
+
+    if (Number.isFinite(incomingVoltage)) {
+        batteryVoltage = incomingVoltage;
+        context.set("batteryVoltage", batteryVoltage);
+    }
+}
+else if (msg.topic === GRID_TOPIC) {
+    const incomingGridPower = Number(msg.payload);
+
+    if (Number.isFinite(incomingGridPower)) {
+        gridPowerW = Math.max(0, incomingGridPower);
+        context.set("gridPowerW", gridPowerW);
+    }
+}
+
+context.set("hourBudget", hourBudget);
+
+if (!Number.isFinite(batteryVoltage)) {
+    node.status({
+        fill: "grey",
+        shape: "ring",
+        text: "WAITING FOR BATTERY VOLTAGE"
+    });
+    return null;
+}
 
 // ==========================
 // TIME WINDOWS
@@ -57,112 +229,173 @@ const morningWindow =
 
 const eveningWindow = hour >= 17;
 
+const baseScheduleSetpoint = nightWindow ? NIGHT_BASE_GRID_SETPOINT : DAY_BASE_GRID_SETPOINT;
+const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGET_W;
+
 // ==========================
-// NIGHT WINDOW: 22:00–05:59
-// Charge at 25A with hysteresis
+// CHARGE CURRENT WINDOW LOGIC
 // ==========================
+let windowName = "OUTSIDE";
+let baseChargeCurrent = 0;
+
 if (nightWindow) {
-    const nightOnVoltage = 54.5;
-    const nightOffVoltage = 54.8;
-    const windowName = "NIGHT";
+    windowName = "NIGHT";
 
     if (previousWindow !== windowName) {
         boostActive = true;
     }
 
-    if (boostActive && voltage >= nightOffVoltage) {
+    if (boostActive && batteryVoltage >= NIGHT_OFF_VOLTAGE) {
         boostActive = false;
     }
 
-    if (!boostActive && voltage <= nightOnVoltage) {
+    if (!boostActive && batteryVoltage <= NIGHT_ON_VOLTAGE) {
         boostActive = true;
     }
 
-    const chargeCurrent = boostActive ? 25 : 0;
-
-    context.set("boostActive", boostActive);
-    context.set("activeWindow", windowName);
-
-    node.status({
-        fill: chargeCurrent > 0 ? "blue" : "yellow",
-        shape: "dot",
-        text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
-    });
-
-    msg.payload = chargeCurrent;
-    return msg;
+    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;
 }
-
-// ==========================
-// HYSTERESIS THRESHOLDS
-// ==========================
-let onThreshold = null;
-let offThreshold = null;
-let windowName = null;
-
-// Morning window
-if (morningWindow) {
-    onThreshold = 53.5;
-    offThreshold = 53.8;
+else if (morningWindow) {
     windowName = "MORNING";
+
+    if (previousWindow !== windowName) {
+        boostActive = false;
+    }
+
+    if (!boostActive && batteryVoltage < MORNING_ON_VOLTAGE) {
+        boostActive = true;
+    }
+
+    if (boostActive && batteryVoltage > MORNING_OFF_VOLTAGE) {
+        boostActive = false;
+    }
+
+    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;
 }
-// Evening window
 else if (eveningWindow) {
-    onThreshold = 54.0;
-    offThreshold = 54.4;
     windowName = "EVENING";
+
+    if (previousWindow !== windowName) {
+        boostActive = false;
+    }
+
+    if (!boostActive && batteryVoltage < EVENING_ON_VOLTAGE) {
+        boostActive = true;
+    }
+
+    if (boostActive && batteryVoltage > EVENING_OFF_VOLTAGE) {
+        boostActive = false;
+    }
+
+    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;
 }
-// Outside windows
 else {
-    node.status({
-        fill: "grey",
-        shape: "ring",
-        text: `OUTSIDE WINDOW | V=${voltage.toFixed(2)}V`
-    });
-    return null;
-}
-
-// ==========================
-// RESET STATE WHEN WINDOW CHANGES
-// Prevent night state from leaking into morning/evening
-// ==========================
-if (previousWindow !== windowName) {
     boostActive = false;
+    baseChargeCurrent = 0;
 }
 
 // ==========================
-// HYSTERESIS LOGIC
+// HIGH-VOLTAGE GRID SETPOINT LIMIT
 // ==========================
-if (!boostActive && voltage < onThreshold) {
-    boostActive = true;
+if (!voltageLimitActive && batteryVoltage > HIGH_VOLTAGE_LIMIT_START) {
+    voltageLimitActive = true;
 }
 
-if (boostActive && voltage > offThreshold) {
-    boostActive = false;
+if (voltageLimitActive && batteryVoltage <= HIGH_VOLTAGE_LIMIT_RELEASE) {
+    voltageLimitActive = false;
+}
+
+let voltageLimitedSetpoint = baseScheduleSetpoint;
+
+if (voltageLimitActive) {
+    const taper = clamp(
+        (HIGH_VOLTAGE_LIMIT_FULL - batteryVoltage) /
+        (HIGH_VOLTAGE_LIMIT_FULL - HIGH_VOLTAGE_LIMIT_START),
+        0,
+        1
+    );
+
+    voltageLimitedSetpoint = Math.round(
+        MIN_GRID_SETPOINT + (baseScheduleSetpoint - MIN_GRID_SETPOINT) * taper
+    );
+}
+
+// Apply smoothing only to the voltage-based reduction so the battery does not see large jumps.
+if (voltageLimitActive) {
+    voltageLimitedSetpoint = Math.round(
+        smoothReduction(
+            previousGridSetpoint,
+            voltageLimitedSetpoint,
+            MAX_GRID_STEP_W
+        )
+    );
 }
 
 // ==========================
-// SAVE CONTEXT
+// HOURLY GRID BUDGET LIMIT
 // ==========================
+const secondsIntoHour = minute * 60 + second;
+const secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);
+const hoursLeftInHour = secondsLeftInHour / 3600;
+const usedWh = hourBudget.usedWh || 0;
+const remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);
+const budgetLimitedSetpoint = Math.round(remainingWh / hoursLeftInHour);
+
+// ==========================
+// FINAL OUTPUTS
+// ==========================
+const finalGridSetpoint = Math.max(
+    0,
+    Math.round(
+        Math.min(
+            baseScheduleSetpoint,
+            voltageLimitedSetpoint,
+            budgetLimitedSetpoint
+        )
+    )
+);
+
+const currentRatio = baseScheduleSetpoint > 0
+    ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
+    : 0;
+
+const finalChargeCurrent = baseChargeCurrent > 0
+    ? round1(baseChargeCurrent * currentRatio)
+    : 0;
+
 context.set("boostActive", boostActive);
 context.set("activeWindow", windowName);
+context.set("voltageLimitActive", voltageLimitActive);
+context.set("gridSetpoint", finalGridSetpoint);
 
 // ==========================
-// OUTPUT CURRENT
+// STATUS
 // ==========================
-const chargeCurrent = boostActive ? 25 : 0;
+const limitFlags = [];
 
-// ==========================
-// VISUAL INDICATOR
-// ==========================
+if (voltageLimitActive && finalGridSetpoint <= voltageLimitedSetpoint) {
+    limitFlags.push("HV");
+}
+
+if (budgetLimitedSetpoint < Math.min(baseScheduleSetpoint, voltageLimitedSetpoint)) {
+    limitFlags.push("HOUR");
+}
+
+let fill = "grey";
+
+if (windowName === "NIGHT") {
+    fill = finalChargeCurrent > 0 ? "blue" : "yellow";
+}
+else if (windowName === "MORNING" || windowName === "EVENING") {
+    fill = finalChargeCurrent > 0 ? "green" : "yellow";
+}
+
+const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
+
 node.status({
-    fill: boostActive ? "green" : "yellow",
-    shape: "dot",
-    text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
+    fill,
+    shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${Math.round(usedWh)}Wh${flagsText}`
 });
 
-// ==========================
-// SEND TO ESS
-// ==========================
-msg.payload = chargeCurrent;
-return msg;
+return buildOutputs(finalChargeCurrent, finalGridSetpoint);
