@@ -2,9 +2,10 @@
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 2 outputs:
+// 1. This function now has 3 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
+//    - output 3 -> VE.Bus AC input current limit (A)
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
@@ -38,9 +39,12 @@
 //     If the hour budget is exhausted, setpoint may drop below 200W.
 // 11. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
-// 12. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
+// 12. VE.Bus input current limit is now calculated dynamically together with grid setpoint:
+//     - derived from final grid setpoint / grid voltage
+//     - uses `flow.gridVoltage` if available, else defaults to 230V
+// 13. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
 //     all stored in context.
-// 13. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
+// 14. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -52,6 +56,7 @@ const GRID_TOPIC = "grid-power";
 // CONSTANTS
 // ==========================
 const MAX_CHARGE_CURRENT = 25;
+const DEFAULT_GRID_VOLTAGE = 230;
 
 const DAY_BASE_GRID_SETPOINT = 1950;
 const NIGHT_BASE_GRID_SETPOINT = 2700;
@@ -172,6 +177,11 @@ function smoothReduction(previousValue, targetValue, maxStep) {
 }
 
 function buildOutputs(chargeCurrent, gridSetpoint) {
+    const gridVoltage = Number(flow.get("gridVoltage")) || DEFAULT_GRID_VOLTAGE;
+    const acInputCurrentLimit = gridSetpoint > 0
+        ? round1(gridSetpoint / gridVoltage)
+        : 0;
+
     return [
         {
             topic: "charge-current-limit",
@@ -180,6 +190,10 @@ function buildOutputs(chargeCurrent, gridSetpoint) {
         {
             topic: "grid-setpoint",
             payload: gridSetpoint
+        },
+        {
+            topic: "ac-input-current-limit",
+            payload: acInputCurrentLimit
         }
     ];
 }

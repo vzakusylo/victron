@@ -230,6 +230,8 @@ This is intended for future Node-RED development.
 - Day budget target is **2000 Wh / hour**
 - Night budget target is **2700 Wh / hour**
 - The remaining-hour budget can reduce the final grid setpoint below the voltage-protection minimum of `200 W` if necessary
+- VE.Bus **Input 1 current limit (A)** is also now updated dynamically from the final grid setpoint
+- The VE.Bus current limit uses `flow.gridVoltage` when available, otherwise defaults to `230 V`
 
 ### Final grid setpoint logic
 
