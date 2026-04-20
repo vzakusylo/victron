@@ -6,6 +6,8 @@ const voltage = msg.payload;
 // ==========================
 // TIME
 // ==========================
+const nightWindow = hour < 6;
+
 const now = new Date();
 const hour = now.getHours();
 const minute = now.getMinutes();
@@ -14,17 +16,46 @@ const minute = now.getMinutes();
 // CONTEXT MEMORY
 // ==========================
 let boostActive = context.get("boostActive") || false;
-let activeWindow = context.get("activeWindow") || "none";
+const previousWindow = context.get("activeWindow") || "none";
 
+let forceCharge = false;
 // ==========================
 // TIME WINDOWS
 // ==========================
-const morningWindow =
+const nightWindow = (hour >= 22 || hour < 6);
+// Night window
+if (nightWindow) {
+    forceCharge = true;
+    windowName = "NIGHT";
+}
+
+else if (morningWindow) {
     (hour > 6 && hour < 11) ||
     (hour === 6) ||
     (hour === 11 && minute <= 59);
 
 const eveningWindow = hour >= 17;
+
+// ==========================
+// NIGHT WINDOW: 22:00–05:59
+// Always charge at 25A
+// ==========================
+if (nightWindow) {
+    const chargeCurrent = 25;
+    const windowName = "NIGHT";
+
+    context.set("boostActive", true);
+    context.set("activeWindow", windowName);
+
+    node.status({
+        fill: "blue",
+        shape: "dot",
+        text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
+    });
+
+    msg.payload = chargeCurrent;
+    return msg;
+}
 
 // ==========================
 // HYSTERESIS THRESHOLDS
@@ -56,14 +87,24 @@ else {
 }
 
 // ==========================
-// HYSTERESIS LOGIC
+// RESET STATE WHEN WINDOW CHANGES
+// Prevent night state from leaking into morning/evening
 // ==========================
-if (!boostActive && voltage < onThreshold) {
-    boostActive = true;
+if (previousWindow !== windowName) {
+    boostActive = false;
 }
 
-if (boostActive && voltage > offThreshold) {
-    boostActive = false;
+// ==========================
+// HYSTERESIS LOGIC
+// ==========================
+if (!forceCharge) {
+    if (!boostActive && voltage < onThreshold) {
+        boostActive = true;
+    }
+
+    if (boostActive && voltage > offThreshold) {
+        boostActive = false;
+    }
 }
 
 // ==========================
@@ -75,13 +116,13 @@ context.set("activeWindow", windowName);
 // ==========================
 // OUTPUT CURRENT
 // ==========================
-const chargeCurrent = boostActive ? 25 : 0;
+const chargeCurrent = forceCharge || boostActive ? 25 : 0;
 
 // ==========================
 // VISUAL INDICATOR
 // ==========================
 node.status({
-    fill: boostActive ? "green" : "yellow",
+    fill: forceCharge || boostActive ? "green" : "yellow",
     shape: "dot",
     text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
 });
@@ -91,4 +132,3 @@ node.status({
 // ==========================
 msg.payload = chargeCurrent;
 return msg;
-``
