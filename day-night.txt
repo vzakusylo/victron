@@ -1,0 +1,94 @@
+// ==========================
+// INPUT
+// ==========================
+const voltage = msg.payload;
+
+// ==========================
+// TIME
+// ==========================
+const now = new Date();
+const hour = now.getHours();
+const minute = now.getMinutes();
+
+// ==========================
+// CONTEXT MEMORY
+// ==========================
+let boostActive = context.get("boostActive") || false;
+let activeWindow = context.get("activeWindow") || "none";
+
+// ==========================
+// TIME WINDOWS
+// ==========================
+const morningWindow =
+    (hour > 6 && hour < 11) ||
+    (hour === 6) ||
+    (hour === 11 && minute <= 59);
+
+const eveningWindow = hour >= 17;
+
+// ==========================
+// HYSTERESIS THRESHOLDS
+// ==========================
+let onThreshold = null;
+let offThreshold = null;
+let windowName = null;
+
+// Morning window
+if (morningWindow) {
+    onThreshold = 53.5;
+    offThreshold = 53.8;
+    windowName = "MORNING";
+}
+// Evening window
+else if (eveningWindow) {
+    onThreshold = 54.0;
+    offThreshold = 54.4;
+    windowName = "EVENING";
+}
+// Outside windows
+else {
+    node.status({
+        fill: "grey",
+        shape: "ring",
+        text: `OUTSIDE WINDOW | V=${voltage.toFixed(2)}V`
+    });
+    return null;
+}
+
+// ==========================
+// HYSTERESIS LOGIC
+// ==========================
+if (!boostActive && voltage < onThreshold) {
+    boostActive = true;
+}
+
+if (boostActive && voltage > offThreshold) {
+    boostActive = false;
+}
+
+// ==========================
+// SAVE CONTEXT
+// ==========================
+context.set("boostActive", boostActive);
+context.set("activeWindow", windowName);
+
+// ==========================
+// OUTPUT CURRENT
+// ==========================
+const chargeCurrent = boostActive ? 25 : 0;
+
+// ==========================
+// VISUAL INDICATOR
+// ==========================
+node.status({
+    fill: boostActive ? "green" : "yellow",
+    shape: "dot",
+    text: `${windowName} | V=${voltage.toFixed(2)}V | ${chargeCurrent}A`
+});
+
+// ==========================
+// SEND TO ESS
+// ==========================
+msg.payload = chargeCurrent;
+return msg;
+``
