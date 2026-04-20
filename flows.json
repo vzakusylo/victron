@@ -1,5 +1,207 @@
 [
     {
+        "id": "tab-day-night",
+        "type": "tab",
+        "label": "Day / Night Grid Control",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "inject-day-grid",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "DAY 06:00 Grid setpoint 1950W",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 06 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "1950",
+        "payloadType": "num",
+        "x": 200,
+        "y": 80,
+        "wires": [
+            [
+                "a03b80118af93adf"
+            ]
+        ]
+    },
+    {
+        "id": "inject-night-grid",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "NIGHT 22:00 Grid setpoint 2700W",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 22 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "2700",
+        "payloadType": "num",
+        "x": 210,
+        "y": 140,
+        "wires": [
+            [
+                "a03b80118af93adf"
+            ]
+        ]
+    },
+    {
+        "id": "inject-day-current",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "DAY 06:00 Grid current 9.6A",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 06 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "9.5",
+        "payloadType": "num",
+        "x": 220,
+        "y": 240,
+        "wires": [
+            [
+                "cb520e4335693da7"
+            ]
+        ]
+    },
+    {
+        "id": "inject-night-current",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "NIGHT 22:00 Grid current 12.6A",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 22 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "12.6",
+        "payloadType": "num",
+        "x": 230,
+        "y": 300,
+        "wires": [
+            [
+                "cb520e4335693da7"
+            ]
+        ]
+    },
+    {
+        "id": "cb520e4335693da7",
+        "type": "victron-output-vebus",
+        "z": "tab-day-night",
+        "service": "com.victronenergy.vebus/276",
+        "path": "/Ac/In/1/CurrentLimit",
+        "serviceObj": {
+            "service": "com.victronenergy.vebus/276",
+            "name": "MultiPlus-II 48/5000/70-50"
+        },
+        "pathObj": {
+            "path": "/Ac/In/1/CurrentLimit",
+            "type": "float",
+            "name": "Input 1 current limit (A)",
+            "mode": "both"
+        },
+        "initial": 9.5,
+        "name": "",
+        "onlyChanges": false,
+        "x": 590,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "a03b80118af93adf",
+        "type": "victron-output-ess",
+        "z": "tab-day-night",
+        "service": "com.victronenergy.settings",
+        "path": "/Settings/CGwacs/AcPowerSetPoint",
+        "serviceObj": {
+            "service": "com.victronenergy.settings",
+            "name": "Venus settings"
+        },
+        "pathObj": {
+            "path": "/Settings/CGwacs/AcPowerSetPoint",
+            "type": "integer",
+            "name": "Grid set-point (W)",
+            "mode": "both"
+        },
+        "initial": 1950,
+        "name": "",
+        "onlyChanges": false,
+        "x": 540,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "7894647c546606c6",
+        "type": "victron-output-ess",
+        "z": "tab-day-night",
+        "service": "com.victronenergy.settings",
+        "path": "/Settings/SystemSetup/MaxChargeCurrent",
+        "serviceObj": {
+            "service": "com.victronenergy.settings",
+            "name": "Venus settings"
+        },
+        "pathObj": {
+            "path": "/Settings/SystemSetup/MaxChargeCurrent",
+            "type": "float",
+            "name": "DVCC Charge current limit (A)",
+            "mode": "both"
+        },
+        "initial": 0,
+        "name": "DVCC Charge current Limit (A)",
+        "onlyChanges": false,
+        "x": 550,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "3688443da38b4d47",
+        "type": "victron-input-battery",
+        "z": "tab-day-night",
+        "service": "com.victronenergy.battery/4",
+        "path": "/Dc/0/Voltage",
+        "serviceObj": {
+            "service": "com.victronenergy.battery/4",
+            "name": "SerialBattery(LLT/JBD)"
+        },
+        "pathObj": {
+            "path": "/Dc/0/Voltage",
+            "type": "float",
+            "name": "Battery voltage (V)"
+        },
+        "name": "",
+        "onlyChanges": false,
+        "roundValues": "1",
+        "x": 200,
+        "y": 460,
+        "wires": [
+            [
+                "192e64bf98f268c7"
+            ]
+        ]
+    },
+    {
         "id": "4ff6216f6aa25cd2",
         "type": "function",
         "z": "tab-day-night",
@@ -17,6 +219,43 @@
             [
                 "7894647c546606c6"
             ]
+        ]
+    },
+    {
+        "id": "192e64bf98f268c7",
+        "type": "delay",
+        "z": "tab-day-night",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "1",
+        "timeoutUnits": "minutes",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 460,
+        "y": 460,
+        "wires": [
+            [
+                "4ff6216f6aa25cd2"
+            ]
+        ]
+    },
+    {
+        "id": "4a6e35457f2e2fce",
+        "type": "link in",
+        "z": "tab-day-night",
+        "name": "link in 22",
+        "links": [],
+        "x": 385,
+        "y": 380,
+        "wires": [
+            []
         ]
     }
 ]
