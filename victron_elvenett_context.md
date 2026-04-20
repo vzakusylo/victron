@@ -160,6 +160,7 @@ The current implementation also stores additional controller state such as:
 - hourly energy budget state
 - active high-voltage limiting state
 - previous grid setpoint for smooth ramping
+- previous VE.Bus Input 1 current limit for change notifications
 
 This avoids noisy oscillation when the voltage hovers around the threshold.
 
@@ -185,6 +186,7 @@ In addition, the active implementation now also:
 - releases that voltage limit only when voltage falls back to `54.8 V`
 - tapers down to a minimum voltage-protection setpoint of `200 W` by `55.2 V`
 - counts hourly imported energy and limits grid setpoint by the remaining hourly power budget
+- emits a notification message when grid setpoint or VE.Bus Input 1 current limit changes
 
 The final implementation also resets state when switching between windows so that a night state does not leak into morning or evening logic.
 
@@ -232,6 +234,7 @@ This is intended for future Node-RED development.
 - The remaining-hour budget can reduce the final grid setpoint below the voltage-protection minimum of `200 W` if necessary
 - VE.Bus **Input 1 current limit (A)** is also now updated dynamically from the final grid setpoint
 - The VE.Bus current limit uses `flow.gridVoltage` when available, otherwise defaults to `230 V`
+- The controller now exposes a fourth output for notification messages intended for VRM/notification handling flows
 
 ### Final grid setpoint logic
 

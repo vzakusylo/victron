@@ -2,10 +2,11 @@
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 3 outputs:
+// 1. This function now has 4 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
 //    - output 3 -> VE.Bus AC input current limit (A)
+//    - output 4 -> VRM notification message
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
@@ -42,9 +43,12 @@
 // 12. VE.Bus input current limit is now calculated dynamically together with grid setpoint:
 //     - derived from final grid setpoint / grid voltage
 //     - uses `flow.gridVoltage` if available, else defaults to 230V
-// 13. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
+// 13. A VRM notification is emitted when either:
+//     - grid setpoint changes
+//     - VE.Bus Input 1 current limit changes
+// 14. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
 //     all stored in context.
-// 14. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
+// 15. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -97,6 +101,7 @@ const storedGridPowerW = Math.max(0, Number(context.get("gridPowerW")) || 0);
 let gridPowerW = storedGridPowerW;
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
+const previousAcInputCurrentLimit = Number(context.get("acInputCurrentLimit"));
 let hourBudget = context.get("hourBudget") || {
     hourKey: "",
     lastTs: 0,
@@ -176,11 +181,42 @@ function smoothReduction(previousValue, targetValue, maxStep) {
     return targetValue;
 }
 
+function buildNotification(window, gridSetpoint, acInputCurrentLimit) {
+    const parts = [
+        `${window}`,
+        `V=${batteryVoltage.toFixed(2)}V`,
+        `Grid setpoint=${gridSetpoint}W`,
+        `Input 1 current=${acInputCurrentLimit}A`
+    ];
+
+    if (limitFlags.length > 0) {
+        parts.push(`Limit=${limitFlags.join("+")}`);
+    }
+
+    return {
+        topic: "vrm-notification",
+        payload: parts.join(" | "),
+        notification: {
+            message: parts.join(" | "),
+            level: "info",
+            timestamp: now.toISOString()
+        }
+    };
+}
+
 function buildOutputs(chargeCurrent, gridSetpoint) {
     const gridVoltage = Number(flow.get("gridVoltage")) || DEFAULT_GRID_VOLTAGE;
     const acInputCurrentLimit = gridSetpoint > 0
         ? round1(gridSetpoint / gridVoltage)
         : 0;
+
+    const notifyMsg =
+        gridSetpoint !== previousGridSetpoint ||
+        acInputCurrentLimit !== previousAcInputCurrentLimit
+            ? buildNotification(windowName, gridSetpoint, acInputCurrentLimit)
+            : null;
+
+    context.set("acInputCurrentLimit", acInputCurrentLimit);
 
     return [
         {
@@ -194,7 +230,8 @@ function buildOutputs(chargeCurrent, gridSetpoint) {
         {
             topic: "ac-input-current-limit",
             payload: acInputCurrentLimit
-        }
+        },
+        notifyMsg
     ];
 }
 
