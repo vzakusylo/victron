@@ -228,6 +228,7 @@ This is intended for future Node-RED development.
 
 ### Active implementation notes
 - The current implementation integrates **positive grid import only**
+- The live power source for this counter should be the **GX System GRID CT sensor** reading from `System -> /Ac/Grid/L1/Power`
 - It resets the budget every new clock hour
 - Day budget target is **2000 Wh / hour**
 - Night budget target is **2700 Wh / hour**

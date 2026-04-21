@@ -10,6 +10,7 @@
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
+//      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)
 //    - any other topic / inject -> recalculates outputs using stored state
 // 3. Night charging uses hysteresis:
 //    - ON again at 54.5V or lower
@@ -29,6 +30,7 @@
 //    - taper grid setpoint smoothly down to a minimum of 200W by 55.2V
 // 8. Hourly budget control:
 //    - integrate positive grid import every hour in Wh
+//    - intended to use the GX GRID CT sensor value as the power source
 //    - day budget = 2000Wh / hour
 //    - night budget = 2700Wh / hour
 //    - allowed remaining average power is recalculated continuously
@@ -111,7 +113,8 @@ const previousAcInputCurrentLimit = Number(context.get("acInputCurrentLimit"));
 let hourBudget = context.get("hourBudget") || {
     hourKey: "",
     lastTs: 0,
-    usedWh: 0
+    usedWh: 0,
+    startTs: 0
 };
 
 // ==========================
@@ -145,11 +148,16 @@ function getHourStartTs(date) {
     ).getTime();
 }
 
+function formatTime(date) {
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function advanceHourBudget(state, date, importPowerW) {
     const nextState = {
         hourKey: state.hourKey || "",
         lastTs: Number(state.lastTs) || 0,
-        usedWh: Number(state.usedWh) || 0
+        usedWh: Number(state.usedWh) || 0,
+        startTs: Number(state.startTs) || 0
     };
 
     const nowTs = date.getTime();
@@ -160,10 +168,16 @@ function advanceHourBudget(state, date, importPowerW) {
         nextState.hourKey = hourKey;
         nextState.lastTs = hourStartTs;
         nextState.usedWh = 0;
+        nextState.startTs = 0;
     }
 
     if (nowTs > nextState.lastTs) {
         const deltaHours = (nowTs - nextState.lastTs) / 3600000;
+
+        if (Math.max(0, importPowerW) > 0 && !nextState.startTs) {
+            nextState.startTs = nextState.lastTs;
+        }
+
         nextState.usedWh += Math.max(0, importPowerW) * deltaHours;
         nextState.lastTs = nowTs;
     }
@@ -398,6 +412,11 @@ const secondsIntoHour = minute * 60 + second;
 const secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);
 const hoursLeftInHour = secondsLeftInHour / 3600;
 const usedWh = hourBudget.usedWh || 0;
+const hourStartTs = getHourStartTs(now);
+const hourEndLabel = formatTime(new Date(hourStartTs + 3600000));
+const accumulationStartLabel = hourBudget.startTs > 0
+    ? formatTime(new Date(hourBudget.startTs))
+    : formatTime(new Date(hourStartTs));
 const remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);
 const budgetLimitedSetpoint = Math.round(remainingWh / hoursLeftInHour);
 const safeInputCurrentLimit = nightWindow ? NIGHT_SAFE_INPUT_CURRENT_LIMIT : DAY_SAFE_INPUT_CURRENT_LIMIT;
@@ -457,7 +476,7 @@ const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${Math.round(usedWh)}Wh${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${accumulationStartLabel}-${hourEndLabel} ${Math.round(usedWh)}Wh${flagsText}`
 });
 
 return buildOutputs(
