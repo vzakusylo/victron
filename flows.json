@@ -1021,8 +1021,78 @@
             [
                 "cb520e4335693da7"
             ],
-            []
+            [
+                "e6f4d8b7c1a20345"
+            ]
         ]
+    },
+    {
+        "id": "b1a2c3d4e5f60718",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "TEST notification",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "Manual test notification from Day / Night Grid Control",
+        "payloadType": "str",
+        "x": 300,
+        "y": 660,
+        "wires": [
+            [
+                "e6f4d8b7c1a20345"
+            ]
+        ]
+    },
+    {
+        "id": "e6f4d8b7c1a20345",
+        "type": "function",
+        "z": "tab-day-night",
+        "name": "Format GX notification",
+        "func": "const defaultTitle = \"Day / Night Grid Control\";\n\nfunction normalizeType(value) {\n    if (value === 0 || value === \"0\" || value === \"warning\") {\n        return 0;\n    }\n\n    if (value === 1 || value === \"1\" || value === \"alarm\") {\n        return 1;\n    }\n\n    return 2;\n}\n\nconst title = msg.title || (msg.notification && msg.notification.title) || defaultTitle;\nconst rawType = msg.type !== undefined\n    ? msg.type\n    : (msg.notification && (msg.notification.type !== undefined ? msg.notification.type : msg.notification.level));\nconst rawMessage = (msg.notification && msg.notification.message) || msg.payload;\n\nif (rawMessage === undefined || rawMessage === null || rawMessage === \"\") {\n    return null;\n}\n\nconst safeTitle = String(title)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 100);\n\nconst safeMessage = String(rawMessage)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 500);\n\nmsg.payload = `${normalizeType(rawType)}\\t${safeTitle}\\t${safeMessage}`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 590,
+        "y": 660,
+        "wires": [
+            [
+                "c3f6e9a1b2d40758"
+            ]
+        ]
+    },
+    {
+        "id": "c3f6e9a1b2d40758",
+        "type": "victron-output-custom",
+        "z": "tab-day-night",
+        "service": "com.victronenergy.platform",
+        "path": "/Notifications/Inject",
+        "serviceObj": {
+            "service": "com.victronenergy.platform",
+            "name": "Platform"
+        },
+        "pathObj": {
+            "path": "/Notifications/Inject",
+            "type": "string",
+            "name": "Inject notification",
+            "mode": "both"
+        },
+        "initial": "",
+        "name": "GX notification output",
+        "onlyChanges": false,
+        "x": 840,
+        "y": 660,
+        "wires": []
     },
     {
         "id": "192e64bf98f268c7",

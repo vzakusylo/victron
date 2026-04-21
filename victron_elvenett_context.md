@@ -239,6 +239,8 @@ This is intended for future Node-RED development.
   - `9.6 A` during daytime
 - If hourly remaining capacity is exhausted or still unknown, the controller falls back to that safe limit instead of reducing the VE.Bus input current limit to zero
 - The controller now exposes a fourth output for notification messages intended for VRM/notification handling flows
+- On systems where `victron-inject` is unavailable, the active flow uses a standard formatter `function` node plus `victron-output-custom` to write directly to `com.victronenergy.platform /Notifications/Inject`
+- The flow also includes a manual `TEST notification` inject node for verifying notification delivery from Node-RED through that compatible path
 
 ### Final grid setpoint logic
 
