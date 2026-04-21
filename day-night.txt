@@ -2,11 +2,10 @@
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 4 outputs:
+// 1. This function now has 3 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
-//    - output 3 -> VE.Bus AC input current limit (A)
-//    - output 4 -> VRM notification message
+//    - output 3 -> VRM notification message
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
@@ -28,29 +27,20 @@
 //    - start limiting when battery voltage rises above 55.0V
 //    - release only after voltage drops back to 54.8V or lower
 //    - taper grid setpoint smoothly down to a minimum of 200W by 55.2V
-// 8. Hourly budget control:
-//    - integrate positive grid import every hour in Wh
-//    - intended to use the GX GRID CT sensor value as the power source
-//    - day budget = 2000Wh / hour
-//    - night budget = 2700Wh / hour
-//    - allowed remaining average power is recalculated continuously
-// 9. Final grid setpoint is the minimum of:
+// 8. Hourly import Wh is tracked for display only:
+//    - integrates positive grid import within the current clock hour
+//    - shows only the accumulated Wh value in status
+//    - does not change charge current, grid setpoint, or any other output
+// 9. Remaining average watts left in the current hour are shown for info only when
+//    tracking for that hour started at the beginning of the hour.
+// 10. Final grid setpoint is the minimum of:
 //    - base schedule
 //    - high-voltage limit
-//    - hourly budget limit
-// 10. Hourly budget has higher priority than the 200W voltage minimum.
-//     If the hour budget is exhausted, setpoint may drop below 200W.
 // 11. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
-// 12. VE.Bus input current limit is now calculated dynamically together with grid setpoint:
-//     - derived from final grid setpoint / grid voltage
-//     - uses `flow.gridVoltage` if available, else defaults to 230V
-//     - capped by safe limits: 12.6A at night, 9.6A during daytime
-//     - if hourly capacity is exhausted or unknown, falls back to the safe limit for that period
-// 13. A VRM notification is emitted when either:
-//     - grid setpoint changes
-//     - VE.Bus Input 1 current limit changes
-// 14. `boostActive`, `activeWindow`, battery voltage, grid power, and hourly budget state are
+// 12. VE.Bus Input 1 current limit is no longer controlled by this function.
+// 13. A VRM notification is emitted when the grid setpoint changes.
+// 14. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
 //     all stored in context.
 // 15. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 
@@ -64,13 +54,9 @@ const GRID_TOPIC = "grid-power";
 // CONSTANTS
 // ==========================
 const MAX_CHARGE_CURRENT = 25;
-const DEFAULT_GRID_VOLTAGE = 230;
-const DAY_SAFE_INPUT_CURRENT_LIMIT = 9.6;
-const NIGHT_SAFE_INPUT_CURRENT_LIMIT = 12.6;
 
 const DAY_BASE_GRID_SETPOINT = 1950;
 const NIGHT_BASE_GRID_SETPOINT = 2700;
-
 const DAY_HOURLY_BUDGET_W = 2000;
 const NIGHT_HOURLY_BUDGET_W = 2700;
 
@@ -109,12 +95,11 @@ const storedGridPowerW = hasGridPowerReading ? Math.max(0, Number(rawStoredGridP
 let gridPowerW = storedGridPowerW;
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
-const previousAcInputCurrentLimit = Number(context.get("acInputCurrentLimit"));
 let hourBudget = context.get("hourBudget") || {
     hourKey: "",
     lastTs: 0,
     usedWh: 0,
-    startTs: 0
+    fullHourCoverage: false
 };
 
 // ==========================
@@ -148,16 +133,12 @@ function getHourStartTs(date) {
     ).getTime();
 }
 
-function formatTime(date) {
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 function advanceHourBudget(state, date, importPowerW) {
     const nextState = {
         hourKey: state.hourKey || "",
         lastTs: Number(state.lastTs) || 0,
         usedWh: Number(state.usedWh) || 0,
-        startTs: Number(state.startTs) || 0
+        fullHourCoverage: Boolean(state.fullHourCoverage)
     };
 
     const nowTs = date.getTime();
@@ -168,16 +149,11 @@ function advanceHourBudget(state, date, importPowerW) {
         nextState.hourKey = hourKey;
         nextState.lastTs = hourStartTs;
         nextState.usedWh = 0;
-        nextState.startTs = 0;
+        nextState.fullHourCoverage = date.getMinutes() === 0;
     }
 
     if (nowTs > nextState.lastTs) {
         const deltaHours = (nowTs - nextState.lastTs) / 3600000;
-
-        if (Math.max(0, importPowerW) > 0 && !nextState.startTs) {
-            nextState.startTs = nextState.lastTs;
-        }
-
         nextState.usedWh += Math.max(0, importPowerW) * deltaHours;
         nextState.lastTs = nowTs;
     }
@@ -201,12 +177,11 @@ function smoothReduction(previousValue, targetValue, maxStep) {
     return targetValue;
 }
 
-function buildNotification(window, gridSetpoint, acInputCurrentLimit) {
+function buildNotification(window, gridSetpoint) {
     const parts = [
         `${window}`,
         `V=${batteryVoltage.toFixed(2)}V`,
-        `Grid setpoint=${gridSetpoint}W`,
-        `Input 1 current=${acInputCurrentLimit}A`
+        `Grid setpoint=${gridSetpoint}W`
     ];
 
     if (limitFlags.length > 0) {
@@ -224,22 +199,11 @@ function buildNotification(window, gridSetpoint, acInputCurrentLimit) {
     };
 }
 
-function buildOutputs(chargeCurrent, gridSetpoint, safeInputCurrentLimit, useSafeFallbackInputLimit) {
-    const gridVoltage = Number(flow.get("gridVoltage")) || DEFAULT_GRID_VOLTAGE;
-    const derivedInputCurrentLimit = gridSetpoint > 0
-        ? round1(gridSetpoint / gridVoltage)
-        : 0;
-    const acInputCurrentLimit = useSafeFallbackInputLimit
-        ? safeInputCurrentLimit
-        : Math.min(safeInputCurrentLimit, derivedInputCurrentLimit);
-
+function buildOutputs(chargeCurrent, gridSetpoint) {
     const notifyMsg =
-        gridSetpoint !== previousGridSetpoint ||
-        acInputCurrentLimit !== previousAcInputCurrentLimit
-            ? buildNotification(windowName, gridSetpoint, acInputCurrentLimit)
+        gridSetpoint !== previousGridSetpoint
+            ? buildNotification(windowName, gridSetpoint)
             : null;
-
-    context.set("acInputCurrentLimit", acInputCurrentLimit);
 
     return [
         {
@@ -249,10 +213,6 @@ function buildOutputs(chargeCurrent, gridSetpoint, safeInputCurrentLimit, useSaf
         {
             topic: "grid-setpoint",
             payload: gridSetpoint
-        },
-        {
-            topic: "ac-input-current-limit",
-            payload: acInputCurrentLimit
         },
         notifyMsg
     ];
@@ -406,23 +366,6 @@ if (voltageLimitActive) {
 }
 
 // ==========================
-// HOURLY GRID BUDGET LIMIT
-// ==========================
-const secondsIntoHour = minute * 60 + second;
-const secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);
-const hoursLeftInHour = secondsLeftInHour / 3600;
-const usedWh = hourBudget.usedWh || 0;
-const hourStartTs = getHourStartTs(now);
-const hourEndLabel = formatTime(new Date(hourStartTs + 3600000));
-const accumulationStartLabel = hourBudget.startTs > 0
-    ? formatTime(new Date(hourBudget.startTs))
-    : formatTime(new Date(hourStartTs));
-const remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);
-const budgetLimitedSetpoint = Math.round(remainingWh / hoursLeftInHour);
-const safeInputCurrentLimit = nightWindow ? NIGHT_SAFE_INPUT_CURRENT_LIMIT : DAY_SAFE_INPUT_CURRENT_LIMIT;
-const useSafeFallbackInputLimit = remainingWh <= 0 || !hasGridPowerReading;
-
-// ==========================
 // FINAL OUTPUTS
 // ==========================
 const finalGridSetpoint = Math.max(
@@ -430,8 +373,7 @@ const finalGridSetpoint = Math.max(
     Math.round(
         Math.min(
             baseScheduleSetpoint,
-            voltageLimitedSetpoint,
-            budgetLimitedSetpoint
+            voltageLimitedSetpoint
         )
     )
 );
@@ -443,6 +385,15 @@ const currentRatio = baseScheduleSetpoint > 0
 const finalChargeCurrent = baseChargeCurrent > 0
     ? round1(baseChargeCurrent * currentRatio)
     : 0;
+const usedWh = hourBudget.usedWh || 0;
+const secondsIntoHour = minute * 60 + second;
+const secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);
+const hoursLeftInHour = secondsLeftInHour / 3600;
+const remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);
+const remainingAverageW = Math.round(remainingWh / hoursLeftInHour);
+const remainingAverageText = hourBudget.fullHourCoverage
+    ? ` | ${remainingAverageW}W left`
+    : "";
 
 context.set("boostActive", boostActive);
 context.set("activeWindow", windowName);
@@ -456,10 +407,6 @@ const limitFlags = [];
 
 if (voltageLimitActive && finalGridSetpoint <= voltageLimitedSetpoint) {
     limitFlags.push("HV");
-}
-
-if (budgetLimitedSetpoint < Math.min(baseScheduleSetpoint, voltageLimitedSetpoint)) {
-    limitFlags.push("HOUR");
 }
 
 let fill = "grey";
@@ -476,12 +423,10 @@ const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${accumulationStartLabel}-${hourEndLabel} ${Math.round(usedWh)}Wh${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${Math.round(usedWh)}Wh${remainingAverageText}${flagsText}`
 });
 
 return buildOutputs(
     finalChargeCurrent,
-    finalGridSetpoint,
-    safeInputCurrentLimit,
-    useSafeFallbackInputLimit
+    finalGridSetpoint
 );
