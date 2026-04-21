@@ -2,10 +2,11 @@
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 3 outputs:
+// 1. This function now has 4 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
-//    - output 3 -> VRM notification message
+//    - output 3 -> VE.Bus AC input current limit (A)
+//    - output 4 -> VRM notification message
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
@@ -213,6 +214,10 @@ function buildOutputs(chargeCurrent, gridSetpoint) {
         {
             topic: "grid-setpoint",
             payload: gridSetpoint
+        },
+        {
+            topic: "ac-input-current-limit",
+            payload: null
         },
         notifyMsg
     ];
