@@ -870,6 +870,56 @@
     "wires": []
   },
   {
+    "id": "d10a9f3b6c7e4a21",
+    "type": "delay",
+    "z": "tab-day-night",
+    "name": "Delay grid setpoint 10s",
+    "pauseType": "rate",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "10",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": true,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 420,
+    "y": 100,
+    "wires": [
+      [
+        "a03b80118af93adf"
+      ]
+    ]
+  },
+  {
+    "id": "e21b8c4d5f6a7b32",
+    "type": "delay",
+    "z": "tab-day-night",
+    "name": "Delay input limit 10s",
+    "pauseType": "rate",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "10",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": true,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 430,
+    "y": 260,
+    "wires": [
+      [
+        "cb520e4335693da7"
+      ]
+    ]
+  },
+  {
     "id": "7894647c546606c6",
     "type": "victron-output-ess",
     "z": "tab-day-night",
@@ -1016,10 +1066,10 @@
         "7894647c546606c6"
       ],
       [
-        "a03b80118af93adf"
+        "d10a9f3b6c7e4a21"
       ],
       [
-        "cb520e4335693da7"
+        "e21b8c4d5f6a7b32"
       ],
       [
         "e6f4d8b7c1a20345"
