@@ -243,6 +243,106 @@ This is intended for future Node-RED development.
 - On systems where `victron-inject` is unavailable, the active flow uses a standard formatter `function` node plus `victron-output-custom` to write directly to `com.victronenergy.platform /Notifications/Inject`
 - The flow also includes a manual `TEST notification` inject node for verifying notification delivery from Node-RED through that compatible path
 
+---
+
+## 8B. Solar Prediction For Hokksund, Norway
+
+Solar prediction is now partially implemented in the active flow.
+
+### Source
+- Uses the existing `Solar forecast` subflow in `flows.json`
+- Source API: `forecast.solar`
+- Refresh interval: every **15 minutes**
+
+### Current configuration assumptions
+- Location: **Hokksund, Norway**
+- Approximate coordinates:
+  - latitude: `59.764`
+  - longitude: `9.902`
+- Panel declination: `35°`
+- Panel azimuth: `0°` (south-facing assumption)
+- Installed PV power used for forecast model: `5 kWp`
+
+### Local correction model
+Because the panels are surrounded by trees and receive heavy shade, the raw forecast is adjusted with a local shading profile derived from Solar Assistant history.
+
+The active prediction logic now assumes:
+- extended low-level production window: **05:00-21:00**
+- dominant useful production window: **11:00-17:00**
+
+Hourly shade factors now used:
+
+```text
+05:00 -> 0.02
+06:00 -> 0.04
+07:00 -> 0.06
+08:00 -> 0.10
+09:00 -> 0.18
+10:00 -> 0.30
+11:00 -> 0.55
+12:00 -> 0.72
+13:00 -> 0.78
+14:00 -> 0.62
+15:00 -> 0.50
+16:00 -> 0.42
+17:00 -> 0.32
+18:00 -> 0.22
+19:00 -> 0.14
+20:00 -> 0.08
+21:00 -> 0.03
+outside this window -> 0
+```
+
+To avoid overprediction, the active implementation also applies an hourly historical cap envelope.
+
+Hourly caps now used:
+
+```text
+05:00 -> 20 W
+06:00 -> 40 W
+07:00 -> 80 W
+08:00 -> 150 W
+09:00 -> 300 W
+10:00 -> 550 W
+11:00 -> 1100 W
+12:00 -> 1500 W
+13:00 -> 1500 W
+14:00 -> 1200 W
+15:00 -> 800 W
+16:00 -> 700 W
+17:00 -> 500 W
+18:00 -> 320 W
+19:00 -> 220 W
+20:00 -> 140 W
+21:00 -> 40 W
+```
+
+### Calibration targets from Solar Assistant statistics
+- sunny day expected generation: about **3-5 kWh**
+- cloudy day expected generation: about **2 kWh**
+- observed sunny-day peak: about **1.4-1.5 kW**
+- observed cloudy-day peak: generally **below 1.0 kW**
+- observed dominant generation window: mostly **11:00-17:00** with long low-power tails before and after
+
+### Current outputs
+The new solar prediction flow stores:
+- `flow.solarForecastAdjusted`
+- `flow.solarForecastToday`
+
+The stored daily summary currently includes:
+- predicted energy for today in `Wh` and `kWh`
+- predicted peak power in `W` and `kW`
+- predicted active solar hours
+- simple condition label:
+  - `sunny` when adjusted peak is `>= 1.0 kW`
+  - `cloudy` when adjusted peak is below `1.0 kW` but daily energy is `>= 2.0 kWh`
+  - `low` otherwise
+
+### Important note
+- This solar prediction is now implemented and refreshed automatically
+- it is **not yet actively used by the battery/grid controller decision logic**
+- it is currently prepared as an input for future forecast-aware charging control
+
 ### Final grid setpoint logic
 
 The final `grid setpoint` is the minimum of:

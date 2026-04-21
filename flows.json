@@ -1233,5 +1233,148 @@
                 "7894647c546606c6"
             ]
         ]
+    },
+    {
+        "id": "sfinject15mhokksund",
+        "type": "inject",
+        "z": "tab-day-night",
+        "name": "Refresh solar forecast 15m",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "900",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 2,
+        "topic": "solar-forecast-refresh",
+        "payload": "",
+        "payloadType": "date",
+        "x": 230,
+        "y": 740,
+        "wires": [
+            [
+                "sfhokksund01"
+            ]
+        ]
+    },
+    {
+        "id": "sfhokksund01",
+        "type": "subflow:93f485839dfa27a8",
+        "z": "tab-day-night",
+        "name": "Solar forecast Hokksund",
+        "env": [
+            {
+                "name": "latitude",
+                "value": "59.764",
+                "type": "num"
+            },
+            {
+                "name": "longitude",
+                "value": "9.902",
+                "type": "num"
+            },
+            {
+                "name": "declination",
+                "value": "35",
+                "type": "num"
+            },
+            {
+                "name": "azimuth",
+                "value": "0",
+                "type": "num"
+            },
+            {
+                "name": "modules power",
+                "value": "5",
+                "type": "num"
+            },
+            {
+                "name": "apikey",
+                "value": "",
+                "type": "cred"
+            },
+            {
+                "name": "type",
+                "value": "estimate",
+                "type": "str"
+            },
+            {
+                "name": "watt",
+                "value": "watts",
+                "type": "str"
+            },
+            {
+                "name": "kwhoutput",
+                "value": "false",
+                "type": "bool"
+            },
+            {
+                "name": "showtoday",
+                "value": "true",
+                "type": "bool"
+            },
+            {
+                "name": "daystoforecast",
+                "value": "1",
+                "type": "str"
+            },
+            {
+                "name": "widengraph",
+                "value": "false",
+                "type": "bool"
+            }
+        ],
+        "x": 500,
+        "y": 740,
+        "wires": [
+            [
+                "sfshadeadjust01"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "sfshadeadjust01",
+        "type": "function",
+        "z": "tab-day-night",
+        "name": "Adjust solar forecast for shade",
+        "func": "function localDayKey(date) {\n    return [\n        date.getFullYear(),\n        String(date.getMonth() + 1).padStart(2, '0'),\n        String(date.getDate()).padStart(2, '0')\n    ].join('-');\n}\n\nconst result = msg.payload && msg.payload.result;\nif (!result || typeof result !== 'object') {\n    node.status({ fill: 'red', shape: 'ring', text: 'no forecast data' });\n    return null;\n}\n\nconst shadeByHour = {\n    5: 0.02,\n    6: 0.04,\n    7: 0.06,\n    8: 0.10,\n    9: 0.18,\n    10: 0.30,\n    11: 0.55,\n    12: 0.72,\n    13: 0.78,\n    14: 0.62,\n    15: 0.50,\n    16: 0.42,\n    17: 0.32,\n    18: 0.22,\n    19: 0.14,\n    20: 0.08,\n    21: 0.03\n};\n\nconst hourlyCapW = {\n    5: 20,\n    6: 40,\n    7: 80,\n    8: 150,\n    9: 300,\n    10: 550,\n    11: 1100,\n    12: 1500,\n    13: 1500,\n    14: 1200,\n    15: 800,\n    16: 700,\n    17: 500,\n    18: 320,\n    19: 220,\n    20: 140,\n    21: 40\n};\n\nconst historicalReference = {\n    sunnyPeakKW: '1.4-1.5',\n    cloudyPeakKW: '<1.0',\n    dominantWindow: '11:00-17:00',\n    extendedWindow: '05:00-21:00'\n};\n\nconst resolution = Number(msg.resolution) || 1;\nconst periodHours = resolution > 0 ? 1 / resolution : 1;\nconst adjustedResult = {};\nconst summaryByDay = {};\n\nfor (const [key, rawValue] of Object.entries(result)) {\n    const date = new Date(key);\n    const hour = date.getHours();\n    const factor = shadeByHour[hour] || 0;\n    const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;\n    const capW = hourlyCapW[hour] || 0;\n    const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;\n    const dayKey = localDayKey(date);\n\n    adjustedResult[key] = adjustedW;\n\n    if (!summaryByDay[dayKey]) {\n        summaryByDay[dayKey] = {\n            energyWh: 0,\n            peakW: 0,\n            activeHours: 0\n        };\n    }\n\n    summaryByDay[dayKey].energyWh += adjustedW * periodHours;\n    summaryByDay[dayKey].peakW = Math.max(summaryByDay[dayKey].peakW, adjustedW);\n    if (adjustedW > 0) {\n        summaryByDay[dayKey].activeHours += periodHours;\n    }\n}\n\nconst todayKey = localDayKey(new Date());\nconst today = summaryByDay[todayKey] || { energyWh: 0, peakW: 0, activeHours: 0 };\nconst todayKWh = +(today.energyWh / 1000).toFixed(2);\nconst todayPeakKW = +(today.peakW / 1000).toFixed(2);\nconst condition = todayPeakKW >= 1.0 ? 'sunny' : (todayKWh >= 2 ? 'cloudy' : 'low');\n\nmsg.topic = 'solar-forecast-adjusted';\nmsg.payload = {\n    source: 'forecast.solar',\n    location: 'Hokksund, Norway',\n    activeWindow: '05:00-21:00',\n    dominantWindow: '11:00-17:00',\n    shading: 'trees / heavy shadow',\n    rawResult: result,\n    adjustedResult,\n    summaryByDay,\n    today: {\n        energyWh: Math.round(today.energyWh),\n        energyKWh: todayKWh,\n        peakW: today.peakW,\n        peakKW: todayPeakKW,\n        activeHours: +today.activeHours.toFixed(2),\n        condition\n    },\n    assumptions: {\n        sunnyRangeKWh: '3-5',\n        cloudyKWh: '2',\n        shadeByHour,\n        hourlyCapW,\n        historicalReference\n    }\n};\n\nnode.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW` });\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 790,
+        "y": 740,
+        "wires": [
+            [
+                "sfstore01"
+            ]
+        ]
+    },
+    {
+        "id": "sfstore01",
+        "type": "function",
+        "z": "tab-day-night",
+        "name": "Store solar prediction",
+        "func": "const data = msg.payload || {};\nconst today = data.today || { energyKWh: 0, peakKW: 0, condition: 'unknown' };\nconst summary = {\n    updatedAt: new Date().toISOString(),\n    source: data.source || 'forecast.solar',\n    location: data.location || 'Hokksund, Norway',\n    activeWindow: data.activeWindow || '11:00-17:00',\n    condition: today.condition || 'unknown',\n    energyWh: Number(today.energyWh) || 0,\n    energyKWh: Number(today.energyKWh) || 0,\n    peakW: Number(today.peakW) || 0,\n    peakKW: Number(today.peakKW) || 0,\n    activeHours: Number(today.activeHours) || 0\n};\n\nflow.set('solarForecastAdjusted', data);\nflow.set('solarForecastToday', summary);\n\nnode.status({\n    fill: summary.energyKWh > 0 ? 'green' : 'yellow',\n    shape: 'dot',\n    text: `${summary.condition} | ${summary.energyKWh.toFixed(2)}kWh | ${summary.activeWindow}`\n});\n\nmsg.topic = 'solar-forecast-today';\nmsg.payload = summary;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1050,
+        "y": 740,
+        "wires": [
+            []
+        ]
     }
 ]
