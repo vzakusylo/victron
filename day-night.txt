@@ -30,7 +30,7 @@
 //    - taper grid setpoint smoothly down to a minimum of 200W by 55.2V
 // 8. Hourly import Wh is tracked for display only:
 //    - integrates positive grid import within the current clock hour
-//    - shows only the accumulated Wh value in status
+//    - shows accumulated Wh together with the actual accumulation start/end time in status
 //    - does not change charge current, grid setpoint, or any other output
 // 9. Remaining average watts left in the current hour are shown for info only when
 //    tracking for that hour started at the beginning of the hour.
@@ -100,6 +100,7 @@ let hourBudget = context.get("hourBudget") || {
     hourKey: "",
     lastTs: 0,
     usedWh: 0,
+    startTs: 0,
     fullHourCoverage: false
 };
 
@@ -134,11 +135,16 @@ function getHourStartTs(date) {
     ).getTime();
 }
 
+function formatTime(date) {
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function advanceHourBudget(state, date, importPowerW) {
     const nextState = {
         hourKey: state.hourKey || "",
         lastTs: Number(state.lastTs) || 0,
         usedWh: Number(state.usedWh) || 0,
+        startTs: Number(state.startTs) || 0,
         fullHourCoverage: Boolean(state.fullHourCoverage)
     };
 
@@ -150,6 +156,7 @@ function advanceHourBudget(state, date, importPowerW) {
         nextState.hourKey = hourKey;
         nextState.lastTs = hourStartTs;
         nextState.usedWh = 0;
+        nextState.startTs = date.getMinutes() === 0 ? hourStartTs : nowTs;
         nextState.fullHourCoverage = date.getMinutes() === 0;
     }
 
@@ -391,6 +398,8 @@ const finalChargeCurrent = baseChargeCurrent > 0
     ? round1(baseChargeCurrent * currentRatio)
     : 0;
 const usedWh = hourBudget.usedWh || 0;
+const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
+const usedEnergyEndLabel = formatTime(now);
 const secondsIntoHour = minute * 60 + second;
 const secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);
 const hoursLeftInHour = secondsLeftInHour / 3600;
@@ -428,7 +437,7 @@ const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${Math.round(usedWh)}Wh${remainingAverageText}${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh${remainingAverageText}${flagsText}`
 });
 
 return buildOutputs(
