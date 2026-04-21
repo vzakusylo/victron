@@ -234,6 +234,10 @@ This is intended for future Node-RED development.
 - The remaining-hour budget can reduce the final grid setpoint below the voltage-protection minimum of `200 W` if necessary
 - VE.Bus **Input 1 current limit (A)** is also now updated dynamically from the final grid setpoint
 - The VE.Bus current limit uses `flow.gridVoltage` when available, otherwise defaults to `230 V`
+- Safe maximum VE.Bus Input 1 current limit is now:
+  - `12.6 A` at night
+  - `9.6 A` during daytime
+- If hourly remaining capacity is exhausted or still unknown, the controller falls back to that safe limit instead of reducing the VE.Bus input current limit to zero
 - The controller now exposes a fourth output for notification messages intended for VRM/notification handling flows
 
 ### Final grid setpoint logic
