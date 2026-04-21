@@ -357,6 +357,13 @@ These were not finalized into the final active code in the last steps, but they 
   - voltage protection uses a nominal minimum of `200 W`
   - but if the hourly import budget is nearly exhausted, final grid setpoint may go below `200 W`
 
+9. **A Solar forecast subflow already exists in `flows.json`**
+  - it uses the `forecast.solar` API
+  - it supports `estimate`, `history`, and `clearsky`
+  - the free API is rate-limited and only updates about every 15 minutes
+  - the subflow can output both raw forecast data and graph-friendly data
+  - this has not yet been integrated into the active battery/grid controller logic
+
 ---
 
 ## 13. Suggested Next Development Steps
@@ -372,6 +379,13 @@ For future programming in VS Code, likely next useful tasks are:
 7. **Different charge current by window**
    - e.g. night 25 A, morning/evening 20 A
 8. **Add persistence and replay-safe startup logic**
+9. **Integrate Solar forecast into the controller**
+  - use the existing `Solar forecast` subflow already present in `flows.json`
+  - configure location, panel azimuth, panel declination, and installed PV power
+  - fetch forecast no more often than every 15 minutes
+  - store forecast results in flow/global context
+  - use forecast to reduce unnecessary daytime grid charging when strong solar production is expected later
+  - optionally expose forecast values in a dashboard/debug view
 
 ---
 
@@ -410,6 +424,8 @@ When using this context in future programming tasks, keep these assumptions expl
 - Future automation may need both:
   - **charge current control**, and
   - **dynamic grid budget control per current hour**
+- Future automation may also need:
+  - **solar forecast aware charging strategy**, using the already available `forecast.solar` subflow in `flows.json`
 
 ---
 
