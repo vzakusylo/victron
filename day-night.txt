@@ -25,9 +25,9 @@
 //    - 2700W at night
 //    - 1950W during the rest of the day
 // 7. High-voltage protection for unknown external MPPT charging:
-//    - start limiting when battery voltage rises above 55.0V
-//    - release only after voltage drops back to 54.8V or lower
-//    - taper grid setpoint smoothly down to a minimum of 200W by 55.2V
+//    - start limiting when battery voltage rises above 55.4V
+//    - release only after voltage drops back to 55.2V or lower
+//    - taper grid setpoint smoothly down to a minimum of 200W by 55.6V
 // 8. Hourly import Wh is tracked for display only:
 //    - integrates positive grid import within the current clock hour
 //    - shows accumulated Wh together with the actual accumulation start/end time in status
@@ -82,9 +82,9 @@ const MORNING_OFF_VOLTAGE = 53.8;
 const EVENING_ON_VOLTAGE = 54.0;
 const EVENING_OFF_VOLTAGE = 54.4;
 
-const HIGH_VOLTAGE_LIMIT_START = 55.0;
-const HIGH_VOLTAGE_LIMIT_RELEASE = 54.8;
-const HIGH_VOLTAGE_LIMIT_FULL = 55.2;
+const HIGH_VOLTAGE_LIMIT_START = 55.4;
+const HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;
+const HIGH_VOLTAGE_LIMIT_FULL = 55.6;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
 
