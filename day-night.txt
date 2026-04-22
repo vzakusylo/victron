@@ -32,18 +32,22 @@
 //    - integrates positive grid import within the current clock hour
 //    - shows accumulated Wh together with the actual accumulation start/end time in status
 //    - does not change charge current, grid setpoint, or any other output
-// 9. Remaining average watts left in the current hour are shown for info only when
+// 9. Solar prediction is connected to charging logic and affects only charging current:
+//    - reads `flow.solarForecastToday`
+//    - reduces morning/evening charging on sunny or cloudy forecast days
+//    - does not change grid setpoint
+// 10. Remaining average watts left in the current hour are shown for info only when
 //    tracking for that hour started at the beginning of the hour.
-// 10. Final grid setpoint is the minimum of:
+// 11. Final grid setpoint is the minimum of:
 //    - base schedule
 //    - high-voltage limit
-// 11. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
+// 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
-// 12. VE.Bus Input 1 current limit is no longer controlled by this function.
-// 13. A VRM notification is emitted when the grid setpoint changes.
-// 14. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
+// 13. VE.Bus Input 1 current limit is no longer controlled by this function.
+// 14. A VRM notification is emitted when the grid setpoint changes.
+// 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
 //     all stored in context.
-// 15. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
+// 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -55,6 +59,14 @@ const GRID_TOPIC = "grid-power";
 // CONSTANTS
 // ==========================
 const MAX_CHARGE_CURRENT = 25;
+
+const SOLAR_FORECAST_MAX_AGE_HOURS = 18;
+const SOLAR_FORECAST_ACTIVE_START_HOUR = 5;
+const SOLAR_FORECAST_ACTIVE_END_HOUR = 21;
+const SUNNY_MORNING_CHARGE_FACTOR = 0.25;
+const SUNNY_EVENING_CHARGE_FACTOR = 0.5;
+const CLOUDY_MORNING_CHARGE_FACTOR = 0.6;
+const CLOUDY_EVENING_CHARGE_FACTOR = 0.8;
 
 const DAY_BASE_GRID_SETPOINT = 1950;
 const NIGHT_BASE_GRID_SETPOINT = 2700;
@@ -135,8 +147,82 @@ function getHourStartTs(date) {
     ).getTime();
 }
 
+function getDayKey(date) {
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-");
+}
+
 function formatTime(date) {
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function getSolarForecastSummary(date) {
+    const rawForecast = flow.get("solarForecastToday");
+
+    if (!rawForecast || typeof rawForecast !== "object") {
+        return {
+            valid: false,
+            condition: "unknown",
+            energyKWh: 0,
+            peakKW: 0
+        };
+    }
+
+    const updatedAt = new Date(rawForecast.updatedAt);
+    const ageHours = Number.isFinite(updatedAt.getTime())
+        ? (date.getTime() - updatedAt.getTime()) / 3600000
+        : Number.POSITIVE_INFINITY;
+    const sameDay = Number.isFinite(updatedAt.getTime())
+        ? getDayKey(updatedAt) === getDayKey(date)
+        : false;
+
+    return {
+        valid: sameDay && ageHours >= 0 && ageHours <= SOLAR_FORECAST_MAX_AGE_HOURS,
+        condition: String(rawForecast.condition || "unknown").toLowerCase(),
+        energyKWh: Number(rawForecast.energyKWh) || 0,
+        peakKW: Number(rawForecast.peakKW) || 0
+    };
+}
+
+function getSolarChargeControl(window, date) {
+    const forecast = getSolarForecastSummary(date);
+    const currentHour = date.getHours();
+    const inForecastWindow =
+        currentHour >= SOLAR_FORECAST_ACTIVE_START_HOUR &&
+        currentHour < SOLAR_FORECAST_ACTIVE_END_HOUR;
+
+    const result = {
+        factor: 1,
+        active: false,
+        forecast
+    };
+
+    if (!forecast.valid || !inForecastWindow) {
+        return result;
+    }
+
+    if (window === "MORNING") {
+        if (forecast.condition === "sunny") {
+            result.factor = SUNNY_MORNING_CHARGE_FACTOR;
+        }
+        else if (forecast.condition === "cloudy") {
+            result.factor = CLOUDY_MORNING_CHARGE_FACTOR;
+        }
+    }
+    else if (window === "EVENING") {
+        if (forecast.condition === "sunny") {
+            result.factor = SUNNY_EVENING_CHARGE_FACTOR;
+        }
+        else if (forecast.condition === "cloudy") {
+            result.factor = CLOUDY_EVENING_CHARGE_FACTOR;
+        }
+    }
+
+    result.active = result.factor < 1;
+    return result;
 }
 
 function advanceHourBudget(state, date, importPowerW) {
@@ -340,6 +426,11 @@ else {
     baseChargeCurrent = 0;
 }
 
+const solarChargeControl = getSolarChargeControl(windowName, now);
+const forecastAdjustedChargeCurrent = baseChargeCurrent > 0
+    ? round1(baseChargeCurrent * solarChargeControl.factor)
+    : 0;
+
 // ==========================
 // HIGH-VOLTAGE GRID SETPOINT LIMIT
 // ==========================
@@ -394,8 +485,8 @@ const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
     : 0;
 
-const finalChargeCurrent = baseChargeCurrent > 0
-    ? round1(baseChargeCurrent * currentRatio)
+const finalChargeCurrent = forecastAdjustedChargeCurrent > 0
+    ? round1(forecastAdjustedChargeCurrent * currentRatio)
     : 0;
 const usedWh = hourBudget.usedWh || 0;
 const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
@@ -423,6 +514,10 @@ if (voltageLimitActive && finalGridSetpoint <= voltageLimitedSetpoint) {
     limitFlags.push("HV");
 }
 
+if (solarChargeControl.active) {
+    limitFlags.push(`SOL:${solarChargeControl.forecast.condition.toUpperCase()}`);
+}
+
 let fill = "grey";
 
 if (windowName === "NIGHT") {
@@ -433,11 +528,14 @@ else if (windowName === "MORNING" || windowName === "EVENING") {
 }
 
 const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
+const forecastText = solarChargeControl.forecast.valid
+    ? ` | FC=${solarChargeControl.forecast.condition} x${solarChargeControl.factor}`
+    : "";
 
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh${remainingAverageText}${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
 });
 
 return buildOutputs(
