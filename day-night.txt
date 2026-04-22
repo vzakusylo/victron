@@ -22,7 +22,7 @@
 //    - ON below 54.0V
 //    - OFF above 54.4V
 // 6. Base grid setpoint schedule:
-//    - 2700W at night
+//    - 2800W at night
 //    - 1950W during the rest of the day
 // 7. High-voltage protection for unknown external MPPT charging:
 //    - start limiting when battery voltage rises above 55.4V
@@ -69,9 +69,9 @@ const CLOUDY_MORNING_CHARGE_FACTOR = 0.6;
 const CLOUDY_EVENING_CHARGE_FACTOR = 0.8;
 
 const DAY_BASE_GRID_SETPOINT = 1950;
-const NIGHT_BASE_GRID_SETPOINT = 2700;
+const NIGHT_BASE_GRID_SETPOINT = 2800;
 const DAY_HOURLY_BUDGET_W = 2000;
-const NIGHT_HOURLY_BUDGET_W = 2700;
+const NIGHT_HOURLY_BUDGET_W = 2800;
 
 const NIGHT_ON_VOLTAGE = 54.5;
 const NIGHT_OFF_VOLTAGE = 54.8;
