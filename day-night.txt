@@ -15,6 +15,8 @@
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = grid-power` -> updates measured grid import power in W
 //      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)
+//    - `topic = ac-load-power` -> updates measured AC loads power in W
+//      (source: GX System `/Ac/Consumption/L1/Power`)
 //    - any other topic / inject -> recalculates outputs using stored state
 // 3. Night charging uses hysteresis:
 //    - ON again at 54.5V or lower
@@ -53,12 +55,16 @@
 //     all stored in context.
 // 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
+// 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
+// 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
+//     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
 
 // ==========================
 // INPUT / OUTPUT TOPICS
 // ==========================
 const BATTERY_TOPIC = "battery-voltage";
 const GRID_TOPIC = "grid-power";
+const AC_LOAD_TOPIC = "ac-load-power";
 
 // ==========================
 // CONSTANTS
@@ -111,9 +117,19 @@ const rawStoredGridPower = context.get("gridPowerW");
 const hasGridPowerReading = rawStoredGridPower !== undefined && rawStoredGridPower !== null && Number.isFinite(Number(rawStoredGridPower));
 const storedGridPowerW = hasGridPowerReading ? Math.max(0, Number(rawStoredGridPower)) : 0;
 let gridPowerW = storedGridPowerW;
+const rawStoredAcLoadPower = context.get("acLoadPowerW");
+const hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPower !== null && Number.isFinite(Number(rawStoredAcLoadPower));
+const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
 let hourBudget = context.get("hourBudget") || {
+    hourKey: "",
+    lastTs: 0,
+    usedWh: 0,
+    startTs: 0,
+    fullHourCoverage: false
+};
+let acLoadBudget = context.get("acLoadBudget") || {
     hourKey: "",
     lastTs: 0,
     usedWh: 0,
@@ -325,6 +341,7 @@ function buildOutputs(chargeCurrent, gridSetpoint) {
 // UPDATE STORED INPUTS
 // ==========================
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
+acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
 
 if (msg.topic === BATTERY_TOPIC) {
     const incomingVoltage = Number(msg.payload);
@@ -342,8 +359,16 @@ else if (msg.topic === GRID_TOPIC) {
         context.set("gridPowerW", gridPowerW);
     }
 }
+else if (msg.topic === AC_LOAD_TOPIC) {
+    const incomingAcLoadPower = Number(msg.payload);
+
+    if (Number.isFinite(incomingAcLoadPower)) {
+        context.set("acLoadPowerW", Math.max(0, incomingAcLoadPower));
+    }
+}
 
 context.set("hourBudget", hourBudget);
+context.set("acLoadBudget", acLoadBudget);
 
 if (!Number.isFinite(batteryVoltage)) {
     node.status({
@@ -494,6 +519,7 @@ const finalChargeCurrent = forecastAdjustedChargeCurrent > 0
     ? round1(forecastAdjustedChargeCurrent * currentRatio)
     : 0;
 const usedWh = hourBudget.usedWh || 0;
+const acUsedWh = acLoadBudget.usedWh || 0;
 const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
 const usedEnergyEndLabel = formatTime(now);
 const secondsIntoHour = minute * 60 + second;
@@ -540,8 +566,13 @@ const forecastText = solarChargeControl.forecast.valid
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
 });
+
+return buildOutputs(
+    finalChargeCurrent,
+    finalGridSetpoint
+);
 
 return buildOutputs(
     finalChargeCurrent,
