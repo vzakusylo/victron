@@ -58,7 +58,7 @@
 // 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
-// 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
+// 19. Notifications are written to a daily file at `/data/home/nodered/grid-control-logs/grid-control-YYYY-MM-DD.log`.
 //     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
 // 20. Manual discharge can be started/stopped with inject nodes:
 //     - while active it overrides the normal schedule
