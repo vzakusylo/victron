@@ -474,14 +474,32 @@ Recommended workflow when editing the logic:
 
 ## Recommended future improvements
 
-Possible next steps:
+Future tasks to improve the model:
 
-- support 3-phase grid measurement
-- use live grid voltage instead of a default `230 V`
-- add a dashboard showing current hour budget remaining
-- add logging of hourly imported energy for analysis
-- separate tariff configuration into a dedicated config object or file
-- add explicit handling for spot-price based charging optimization
+- [ ] use **remaining forecast energy from now forward** instead of subtracting the full-day solar forecast from the current battery deficit
+- [ ] split the BMS `Consumed Amphours` deficit across **remaining NIGHT hours and remaining MORNING hours** instead of treating MORNING as the only fallback window
+- [ ] replace the current on/off `25 A` restoration with a **required average charge current** calculation, capped at `25 A`
+- [ ] smooth the BMS `Consumed Amphours` signal with a short moving average or deadband so short-term noise does not cause bursty morning charging
+- [ ] calibrate the Ah-restoration math using real battery data:
+  - verify whether `/ConsumedAmphours` sign handling is always negative-for-deficit on this BMS
+  - tune `SOLAR_TO_BATTERY_EFFICIENCY`
+  - tune the fallback battery voltage used for kWh-to-Ah conversion
+- [ ] use **live battery power/current** together with `Consumed Amphours` to estimate how quickly restoration is actually happening instead of assuming the commanded DVCC current becomes stored battery capacity directly
+- [ ] add a small **target reserve** so the controller does not always try to restore exactly to zero deficit when forecast uncertainty is high
+- [ ] distinguish between `sunny`, `cloudy`, and `low` forecast days using **remaining hourly forecast profile** instead of only the current whole-day summary
+- [ ] add logging for:
+  - starting consumed-Ah deficit at 22:00 and 06:00
+  - forecast Ah offset used by the controller
+  - actual Ah restored by end of MORNING window
+  - whether the restoration target was met
+- [ ] add a daily review report comparing:
+  - predicted solar restoration Ah
+  - actual solar/battery restoration Ah
+  - grid energy imported for restoration
+  - final remaining deficit at noon
+- [ ] support 3-phase grid measurement for sites where `L1` is not enough
+- [ ] move tariff constants, battery constants, and restoration tuning parameters into a dedicated config object or file
+- [ ] add explicit handling for spot-price based charging optimization on top of the Ah-restoration model
 
 ---
 
