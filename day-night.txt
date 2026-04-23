@@ -64,7 +64,9 @@
 //     - while active it overrides the normal schedule
 //     - ESS grid setpoint is raised/lowered dynamically but never below 200W import
 //     - battery discharge is capped to the equivalent of 20A using the live battery voltage
-//     - the override auto-stops when battery voltage reaches 44.5V or lower
+//     - the override is suspended whenever AC loads rise above 3000W
+//     - when suspended by high load, normal day/night grid setpoint control is used
+//     - the override auto-stops when battery voltage reaches 54.5V or lower
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -96,7 +98,8 @@ const HIGH_VOLTAGE_LIMIT_FULL = 55.6;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
 const MANUAL_DISCHARGE_MIN_GRID_W = 200;
-const MANUAL_DISCHARGE_STOP_VOLTAGE = 44.5;
+const MANUAL_DISCHARGE_MAX_AC_LOAD_W = 3000;
+const MANUAL_DISCHARGE_STOP_VOLTAGE = 54.5;
 const MANUAL_DISCHARGE_MAX_CURRENT = 20;
 
 // ==========================
@@ -550,6 +553,7 @@ const gridRestoreAhNeeded = Math.max(0, effectiveConsumedAhDeficit - forecastRes
 const remainingNightHours = getRemainingNightHours(now);
 const remainingMorningHours = getRemainingMorningHours(now);
 const remainingMorningCapacityAh = remainingMorningHours * MAX_CHARGE_CURRENT;
+const manualDischargeAllowedByLoad = Math.max(0, storedAcLoadPowerW) <= MANUAL_DISCHARGE_MAX_AC_LOAD_W;
 
 if (manualDischarge.active && batteryVoltage <= MANUAL_DISCHARGE_STOP_VOLTAGE) {
     manualDischarge = {
@@ -560,7 +564,9 @@ if (manualDischarge.active && batteryVoltage <= MANUAL_DISCHARGE_STOP_VOLTAGE) {
     context.set("manualDischarge", manualDischarge);
 }
 
-if (manualDischarge.active) {
+const manualDischargeEnabled = manualDischarge.active && manualDischargeAllowedByLoad;
+
+if (manualDischargeEnabled) {
     windowName = "MANUAL-DISCHARGE";
     boostActive = false;
     baseChargeCurrent = 0;
@@ -634,7 +640,7 @@ const manualGridSetpoint = Math.max(
     Math.round(Math.max(0, storedAcLoadPowerW) - manualDischargePowerW)
 );
 
-const finalGridSetpoint = manualDischarge.active
+const finalGridSetpoint = manualDischargeEnabled
     ? manualGridSetpoint
     : Math.max(
         0,
@@ -650,7 +656,7 @@ const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
     : 0;
 
-const finalChargeCurrent = manualDischarge.active
+const finalChargeCurrent = manualDischargeEnabled
     ? 0
     : (baseChargeCurrent > 0
         ? round1(baseChargeCurrent * currentRatio)
@@ -667,10 +673,10 @@ const remainingAverageW = Math.round(remainingWh / hoursLeftInHour);
 const remainingAverageText = hourBudget.fullHourCoverage
     ? ` | ${remainingAverageW}W left`
     : "";
-const estimatedDischargeW = manualDischarge.active
+const estimatedDischargeW = manualDischargeEnabled
     ? Math.max(0, Math.round(Math.max(0, storedAcLoadPowerW) - finalGridSetpoint))
     : 0;
-const estimatedDischargeA = manualDischarge.active && batteryVoltage > 0
+const estimatedDischargeA = manualDischargeEnabled && batteryVoltage > 0
     ? round1(estimatedDischargeW / batteryVoltage)
     : 0;
 
@@ -693,8 +699,11 @@ if (solarForecast.valid && forecastRestoreAh > 0) {
     limitFlags.push(`SOL:${solarForecast.condition.toUpperCase()}`);
 }
 
-if (manualDischarge.active) {
+if (manualDischargeEnabled) {
     limitFlags.push(`MD:${MANUAL_DISCHARGE_MAX_CURRENT}A`);
+}
+else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
+    limitFlags.push(`MD-HOLD>${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W`);
 }
 
 let fill = "grey";
@@ -715,7 +724,9 @@ const forecastText = solarForecast.valid
     : "";
 const restoreText = ` | Def ${effectiveConsumedAhDeficit.toFixed(1)}Ah | Grid ${gridRestoreAhNeeded.toFixed(1)}Ah`;
 const manualText = manualDischarge.active
-    ? ` | Grid>=${MANUAL_DISCHARGE_MIN_GRID_W}W | Dis ${estimatedDischargeA.toFixed(1)}A/${MANUAL_DISCHARGE_MAX_CURRENT}A | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V`
+    ? (manualDischargeEnabled
+        ? ` | Grid>=${MANUAL_DISCHARGE_MIN_GRID_W}W | Dis ${estimatedDischargeA.toFixed(1)}A/${MANUAL_DISCHARGE_MAX_CURRENT}A | AC<=${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V`
+        : ` | MD hold AC>${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W | Using schedule | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V`)
     : "";
 
 node.status({
