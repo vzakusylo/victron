@@ -478,7 +478,58 @@ For future programming in VS Code, likely next useful tasks are:
 6. **Add SOC-based conditions in addition to voltage-based conditions**
 7. **Different charge current by window**
    - e.g. night 25 A, morning/evening 20 A
-8. **Add persistence and replay-safe startup logic**
+8. **Implement durable statistics storage and replay-safe startup logic**
+   - **Current state to remember:**
+     - hourly Grid and AC usage values shown on dashboard are primarily built from runtime `context` / `flow` state
+     - daily logs already exist on disk under `/data/grid-control-logs/`
+     - dashboard-facing state such as `dailySummary`, `dashboardLiveHour`, and controller trace is not yet treated as a canonical persisted state model
+   - **Important practical conclusion:**
+     - durable text logs survive Cerbo restart because they are written to `/data`
+     - in-memory dashboard state will normally be lost on restart unless it is explicitly restored from disk or Node-RED persistent context is confirmed and relied on
+   - **Best-practice storage architecture for Cerbo / Victron:**
+     - keep fast-changing live counters in memory during normal runtime
+     - persist coarse rollups and canonical dashboard state to `/data`, not only to transient context
+     - avoid high-frequency disk writes for every sample; write on hourly rollover, important state transitions, and low-frequency checkpoints
+     - treat `/data/grid-control-logs/` as the durable application data root for this project
+   - **Detailed implementation tasks:**
+     - create one canonical daily JSON state file, for example `/data/grid-control-logs/dashboard-YYYY-MM-DD.json`
+     - define a stable JSON schema containing:
+       - date
+       - completed hourly rows
+       - current live hour partial totals
+       - daily totals
+       - solar forecast summary used by the dashboard
+       - latest controller diagnostics needed after restart
+     - update the hourly rollover logic so every completed hour is appended to both:
+       - the human-readable daily energy log
+       - the canonical daily JSON state file
+     - add low-frequency checkpoint persistence for the current open hour, for example every 5 minutes or on meaningful delta, so a reboot during an hour does not reset the current-hour dashboard completely
+     - add a startup rehydration flow that runs once after Node-RED starts and:
+       - loads today's JSON state file if it exists
+       - restores `dailySummary`
+       - restores `dashboardLiveHour`
+       - restores dashboard table/chart source arrays
+       - restores latest controller trace snapshot if present
+     - add a safe fallback path:
+       - if today's JSON state file is missing or corrupt, initialize a clean day structure
+       - if yesterday's file exists and current day has rolled over, start a new clean file for today
+     - keep retention cleanup aligned across all durable artifacts:
+       - energy logs
+       - summary logs
+       - controller logs
+       - new dashboard JSON files
+     - document the storage contract in `README.md` so future edits know which files are authoritative for restart recovery
+     - verify whether Node-RED persistent context is enabled on the Cerbo runtime before depending on it for any critical state
+     - if persistent context is enabled, still keep `/data` JSON as the portable and inspectable source of truth for dashboard history
+   - **Recommended division of responsibility:**
+     - memory: live second-by-second counters and transient smoothing state
+     - JSON day-state file: dashboard recovery and current-day structured history
+     - text logs: human inspection, audit trail, debugging
+   - **Expected outcome after implementation:**
+     - dashboard history survives restart
+     - current day statistics remain visible after reboot
+     - live hour may lose at most the checkpoint interval, not the whole day
+     - long-term analysis continues to use daily log files already stored under `/data`
 9. **Integrate Solar forecast into the controller**
   - use the existing `Solar forecast` subflow already present in `flows.json`
   - configure location, panel azimuth, panel declination, and installed PV power
