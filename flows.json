@@ -1,1591 +1,1672 @@
 [
-    {
-        "id": "b39f968e1031d079",
-        "type": "tab",
-        "label": "d#11 Day / Night Grid Control",
-        "disabled": false,
-        "info": ""
-    },
-    {
-        "id": "93f485839dfa27a8",
-        "type": "subflow",
-        "name": "Solar forecast",
-        "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) … 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) … 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) … 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 … 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
-        "category": "",
-        "in": [
-            {
-                "x": 240,
-                "y": 100,
-                "wires": [
-                    {
-                        "id": "c8dc6aa14b9f3e92"
-                    }
-                ]
-            }
-        ],
-        "out": [
-            {
-                "x": 760,
-                "y": 260,
-                "wires": [
-                    {
-                        "id": "2f42837904c91d73",
-                        "port": 0
-                    },
-                    {
-                        "id": "fcc8d69a3ab88e6d",
-                        "port": 0
-                    }
-                ]
-            },
-            {
-                "x": 770,
-                "y": 340,
-                "wires": [
-                    {
-                        "id": "5b0a430fb61e70e7",
-                        "port": 0
-                    }
-                ]
-            }
-        ],
-        "env": [
-            {
-                "name": "latitude",
-                "type": "num",
-                "value": "51.3",
-                "ui": {
-                    "icon": "font-awesome/fa-location-arrow",
-                    "type": "input",
-                    "opts": {
-                        "types": [
-                            "num"
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "longitude",
-                "type": "num",
-                "value": "5.6",
-                "ui": {
-                    "icon": "font-awesome/fa-location-arrow",
-                    "type": "input",
-                    "opts": {
-                        "types": [
-                            "num"
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "declination",
-                "type": "num",
-                "value": "37",
-                "ui": {
-                    "icon": "font-awesome/fa-chevron-up",
-                    "type": "input",
-                    "opts": {
-                        "types": [
-                            "num"
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "azimuth",
-                "type": "num",
-                "value": "0",
-                "ui": {
-                    "icon": "font-awesome/fa-compass",
-                    "type": "spinner",
-                    "opts": {
-                        "min": -180,
-                        "max": 180
-                    }
-                }
-            },
-            {
-                "name": "modules power",
-                "type": "num",
-                "value": "1",
-                "ui": {
-                    "icon": "font-awesome/fa-power-off",
-                    "type": "input",
-                    "opts": {
-                        "types": [
-                            "num"
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "apikey",
-                "type": "cred",
-                "ui": {
-                    "icon": "font-awesome/fa-key",
-                    "type": "input",
-                    "opts": {
-                        "types": [
-                            "cred"
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "type",
-                "type": "str",
-                "value": "estimate",
-                "ui": {
-                    "label": {
-                        "en-US": "type"
-                    },
-                    "type": "select",
-                    "opts": {
-                        "opts": [
-                            {
-                                "l": {
-                                    "en-US": "Estimate"
-                                },
-                                "v": "estimate"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "History"
-                                },
-                                "v": "history"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "Clear sky"
-                                },
-                                "v": "clearsky"
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "watt",
-                "type": "str",
-                "value": "watts",
-                "ui": {
-                    "icon": "font-awesome/fa-question-circle-o",
-                    "type": "select",
-                    "opts": {
-                        "opts": [
-                            {
-                                "l": {
-                                    "en-US": "Watts (power) average for the period"
-                                },
-                                "v": "watts"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "Watt hours (energy) for the period"
-                                },
-                                "v": "watt_hours_period"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "Watt hours (energy) summarized over the day"
-                                },
-                                "v": "watt_hours"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "Watt hours (energy) summarized for each day"
-                                },
-                                "v": "watt_hours_day"
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "kwhoutput",
-                "type": "bool",
-                "value": "false",
-                "ui": {
-                    "label": {
-                        "en-US": "Output in kWh (in the graph)"
-                    },
-                    "type": "checkbox"
-                }
-            },
-            {
-                "name": "showtoday",
-                "type": "bool",
-                "value": "true",
-                "ui": {
-                    "label": {
-                        "en-US": "Show todays forecast"
-                    },
-                    "type": "checkbox"
-                }
-            },
-            {
-                "name": "daystoforecast",
-                "type": "str",
-                "value": "-1",
-                "ui": {
-                    "label": {
-                        "en-US": "Days to forecast"
-                    },
-                    "type": "select",
-                    "opts": {
-                        "opts": [
-                            {
-                                "l": {
-                                    "en-US": "Max"
-                                },
-                                "v": "-1"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "0"
-                                },
-                                "v": "0"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "1"
-                                },
-                                "v": "1"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "2"
-                                },
-                                "v": "2"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "3"
-                                },
-                                "v": "3"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "4"
-                                },
-                                "v": "4"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "5"
-                                },
-                                "v": "5"
-                            },
-                            {
-                                "l": {
-                                    "en-US": "6"
-                                },
-                                "v": "6"
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "name": "widengraph",
-                "type": "bool",
-                "value": "true",
-                "ui": {
-                    "label": {
-                        "en-US": "Widen graph"
-                    },
-                    "type": "checkbox"
-                }
-            }
-        ],
-        "meta": {
-            "module": "Solar Forecast",
-            "version": "0.0.9",
-            "author": "dfaber@victronenergy.com",
-            "desc": "Get solar forecasting per location",
-            "keywords": "solar,forecast,api",
-            "license": "GPL-3.0"
-        },
-        "color": "#FFCC66",
-        "inputLabels": [
-            "trigger"
-        ],
-        "outputLabels": [
-            "output",
-            "graph"
-        ],
-        "icon": "font-awesome/fa-sun-o",
-        "status": {
-            "x": 680,
-            "y": 560,
-            "wires": [
-                {
-                    "id": "1bfc1cde3ee94e4b",
-                    "port": 0
-                },
-                {
-                    "id": "a798fbe66cf133d5",
-                    "port": 0
-                }
-            ]
-        }
-    },
-    {
-        "id": "victron-client-id",
-        "type": "victron-client",
-        "showValues": true,
-        "contextStore": true,
-        "enablePolling": false
-    },
-    {
-        "id": "c706820c0d61f023",
-        "type": "http request",
-        "z": "93f485839dfa27a8",
-        "name": "",
-        "method": "GET",
-        "ret": "txt",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": false,
-        "headers": [],
-        "x": 390,
-        "y": 180,
-        "wires": [
-            [
-                "1b5ccaa05d54f7c3"
-            ]
-        ]
-    },
-    {
-        "id": "b9488734852cd0ca",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "create forecast.solar url",
-        "func": "msg.url = 'https://api.forecast.solar/';\n\nif (env.get('apikey')) {\n    msg.url += env.get('apikey') + '/';\n    }\n\nmsg.url += env.get('type') + '/';\n\nmsg.url += env.get('watt') + '/';\n\nmsg.url += env.get('latitude') + '/' +\n           env.get('longitude') + '/' +\n           env.get('declination') + '/' +\n           env.get('azimuth') + '/' +\n           env.get('modules power');\n\nmsg.topic = 'solar forecast: '+(env.get('type') || '');\nmsg.topic += (' '+env.get('watt') || '');\nif (env.get('kwhoutput')) {\n    msg.topic += ' (kWh)';\n}\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 630,
+  {
+    "id": "b39f968e1031d079",
+    "type": "tab",
+    "label": "d#12 Day / Night Grid Control",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "93f485839dfa27a8",
+    "type": "subflow",
+    "name": "Solar forecast",
+    "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) … 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) … 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) … 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 … 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
+    "category": "",
+    "in": [
+      {
+        "x": 240,
         "y": 100,
         "wires": [
-            [
-                "975daf96f15cfb61"
-            ]
+          {
+            "id": "c8dc6aa14b9f3e92"
+          }
         ]
-    },
-    {
-        "id": "1b5ccaa05d54f7c3",
-        "type": "json",
-        "z": "93f485839dfa27a8",
-        "name": "Convert to json",
-        "property": "payload",
-        "action": "",
-        "pretty": false,
-        "x": 680,
-        "y": 180,
-        "wires": [
-            [
-                "e718a22973cc2864"
-            ]
-        ]
-    },
-    {
-        "id": "559391d1288f762a",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "update ratelimit",
-        "func": "var remaining = msg.payload.message.ratelimit.remaining || 0;\nvar limit = msg.payload.message.ratelimit.limit;\n\nflow.set('forecast.solar.ratelimit.remaining', remaining)\nflow.set('forecast.solar.ratelimit.limit', limit)\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 520,
-        "y": 480,
-        "wires": [
-            [
-                "e56826252134b93a"
-            ]
-        ]
-    },
-    {
-        "id": "e718a22973cc2864",
-        "type": "link out",
-        "z": "93f485839dfa27a8",
-        "name": "link out 1",
-        "mode": "link",
-        "links": [
-            "3fa24f2d08195961",
-            "0a20e852662c8cec"
-        ],
-        "x": 815,
-        "y": 180,
-        "wires": []
-    },
-    {
-        "id": "3fa24f2d08195961",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 1",
-        "links": [
-            "e718a22973cc2864"
-        ],
-        "x": 385,
-        "y": 480,
-        "wires": [
-            [
-                "559391d1288f762a"
-            ]
-        ]
-    },
-    {
-        "id": "0a20e852662c8cec",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 2",
-        "links": [
-            "e718a22973cc2864"
-        ],
-        "x": 225,
-        "y": 260,
-        "wires": [
-            [
-                "fcc8d69a3ab88e6d"
-            ]
-        ]
-    },
-    {
-        "id": "4734b6f403e1f03e",
-        "type": "inject",
-        "z": "93f485839dfa27a8",
-        "name": "",
-        "props": [
-            {
-                "p": "payload"
-            },
-            {
-                "p": "topic",
-                "vt": "str"
-            }
-        ],
-        "repeat": "",
-        "crontab": "",
-        "once": true,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "",
-        "payloadType": "date",
-        "x": 530,
-        "y": 440,
-        "wires": [
-            [
-                "e56826252134b93a"
-            ]
-        ]
-    },
-    {
-        "id": "1bfc1cde3ee94e4b",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "update status",
-        "func": "var remaining = flow.get('forecast.solar.ratelimit.remaining') || -1;\nvar limit = flow.get('forecast.solar.ratelimit.limit') || -1\n\nvar text = remaining.toString() + '/' + limit.toString();\nvar fill = \"green\";\n\nif (remaining == 0) {\n    fill = \"red\";\n    text = \"Limit used\";\n}\n\nif (remaining > 0 && remaining < limit / 2) {\n    fill = \"yellow\"\n}\n\nif (remaining == -1 ) {\n    fill = \"blue\"\n    text = \"Limits unknown\"\n}\n\nmsg.payload = ({ fill: fill, text: text });\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 520,
-        "y": 580,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "a18e96179ec2d987",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "Create graph output",
-        "func": "var m = {};\nm.labels = [];\nm.data = [];\n\nm.series = [];\nm.data = [];\nm.labels = [];\n\nfor (let j = 0; j <= msg.days; j++) {\n    m.data[j] = [];\n}\n\nif (msg.watt === 'watt_hours_day') {\n    var i = 0;\n    m.series.push(\"Watt hours per day\");\n    for (const key in msg.payload.result) {\n        m.labels.push(key);\n        if (msg.kwhoutput) {\n            m.data[i] = +(Math.round(msg.payload.result[key]/100)*.1).toFixed(1);\n        } else {\n            m.data[i] = msg.payload.result[key];\n        }\n        i++;\n    }\n    m.data = [m.data];\n    return { payload: [m] };\n}\n\nfor (let i = 0; i <= 23; i++) {\n\n    m.labels.push(i.toString()+':00');\n    if (msg.resolution === 4) {\n       m.labels.push(i.toString()+':15');\n    }\n    if (msg.resolution === 2 || msg.resolution == 4) {\n       m.labels.push(i.toString()+':30');\n    }\n    if (msg.resolution === 4) {\n       m.labels.push(i.toString()+':45');\n    }\n\n    for (let j = 0; j <= msg.days; j++) {\n        m.data[j].push(0);\n        if (msg.resolution === 4) {\n           m.data[j].push(0)\n        }\n        if (msg.resolution === 2 || msg.resolution == 4) {\n           m.data[j].push(0)\n        }\n        if (msg.resolution === 4) {\n           m.data[j].push(0)\n        }\n\n    }\n}\n\nvar offset = 0;\nfor (const key in msg.payload.result) {\n    var d = new Date(key)\n    if (m.series.indexOf(d.toISOString().split('T')[0]) === -1) {\n        m.series.push(d.toISOString().split('T')[0])\n    }\n\n    var h = d.getHours();\n    var minutes = d.getMinutes();\n\n    if (minutes === 0 ) {\n        offset = 0;\n    } else {\n        offset++;\n    }\n\n    if (msg.kwhoutput) {\n        m.data[m.series.length - 1][h*msg.resolution+offset] = +(Math.round(msg.payload.result[key]/100)*.1).toFixed(1);\n    } else {\n        m.data[m.series.length - 1][h*msg.resolution+offset] = msg.payload.result[key];\n    }\n}\n\nreturn { payload: [m] };\n",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 360,
-        "y": 340,
-        "wires": [
-            [
-                "5b0a430fb61e70e7"
-            ]
-        ]
-    },
-    {
-        "id": "975daf96f15cfb61",
-        "type": "link out",
-        "z": "93f485839dfa27a8",
-        "name": "link out 7",
-        "mode": "link",
-        "links": [
-            "14f2e68e572f4ef8"
-        ],
-        "x": 805,
-        "y": 100,
-        "wires": []
-    },
-    {
-        "id": "14f2e68e572f4ef8",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 18",
-        "links": [
-            "975daf96f15cfb61"
-        ],
-        "x": 245,
-        "y": 180,
-        "wires": [
-            [
-                "c706820c0d61f023"
-            ]
-        ]
-    },
-    {
-        "id": "c4307905e114824f",
-        "type": "catch",
-        "z": "93f485839dfa27a8",
-        "name": "",
-        "scope": null,
-        "uncaught": false,
-        "x": 260,
-        "y": 440,
-        "wires": [
-            [
-                "f427f19392c399ce"
-            ]
-        ]
-    },
-    {
-        "id": "e56826252134b93a",
-        "type": "link out",
-        "z": "93f485839dfa27a8",
-        "name": "link out 8",
-        "mode": "link",
-        "links": [
-            "dbaf8f5f5a920686"
-        ],
-        "x": 685,
-        "y": 480,
-        "wires": []
-    },
-    {
-        "id": "dbaf8f5f5a920686",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 19",
-        "links": [
-            "e56826252134b93a"
-        ],
-        "x": 385,
-        "y": 580,
-        "wires": [
-            [
-                "1bfc1cde3ee94e4b"
-            ]
-        ]
-    },
-    {
-        "id": "f427f19392c399ce",
-        "type": "link out",
-        "z": "93f485839dfa27a8",
-        "name": "link out 9",
-        "mode": "link",
-        "links": [
-            "2ded0c14a222b4d9",
-            "2f42837904c91d73"
-        ],
-        "x": 375,
-        "y": 440,
-        "wires": []
-    },
-    {
-        "id": "2ded0c14a222b4d9",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 20",
-        "links": [
-            "f427f19392c399ce"
-        ],
-        "x": 385,
-        "y": 540,
-        "wires": [
-            [
-                "a798fbe66cf133d5"
-            ]
-        ]
-    },
-    {
-        "id": "a798fbe66cf133d5",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "Set error status",
-        "func": "node.warn(msg.payload)\nmsg.payload = ({ fill: \"red\", text: msg.payload });\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 520,
-        "y": 540,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "2f42837904c91d73",
-        "type": "link in",
-        "z": "93f485839dfa27a8",
-        "name": "link in 21",
-        "links": [
-            "f427f19392c399ce"
-        ],
-        "x": 665,
-        "y": 280,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "fcc8d69a3ab88e6d",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "Processed info",
-        "func": "msg.resolution = 60;\nmsg.days = 1;\nmsg.type = env.get('type');\nmsg.watt = env.get('watt');\nmsg.kwhoutput = env.get('kwhoutput');\n\nvar key1 = Object.keys(msg.payload.result)[1];\nvar key2 = Object.keys(msg.payload.result)[2];\nvar key3 = Object.keys(msg.payload.result)[Object.keys(msg.payload.result).length-1];\n\nvar d1 = new Date(key1);\nvar d2 = new Date(key2); \nvar d3 = new Date(key3);\nmsg.resolution = 3600000 / (d2.getTime() - d1.getTime());\n\nmsg.days = Math.floor((d3.getTime() - d1.getTime()) / (1000 * 3600 * 24));\n\nif (msg.watt === 'watt_hours_day') {\n    msg.resolution = null;\n}\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 360,
-        "y": 260,
-        "wires": [
-            [
-                "a18e96179ec2d987"
-            ]
-        ],
-        "info": "Function to process the result from forecast.solar to add\nextra information, which is handy for either graphing or\nto store in a database.\n\n\nThe extra values added:\n- `msg.resolution` - The number of measurements per hour. If\nno API key is used, this will be 1. Other values may be 2 or 4.\n- `msg.days` - The number of days in the forcast. If no API\n- key is used this will be 1. Other values may be 3 or 6."
-    },
-    {
-        "id": "5b0a430fb61e70e7",
-        "type": "function",
-        "z": "93f485839dfa27a8",
-        "name": "Filter graph",
-        "func": "var forecasted = msg.payload[0].series.length;\n\nif ((env.get('daystoforecast') > -1) && (env.get('daystoforecast') < forecasted)) {\n    for (i = 1; i < (forecasted - env.get('daystoforecast')); i++ ) {\n        msg.payload[0].data.pop();\n        msg.payload[0].series.pop();\n    }\n}\n\nif (env.get('watt') === 'watt_hours_day' ) {\n    forecasted = msg.payload[0].labels.length;\n    for (i = 1; i < (forecasted - env.get('daystoforecast')); i++ ) {\n        msg.payload[0].labels.pop();\n        msg.payload[0].data[0].pop();\n    }\n}\n\nif (!env.get('showtoday')) {\n    msg.payload[0].data.shift();\n    msg.payload[0].series.shift();\n}\n\nif (env.get('widengraph')) {\n    var c = msg.payload[0].labels.length;\n    var x = 0;\n    for (i = 0; i < c; i++) {\n        var remove = true;\n        for (d = 0; d < msg.payload[0].data.length; d++) {\n            if (msg.payload[0].data[d][x] > 0) {\n                remove = false;\n            }\n        }\n        if (remove) {\n            msg.payload[0].labels.splice(x, 1);\n            for (d = 0; d < msg.payload[0].data.length; d++) {\n                 msg.payload[0].data[d].splice(x, 1);\n            }\n            x--;\n        }\n        x++;\n    }\n    // Still the first and last datapoints should be zero, so\n    // add those again\n    msg.payload[0].labels.unshift('');\n    msg.payload[0].labels.push('');\n    for (d = 0; d < msg.payload[0].data.length; d++) {\n         msg.payload[0].data[d].unshift(0);\n         msg.payload[0].data[d].push(0);\n    }   \n}\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 590,
-        "y": 340,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "c8dc6aa14b9f3e92",
-        "type": "delay",
-        "z": "93f485839dfa27a8",
-        "name": "1 msg/15 minutes",
-        "pauseType": "rate",
-        "timeout": "5",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "15",
-        "rateUnits": "minute",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 390,
-        "y": 100,
-        "wires": [
-            [
-                "b9488734852cd0ca"
-            ]
-        ]
-    },
-    {
-        "id": "38cdc606e517f343",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "DAY 06:00 Grid setpoint 1980W",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "00 06 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "2000",
-        "payloadType": "num",
-        "x": 160,
-        "y": 80,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "06e45794ecc4d862",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "NIGHT 22:00 Grid setpoint 2850W",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "00 22 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "2850",
-        "payloadType": "num",
-        "x": 160,
-        "y": 160,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "75b51f2a52d9269f",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "DAY 06:00 Grid current 9.55A",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "00 06 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "9.55",
-        "payloadType": "num",
-        "x": 160,
-        "y": 260,
-        "wires": [
-            [
-                "8b41239661152d33",
-                "e2290cb1f7a49d0a"
-            ]
-        ]
-    },
-    {
-        "id": "2de83ef77845b15e",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "NIGHT 22:00 Grid current 13.5A",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "00 22 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "13.5",
-        "payloadType": "num",
-        "x": 160,
-        "y": 340,
-        "wires": [
-            [
-                "8b41239661152d33",
-                "e2290cb1f7a49d0a"
-            ]
-        ]
-    },
-    {
-        "id": "e2290cb1f7a49d0a",
-        "type": "victron-output-vebus",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.vebus/276",
-        "path": "/Ac/In/1/CurrentLimit",
-        "serviceObj": {
-            "service": "com.victronenergy.vebus/276",
-            "name": "MultiPlus-II 48/5000/70-50"
-        },
-        "pathObj": {
-            "path": "/Ac/In/1/CurrentLimit",
-            "type": "float",
-            "name": "Input 1 current limit (A)",
-            "mode": "both"
-        },
-        "initial": 9.55,
-        "name": "",
-        "onlyChanges": false,
-        "x": 1250,
-        "y": 180,
-        "wires": []
-    },
-    {
-        "id": "7aa133df1d5e66a6",
-        "type": "victron-output-ess",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.settings",
-        "path": "/Settings/CGwacs/AcPowerSetPoint",
-        "serviceObj": {
-            "service": "com.victronenergy.settings",
-            "name": "Venus settings"
-        },
-        "pathObj": {
-            "path": "/Settings/CGwacs/AcPowerSetPoint",
-            "type": "integer",
-            "name": "Grid set-point (W)",
-            "mode": "both"
-        },
-        "initial": 1980,
-        "name": "",
-        "onlyChanges": false,
-        "x": 1200,
-        "y": 120,
-        "wires": []
-    },
-    {
-        "id": "0e81be212962775a",
-        "type": "delay",
-        "z": "b39f968e1031d079",
-        "name": "Delay 10s",
-        "pauseType": "rate",
-        "timeout": "10",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "10",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": true,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 960,
-        "y": 120,
-        "wires": [
-            [
-                "7aa133df1d5e66a6"
-            ]
-        ]
-    },
-    {
-        "id": "6960ea566e7cdb62",
-        "type": "victron-output-ess",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.settings",
-        "path": "/Settings/SystemSetup/MaxChargeCurrent",
-        "serviceObj": {
-            "service": "com.victronenergy.settings",
-            "name": "Venus settings"
-        },
-        "pathObj": {
-            "path": "/Settings/SystemSetup/MaxChargeCurrent",
-            "type": "float",
-            "name": "DVCC Charge current limit (A)",
-            "mode": "both"
-        },
-        "initial": 0,
-        "name": "DVCC Charge current Limit (A)",
-        "onlyChanges": false,
-        "x": 1190,
-        "y": 240,
-        "wires": []
-    },
-    {
-        "id": "99d0e69cfbce3558",
-        "type": "victron-input-battery",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.battery/4",
-        "path": "/Dc/0/Voltage",
-        "serviceObj": {
-            "service": "com.victronenergy.battery/4",
-            "name": "SerialBattery(LLT/JBD)"
-        },
-        "pathObj": {
-            "path": "/Dc/0/Voltage",
-            "type": "float",
-            "name": "Battery voltage (V)"
-        },
-        "name": "",
-        "onlyChanges": false,
-        "roundValues": "1",
-        "x": 180,
-        "y": 560,
-        "wires": [
-            [
-                "6fa076ce802cb026"
-            ]
-        ]
-    },
-    {
-        "id": "0124f55e1e8bacce",
-        "type": "change",
-        "z": "b39f968e1031d079",
-        "name": "Tag battery voltage",
-        "rules": [
-            {
-                "t": "set",
-                "p": "topic",
-                "pt": "msg",
-                "to": "battery-voltage",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 630,
-        "y": 520,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "161e9cd83df516fb",
-        "type": "delay",
-        "z": "b39f968e1031d079",
-        "name": "",
-        "pauseType": "delay",
-        "timeout": "10",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "1",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 380,
-        "y": 440,
-        "wires": [
-            [
-                "8fda65985ff7ea11"
-            ]
-        ]
-    },
-    {
-        "id": "8fda65985ff7ea11",
-        "type": "change",
-        "z": "b39f968e1031d079",
-        "name": "Tag grid power",
-        "rules": [
-            {
-                "t": "set",
-                "p": "topic",
-                "pt": "msg",
-                "to": "grid-power",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 790,
-        "y": 440,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "8b41239661152d33",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Battery + Grid Controller",
-        "func": "// ==========================\r\n// LOGIC SUMMARY / CHANGE NOTES\r\n// ==========================\r\n// Flow version rule:\r\n// - the Node-RED tab label in `flows.json` uses `d#<n>` as the deployed flow version marker\r\n// - increment that marker every time `flows.json` changes so the active Node-RED flow version is visible\r\n// - keep this file, the embedded controller function, and the tab version rule synchronized\r\n// Current behavior implemented after iterative tuning:\r\n// 1. This function now has 4 outputs:\r\n//    - output 1 -> DVCC charge current limit (A)\r\n//    - output 2 -> ESS grid setpoint (W)\r\n//    - output 3 -> VE.Bus AC input current limit (A)\r\n//    - output 4 -> VRM notification message\r\n// 2. The function accepts multiple message types:\r\n//    - `topic = battery-voltage` -> updates battery voltage state\r\n//    - `topic = grid-power` -> updates measured grid import power in W\r\n//      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)\r\n//    - `topic = ac-load-power` -> updates measured AC loads power in W\r\n//      (source: GX System `/Ac/Consumption/L1/Power`)\r\n//    - any other topic / inject -> recalculates outputs using stored state\r\n// 3. Night charging uses hysteresis:\r\n//    - ON again at 54.5V or lower\r\n//    - OFF at 54.8V or higher\r\n// 4. Morning charging uses hysteresis:\r\n//    - ON below 53.5V\r\n//    - OFF above 53.8V\r\n// 5. Evening charging uses hysteresis:\r\n//    - ON below 54.0V\r\n//    - OFF above 54.4V\r\n// 6. Base grid setpoint schedule:\r\n//    - 2850W at night\r\n//    - 1980W during the rest of the day\r\n// 7. High-voltage protection for unknown external MPPT charging:\r\n//    - start limiting when battery voltage rises above 55.4V\r\n//    - release only after voltage drops back to 55.2V or lower\r\n//    - taper grid setpoint smoothly down to a minimum of 200W by 55.6V\r\n// 8. Hourly import Wh is tracked for display only:\r\n//    - integrates positive grid import within the current clock hour\r\n//    - shows accumulated Wh together with the actual accumulation start/end time in status\r\n//    - does not change charge current, grid setpoint, or any other output\r\n// 9. Solar prediction is connected to charging logic and affects only charging current:\r\n//    - reads `flow.solarForecastToday`\r\n//    - reduces morning/evening charging on sunny or cloudy forecast days\r\n//    - does not change grid setpoint\r\n// 10. Remaining average watts left in the current hour are shown for info only when\r\n//    tracking for that hour started at the beginning of the hour.\r\n// 11. Final grid setpoint is the minimum of:\r\n//    - base schedule\r\n//    - high-voltage limit\r\n// 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not\r\n//     see large sudden load changes.\r\n// 13. VE.Bus Input 1 current limit is no longer controlled by this function.\r\n// 14. A VRM notification is emitted when the grid setpoint changes.\r\n// 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are\r\n//     all stored in context.\r\n// 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.\r\n// 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.\r\n// 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).\r\n// 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.\r\n//     Old log files are pruned automatically; files older than 45 days are deleted at midnight.\r\n\r\n// ==========================\r\n// INPUT / OUTPUT TOPICS\r\n// ==========================\r\nconst BATTERY_TOPIC = \"battery-voltage\";\r\nconst GRID_TOPIC = \"grid-power\";\r\nconst AC_LOAD_TOPIC = \"ac-load-power\";\r\n\r\n// ==========================\r\n// CONSTANTS\r\n// ==========================\r\nconst MAX_CHARGE_CURRENT = 25;\r\n\r\nconst SOLAR_FORECAST_MAX_AGE_HOURS = 18;\r\nconst SOLAR_FORECAST_ACTIVE_START_HOUR = 5;\r\nconst SOLAR_FORECAST_ACTIVE_END_HOUR = 21;\r\nconst SUNNY_MORNING_CHARGE_FACTOR = 0.25;\r\nconst SUNNY_EVENING_CHARGE_FACTOR = 0.5;\r\nconst CLOUDY_MORNING_CHARGE_FACTOR = 0.6;\r\nconst CLOUDY_EVENING_CHARGE_FACTOR = 0.8;\r\n\r\nconst DAY_BASE_GRID_SETPOINT = 1980;\r\nconst NIGHT_BASE_GRID_SETPOINT = 2850;\r\nconst DAY_HOURLY_BUDGET_W = 1980;\r\nconst NIGHT_HOURLY_BUDGET_W = 2850;\r\n\r\nconst NIGHT_ON_VOLTAGE = 54.5;\r\nconst NIGHT_OFF_VOLTAGE = 54.8;\r\n\r\nconst MORNING_ON_VOLTAGE = 53.5;\r\nconst MORNING_OFF_VOLTAGE = 53.8;\r\n\r\nconst EVENING_ON_VOLTAGE = 54.0;\r\nconst EVENING_OFF_VOLTAGE = 54.4;\r\n\r\nconst HIGH_VOLTAGE_LIMIT_START = 55.4;\r\nconst HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;\r\nconst HIGH_VOLTAGE_LIMIT_FULL = 55.6;\r\nconst MIN_GRID_SETPOINT = 200;\r\nconst MAX_GRID_STEP_W = 100;\r\n\r\n// ==========================\r\n// TIME\r\n// ==========================\r\nconst now = new Date();\r\nconst hour = now.getHours();\r\nconst minute = now.getMinutes();\r\nconst second = now.getSeconds();\r\n\r\n// ==========================\r\n// CONTEXT MEMORY\r\n// ==========================\r\nlet boostActive = context.get(\"boostActive\") || false;\r\nconst previousWindow = context.get(\"activeWindow\") || \"none\";\r\nlet batteryVoltage = Number(context.get(\"batteryVoltage\"));\r\nconst rawStoredGridPower = context.get(\"gridPowerW\");\r\nconst hasGridPowerReading = rawStoredGridPower !== undefined && rawStoredGridPower !== null && Number.isFinite(Number(rawStoredGridPower));\r\nconst storedGridPowerW = hasGridPowerReading ? Math.max(0, Number(rawStoredGridPower)) : 0;\r\nlet gridPowerW = storedGridPowerW;\r\nconst rawStoredAcLoadPower = context.get(\"acLoadPowerW\");\r\nconst hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPower !== null && Number.isFinite(Number(rawStoredAcLoadPower));\r\nconst storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;\r\nlet voltageLimitActive = context.get(\"voltageLimitActive\") || false;\r\nconst previousGridSetpoint = Number(context.get(\"gridSetpoint\"));\r\nlet hourBudget = context.get(\"hourBudget\") || {\r\n    hourKey: \"\",\r\n    lastTs: 0,\r\n    usedWh: 0,\r\n    startTs: 0,\r\n    fullHourCoverage: false\r\n};\r\nlet acLoadBudget = context.get(\"acLoadBudget\") || {\r\n    hourKey: \"\",\r\n    lastTs: 0,\r\n    usedWh: 0,\r\n    startTs: 0,\r\n    fullHourCoverage: false\r\n};\r\n\r\n// ==========================\r\n// HELPERS\r\n// ==========================\r\nfunction clamp(value, min, max) {\r\n    return Math.min(Math.max(value, min), max);\r\n}\r\n\r\nfunction round1(value) {\r\n    return Math.round(value * 10) / 10;\r\n}\r\n\r\nfunction getHourKey(date) {\r\n    return [\r\n        date.getFullYear(),\r\n        String(date.getMonth() + 1).padStart(2, \"0\"),\r\n        String(date.getDate()).padStart(2, \"0\")\r\n    ].join(\"-\") + \" \" + String(date.getHours()).padStart(2, \"0\");\r\n}\r\n\r\nfunction getHourStartTs(date) {\r\n    return new Date(\r\n        date.getFullYear(),\r\n        date.getMonth(),\r\n        date.getDate(),\r\n        date.getHours(),\r\n        0,\r\n        0,\r\n        0\r\n    ).getTime();\r\n}\r\n\r\nfunction getDayKey(date) {\r\n    return [\r\n        date.getFullYear(),\r\n        String(date.getMonth() + 1).padStart(2, \"0\"),\r\n        String(date.getDate()).padStart(2, \"0\")\r\n    ].join(\"-\");\r\n}\r\n\r\nfunction formatTime(date) {\r\n    return `${String(date.getHours()).padStart(2, \"0\")}:${String(date.getMinutes()).padStart(2, \"0\")}`;\r\n}\r\n\r\nfunction getSolarForecastSummary(date) {\r\n    const rawForecast = flow.get(\"solarForecastToday\");\r\n\r\n    if (!rawForecast || typeof rawForecast !== \"object\") {\r\n        return {\r\n            valid: false,\r\n            condition: \"unknown\",\r\n            energyKWh: 0,\r\n            peakKW: 0\r\n        };\r\n    }\r\n\r\n    const updatedAt = new Date(rawForecast.updatedAt);\r\n    const ageHours = Number.isFinite(updatedAt.getTime())\r\n        ? (date.getTime() - updatedAt.getTime()) / 3600000\r\n        : Number.POSITIVE_INFINITY;\r\n    const sameDay = Number.isFinite(updatedAt.getTime())\r\n        ? getDayKey(updatedAt) === getDayKey(date)\r\n        : false;\r\n\r\n    return {\r\n        valid: sameDay && ageHours >= 0 && ageHours <= SOLAR_FORECAST_MAX_AGE_HOURS,\r\n        condition: String(rawForecast.condition || \"unknown\").toLowerCase(),\r\n        energyKWh: Number(rawForecast.energyKWh) || 0,\r\n        peakKW: Number(rawForecast.peakKW) || 0\r\n    };\r\n}\r\n\r\nfunction getSolarChargeControl(window, date) {\r\n    const forecast = getSolarForecastSummary(date);\r\n    const currentHour = date.getHours();\r\n    const inForecastWindow =\r\n        currentHour >= SOLAR_FORECAST_ACTIVE_START_HOUR &&\r\n        currentHour < SOLAR_FORECAST_ACTIVE_END_HOUR;\r\n\r\n    const result = {\r\n        factor: 1,\r\n        active: false,\r\n        forecast\r\n    };\r\n\r\n    if (!forecast.valid || !inForecastWindow) {\r\n        return result;\r\n    }\r\n\r\n    if (window === \"MORNING\") {\r\n        if (forecast.condition === \"sunny\") {\r\n            result.factor = SUNNY_MORNING_CHARGE_FACTOR;\r\n        }\r\n        else if (forecast.condition === \"cloudy\") {\r\n            result.factor = CLOUDY_MORNING_CHARGE_FACTOR;\r\n        }\r\n    }\r\n    else if (window === \"EVENING\") {\r\n        if (forecast.condition === \"sunny\") {\r\n            result.factor = SUNNY_EVENING_CHARGE_FACTOR;\r\n        }\r\n        else if (forecast.condition === \"cloudy\") {\r\n            result.factor = CLOUDY_EVENING_CHARGE_FACTOR;\r\n        }\r\n    }\r\n\r\n    result.active = result.factor < 1;\r\n    return result;\r\n}\r\n\r\nfunction advanceHourBudget(state, date, importPowerW) {\r\n    const nextState = {\r\n        hourKey: state.hourKey || \"\",\r\n        lastTs: Number(state.lastTs) || 0,\r\n        usedWh: Number(state.usedWh) || 0,\r\n        startTs: Number(state.startTs) || 0,\r\n        fullHourCoverage: Boolean(state.fullHourCoverage)\r\n    };\r\n\r\n    const nowTs = date.getTime();\r\n    const hourKey = getHourKey(date);\r\n    const hourStartTs = getHourStartTs(date);\r\n\r\n    if (!nextState.lastTs || nextState.hourKey !== hourKey || nextState.lastTs < hourStartTs) {\r\n        nextState.hourKey = hourKey;\r\n        nextState.lastTs = hourStartTs;\r\n        nextState.usedWh = 0;\r\n        nextState.startTs = date.getMinutes() === 0 ? hourStartTs : nowTs;\r\n        nextState.fullHourCoverage = date.getMinutes() === 0;\r\n    }\r\n\r\n    if (nowTs > nextState.lastTs) {\r\n        const deltaHours = (nowTs - nextState.lastTs) / 3600000;\r\n        nextState.usedWh += Math.max(0, importPowerW) * deltaHours;\r\n        nextState.lastTs = nowTs;\r\n    }\r\n\r\n    return nextState;\r\n}\r\n\r\nfunction smoothReduction(previousValue, targetValue, maxStep) {\r\n    if (!Number.isFinite(previousValue)) {\r\n        return targetValue;\r\n    }\r\n\r\n    if (targetValue < previousValue - maxStep) {\r\n        return previousValue - maxStep;\r\n    }\r\n\r\n    if (targetValue > previousValue + maxStep) {\r\n        return previousValue + maxStep;\r\n    }\r\n\r\n    return targetValue;\r\n}\r\n\r\nfunction buildNotification(window, gridSetpoint) {\r\n    const parts = [\r\n        `${window}`,\r\n        `V=${batteryVoltage.toFixed(2)}V`,\r\n        `Grid setpoint=${gridSetpoint}W`\r\n    ];\r\n\r\n    if (limitFlags.length > 0) {\r\n        parts.push(`Limit=${limitFlags.join(\"+\")}`);\r\n    }\r\n\r\n    return {\r\n        topic: \"vrm-notification\",\r\n        payload: parts.join(\" | \"),\r\n        notification: {\r\n            message: parts.join(\" | \"),\r\n            level: \"info\",\r\n            timestamp: now.toISOString()\r\n        }\r\n    };\r\n}\r\n\r\nfunction buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {\r\n    const notifyMsg =\r\n        gridSetpoint !== previousGridSetpoint\r\n            ? buildNotification(windowName, gridSetpoint)\r\n            : null;\r\n\r\n    return [\r\n        {\r\n            topic: \"charge-current-limit\",\r\n            payload: chargeCurrent\r\n        },\r\n        {\r\n            topic: \"grid-setpoint\",\r\n            payload: gridSetpoint\r\n        },\r\n        {\r\n            topic: \"ac-input-current-limit\",\r\n            payload: null\r\n        },\r\n        notifyMsg,\r\n        hourlyLogMsg || null\r\n    ];\r\n}\r\n\r\n// ==========================\r\n// UPDATE STORED INPUTS\r\n// ==========================\r\nconst prevHourKey = hourBudget.hourKey;\r\nconst prevHourGridWh = Number(hourBudget.usedWh) || 0;\r\nconst prevHourAcWh = Number(acLoadBudget.usedWh) || 0;\r\nhourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);\r\nacLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);\r\nconst hourRolledOver = prevHourKey && prevHourKey !== hourBudget.hourKey;\r\n\r\nif (msg.topic === BATTERY_TOPIC) {\r\n    const incomingVoltage = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingVoltage)) {\r\n        batteryVoltage = incomingVoltage;\r\n        context.set(\"batteryVoltage\", batteryVoltage);\r\n    }\r\n}\r\nelse if (msg.topic === GRID_TOPIC) {\r\n    const incomingGridPower = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingGridPower)) {\r\n        gridPowerW = Math.max(0, incomingGridPower);\r\n        context.set(\"gridPowerW\", gridPowerW);\r\n    }\r\n}\r\nelse if (msg.topic === AC_LOAD_TOPIC) {\r\n    const incomingAcLoadPower = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingAcLoadPower)) {\r\n        context.set(\"acLoadPowerW\", Math.max(0, incomingAcLoadPower));\r\n    }\r\n}\r\n\r\ncontext.set(\"hourBudget\", hourBudget);\r\ncontext.set(\"acLoadBudget\", acLoadBudget);\r\n\r\nif (!Number.isFinite(batteryVoltage)) {\r\n    node.status({\r\n        fill: \"grey\",\r\n        shape: \"ring\",\r\n        text: \"WAITING FOR BATTERY VOLTAGE\"\r\n    });\r\n    return null;\r\n}\r\n\r\n// ==========================\r\n// TIME WINDOWS\r\n// ==========================\r\nconst nightWindow = (hour >= 22 || hour < 6);\r\n\r\nconst morningWindow =\r\n    (hour > 6 && hour < 11) ||\r\n    (hour === 6) ||\r\n    (hour === 11 && minute <= 59);\r\n\r\nconst eveningWindow = hour >= 17;\r\n\r\nconst baseScheduleSetpoint = nightWindow ? NIGHT_BASE_GRID_SETPOINT : DAY_BASE_GRID_SETPOINT;\r\nconst hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGET_W;\r\n\r\n// ==========================\r\n// CHARGE CURRENT WINDOW LOGIC\r\n// ==========================\r\nlet windowName = \"OUTSIDE\";\r\nlet baseChargeCurrent = 0;\r\n\r\nif (nightWindow) {\r\n    windowName = \"NIGHT\";\r\n\r\n    if (previousWindow !== windowName) {\r\n        boostActive = true;\r\n    }\r\n\r\n    if (boostActive && batteryVoltage >= NIGHT_OFF_VOLTAGE) {\r\n        boostActive = false;\r\n    }\r\n\r\n    if (!boostActive && batteryVoltage <= NIGHT_ON_VOLTAGE) {\r\n        boostActive = true;\r\n    }\r\n\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse if (morningWindow) {\r\n    windowName = \"MORNING\";\r\n\r\n    if (previousWindow !== windowName) {\r\n        boostActive = false;\r\n    }\r\n\r\n    if (!boostActive && batteryVoltage < MORNING_ON_VOLTAGE) {\r\n        boostActive = true;\r\n    }\r\n\r\n    if (boostActive && batteryVoltage > MORNING_OFF_VOLTAGE) {\r\n        boostActive = false;\r\n    }\r\n\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse if (eveningWindow) {\r\n    windowName = \"EVENING\";\r\n\r\n    if (previousWindow !== windowName) {\r\n        boostActive = false;\r\n    }\r\n\r\n    if (!boostActive && batteryVoltage < EVENING_ON_VOLTAGE) {\r\n        boostActive = true;\r\n    }\r\n\r\n    if (boostActive && batteryVoltage > EVENING_OFF_VOLTAGE) {\r\n        boostActive = false;\r\n    }\r\n\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse {\r\n    boostActive = false;\r\n    baseChargeCurrent = 0;\r\n}\r\n\r\nconst solarChargeControl = getSolarChargeControl(windowName, now);\r\nconst forecastAdjustedChargeCurrent = baseChargeCurrent > 0\r\n    ? round1(baseChargeCurrent * solarChargeControl.factor)\r\n    : 0;\r\n\r\n// ==========================\r\n// HIGH-VOLTAGE GRID SETPOINT LIMIT\r\n// ==========================\r\nif (!voltageLimitActive && batteryVoltage > HIGH_VOLTAGE_LIMIT_START) {\r\n    voltageLimitActive = true;\r\n}\r\n\r\nif (voltageLimitActive && batteryVoltage <= HIGH_VOLTAGE_LIMIT_RELEASE) {\r\n    voltageLimitActive = false;\r\n}\r\n\r\nlet voltageLimitedSetpoint = baseScheduleSetpoint;\r\n\r\nif (voltageLimitActive) {\r\n    const taper = clamp(\r\n        (HIGH_VOLTAGE_LIMIT_FULL - batteryVoltage) /\r\n        (HIGH_VOLTAGE_LIMIT_FULL - HIGH_VOLTAGE_LIMIT_START),\r\n        0,\r\n        1\r\n    );\r\n\r\n    voltageLimitedSetpoint = Math.round(\r\n        MIN_GRID_SETPOINT + (baseScheduleSetpoint - MIN_GRID_SETPOINT) * taper\r\n    );\r\n}\r\n\r\n// Apply smoothing only to the voltage-based reduction so the battery does not see large jumps.\r\nif (voltageLimitActive) {\r\n    voltageLimitedSetpoint = Math.round(\r\n        smoothReduction(\r\n            previousGridSetpoint,\r\n            voltageLimitedSetpoint,\r\n            MAX_GRID_STEP_W\r\n        )\r\n    );\r\n}\r\n\r\n// ==========================\r\n// FINAL OUTPUTS\r\n// ==========================\r\nconst finalGridSetpoint = Math.max(\r\n    0,\r\n    Math.round(\r\n        Math.min(\r\n            baseScheduleSetpoint,\r\n            voltageLimitedSetpoint\r\n        )\r\n    )\r\n);\r\n\r\nconst currentRatio = baseScheduleSetpoint > 0\r\n    ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)\r\n    : 0;\r\n\r\nconst finalChargeCurrent = forecastAdjustedChargeCurrent > 0\r\n    ? round1(forecastAdjustedChargeCurrent * currentRatio)\r\n    : 0;\r\nconst usedWh = hourBudget.usedWh || 0;\r\nconst acUsedWh = acLoadBudget.usedWh || 0;\r\nconst usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));\r\nconst usedEnergyEndLabel = formatTime(now);\r\nconst secondsIntoHour = minute * 60 + second;\r\nconst secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);\r\nconst hoursLeftInHour = secondsLeftInHour / 3600;\r\nconst remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);\r\nconst remainingAverageW = Math.round(remainingWh / hoursLeftInHour);\r\nconst remainingAverageText = hourBudget.fullHourCoverage\r\n    ? ` | ${remainingAverageW}W left`\r\n    : \"\";\r\n\r\ncontext.set(\"boostActive\", boostActive);\r\ncontext.set(\"activeWindow\", windowName);\r\ncontext.set(\"voltageLimitActive\", voltageLimitActive);\r\ncontext.set(\"gridSetpoint\", finalGridSetpoint);\r\n\r\n// ==========================\r\n// STATUS\r\n// ==========================\r\nconst limitFlags = [];\r\n\r\nif (voltageLimitActive && finalGridSetpoint <= voltageLimitedSetpoint) {\r\n    limitFlags.push(\"HV\");\r\n}\r\n\r\nif (solarChargeControl.active) {\r\n    limitFlags.push(`SOL:${solarChargeControl.forecast.condition.toUpperCase()}`);\r\n}\r\n\r\nlet fill = \"grey\";\r\n\r\nif (windowName === \"NIGHT\") {\r\n    fill = finalChargeCurrent > 0 ? \"blue\" : \"yellow\";\r\n}\r\nelse if (windowName === \"MORNING\" || windowName === \"EVENING\") {\r\n    fill = finalChargeCurrent > 0 ? \"green\" : \"yellow\";\r\n}\r\n\r\nconst flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join(\"+\")}` : \"\";\r\nconst forecastText = solarChargeControl.forecast.valid\r\n    ? ` | FC=${solarChargeControl.forecast.condition} x${solarChargeControl.factor}`\r\n    : \"\";\r\n\r\nnode.status({\r\n    fill,\r\n    shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? \"dot\" : \"ring\",\r\n    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`\r\n});\r\n\r\nconst hourlyLogMsg = hourRolledOver\r\n    ? { topic: \"hourly-energy\", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh) } }\r\n    : null;\r\n\r\nreturn buildOutputs(\r\n    finalChargeCurrent,\r\n    finalGridSetpoint,\r\n    hourlyLogMsg\r\n);\r\n",
-        "outputs": 4,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 860,
-        "y": 520,
-        "wires": [
-            [
-                "02f9c8b4338cd074"
-            ],
-            [
-                "0e81be212962775a"
-            ],
-            [],
-            [
-                "86e9a3554faa5fed",
-                "notif-log-fmt-01"
-            ]
-        ]
-    },
-    {
-        "id": "2ac296236d3f0af2",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "TEST notification",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "Manual test notification from Day / Night Grid Control",
-        "payloadType": "str",
+      }
+    ],
+    "out": [
+      {
         "x": 760,
-        "y": 320,
+        "y": 260,
         "wires": [
-            [
-                "86e9a3554faa5fed"
-            ]
+          {
+            "id": "2f42837904c91d73",
+            "port": 0
+          },
+          {
+            "id": "fcc8d69a3ab88e6d",
+            "port": 0
+          }
         ]
-    },
-    {
-        "id": "86e9a3554faa5fed",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Format GX notification",
-        "func": "const defaultTitle = \"Day / Night Grid Control\";\n\nfunction normalizeType(value) {\n    if (value === 0 || value === \"0\" || value === \"warning\") {\n        return 0;\n    }\n\n    if (value === 1 || value === \"1\" || value === \"alarm\") {\n        return 1;\n    }\n\n    return 2;\n}\n\nconst title = msg.title || (msg.notification && msg.notification.title) || defaultTitle;\nconst rawType = msg.type !== undefined\n    ? msg.type\n    : (msg.notification && (msg.notification.type !== undefined ? msg.notification.type : msg.notification.level));\nconst rawMessage = (msg.notification && msg.notification.message) || msg.payload;\n\nif (rawMessage === undefined || rawMessage === null || rawMessage === \"\") {\n    return null;\n}\n\nconst safeTitle = String(title)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 100);\n\nconst safeMessage = String(rawMessage)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 500);\n\nmsg.payload = `${normalizeType(rawType)}\\t${safeTitle}\\t${safeMessage}`;\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1120,
-        "y": 320,
+      },
+      {
+        "x": 770,
+        "y": 340,
         "wires": [
-            [
-                "35aac1807d506c2c"
-            ]
+          {
+            "id": "5b0a430fb61e70e7",
+            "port": 0
+          }
         ]
+      }
+    ],
+    "env": [
+      {
+        "name": "latitude",
+        "type": "num",
+        "value": "51.3",
+        "ui": {
+          "icon": "font-awesome/fa-location-arrow",
+          "type": "input",
+          "opts": {
+            "types": [
+              "num"
+            ]
+          }
+        }
+      },
+      {
+        "name": "longitude",
+        "type": "num",
+        "value": "5.6",
+        "ui": {
+          "icon": "font-awesome/fa-location-arrow",
+          "type": "input",
+          "opts": {
+            "types": [
+              "num"
+            ]
+          }
+        }
+      },
+      {
+        "name": "declination",
+        "type": "num",
+        "value": "37",
+        "ui": {
+          "icon": "font-awesome/fa-chevron-up",
+          "type": "input",
+          "opts": {
+            "types": [
+              "num"
+            ]
+          }
+        }
+      },
+      {
+        "name": "azimuth",
+        "type": "num",
+        "value": "0",
+        "ui": {
+          "icon": "font-awesome/fa-compass",
+          "type": "spinner",
+          "opts": {
+            "min": -180,
+            "max": 180
+          }
+        }
+      },
+      {
+        "name": "modules power",
+        "type": "num",
+        "value": "1",
+        "ui": {
+          "icon": "font-awesome/fa-power-off",
+          "type": "input",
+          "opts": {
+            "types": [
+              "num"
+            ]
+          }
+        }
+      },
+      {
+        "name": "apikey",
+        "type": "cred",
+        "ui": {
+          "icon": "font-awesome/fa-key",
+          "type": "input",
+          "opts": {
+            "types": [
+              "cred"
+            ]
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "value": "estimate",
+        "ui": {
+          "label": {
+            "en-US": "type"
+          },
+          "type": "select",
+          "opts": {
+            "opts": [
+              {
+                "l": {
+                  "en-US": "Estimate"
+                },
+                "v": "estimate"
+              },
+              {
+                "l": {
+                  "en-US": "History"
+                },
+                "v": "history"
+              },
+              {
+                "l": {
+                  "en-US": "Clear sky"
+                },
+                "v": "clearsky"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "watt",
+        "type": "str",
+        "value": "watts",
+        "ui": {
+          "icon": "font-awesome/fa-question-circle-o",
+          "type": "select",
+          "opts": {
+            "opts": [
+              {
+                "l": {
+                  "en-US": "Watts (power) average for the period"
+                },
+                "v": "watts"
+              },
+              {
+                "l": {
+                  "en-US": "Watt hours (energy) for the period"
+                },
+                "v": "watt_hours_period"
+              },
+              {
+                "l": {
+                  "en-US": "Watt hours (energy) summarized over the day"
+                },
+                "v": "watt_hours"
+              },
+              {
+                "l": {
+                  "en-US": "Watt hours (energy) summarized for each day"
+                },
+                "v": "watt_hours_day"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "kwhoutput",
+        "type": "bool",
+        "value": "false",
+        "ui": {
+          "label": {
+            "en-US": "Output in kWh (in the graph)"
+          },
+          "type": "checkbox"
+        }
+      },
+      {
+        "name": "showtoday",
+        "type": "bool",
+        "value": "true",
+        "ui": {
+          "label": {
+            "en-US": "Show todays forecast"
+          },
+          "type": "checkbox"
+        }
+      },
+      {
+        "name": "daystoforecast",
+        "type": "str",
+        "value": "-1",
+        "ui": {
+          "label": {
+            "en-US": "Days to forecast"
+          },
+          "type": "select",
+          "opts": {
+            "opts": [
+              {
+                "l": {
+                  "en-US": "Max"
+                },
+                "v": "-1"
+              },
+              {
+                "l": {
+                  "en-US": "0"
+                },
+                "v": "0"
+              },
+              {
+                "l": {
+                  "en-US": "1"
+                },
+                "v": "1"
+              },
+              {
+                "l": {
+                  "en-US": "2"
+                },
+                "v": "2"
+              },
+              {
+                "l": {
+                  "en-US": "3"
+                },
+                "v": "3"
+              },
+              {
+                "l": {
+                  "en-US": "4"
+                },
+                "v": "4"
+              },
+              {
+                "l": {
+                  "en-US": "5"
+                },
+                "v": "5"
+              },
+              {
+                "l": {
+                  "en-US": "6"
+                },
+                "v": "6"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "widengraph",
+        "type": "bool",
+        "value": "true",
+        "ui": {
+          "label": {
+            "en-US": "Widen graph"
+          },
+          "type": "checkbox"
+        }
+      }
+    ],
+    "meta": {
+      "module": "Solar Forecast",
+      "version": "0.0.9",
+      "author": "dfaber@victronenergy.com",
+      "desc": "Get solar forecasting per location",
+      "keywords": "solar,forecast,api",
+      "license": "GPL-3.0"
     },
-    {
-        "id": "35aac1807d506c2c",
-        "type": "victron-output-custom",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.platform",
-        "path": "/Notifications/Inject",
-        "serviceObj": {
-            "service": "com.victronenergy.platform",
-            "name": "Platform"
+    "color": "#FFCC66",
+    "inputLabels": [
+      "trigger"
+    ],
+    "outputLabels": [
+      "output",
+      "graph"
+    ],
+    "icon": "font-awesome/fa-sun-o",
+    "status": {
+      "x": 680,
+      "y": 560,
+      "wires": [
+        {
+          "id": "1bfc1cde3ee94e4b",
+          "port": 0
         },
-        "pathObj": {
-            "path": "/Notifications/Inject",
-            "type": "string",
-            "name": "Inject notification",
-            "mode": "both"
-        },
-        "initial": "",
-        "name": "GX notification output",
-        "onlyChanges": false,
-        "x": 1360,
-        "y": 320,
-        "wires": []
-    },
-    {
-        "id": "6fa076ce802cb026",
-        "type": "delay",
-        "z": "b39f968e1031d079",
-        "name": "",
-        "pauseType": "delay",
-        "timeout": "10",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "1",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 440,
-        "y": 520,
-        "wires": [
-            [
-                "0124f55e1e8bacce"
-            ]
-        ]
-    },
-    {
-        "id": "c4f71df9eaf777e7",
-        "type": "victron-input-system",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.system",
-        "path": "/Ac/Grid/L1/Power",
-        "serviceObj": {
-            "service": "com.victronenergy.system",
-            "name": "System"
-        },
-        "pathObj": {
-            "path": "/Ac/Grid/L1/Power",
-            "type": "float",
-            "name": "Grid L1 power (W)"
-        },
-        "name": "GRID CT import power",
-        "onlyChanges": false,
-        "roundValues": "0",
-        "x": 120,
-        "y": 440,
-        "wires": [
-            [
-                "161e9cd83df516fb"
-            ]
-        ]
-    },
-    {
-        "id": "0b384e088f85dd06",
-        "type": "link in",
-        "z": "b39f968e1031d079",
-        "name": "Grid import power override (W)",
-        "links": [],
-        "x": 265,
-        "y": 400,
-        "wires": [
-            [
-                "161e9cd83df516fb"
-            ]
-        ]
-    },
-    {
-        "id": "02f9c8b4338cd074",
-        "type": "delay",
-        "z": "b39f968e1031d079",
-        "name": "Delay 10s",
-        "pauseType": "rate",
-        "timeout": "10",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "10",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": true,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 940,
-        "y": 240,
-        "wires": [
-            [
-                "6960ea566e7cdb62"
-            ]
-        ]
-    },
-    {
-        "id": "24da831dd3d9d379",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "Refresh solar forecast 15m",
-        "props": [
-            {
-                "p": "payload"
-            },
-            {
-                "p": "topic",
-                "vt": "str"
-            }
-        ],
-        "repeat": "900",
-        "crontab": "",
-        "once": true,
-        "onceDelay": 2,
-        "topic": "solar-forecast-refresh",
-        "payload": "",
-        "payloadType": "date",
-        "x": 160,
-        "y": 900,
-        "wires": [
-            [
-                "506b5264af3e2ea0"
-            ]
-        ]
-    },
-    {
-        "id": "506b5264af3e2ea0",
-        "type": "subflow:93f485839dfa27a8",
-        "z": "b39f968e1031d079",
-        "name": "Solar forecast Hokksund",
-        "env": [
-            {
-                "name": "latitude",
-                "value": "59.764",
-                "type": "num"
-            },
-            {
-                "name": "longitude",
-                "value": "9.902",
-                "type": "num"
-            },
-            {
-                "name": "declination",
-                "value": "35",
-                "type": "num"
-            },
-            {
-                "name": "azimuth",
-                "value": "0",
-                "type": "num"
-            },
-            {
-                "name": "modules power",
-                "value": "5",
-                "type": "num"
-            },
-            {
-                "name": "apikey",
-                "value": "",
-                "type": "cred"
-            },
-            {
-                "name": "type",
-                "value": "estimate",
-                "type": "str"
-            },
-            {
-                "name": "watt",
-                "value": "watts",
-                "type": "str"
-            },
-            {
-                "name": "kwhoutput",
-                "value": "false",
-                "type": "bool"
-            },
-            {
-                "name": "showtoday",
-                "value": "true",
-                "type": "bool"
-            },
-            {
-                "name": "daystoforecast",
-                "value": "1",
-                "type": "str"
-            },
-            {
-                "name": "widengraph",
-                "value": "false",
-                "type": "bool"
-            }
-        ],
-        "x": 400,
-        "y": 900,
-        "wires": [
-            [
-                "5e3a7f6b76cc6ed5"
-            ],
-            []
-        ]
-    },
-    {
-        "id": "5e3a7f6b76cc6ed5",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Adjust solar forecast for shade",
-        "func": "function localDayKey(date) {\n    return [\n        date.getFullYear(),\n        String(date.getMonth() + 1).padStart(2, '0'),\n        String(date.getDate()).padStart(2, '0')\n    ].join('-');\n}\n\nconst result = msg.payload && msg.payload.result;\nif (!result || typeof result !== 'object') {\n    node.status({ fill: 'red', shape: 'ring', text: 'no forecast data' });\n    return null;\n}\n\nconst shadeByHour = {\n    5: 0.02,\n    6: 0.04,\n    7: 0.06,\n    8: 0.10,\n    9: 0.18,\n    10: 0.30,\n    11: 0.55,\n    12: 0.72,\n    13: 0.78,\n    14: 0.62,\n    15: 0.50,\n    16: 0.42,\n    17: 0.32,\n    18: 0.22,\n    19: 0.14,\n    20: 0.08,\n    21: 0.03\n};\n\nconst hourlyCapW = {\n    5: 20,\n    6: 40,\n    7: 80,\n    8: 150,\n    9: 300,\n    10: 550,\n    11: 1100,\n    12: 1500,\n    13: 1500,\n    14: 1200,\n    15: 800,\n    16: 700,\n    17: 500,\n    18: 320,\n    19: 220,\n    20: 140,\n    21: 40\n};\n\nconst historicalReference = {\n    sunnyPeakKW: '1.4-1.5',\n    cloudyPeakKW: '<1.0',\n    dominantWindow: '11:00-17:00',\n    extendedWindow: '05:00-21:00'\n};\n\nconst resolution = Number(msg.resolution) || 1;\nconst periodHours = resolution > 0 ? 1 / resolution : 1;\nconst adjustedResult = {};\nconst summaryByDay = {};\n\nfor (const [key, rawValue] of Object.entries(result)) {\n    const date = new Date(key);\n    const hour = date.getHours();\n    const factor = shadeByHour[hour] || 0;\n    const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;\n    const capW = hourlyCapW[hour] || 0;\n    const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;\n    const dayKey = localDayKey(date);\n\n    adjustedResult[key] = adjustedW;\n\n    if (!summaryByDay[dayKey]) {\n        summaryByDay[dayKey] = {\n            energyWh: 0,\n            peakW: 0,\n            activeHours: 0\n        };\n    }\n\n    summaryByDay[dayKey].energyWh += adjustedW * periodHours;\n    summaryByDay[dayKey].peakW = Math.max(summaryByDay[dayKey].peakW, adjustedW);\n    if (adjustedW > 0) {\n        summaryByDay[dayKey].activeHours += periodHours;\n    }\n}\n\nconst todayKey = localDayKey(new Date());\nconst today = summaryByDay[todayKey] || { energyWh: 0, peakW: 0, activeHours: 0 };\nconst todayKWh = +(today.energyWh / 1000).toFixed(2);\nconst todayPeakKW = +(today.peakW / 1000).toFixed(2);\nconst condition = todayPeakKW >= 1.0 ? 'sunny' : (todayKWh >= 2 ? 'cloudy' : 'low');\n\nmsg.topic = 'solar-forecast-adjusted';\nmsg.payload = {\n    source: 'forecast.solar',\n    location: 'Hokksund, Norway',\n    activeWindow: '05:00-21:00',\n    dominantWindow: '11:00-17:00',\n    shading: 'trees / heavy shadow',\n    rawResult: result,\n    adjustedResult,\n    summaryByDay,\n    today: {\n        energyWh: Math.round(today.energyWh),\n        energyKWh: todayKWh,\n        peakW: today.peakW,\n        peakKW: todayPeakKW,\n        activeHours: +today.activeHours.toFixed(2),\n        condition\n    },\n    assumptions: {\n        sunnyRangeKWh: '3-5',\n        cloudyKWh: '2',\n        shadeByHour,\n        hourlyCapW,\n        historicalReference\n    }\n};\n\nnode.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW` });\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 660,
-        "y": 900,
-        "wires": [
-            [
-                "93a0d07f7da3f1b8"
-            ]
-        ]
-    },
-    {
-        "id": "93a0d07f7da3f1b8",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Store solar prediction",
-        "func": "const data = msg.payload || {};\nconst today = data.today || { energyKWh: 0, peakKW: 0, condition: 'unknown' };\nconst summary = {\n    updatedAt: new Date().toISOString(),\n    source: data.source || 'forecast.solar',\n    location: data.location || 'Hokksund, Norway',\n    activeWindow: data.activeWindow || '11:00-17:00',\n    condition: today.condition || 'unknown',\n    energyWh: Number(today.energyWh) || 0,\n    energyKWh: Number(today.energyKWh) || 0,\n    peakW: Number(today.peakW) || 0,\n    peakKW: Number(today.peakKW) || 0,\n    activeHours: Number(today.activeHours) || 0\n};\n\nflow.set('solarForecastAdjusted', data);\nflow.set('solarForecastToday', summary);\n\nnode.status({\n    fill: summary.energyKWh > 0 ? 'green' : 'yellow',\n    shape: 'dot',\n    text: `${summary.condition} | ${summary.energyKWh.toFixed(2)}kWh | ${summary.activeWindow}`\n});\n\nmsg.topic = 'solar-forecast-today';\nmsg.payload = summary;\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 920,
-        "y": 900,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "ac-loads-src-01",
-        "type": "victron-input-system",
-        "z": "b39f968e1031d079",
-        "service": "com.victronenergy.system",
-        "path": "/Ac/Consumption/L1/Power",
-        "serviceObj": {
-            "service": "com.victronenergy.system",
-            "name": "System"
-        },
-        "pathObj": {
-            "path": "/Ac/Consumption/L1/Power",
-            "type": "float",
-            "name": "AC consumption L1 (W)"
-        },
-        "name": "AC Loads power",
-        "onlyChanges": false,
-        "roundValues": "0",
-        "x": 100,
-        "y": 500,
-        "wires": [
-            [
-                "ac-loads-dly-01"
-            ]
-        ]
-    },
-    {
-        "id": "ac-loads-dly-01",
-        "type": "delay",
-        "z": "b39f968e1031d079",
-        "name": "",
-        "pauseType": "delay",
-        "timeout": "10",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "1",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 440,
-        "y": 580,
-        "wires": [
-            [
-                "ac-loads-tag-01"
-            ]
-        ]
-    },
-    {
-        "id": "ac-loads-tag-01",
-        "type": "change",
-        "z": "b39f968e1031d079",
-        "name": "Tag AC load power",
-        "rules": [
-            {
-                "t": "set",
-                "p": "topic",
-                "pt": "msg",
-                "to": "ac-load-power",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 610,
-        "y": 580,
-        "wires": [
-            [
-                "8b41239661152d33"
-            ]
-        ]
-    },
-    {
-        "id": "notif-log-fmt-01",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Format notification for log",
-        "func": "const rawMessage = (msg.notification && msg.notification.message) || (typeof msg.payload === 'string' ? msg.payload : null);\nif (!rawMessage) return null;\n\nconst ts = (msg.notification && msg.notification.timestamp) || new Date().toISOString();\nconst logLine = ts + ' | ' + rawMessage + '\\n';\n\nconst d = new Date();\nconst dateKey = [\n    d.getFullYear(),\n    String(d.getMonth() + 1).padStart(2, '0'),\n    String(d.getDate()).padStart(2, '0')\n].join('-');\n\nconst logDir = '/data/grid-control-logs';\nmsg.filename = logDir + '/grid-control-' + dateKey + '.log';\nmsg.payload = logLine;\nmsg.encoding = 'utf8';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1130,
-        "y": 380,
-        "wires": [
-            [
-                "notif-log-file-01"
-            ]
-        ]
-    },
-    {
-        "id": "notif-log-file-01",
-        "type": "file",
-        "z": "b39f968e1031d079",
-        "name": "Append to daily log",
-        "filename": "filename",
-        "filenameType": "msg",
-        "appendNewline": false,
-        "createDir": true,
-        "overwriteFile": "false",
-        "encoding": "utf8",
-        "x": 1350,
-        "y": 380,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "notif-log-cln-inj-01",
-        "type": "inject",
-        "z": "b39f968e1031d079",
-        "name": "Daily cleanup midnight",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "01 00 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "",
-        "payloadType": "date",
-        "x": 160,
-        "y": 1000,
-        "wires": [
-            [
-                "notif-log-cln-ex-01"
-            ]
-        ]
-    },
-    {
-        "id": "notif-log-cln-ex-01",
-        "type": "exec",
-        "z": "b39f968e1031d079",
-        "command": "find /data/grid-control-logs -maxdepth 1 \\( -name 'grid-control-*.log' -o -name 'energy-*.log' \\) -mtime +45 -delete 2>/dev/null; echo done",
-        "addpay": "",
-        "append": "",
-        "useSpawn": "false",
-        "timer": "10",
-        "oldrc": false,
-        "name": "Delete logs older than 45 days",
-        "x": 460,
-        "y": 1000,
-        "wires": [
-            [],
-            [],
-            []
-        ]
-    },
-    {
-        "id": "energy-log-fmt-01",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Format hourly energy line",
-        "func": "if (!msg.payload || !msg.payload.hourKey) return null;\nconst { hourKey, gridWh, acWh } = msg.payload;\nconst dateKey = hourKey.substring(0, 10);\nconst hourLabel = hourKey.substring(11, 13);\nconst line = dateKey + ' ' + hourLabel + ':00 | Grid ' + gridWh + 'Wh | AC ' + acWh + 'Wh\\n';\nmsg.filename = '/data/grid-control-logs/energy-' + dateKey + '.log';\nmsg.payload = line;\nmsg.encoding = 'utf8';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 140,
-        "y": 700,
-        "wires": [
-            [
-                "energy-log-file-01"
-            ]
-        ]
-    },
-    {
-        "id": "energy-log-file-01",
-        "type": "file",
-        "z": "b39f968e1031d079",
-        "name": "Append to hourly energy log",
-        "filename": "filename",
-        "filenameType": "msg",
-        "appendNewline": false,
-        "createDir": true,
-        "overwriteFile": "false",
-        "encoding": "utf8",
-        "x": 400,
-        "y": 700,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "energy-summary-fn-01",
-        "type": "function",
-        "z": "b39f968e1031d079",
-        "name": "Update daily summary",
-        "func": "if (!msg.payload || !msg.payload.hourKey) return null;\nconst { hourKey, gridWh, acWh } = msg.payload;\nconst dateKey = hourKey.substring(0, 10);\nconst hourLabel = hourKey.substring(11, 13) + ':00';\n\nlet summary = flow.get('dailySummary') || { dateKey: '', hours: [] };\nif (summary.dateKey !== dateKey) {\n    summary = { dateKey, hours: [] };\n}\nsummary.hours = summary.hours.filter(h => h.hour !== hourLabel);\nsummary.hours.push({ hour: hourLabel, gridWh, acWh });\nsummary.hours.sort((a, b) => a.hour.localeCompare(b.hour));\nflow.set('dailySummary', summary);\n\nconst totalGrid = summary.hours.reduce((s, h) => s + h.gridWh, 0);\nconst totalAc   = summary.hours.reduce((s, h) => s + h.acWh, 0);\nconst lines = summary.hours.map(h => dateKey + ' ' + h.hour + ' | Grid ' + h.gridWh + 'Wh | AC ' + h.acWh + 'Wh');\nlines.push('');\nlines.push('TOTAL | Grid ' + totalGrid + 'Wh | AC ' + totalAc + 'Wh');\n\nmsg.payload  = lines.join('\\n') + '\\n';\nmsg.filename = '/data/grid-control-logs/summary-' + dateKey + '.log';\nmsg.encoding = 'utf8';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1060,
-        "y": 800,
-        "wires": [
-            [
-                "energy-summary-file-01"
-            ]
-        ]
-    },
-    {
-        "id": "energy-summary-file-01",
-        "type": "file",
-        "z": "b39f968e1031d079",
-        "name": "Write daily summary",
-        "filename": "filename",
-        "filenameType": "msg",
-        "appendNewline": false,
-        "createDir": true,
-        "overwriteFile": "true",
-        "encoding": "utf8",
-        "x": 1280,
-        "y": 800,
-        "wires": [
-            []
-        ]
+        {
+          "id": "a798fbe66cf133d5",
+          "port": 0
+        }
+      ]
     }
+  },
+  {
+    "id": "victron-client-id",
+    "type": "victron-client",
+    "showValues": true,
+    "contextStore": true,
+    "enablePolling": false
+  },
+  {
+    "id": "c706820c0d61f023",
+    "type": "http request",
+    "z": "93f485839dfa27a8",
+    "name": "",
+    "method": "GET",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 390,
+    "y": 180,
+    "wires": [
+      [
+        "1b5ccaa05d54f7c3"
+      ]
+    ]
+  },
+  {
+    "id": "b9488734852cd0ca",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "create forecast.solar url",
+    "func": "msg.url = 'https://api.forecast.solar/';\n\nif (env.get('apikey')) {\n    msg.url += env.get('apikey') + '/';\n    }\n\nmsg.url += env.get('type') + '/';\n\nmsg.url += env.get('watt') + '/';\n\nmsg.url += env.get('latitude') + '/' +\n           env.get('longitude') + '/' +\n           env.get('declination') + '/' +\n           env.get('azimuth') + '/' +\n           env.get('modules power');\n\nmsg.topic = 'solar forecast: '+(env.get('type') || '');\nmsg.topic += (' '+env.get('watt') || '');\nif (env.get('kwhoutput')) {\n    msg.topic += ' (kWh)';\n}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 630,
+    "y": 100,
+    "wires": [
+      [
+        "975daf96f15cfb61"
+      ]
+    ]
+  },
+  {
+    "id": "1b5ccaa05d54f7c3",
+    "type": "json",
+    "z": "93f485839dfa27a8",
+    "name": "Convert to json",
+    "property": "payload",
+    "action": "",
+    "pretty": false,
+    "x": 680,
+    "y": 180,
+    "wires": [
+      [
+        "e718a22973cc2864"
+      ]
+    ]
+  },
+  {
+    "id": "559391d1288f762a",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "update ratelimit",
+    "func": "var remaining = msg.payload.message.ratelimit.remaining || 0;\nvar limit = msg.payload.message.ratelimit.limit;\n\nflow.set('forecast.solar.ratelimit.remaining', remaining)\nflow.set('forecast.solar.ratelimit.limit', limit)\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 520,
+    "y": 480,
+    "wires": [
+      [
+        "e56826252134b93a"
+      ]
+    ]
+  },
+  {
+    "id": "e718a22973cc2864",
+    "type": "link out",
+    "z": "93f485839dfa27a8",
+    "name": "link out 1",
+    "mode": "link",
+    "links": [
+      "3fa24f2d08195961",
+      "0a20e852662c8cec"
+    ],
+    "x": 815,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "3fa24f2d08195961",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 1",
+    "links": [
+      "e718a22973cc2864"
+    ],
+    "x": 385,
+    "y": 480,
+    "wires": [
+      [
+        "559391d1288f762a"
+      ]
+    ]
+  },
+  {
+    "id": "0a20e852662c8cec",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 2",
+    "links": [
+      "e718a22973cc2864"
+    ],
+    "x": 225,
+    "y": 260,
+    "wires": [
+      [
+        "fcc8d69a3ab88e6d"
+      ]
+    ]
+  },
+  {
+    "id": "4734b6f403e1f03e",
+    "type": "inject",
+    "z": "93f485839dfa27a8",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 530,
+    "y": 440,
+    "wires": [
+      [
+        "e56826252134b93a"
+      ]
+    ]
+  },
+  {
+    "id": "1bfc1cde3ee94e4b",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "update status",
+    "func": "var remaining = flow.get('forecast.solar.ratelimit.remaining') || -1;\nvar limit = flow.get('forecast.solar.ratelimit.limit') || -1\n\nvar text = remaining.toString() + '/' + limit.toString();\nvar fill = \"green\";\n\nif (remaining == 0) {\n    fill = \"red\";\n    text = \"Limit used\";\n}\n\nif (remaining > 0 && remaining < limit / 2) {\n    fill = \"yellow\"\n}\n\nif (remaining == -1 ) {\n    fill = \"blue\"\n    text = \"Limits unknown\"\n}\n\nmsg.payload = ({ fill: fill, text: text });\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 520,
+    "y": 580,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "a18e96179ec2d987",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "Create graph output",
+    "func": "var m = {};\nm.labels = [];\nm.data = [];\n\nm.series = [];\nm.data = [];\nm.labels = [];\n\nfor (let j = 0; j <= msg.days; j++) {\n    m.data[j] = [];\n}\n\nif (msg.watt === 'watt_hours_day') {\n    var i = 0;\n    m.series.push(\"Watt hours per day\");\n    for (const key in msg.payload.result) {\n        m.labels.push(key);\n        if (msg.kwhoutput) {\n            m.data[i] = +(Math.round(msg.payload.result[key]/100)*.1).toFixed(1);\n        } else {\n            m.data[i] = msg.payload.result[key];\n        }\n        i++;\n    }\n    m.data = [m.data];\n    return { payload: [m] };\n}\n\nfor (let i = 0; i <= 23; i++) {\n\n    m.labels.push(i.toString()+':00');\n    if (msg.resolution === 4) {\n       m.labels.push(i.toString()+':15');\n    }\n    if (msg.resolution === 2 || msg.resolution == 4) {\n       m.labels.push(i.toString()+':30');\n    }\n    if (msg.resolution === 4) {\n       m.labels.push(i.toString()+':45');\n    }\n\n    for (let j = 0; j <= msg.days; j++) {\n        m.data[j].push(0);\n        if (msg.resolution === 4) {\n           m.data[j].push(0)\n        }\n        if (msg.resolution === 2 || msg.resolution == 4) {\n           m.data[j].push(0)\n        }\n        if (msg.resolution === 4) {\n           m.data[j].push(0)\n        }\n\n    }\n}\n\nvar offset = 0;\nfor (const key in msg.payload.result) {\n    var d = new Date(key)\n    if (m.series.indexOf(d.toISOString().split('T')[0]) === -1) {\n        m.series.push(d.toISOString().split('T')[0])\n    }\n\n    var h = d.getHours();\n    var minutes = d.getMinutes();\n\n    if (minutes === 0 ) {\n        offset = 0;\n    } else {\n        offset++;\n    }\n\n    if (msg.kwhoutput) {\n        m.data[m.series.length - 1][h*msg.resolution+offset] = +(Math.round(msg.payload.result[key]/100)*.1).toFixed(1);\n    } else {\n        m.data[m.series.length - 1][h*msg.resolution+offset] = msg.payload.result[key];\n    }\n}\n\nreturn { payload: [m] };\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 360,
+    "y": 340,
+    "wires": [
+      [
+        "5b0a430fb61e70e7"
+      ]
+    ]
+  },
+  {
+    "id": "975daf96f15cfb61",
+    "type": "link out",
+    "z": "93f485839dfa27a8",
+    "name": "link out 7",
+    "mode": "link",
+    "links": [
+      "14f2e68e572f4ef8"
+    ],
+    "x": 805,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "14f2e68e572f4ef8",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 18",
+    "links": [
+      "975daf96f15cfb61"
+    ],
+    "x": 245,
+    "y": 180,
+    "wires": [
+      [
+        "c706820c0d61f023"
+      ]
+    ]
+  },
+  {
+    "id": "c4307905e114824f",
+    "type": "catch",
+    "z": "93f485839dfa27a8",
+    "name": "",
+    "scope": null,
+    "uncaught": false,
+    "x": 260,
+    "y": 440,
+    "wires": [
+      [
+        "f427f19392c399ce"
+      ]
+    ]
+  },
+  {
+    "id": "e56826252134b93a",
+    "type": "link out",
+    "z": "93f485839dfa27a8",
+    "name": "link out 8",
+    "mode": "link",
+    "links": [
+      "dbaf8f5f5a920686"
+    ],
+    "x": 685,
+    "y": 480,
+    "wires": []
+  },
+  {
+    "id": "dbaf8f5f5a920686",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 19",
+    "links": [
+      "e56826252134b93a"
+    ],
+    "x": 385,
+    "y": 580,
+    "wires": [
+      [
+        "1bfc1cde3ee94e4b"
+      ]
+    ]
+  },
+  {
+    "id": "f427f19392c399ce",
+    "type": "link out",
+    "z": "93f485839dfa27a8",
+    "name": "link out 9",
+    "mode": "link",
+    "links": [
+      "2ded0c14a222b4d9",
+      "2f42837904c91d73"
+    ],
+    "x": 375,
+    "y": 440,
+    "wires": []
+  },
+  {
+    "id": "2ded0c14a222b4d9",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 20",
+    "links": [
+      "f427f19392c399ce"
+    ],
+    "x": 385,
+    "y": 540,
+    "wires": [
+      [
+        "a798fbe66cf133d5"
+      ]
+    ]
+  },
+  {
+    "id": "a798fbe66cf133d5",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "Set error status",
+    "func": "node.warn(msg.payload)\nmsg.payload = ({ fill: \"red\", text: msg.payload });\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 520,
+    "y": 540,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "2f42837904c91d73",
+    "type": "link in",
+    "z": "93f485839dfa27a8",
+    "name": "link in 21",
+    "links": [
+      "f427f19392c399ce"
+    ],
+    "x": 665,
+    "y": 280,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "fcc8d69a3ab88e6d",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "Processed info",
+    "func": "msg.resolution = 60;\nmsg.days = 1;\nmsg.type = env.get('type');\nmsg.watt = env.get('watt');\nmsg.kwhoutput = env.get('kwhoutput');\n\nvar key1 = Object.keys(msg.payload.result)[1];\nvar key2 = Object.keys(msg.payload.result)[2];\nvar key3 = Object.keys(msg.payload.result)[Object.keys(msg.payload.result).length-1];\n\nvar d1 = new Date(key1);\nvar d2 = new Date(key2); \nvar d3 = new Date(key3);\nmsg.resolution = 3600000 / (d2.getTime() - d1.getTime());\n\nmsg.days = Math.floor((d3.getTime() - d1.getTime()) / (1000 * 3600 * 24));\n\nif (msg.watt === 'watt_hours_day') {\n    msg.resolution = null;\n}\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 360,
+    "y": 260,
+    "wires": [
+      [
+        "a18e96179ec2d987"
+      ]
+    ],
+    "info": "Function to process the result from forecast.solar to add\nextra information, which is handy for either graphing or\nto store in a database.\n\n\nThe extra values added:\n- `msg.resolution` - The number of measurements per hour. If\nno API key is used, this will be 1. Other values may be 2 or 4.\n- `msg.days` - The number of days in the forcast. If no API\n- key is used this will be 1. Other values may be 3 or 6."
+  },
+  {
+    "id": "5b0a430fb61e70e7",
+    "type": "function",
+    "z": "93f485839dfa27a8",
+    "name": "Filter graph",
+    "func": "var forecasted = msg.payload[0].series.length;\n\nif ((env.get('daystoforecast') > -1) && (env.get('daystoforecast') < forecasted)) {\n    for (i = 1; i < (forecasted - env.get('daystoforecast')); i++ ) {\n        msg.payload[0].data.pop();\n        msg.payload[0].series.pop();\n    }\n}\n\nif (env.get('watt') === 'watt_hours_day' ) {\n    forecasted = msg.payload[0].labels.length;\n    for (i = 1; i < (forecasted - env.get('daystoforecast')); i++ ) {\n        msg.payload[0].labels.pop();\n        msg.payload[0].data[0].pop();\n    }\n}\n\nif (!env.get('showtoday')) {\n    msg.payload[0].data.shift();\n    msg.payload[0].series.shift();\n}\n\nif (env.get('widengraph')) {\n    var c = msg.payload[0].labels.length;\n    var x = 0;\n    for (i = 0; i < c; i++) {\n        var remove = true;\n        for (d = 0; d < msg.payload[0].data.length; d++) {\n            if (msg.payload[0].data[d][x] > 0) {\n                remove = false;\n            }\n        }\n        if (remove) {\n            msg.payload[0].labels.splice(x, 1);\n            for (d = 0; d < msg.payload[0].data.length; d++) {\n                 msg.payload[0].data[d].splice(x, 1);\n            }\n            x--;\n        }\n        x++;\n    }\n    // Still the first and last datapoints should be zero, so\n    // add those again\n    msg.payload[0].labels.unshift('');\n    msg.payload[0].labels.push('');\n    for (d = 0; d < msg.payload[0].data.length; d++) {\n         msg.payload[0].data[d].unshift(0);\n         msg.payload[0].data[d].push(0);\n    }   \n}\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 590,
+    "y": 340,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "c8dc6aa14b9f3e92",
+    "type": "delay",
+    "z": "93f485839dfa27a8",
+    "name": "1 msg/15 minutes",
+    "pauseType": "rate",
+    "timeout": "5",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "15",
+    "rateUnits": "minute",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 390,
+    "y": 100,
+    "wires": [
+      [
+        "b9488734852cd0ca"
+      ]
+    ]
+  },
+  {
+    "id": "38cdc606e517f343",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "DAY 06:00 Grid setpoint 1980W",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "00 06 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "2000",
+    "payloadType": "num",
+    "x": 160,
+    "y": 80,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "06e45794ecc4d862",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "NIGHT 22:00 Grid setpoint 2850W",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "00 22 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "2850",
+    "payloadType": "num",
+    "x": 160,
+    "y": 160,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "75b51f2a52d9269f",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "DAY 06:00 Grid current 9.55A",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "00 06 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "9.55",
+    "payloadType": "num",
+    "x": 160,
+    "y": 260,
+    "wires": [
+      [
+        "8b41239661152d33",
+        "e2290cb1f7a49d0a"
+      ]
+    ]
+  },
+  {
+    "id": "2de83ef77845b15e",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "NIGHT 22:00 Grid current 13.5A",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "00 22 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "13.5",
+    "payloadType": "num",
+    "x": 160,
+    "y": 340,
+    "wires": [
+      [
+        "8b41239661152d33",
+        "e2290cb1f7a49d0a"
+      ]
+    ]
+  },
+  {
+    "id": "e2290cb1f7a49d0a",
+    "type": "victron-output-vebus",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.vebus/276",
+    "path": "/Ac/In/1/CurrentLimit",
+    "serviceObj": {
+      "service": "com.victronenergy.vebus/276",
+      "name": "MultiPlus-II 48/5000/70-50"
+    },
+    "pathObj": {
+      "path": "/Ac/In/1/CurrentLimit",
+      "type": "float",
+      "name": "Input 1 current limit (A)",
+      "mode": "both"
+    },
+    "initial": 9.55,
+    "name": "",
+    "onlyChanges": false,
+    "x": 1250,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "7aa133df1d5e66a6",
+    "type": "victron-output-ess",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.settings",
+    "path": "/Settings/CGwacs/AcPowerSetPoint",
+    "serviceObj": {
+      "service": "com.victronenergy.settings",
+      "name": "Venus settings"
+    },
+    "pathObj": {
+      "path": "/Settings/CGwacs/AcPowerSetPoint",
+      "type": "integer",
+      "name": "Grid set-point (W)",
+      "mode": "both"
+    },
+    "initial": 1980,
+    "name": "",
+    "onlyChanges": false,
+    "x": 1200,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "0e81be212962775a",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "Delay 10s",
+    "pauseType": "rate",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "10",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": true,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 960,
+    "y": 120,
+    "wires": [
+      [
+        "7aa133df1d5e66a6"
+      ]
+    ]
+  },
+  {
+    "id": "6960ea566e7cdb62",
+    "type": "victron-output-ess",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.settings",
+    "path": "/Settings/SystemSetup/MaxChargeCurrent",
+    "serviceObj": {
+      "service": "com.victronenergy.settings",
+      "name": "Venus settings"
+    },
+    "pathObj": {
+      "path": "/Settings/SystemSetup/MaxChargeCurrent",
+      "type": "float",
+      "name": "DVCC Charge current limit (A)",
+      "mode": "both"
+    },
+    "initial": 0,
+    "name": "DVCC Charge current Limit (A)",
+    "onlyChanges": false,
+    "x": 1190,
+    "y": 240,
+    "wires": []
+  },
+  {
+    "id": "99d0e69cfbce3558",
+    "type": "victron-input-battery",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.battery/4",
+    "path": "/Dc/0/Voltage",
+    "serviceObj": {
+      "service": "com.victronenergy.battery/4",
+      "name": "SerialBattery(LLT/JBD)"
+    },
+    "pathObj": {
+      "path": "/Dc/0/Voltage",
+      "type": "float",
+      "name": "Battery voltage (V)"
+    },
+    "name": "",
+    "onlyChanges": false,
+    "roundValues": "1",
+    "x": 180,
+    "y": 560,
+    "wires": [
+      [
+        "6fa076ce802cb026"
+      ]
+    ]
+  },
+  {
+    "id": "0124f55e1e8bacce",
+    "type": "change",
+    "z": "b39f968e1031d079",
+    "name": "Tag battery voltage",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "battery-voltage",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 630,
+    "y": 520,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "batt-ah-src-01",
+    "type": "victron-input-battery",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.battery/4",
+    "path": "/ConsumedAmphours",
+    "serviceObj": {
+      "service": "com.victronenergy.battery/4",
+      "name": "SerialBattery(LLT/JBD)"
+    },
+    "pathObj": {
+      "path": "/ConsumedAmphours",
+      "type": "float",
+      "name": "Consumed Amphours (Ah)"
+    },
+    "name": "BMS consumed Ah",
+    "onlyChanges": false,
+    "roundValues": "1",
+    "x": 180,
+    "y": 620,
+    "wires": [
+      [
+        "batt-ah-dly-01"
+      ]
+    ]
+  },
+  {
+    "id": "batt-ah-dly-01",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "",
+    "pauseType": "delay",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 410,
+    "y": 620,
+    "wires": [
+      [
+        "batt-ah-tag-01"
+      ]
+    ]
+  },
+  {
+    "id": "batt-ah-tag-01",
+    "type": "change",
+    "z": "b39f968e1031d079",
+    "name": "Tag battery consumed Ah",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "battery-consumed-ah",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 650,
+    "y": 620,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "161e9cd83df516fb",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "",
+    "pauseType": "delay",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 380,
+    "y": 440,
+    "wires": [
+      [
+        "8fda65985ff7ea11"
+      ]
+    ]
+  },
+  {
+    "id": "8fda65985ff7ea11",
+    "type": "change",
+    "z": "b39f968e1031d079",
+    "name": "Tag grid power",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "grid-power",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 790,
+    "y": 440,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "8b41239661152d33",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Battery + Grid Controller",
+    "func": "// ==========================\r\n// LOGIC SUMMARY / CHANGE NOTES\r\n// ==========================\r\n// Flow version rule:\r\n// - the Node-RED tab label in `flows.json` uses `d#<n>` as the deployed flow version marker\r\n// - increment that marker every time `flows.json` changes so the active Node-RED flow version is visible\r\n// - keep this file, the embedded controller function, and the tab version rule synchronized\r\n// Current behavior implemented after iterative tuning:\r\n// 1. This function now has 5 outputs:\r\n//    - output 1 -> DVCC charge current limit (A)\r\n//    - output 2 -> ESS grid setpoint (W)\r\n//    - output 3 -> VE.Bus AC input current limit (A)\r\n//    - output 4 -> notification/log message when the grid setpoint changes\r\n//    - output 5 -> hourly energy rollover message for log/summary writers\r\n// 2. The function accepts multiple message types:\r\n//    - `topic = battery-voltage` -> updates battery voltage state\r\n//    - `topic = battery-consumed-ah` -> updates the BMS net consumed Ah deficit\r\n//    - `topic = grid-power` -> updates measured grid import power in W\r\n//      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)\r\n//    - `topic = ac-load-power` -> updates measured AC loads power in W\r\n//      (source: GX System `/Ac/Consumption/L1/Power`)\r\n//    - any other topic / inject -> recalculates outputs using stored state\r\n// 3. Battery restoration uses BMS Consumed Amphours as the net deficit to refill.\r\n// 4. Grid charging happens only in NIGHT and MORNING windows and runs at 25A when needed.\r\n// 5. Night charging starts only when the remaining deficit can no longer be covered by\r\n//    the remaining MORNING window alone; MORNING charges any remaining grid deficit.\r\n// 6. Base grid setpoint schedule:\r\n//    - 2850W at night\r\n//    - 1980W during the rest of the day\r\n// 7. High-voltage protection for unknown external MPPT charging:\r\n//    - start limiting when battery voltage rises above 55.4V\r\n//    - release only after voltage drops back to 55.2V or lower\r\n//    - taper grid setpoint smoothly down to a minimum of 200W by 55.6V\r\n// 8. Hourly import Wh is tracked for display only:\r\n//    - integrates positive grid import within the current clock hour\r\n//    - shows accumulated Wh together with the actual accumulation start/end time in status\r\n//    - does not change charge current, grid setpoint, or any other output\r\n// 9. Solar prediction is connected to restoration planning:\r\n//    - reads `flow.solarForecastToday`\r\n//    - accepts forecast only when it is for the current day and <= 18h old\r\n//    - converts forecast energy to estimated battery Ah restoration\r\n//    - subtracts predicted solar restoration from the grid-restoration target\r\n//    - uses the forecasted energy amount directly; condition stays informational\r\n//    - does not change grid setpoint directly\r\n// 10. Remaining average watts left in the current hour are shown for info only when\r\n//    tracking for that hour started at the beginning of the hour.\r\n// 11. Final grid setpoint is the minimum of:\r\n//    - base schedule\r\n//    - high-voltage limit\r\n// 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not\r\n//     see large sudden load changes.\r\n// 13. VE.Bus Input 1 current limit is no longer controlled by this function.\r\n// 14. A VRM notification is emitted when the grid setpoint changes.\r\n// 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are\r\n//     all stored in context.\r\n// 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.\r\n// 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.\r\n// 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).\r\n// 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.\r\n//     Old log files are pruned automatically; files older than 45 days are deleted at midnight.\r\n\r\n// ==========================\r\n// INPUT / OUTPUT TOPICS\r\n// ==========================\r\nconst BATTERY_TOPIC = \"battery-voltage\";\r\nconst BATTERY_CONSUMED_AH_TOPIC = \"battery-consumed-ah\";\r\nconst GRID_TOPIC = \"grid-power\";\r\nconst AC_LOAD_TOPIC = \"ac-load-power\";\r\n\r\n// ==========================\r\n// CONSTANTS\r\n// ==========================\r\nconst MAX_CHARGE_CURRENT = 25;\r\nconst BATTERY_NOMINAL_VOLTAGE = 52;\r\nconst SOLAR_TO_BATTERY_EFFICIENCY = 0.9;\r\nconst RESTORE_AH_DEADBAND = 0.5;\r\n\r\nconst SOLAR_FORECAST_MAX_AGE_HOURS = 18;\r\n\r\nconst DAY_BASE_GRID_SETPOINT = 1980;\r\nconst NIGHT_BASE_GRID_SETPOINT = 2850;\r\nconst DAY_HOURLY_BUDGET_W = 1980;\r\nconst NIGHT_HOURLY_BUDGET_W = 2850;\r\n\r\nconst HIGH_VOLTAGE_LIMIT_START = 55.4;\r\nconst HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;\r\nconst HIGH_VOLTAGE_LIMIT_FULL = 55.6;\r\nconst MIN_GRID_SETPOINT = 200;\r\nconst MAX_GRID_STEP_W = 100;\r\n\r\n// ==========================\r\n// TIME\r\n// ==========================\r\nconst now = new Date();\r\nconst hour = now.getHours();\r\nconst minute = now.getMinutes();\r\nconst second = now.getSeconds();\r\n\r\n// ==========================\r\n// CONTEXT MEMORY\r\n// ==========================\r\nlet boostActive = context.get(\"boostActive\") || false;\r\nconst previousWindow = context.get(\"activeWindow\") || \"none\";\r\nlet batteryVoltage = Number(context.get(\"batteryVoltage\"));\r\nconst rawStoredConsumedAh = context.get(\"batteryConsumedAh\");\r\nlet consumedAhDeficit = Number.isFinite(Number(rawStoredConsumedAh)) ? Math.max(0, Number(rawStoredConsumedAh)) : Number.NaN;\r\nconst rawStoredGridPower = context.get(\"gridPowerW\");\r\nconst hasGridPowerReading = rawStoredGridPower !== undefined && rawStoredGridPower !== null && Number.isFinite(Number(rawStoredGridPower));\r\nconst storedGridPowerW = hasGridPowerReading ? Math.max(0, Number(rawStoredGridPower)) : 0;\r\nlet gridPowerW = storedGridPowerW;\r\nconst rawStoredAcLoadPower = context.get(\"acLoadPowerW\");\r\nconst hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPower !== null && Number.isFinite(Number(rawStoredAcLoadPower));\r\nconst storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;\r\nlet voltageLimitActive = context.get(\"voltageLimitActive\") || false;\r\nconst previousGridSetpoint = Number(context.get(\"gridSetpoint\"));\r\nlet hourBudget = context.get(\"hourBudget\") || {\r\n    hourKey: \"\",\r\n    lastTs: 0,\r\n    usedWh: 0,\r\n    startTs: 0,\r\n    fullHourCoverage: false\r\n};\r\nlet acLoadBudget = context.get(\"acLoadBudget\") || {\r\n    hourKey: \"\",\r\n    lastTs: 0,\r\n    usedWh: 0,\r\n    startTs: 0,\r\n    fullHourCoverage: false\r\n};\r\n\r\n// ==========================\r\n// HELPERS\r\n// ==========================\r\nfunction clamp(value, min, max) {\r\n    return Math.min(Math.max(value, min), max);\r\n}\r\n\r\nfunction round1(value) {\r\n    return Math.round(value * 10) / 10;\r\n}\r\n\r\nfunction getHourKey(date) {\r\n    return [\r\n        date.getFullYear(),\r\n        String(date.getMonth() + 1).padStart(2, \"0\"),\r\n        String(date.getDate()).padStart(2, \"0\")\r\n    ].join(\"-\") + \" \" + String(date.getHours()).padStart(2, \"0\");\r\n}\r\n\r\nfunction getHourStartTs(date) {\r\n    return new Date(\r\n        date.getFullYear(),\r\n        date.getMonth(),\r\n        date.getDate(),\r\n        date.getHours(),\r\n        0,\r\n        0,\r\n        0\r\n    ).getTime();\r\n}\r\n\r\nfunction getDayKey(date) {\r\n    return [\r\n        date.getFullYear(),\r\n        String(date.getMonth() + 1).padStart(2, \"0\"),\r\n        String(date.getDate()).padStart(2, \"0\")\r\n    ].join(\"-\");\r\n}\r\n\r\nfunction formatTime(date) {\r\n    return `${String(date.getHours()).padStart(2, \"0\")}:${String(date.getMinutes()).padStart(2, \"0\")}`;\r\n}\r\n\r\nfunction getSolarForecastSummary(date) {\r\n    const rawForecast = flow.get(\"solarForecastToday\");\r\n\r\n    if (!rawForecast || typeof rawForecast !== \"object\") {\r\n        return {\r\n            valid: false,\r\n            condition: \"unknown\",\r\n            energyKWh: 0,\r\n            peakKW: 0\r\n        };\r\n    }\r\n\r\n    const updatedAt = new Date(rawForecast.updatedAt);\r\n    const ageHours = Number.isFinite(updatedAt.getTime())\r\n        ? (date.getTime() - updatedAt.getTime()) / 3600000\r\n        : Number.POSITIVE_INFINITY;\r\n    const sameDay = Number.isFinite(updatedAt.getTime())\r\n        ? getDayKey(updatedAt) === getDayKey(date)\r\n        : false;\r\n\r\n    return {\r\n        valid: sameDay && ageHours >= 0 && ageHours <= SOLAR_FORECAST_MAX_AGE_HOURS,\r\n        condition: String(rawForecast.condition || \"unknown\").toLowerCase(),\r\n        energyKWh: Number(rawForecast.energyKWh) || 0,\r\n        peakKW: Number(rawForecast.peakKW) || 0\r\n    };\r\n}\r\n\r\nfunction normalizeConsumedAh(value) {\r\n    const numeric = Number(value);\r\n\r\n    if (!Number.isFinite(numeric)) {\r\n        return Number.NaN;\r\n    }\r\n\r\n    if (numeric < 0) {\r\n        return Math.max(0, -numeric);\r\n    }\r\n\r\n    return Math.max(0, numeric);\r\n}\r\n\r\nfunction getForecastRestoreAh(forecast, voltage) {\r\n    if (!forecast.valid || forecast.energyKWh <= 0) {\r\n        return 0;\r\n    }\r\n\r\n    const referenceVoltage = Number.isFinite(voltage) && voltage > 0\r\n        ? voltage\r\n        : BATTERY_NOMINAL_VOLTAGE;\r\n\r\n    return (forecast.energyKWh * 1000 * SOLAR_TO_BATTERY_EFFICIENCY) / referenceVoltage;\r\n}\r\n\r\nfunction getRemainingNightHours(date) {\r\n    const currentHour = date.getHours();\r\n    const inNightWindow = currentHour >= 22 || currentHour < 6;\r\n\r\n    if (!inNightWindow) {\r\n        return 0;\r\n    }\r\n\r\n    const end = new Date(date);\r\n    if (currentHour >= 22) {\r\n        end.setDate(end.getDate() + 1);\r\n    }\r\n    end.setHours(6, 0, 0, 0);\r\n    return Math.max(0, (end.getTime() - date.getTime()) / 3600000);\r\n}\r\n\r\nfunction getRemainingMorningHours(date) {\r\n    const currentHour = date.getHours();\r\n\r\n    if (currentHour < 6 || currentHour >= 22) {\r\n        return 6;\r\n    }\r\n\r\n    if (currentHour >= 6 && currentHour < 12) {\r\n        const end = new Date(date);\r\n        end.setHours(12, 0, 0, 0);\r\n        return Math.max(0, (end.getTime() - date.getTime()) / 3600000);\r\n    }\r\n\r\n    return 0;\r\n}\r\n\r\nfunction advanceHourBudget(state, date, importPowerW) {\r\n    const nextState = {\r\n        hourKey: state.hourKey || \"\",\r\n        lastTs: Number(state.lastTs) || 0,\r\n        usedWh: Number(state.usedWh) || 0,\r\n        startTs: Number(state.startTs) || 0,\r\n        fullHourCoverage: Boolean(state.fullHourCoverage)\r\n    };\r\n\r\n    const nowTs = date.getTime();\r\n    const hourKey = getHourKey(date);\r\n    const hourStartTs = getHourStartTs(date);\r\n\r\n    if (!nextState.lastTs || nextState.hourKey !== hourKey || nextState.lastTs < hourStartTs) {\r\n        nextState.hourKey = hourKey;\r\n        nextState.lastTs = hourStartTs;\r\n        nextState.usedWh = 0;\r\n        nextState.startTs = date.getMinutes() === 0 ? hourStartTs : nowTs;\r\n        nextState.fullHourCoverage = date.getMinutes() === 0;\r\n    }\r\n\r\n    if (nowTs > nextState.lastTs) {\r\n        const deltaHours = (nowTs - nextState.lastTs) / 3600000;\r\n        nextState.usedWh += Math.max(0, importPowerW) * deltaHours;\r\n        nextState.lastTs = nowTs;\r\n    }\r\n\r\n    return nextState;\r\n}\r\n\r\nfunction smoothReduction(previousValue, targetValue, maxStep) {\r\n    if (!Number.isFinite(previousValue)) {\r\n        return targetValue;\r\n    }\r\n\r\n    if (targetValue < previousValue - maxStep) {\r\n        return previousValue - maxStep;\r\n    }\r\n\r\n    if (targetValue > previousValue + maxStep) {\r\n        return previousValue + maxStep;\r\n    }\r\n\r\n    return targetValue;\r\n}\r\n\r\nfunction buildNotification(window, gridSetpoint) {\r\n    const parts = [\r\n        `${window}`,\r\n        `V=${batteryVoltage.toFixed(2)}V`,\r\n        `Grid setpoint=${gridSetpoint}W`\r\n    ];\r\n\r\n    if (limitFlags.length > 0) {\r\n        parts.push(`Limit=${limitFlags.join(\"+\")}`);\r\n    }\r\n\r\n    return {\r\n        topic: \"vrm-notification\",\r\n        payload: parts.join(\" | \"),\r\n        notification: {\r\n            message: parts.join(\" | \"),\r\n            level: \"info\",\r\n            timestamp: now.toISOString()\r\n        }\r\n    };\r\n}\r\n\r\nfunction buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {\r\n    const notifyMsg =\r\n        gridSetpoint !== previousGridSetpoint\r\n            ? buildNotification(windowName, gridSetpoint)\r\n            : null;\r\n\r\n    return [\r\n        {\r\n            topic: \"charge-current-limit\",\r\n            payload: chargeCurrent\r\n        },\r\n        {\r\n            topic: \"grid-setpoint\",\r\n            payload: gridSetpoint\r\n        },\r\n        {\r\n            topic: \"ac-input-current-limit\",\r\n            payload: null\r\n        },\r\n        notifyMsg,\r\n        hourlyLogMsg || null\r\n    ];\r\n}\r\n\r\n// ==========================\r\n// UPDATE STORED INPUTS\r\n// ==========================\r\nconst prevHourKey = hourBudget.hourKey;\r\nconst prevHourGridWh = Number(hourBudget.usedWh) || 0;\r\nconst prevHourAcWh = Number(acLoadBudget.usedWh) || 0;\r\nhourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);\r\nacLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);\r\nconst hourRolledOver = prevHourKey && prevHourKey !== hourBudget.hourKey;\r\n\r\nif (msg.topic === BATTERY_TOPIC) {\r\n    const incomingVoltage = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingVoltage)) {\r\n        batteryVoltage = incomingVoltage;\r\n        context.set(\"batteryVoltage\", batteryVoltage);\r\n    }\r\n}\r\nelse if (msg.topic === BATTERY_CONSUMED_AH_TOPIC) {\r\n    const normalizedConsumedAh = normalizeConsumedAh(msg.payload);\r\n\r\n    if (Number.isFinite(normalizedConsumedAh)) {\r\n        consumedAhDeficit = normalizedConsumedAh;\r\n        context.set(\"batteryConsumedAh\", consumedAhDeficit);\r\n    }\r\n}\r\nelse if (msg.topic === GRID_TOPIC) {\r\n    const incomingGridPower = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingGridPower)) {\r\n        gridPowerW = Math.max(0, incomingGridPower);\r\n        context.set(\"gridPowerW\", gridPowerW);\r\n    }\r\n}\r\nelse if (msg.topic === AC_LOAD_TOPIC) {\r\n    const incomingAcLoadPower = Number(msg.payload);\r\n\r\n    if (Number.isFinite(incomingAcLoadPower)) {\r\n        context.set(\"acLoadPowerW\", Math.max(0, incomingAcLoadPower));\r\n    }\r\n}\r\n\r\ncontext.set(\"hourBudget\", hourBudget);\r\ncontext.set(\"acLoadBudget\", acLoadBudget);\r\n\r\nif (!Number.isFinite(batteryVoltage)) {\r\n    node.status({\r\n        fill: \"grey\",\r\n        shape: \"ring\",\r\n        text: \"WAITING FOR BATTERY VOLTAGE\"\r\n    });\r\n    return null;\r\n}\r\n\r\nif (!Number.isFinite(consumedAhDeficit)) {\r\n    node.status({\r\n        fill: \"grey\",\r\n        shape: \"ring\",\r\n        text: \"WAITING FOR BMS CONSUMED AH\"\r\n    });\r\n    return null;\r\n}\r\n\r\n// ==========================\r\n// TIME WINDOWS\r\n// ==========================\r\nconst nightWindow = (hour >= 22 || hour < 6);\r\n\r\nconst morningWindow =\r\n    (hour > 6 && hour < 11) ||\r\n    (hour === 6) ||\r\n    (hour === 11 && minute <= 59);\r\n\r\nconst eveningWindow = hour >= 17;\r\n\r\nconst baseScheduleSetpoint = nightWindow ? NIGHT_BASE_GRID_SETPOINT : DAY_BASE_GRID_SETPOINT;\r\nconst hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGET_W;\r\n\r\n// ==========================\r\n// CAPACITY RESTORATION LOGIC\r\n// ==========================\r\nlet windowName = \"OUTSIDE\";\r\nlet baseChargeCurrent = 0;\r\nconst solarForecast = getSolarForecastSummary(now);\r\nconst forecastRestoreAh = getForecastRestoreAh(solarForecast, batteryVoltage);\r\nconst gridRestoreAhNeeded = Math.max(0, consumedAhDeficit - forecastRestoreAh);\r\nconst remainingNightHours = getRemainingNightHours(now);\r\nconst remainingMorningHours = getRemainingMorningHours(now);\r\nconst remainingMorningCapacityAh = remainingMorningHours * MAX_CHARGE_CURRENT;\r\n\r\nif (nightWindow) {\r\n    windowName = \"NIGHT\";\r\n    boostActive = gridRestoreAhNeeded > Math.max(RESTORE_AH_DEADBAND, remainingMorningCapacityAh);\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse if (morningWindow) {\r\n    windowName = \"MORNING\";\r\n    boostActive = gridRestoreAhNeeded > RESTORE_AH_DEADBAND;\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse if (eveningWindow) {\r\n    windowName = \"EVENING\";\r\n    boostActive = false;\r\n    baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;\r\n}\r\nelse {\r\n    boostActive = false;\r\n    baseChargeCurrent = 0;\r\n}\r\n\r\n// ==========================\r\n// HIGH-VOLTAGE GRID SETPOINT LIMIT\r\n// ==========================\r\nif (!voltageLimitActive && batteryVoltage > HIGH_VOLTAGE_LIMIT_START) {\r\n    voltageLimitActive = true;\r\n}\r\n\r\nif (voltageLimitActive && batteryVoltage <= HIGH_VOLTAGE_LIMIT_RELEASE) {\r\n    voltageLimitActive = false;\r\n}\r\n\r\nlet voltageLimitedSetpoint = baseScheduleSetpoint;\r\n\r\nif (voltageLimitActive) {\r\n    const taper = clamp(\r\n        (HIGH_VOLTAGE_LIMIT_FULL - batteryVoltage) /\r\n        (HIGH_VOLTAGE_LIMIT_FULL - HIGH_VOLTAGE_LIMIT_START),\r\n        0,\r\n        1\r\n    );\r\n\r\n    voltageLimitedSetpoint = Math.round(\r\n        MIN_GRID_SETPOINT + (baseScheduleSetpoint - MIN_GRID_SETPOINT) * taper\r\n    );\r\n}\r\n\r\n// Apply smoothing only to the voltage-based reduction so the battery does not see large jumps.\r\nif (voltageLimitActive) {\r\n    voltageLimitedSetpoint = Math.round(\r\n        smoothReduction(\r\n            previousGridSetpoint,\r\n            voltageLimitedSetpoint,\r\n            MAX_GRID_STEP_W\r\n        )\r\n    );\r\n}\r\n\r\n// ==========================\r\n// FINAL OUTPUTS\r\n// ==========================\r\nconst finalGridSetpoint = Math.max(\r\n    0,\r\n    Math.round(\r\n        Math.min(\r\n            baseScheduleSetpoint,\r\n            voltageLimitedSetpoint\r\n        )\r\n    )\r\n);\r\n\r\nconst currentRatio = baseScheduleSetpoint > 0\r\n    ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)\r\n    : 0;\r\n\r\nconst finalChargeCurrent = baseChargeCurrent > 0\r\n    ? round1(baseChargeCurrent * currentRatio)\r\n    : 0;\r\nconst usedWh = hourBudget.usedWh || 0;\r\nconst acUsedWh = acLoadBudget.usedWh || 0;\r\nconst usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));\r\nconst usedEnergyEndLabel = formatTime(now);\r\nconst secondsIntoHour = minute * 60 + second;\r\nconst secondsLeftInHour = Math.max(1, 3600 - secondsIntoHour);\r\nconst hoursLeftInHour = secondsLeftInHour / 3600;\r\nconst remainingWh = clamp(hourlyBudgetLimit - usedWh, 0, hourlyBudgetLimit);\r\nconst remainingAverageW = Math.round(remainingWh / hoursLeftInHour);\r\nconst remainingAverageText = hourBudget.fullHourCoverage\r\n    ? ` | ${remainingAverageW}W left`\r\n    : \"\";\r\n\r\ncontext.set(\"boostActive\", boostActive);\r\ncontext.set(\"activeWindow\", windowName);\r\ncontext.set(\"voltageLimitActive\", voltageLimitActive);\r\ncontext.set(\"gridSetpoint\", finalGridSetpoint);\r\n\r\n// ==========================\r\n// STATUS\r\n// ==========================\r\nconst limitFlags = [];\r\n\r\nif (voltageLimitActive && finalGridSetpoint <= voltageLimitedSetpoint) {\r\n    limitFlags.push(\"HV\");\r\n}\r\n\r\nif (solarForecast.valid && forecastRestoreAh > 0) {\r\n    limitFlags.push(`SOL:${solarForecast.condition.toUpperCase()}`);\r\n}\r\n\r\nlet fill = \"grey\";\r\n\r\nif (windowName === \"NIGHT\") {\r\n    fill = finalChargeCurrent > 0 ? \"blue\" : \"yellow\";\r\n}\r\nelse if (windowName === \"MORNING\" || windowName === \"EVENING\") {\r\n    fill = finalChargeCurrent > 0 ? \"green\" : \"yellow\";\r\n}\r\n\r\nconst flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join(\"+\")}` : \"\";\r\nconst forecastText = solarForecast.valid\r\n    ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`\r\n    : \"\";\r\nconst restoreText = ` | Def ${consumedAhDeficit.toFixed(1)}Ah | Grid ${gridRestoreAhNeeded.toFixed(1)}Ah`;\r\n\r\nnode.status({\r\n    fill,\r\n    shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? \"dot\" : \"ring\",\r\n    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`\r\n});\r\n\r\nconst hourlyLogMsg = hourRolledOver\r\n    ? { topic: \"hourly-energy\", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh) } }\r\n    : null;\r\n\r\nreturn buildOutputs(\r\n    finalChargeCurrent,\r\n    finalGridSetpoint,\r\n    hourlyLogMsg\r\n);\r\n",
+    "outputs": 5,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 520,
+    "wires": [
+      [
+        "02f9c8b4338cd074"
+      ],
+      [
+        "0e81be212962775a"
+      ],
+      [],
+      [
+        "notif-log-fmt-01"
+      ],
+      [
+        "energy-log-fmt-01",
+        "energy-summary-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "2ac296236d3f0af2",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "TEST notification",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "Manual test notification from Day / Night Grid Control",
+    "payloadType": "str",
+    "x": 760,
+    "y": 320,
+    "wires": [
+      [
+        "86e9a3554faa5fed"
+      ]
+    ]
+  },
+  {
+    "id": "86e9a3554faa5fed",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Format GX notification",
+    "func": "const defaultTitle = \"Day / Night Grid Control\";\n\nfunction normalizeType(value) {\n    if (value === 0 || value === \"0\" || value === \"warning\") {\n        return 0;\n    }\n\n    if (value === 1 || value === \"1\" || value === \"alarm\") {\n        return 1;\n    }\n\n    return 2;\n}\n\nconst title = msg.title || (msg.notification && msg.notification.title) || defaultTitle;\nconst rawType = msg.type !== undefined\n    ? msg.type\n    : (msg.notification && (msg.notification.type !== undefined ? msg.notification.type : msg.notification.level));\nconst rawMessage = (msg.notification && msg.notification.message) || msg.payload;\n\nif (rawMessage === undefined || rawMessage === null || rawMessage === \"\") {\n    return null;\n}\n\nconst safeTitle = String(title)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 100);\n\nconst safeMessage = String(rawMessage)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 500);\n\nmsg.payload = `${normalizeType(rawType)}\\t${safeTitle}\\t${safeMessage}`;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1120,
+    "y": 320,
+    "wires": [
+      [
+        "35aac1807d506c2c"
+      ]
+    ]
+  },
+  {
+    "id": "35aac1807d506c2c",
+    "type": "victron-output-custom",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.platform",
+    "path": "/Notifications/Inject",
+    "serviceObj": {
+      "service": "com.victronenergy.platform",
+      "name": "Platform"
+    },
+    "pathObj": {
+      "path": "/Notifications/Inject",
+      "type": "string",
+      "name": "Inject notification",
+      "mode": "both"
+    },
+    "initial": "",
+    "name": "GX notification output",
+    "onlyChanges": false,
+    "x": 1360,
+    "y": 320,
+    "wires": []
+  },
+  {
+    "id": "6fa076ce802cb026",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "",
+    "pauseType": "delay",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 440,
+    "y": 520,
+    "wires": [
+      [
+        "0124f55e1e8bacce"
+      ]
+    ]
+  },
+  {
+    "id": "c4f71df9eaf777e7",
+    "type": "victron-input-system",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.system",
+    "path": "/Ac/Grid/L1/Power",
+    "serviceObj": {
+      "service": "com.victronenergy.system",
+      "name": "System"
+    },
+    "pathObj": {
+      "path": "/Ac/Grid/L1/Power",
+      "type": "float",
+      "name": "Grid L1 power (W)"
+    },
+    "name": "GRID CT import power",
+    "onlyChanges": false,
+    "roundValues": "0",
+    "x": 120,
+    "y": 440,
+    "wires": [
+      [
+        "161e9cd83df516fb"
+      ]
+    ]
+  },
+  {
+    "id": "0b384e088f85dd06",
+    "type": "link in",
+    "z": "b39f968e1031d079",
+    "name": "Grid import power override (W)",
+    "links": [],
+    "x": 265,
+    "y": 400,
+    "wires": [
+      [
+        "161e9cd83df516fb"
+      ]
+    ]
+  },
+  {
+    "id": "02f9c8b4338cd074",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "Delay 10s",
+    "pauseType": "rate",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "10",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": true,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 940,
+    "y": 240,
+    "wires": [
+      [
+        "6960ea566e7cdb62"
+      ]
+    ]
+  },
+  {
+    "id": "24da831dd3d9d379",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "Refresh solar forecast 15m",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "900",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 2,
+    "topic": "solar-forecast-refresh",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 900,
+    "wires": [
+      [
+        "506b5264af3e2ea0"
+      ]
+    ]
+  },
+  {
+    "id": "506b5264af3e2ea0",
+    "type": "subflow:93f485839dfa27a8",
+    "z": "b39f968e1031d079",
+    "name": "Solar forecast Hokksund",
+    "env": [
+      {
+        "name": "latitude",
+        "value": "59.764",
+        "type": "num"
+      },
+      {
+        "name": "longitude",
+        "value": "9.902",
+        "type": "num"
+      },
+      {
+        "name": "declination",
+        "value": "35",
+        "type": "num"
+      },
+      {
+        "name": "azimuth",
+        "value": "0",
+        "type": "num"
+      },
+      {
+        "name": "modules power",
+        "value": "5",
+        "type": "num"
+      },
+      {
+        "name": "apikey",
+        "value": "",
+        "type": "cred"
+      },
+      {
+        "name": "type",
+        "value": "estimate",
+        "type": "str"
+      },
+      {
+        "name": "watt",
+        "value": "watts",
+        "type": "str"
+      },
+      {
+        "name": "kwhoutput",
+        "value": "false",
+        "type": "bool"
+      },
+      {
+        "name": "showtoday",
+        "value": "true",
+        "type": "bool"
+      },
+      {
+        "name": "daystoforecast",
+        "value": "1",
+        "type": "str"
+      },
+      {
+        "name": "widengraph",
+        "value": "false",
+        "type": "bool"
+      }
+    ],
+    "x": 400,
+    "y": 900,
+    "wires": [
+      [
+        "5e3a7f6b76cc6ed5"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "5e3a7f6b76cc6ed5",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Adjust solar forecast for shade",
+    "func": "function localDayKey(date) {\n    return [\n        date.getFullYear(),\n        String(date.getMonth() + 1).padStart(2, '0'),\n        String(date.getDate()).padStart(2, '0')\n    ].join('-');\n}\n\nconst result = msg.payload && msg.payload.result;\nif (!result || typeof result !== 'object') {\n    node.status({ fill: 'red', shape: 'ring', text: 'no forecast data' });\n    return null;\n}\n\nconst shadeByHour = {\n    5: 0.02,\n    6: 0.04,\n    7: 0.06,\n    8: 0.10,\n    9: 0.18,\n    10: 0.30,\n    11: 0.55,\n    12: 0.72,\n    13: 0.78,\n    14: 0.62,\n    15: 0.50,\n    16: 0.42,\n    17: 0.32,\n    18: 0.22,\n    19: 0.14,\n    20: 0.08,\n    21: 0.03\n};\n\nconst hourlyCapW = {\n    5: 20,\n    6: 40,\n    7: 80,\n    8: 150,\n    9: 300,\n    10: 550,\n    11: 1100,\n    12: 1500,\n    13: 1500,\n    14: 1200,\n    15: 800,\n    16: 700,\n    17: 500,\n    18: 320,\n    19: 220,\n    20: 140,\n    21: 40\n};\n\nconst historicalReference = {\n    sunnyPeakKW: '1.4-1.5',\n    cloudyPeakKW: '<1.0',\n    dominantWindow: '11:00-17:00',\n    extendedWindow: '05:00-21:00'\n};\n\nconst resolution = Number(msg.resolution) || 1;\nconst periodHours = resolution > 0 ? 1 / resolution : 1;\nconst adjustedResult = {};\nconst summaryByDay = {};\n\nfor (const [key, rawValue] of Object.entries(result)) {\n    const date = new Date(key);\n    const hour = date.getHours();\n    const factor = shadeByHour[hour] || 0;\n    const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;\n    const capW = hourlyCapW[hour] || 0;\n    const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;\n    const dayKey = localDayKey(date);\n\n    adjustedResult[key] = adjustedW;\n\n    if (!summaryByDay[dayKey]) {\n        summaryByDay[dayKey] = {\n            energyWh: 0,\n            peakW: 0,\n            activeHours: 0\n        };\n    }\n\n    summaryByDay[dayKey].energyWh += adjustedW * periodHours;\n    summaryByDay[dayKey].peakW = Math.max(summaryByDay[dayKey].peakW, adjustedW);\n    if (adjustedW > 0) {\n        summaryByDay[dayKey].activeHours += periodHours;\n    }\n}\n\nconst todayKey = localDayKey(new Date());\nconst today = summaryByDay[todayKey] || { energyWh: 0, peakW: 0, activeHours: 0 };\nconst todayKWh = +(today.energyWh / 1000).toFixed(2);\nconst todayPeakKW = +(today.peakW / 1000).toFixed(2);\nconst condition = todayPeakKW >= 1.0 ? 'sunny' : (todayKWh >= 2 ? 'cloudy' : 'low');\n\nmsg.topic = 'solar-forecast-adjusted';\nmsg.payload = {\n    source: 'forecast.solar',\n    location: 'Hokksund, Norway',\n    activeWindow: '05:00-21:00',\n    dominantWindow: '11:00-17:00',\n    shading: 'trees / heavy shadow',\n    rawResult: result,\n    adjustedResult,\n    summaryByDay,\n    today: {\n        energyWh: Math.round(today.energyWh),\n        energyKWh: todayKWh,\n        peakW: today.peakW,\n        peakKW: todayPeakKW,\n        activeHours: +today.activeHours.toFixed(2),\n        condition\n    },\n    assumptions: {\n        sunnyRangeKWh: '3-5',\n        cloudyKWh: '2',\n        shadeByHour,\n        hourlyCapW,\n        historicalReference\n    }\n};\n\nnode.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW` });\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 660,
+    "y": 900,
+    "wires": [
+      [
+        "93a0d07f7da3f1b8"
+      ]
+    ]
+  },
+  {
+    "id": "93a0d07f7da3f1b8",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Store solar prediction",
+    "func": "const data = msg.payload || {};\nconst today = data.today || { energyKWh: 0, peakKW: 0, condition: 'unknown' };\nconst summary = {\n    updatedAt: new Date().toISOString(),\n    source: data.source || 'forecast.solar',\n    location: data.location || 'Hokksund, Norway',\n    activeWindow: data.activeWindow || '11:00-17:00',\n    condition: today.condition || 'unknown',\n    energyWh: Number(today.energyWh) || 0,\n    energyKWh: Number(today.energyKWh) || 0,\n    peakW: Number(today.peakW) || 0,\n    peakKW: Number(today.peakKW) || 0,\n    activeHours: Number(today.activeHours) || 0\n};\n\nflow.set('solarForecastAdjusted', data);\nflow.set('solarForecastToday', summary);\n\nnode.status({\n    fill: summary.energyKWh > 0 ? 'green' : 'yellow',\n    shape: 'dot',\n    text: `${summary.condition} | ${summary.energyKWh.toFixed(2)}kWh | ${summary.activeWindow}`\n});\n\nmsg.topic = 'solar-forecast-today';\nmsg.payload = summary;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 920,
+    "y": 900,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "ac-loads-src-01",
+    "type": "victron-input-system",
+    "z": "b39f968e1031d079",
+    "service": "com.victronenergy.system",
+    "path": "/Ac/Consumption/L1/Power",
+    "serviceObj": {
+      "service": "com.victronenergy.system",
+      "name": "System"
+    },
+    "pathObj": {
+      "path": "/Ac/Consumption/L1/Power",
+      "type": "float",
+      "name": "AC consumption L1 (W)"
+    },
+    "name": "AC Loads power",
+    "onlyChanges": false,
+    "roundValues": "0",
+    "x": 100,
+    "y": 500,
+    "wires": [
+      [
+        "ac-loads-dly-01"
+      ]
+    ]
+  },
+  {
+    "id": "ac-loads-dly-01",
+    "type": "delay",
+    "z": "b39f968e1031d079",
+    "name": "",
+    "pauseType": "delay",
+    "timeout": "10",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 440,
+    "y": 580,
+    "wires": [
+      [
+        "ac-loads-tag-01"
+      ]
+    ]
+  },
+  {
+    "id": "ac-loads-tag-01",
+    "type": "change",
+    "z": "b39f968e1031d079",
+    "name": "Tag AC load power",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "ac-load-power",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 610,
+    "y": 580,
+    "wires": [
+      [
+        "8b41239661152d33"
+      ]
+    ]
+  },
+  {
+    "id": "notif-log-fmt-01",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Format notification for log",
+    "func": "const rawMessage = (msg.notification && msg.notification.message) || (typeof msg.payload === 'string' ? msg.payload : null);\nif (!rawMessage) return null;\n\nconst ts = (msg.notification && msg.notification.timestamp) || new Date().toISOString();\nconst logLine = ts + ' | ' + rawMessage + '\\n';\n\nconst d = new Date();\nconst dateKey = [\n    d.getFullYear(),\n    String(d.getMonth() + 1).padStart(2, '0'),\n    String(d.getDate()).padStart(2, '0')\n].join('-');\n\nconst logDir = '/data/grid-control-logs';\nmsg.filename = logDir + '/grid-control-' + dateKey + '.log';\nmsg.payload = logLine;\nmsg.encoding = 'utf8';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1130,
+    "y": 380,
+    "wires": [
+      [
+        "notif-log-file-01"
+      ]
+    ]
+  },
+  {
+    "id": "notif-log-file-01",
+    "type": "file",
+    "z": "b39f968e1031d079",
+    "name": "Append to daily log",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "utf8",
+    "x": 1350,
+    "y": 380,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "notif-log-cln-inj-01",
+    "type": "inject",
+    "z": "b39f968e1031d079",
+    "name": "Daily cleanup midnight",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "01 00 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 1000,
+    "wires": [
+      [
+        "notif-log-cln-ex-01"
+      ]
+    ]
+  },
+  {
+    "id": "notif-log-cln-ex-01",
+    "type": "exec",
+    "z": "b39f968e1031d079",
+    "command": "find /data/grid-control-logs -maxdepth 1 \\( -name 'grid-control-*.log' -o -name 'energy-*.log' \\) -mtime +45 -delete 2>/dev/null; echo done",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "oldrc": false,
+    "name": "Delete logs older than 45 days",
+    "x": 460,
+    "y": 1000,
+    "wires": [
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "energy-log-fmt-01",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Format hourly energy line",
+    "func": "if (!msg.payload || !msg.payload.hourKey) return null;\nconst { hourKey, gridWh, acWh } = msg.payload;\nconst dateKey = hourKey.substring(0, 10);\nconst hourLabel = hourKey.substring(11, 13);\nconst line = dateKey + ' ' + hourLabel + ':00 | Grid ' + gridWh + 'Wh | AC ' + acWh + 'Wh\\n';\nmsg.filename = '/data/grid-control-logs/energy-' + dateKey + '.log';\nmsg.payload = line;\nmsg.encoding = 'utf8';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 140,
+    "y": 700,
+    "wires": [
+      [
+        "energy-log-file-01"
+      ]
+    ]
+  },
+  {
+    "id": "energy-log-file-01",
+    "type": "file",
+    "z": "b39f968e1031d079",
+    "name": "Append to hourly energy log",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "utf8",
+    "x": 400,
+    "y": 700,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "energy-summary-fn-01",
+    "type": "function",
+    "z": "b39f968e1031d079",
+    "name": "Update daily summary",
+    "func": "if (!msg.payload || !msg.payload.hourKey) return null;\nconst { hourKey, gridWh, acWh } = msg.payload;\nconst dateKey = hourKey.substring(0, 10);\nconst hourLabel = hourKey.substring(11, 13) + ':00';\n\nlet summary = flow.get('dailySummary') || { dateKey: '', hours: [] };\nif (summary.dateKey !== dateKey) {\n    summary = { dateKey, hours: [] };\n}\nsummary.hours = summary.hours.filter(h => h.hour !== hourLabel);\nsummary.hours.push({ hour: hourLabel, gridWh, acWh });\nsummary.hours.sort((a, b) => a.hour.localeCompare(b.hour));\nflow.set('dailySummary', summary);\n\nconst totalGrid = summary.hours.reduce((s, h) => s + h.gridWh, 0);\nconst totalAc   = summary.hours.reduce((s, h) => s + h.acWh, 0);\nconst lines = summary.hours.map(h => dateKey + ' ' + h.hour + ' | Grid ' + h.gridWh + 'Wh | AC ' + h.acWh + 'Wh');\nlines.push('');\nlines.push('TOTAL | Grid ' + totalGrid + 'Wh | AC ' + totalAc + 'Wh');\n\nmsg.payload  = lines.join('\\n') + '\\n';\nmsg.filename = '/data/grid-control-logs/summary-' + dateKey + '.log';\nmsg.encoding = 'utf8';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1060,
+    "y": 800,
+    "wires": [
+      [
+        "energy-summary-file-01"
+      ]
+    ]
+  },
+  {
+    "id": "energy-summary-file-01",
+    "type": "file",
+    "z": "b39f968e1031d079",
+    "name": "Write daily summary",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "true",
+    "encoding": "utf8",
+    "x": 1280,
+    "y": 800,
+    "wires": [
+      []
+    ]
+  }
 ]

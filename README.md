@@ -4,12 +4,12 @@ This repository contains a Node-RED based controller for a Victron ESS system ru
 
 The project is designed to reduce hourly grid peaks in Norway while still allowing useful battery charging during selected time windows. The control logic combines:
 
-- battery-voltage driven charging windows
+- BMS consumed-Ah restoration planning for night and morning charging
 - dynamic grid setpoint control
-- DVCC charge current control with solar-forecast scaling
+- DVCC charge current control based on remaining battery Ah deficit
 - hourly imported-energy tracking from the house GRID CT sensor
 - high-voltage protection when an external charger or MPPT raises battery voltage
-- GX notification output when the grid setpoint changes
+- notification logging when the grid setpoint changes
 
 The repository keeps a readable controller source in `day-night.txt` and a live Node-RED export in `flows.json`.
 
@@ -81,8 +81,9 @@ flowchart LR
    - grid import power measured by the house CT sensor
    - current time
 3. The controller calculates:
-   - whether charging boost should be active
-  - whether solar forecast should reduce morning or evening charge current
+  - how many Ah the battery still needs to restore from the BMS net consumed-Ah reading
+  - whether the remaining deficit must be charged now in NIGHT, or can wait for MORNING
+  - how much predicted solar energy can offset that remaining grid-charging need
    - the final grid setpoint
    - the hourly imported energy used so far
 4. The outputs are written back into Victron settings and VE.Bus controls.
@@ -97,8 +98,8 @@ The controller is not a single rule. It is a stack of limits.
 ```mermaid
 flowchart TD
   A[Base schedule<br/>Day 1980 W / Night 2850 W] --> E[Final grid setpoint]
-    B[Battery window logic<br/>Night / Morning / Evening hysteresis] --> F[Final charge current]
-  C[Solar forecast factor<br/>Morning / Evening only] --> F
+    B[Battery deficit logic<br/>BMS Consumed Amphours] --> F[Final charge current]
+  C[Solar forecast offset<br/>Predicted solar Ah] --> F
   D[High-voltage limiter<br/>55.4 V start, 55.2 V release] --> E
     F --> H[DVCC charge current limit]
 ```
@@ -118,28 +119,23 @@ Hourly imported energy is still tracked and shown in status text, but it is disp
 
 ## 1. Charging windows
 
-The battery charging logic uses hysteresis, so it does not rapidly chatter on small voltage changes.
+The battery charging logic now uses the BMS `Consumed Amphours` value as the net deficit that needs to be restored toward zero.
 
 ### Night window
 
 - active time: `22:00-05:59`
-- turn boost on again at `<= 54.5 V`
-- turn boost off at `>= 54.8 V`
-- target charge current when active: `25 A`
+- charge current is `25 A` only when the remaining deficit is too large to be fully restored during the remaining MORNING window
+- if the remaining MORNING window alone can still restore the deficit, night charging stays off
 
 ### Morning window
 
 - active time: `06:00-11:59`
-- turn boost on at `< 53.5 V`
-- turn boost off at `> 53.8 V`
-- target charge current when active: `25 A`
+- charge current is `25 A` whenever any grid-restoration deficit still remains after subtracting predicted solar contribution
 
 ### Evening window
 
 - active time: `17:00-23:59` with night taking priority from `22:00`
-- turn boost on at `< 54.0 V`
-- turn boost off at `> 54.4 V`
-- target charge current when active: `25 A`
+- no grid-restoration charging is scheduled in this window
 
 ### Outside windows
 
@@ -178,21 +174,33 @@ Smoothing is used so the grid setpoint does not jump too aggressively.
 
 ## 4. Solar forecast effect
 
-The controller reads `flow.solarForecastToday` and uses it only to scale charge current during forecast-active hours.
+The controller reads `flow.solarForecastToday` and uses the predicted energy amount to reduce the grid Ah that must be restored overnight and in the morning.
 
 Behavior:
 
 - forecast is accepted only when it is for the current day and not older than `18` hours
-- active forecast window is `05:00-20:59`
-- morning and evening charging may be reduced on `sunny` or `cloudy` days
+- forecast energy is converted to estimated battery Ah using battery voltage and a fixed efficiency factor
+- that estimated solar Ah is subtracted from the BMS consumed-Ah deficit
 - grid setpoint is not changed by the forecast
 
-Current factors:
+Current conversion constants:
 
-- sunny morning: `0.25`
-- cloudy morning: `0.6`
-- sunny evening: `0.5`
-- cloudy evening: `0.8`
+- nominal battery voltage fallback: `52 V`
+- solar-to-battery efficiency factor: `0.9`
+
+Practical correlation with charging:
+
+- the BMS provides the net consumed capacity in Ah
+- predicted solar energy is converted to an estimated restoration amount in Ah
+- the remaining grid-restoration target is:
+
+$$
+	ext{gridRestoreAhNeeded} = \max(0, \text{consumedAhDeficit} - \text{forecastRestoreAh})
+$$
+
+- if NIGHT is active, charging starts only when the remaining MORNING capacity at `25 A` is no longer enough to cover `gridRestoreAhNeeded`
+- if MORNING is active, charging runs at `25 A` while `gridRestoreAhNeeded` is still above a small deadband
+- high-voltage tapering can still reduce the final charge current below `25 A` when the grid setpoint is being limited
 
 ---
 
@@ -227,14 +235,17 @@ If tracking started exactly at the top of the hour, the status also shows the re
 
 ## 6. Notifications and outputs
 
-The main controller returns four outputs:
+The main controller returns five outputs:
 
 - DVCC charge current limit
 - ESS grid setpoint
 - a placeholder third output where `ac-input-current-limit` is emitted as `null`
-- a GX notification when the grid setpoint changes
+- a notification/log message when the grid setpoint changes
+- an hourly energy rollover message used by the energy log and daily summary writers
 
 The live flow still contains separate inject nodes for manual or scheduled current values, but the main controller no longer manages VE.Bus Input 1 current limit dynamically.
+
+The live flow now also reads the battery service path `com.victronenergy.battery/4 -> /ConsumedAmphours` and tags it as `battery-consumed-ah` for the controller.
 
 ---
 
