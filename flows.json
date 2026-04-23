@@ -2,7 +2,7 @@
   {
     "id": "b39f968e1031d079",
     "type": "tab",
-    "label": "d#10 Day / Night Grid Control",
+    "label": "d#11 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -740,7 +740,7 @@
     "topic": "",
     "payload": "2000",
     "payloadType": "num",
-    "x": 200,
+    "x": 160,
     "y": 80,
     "wires": [
       [
@@ -765,8 +765,8 @@
     "topic": "",
     "payload": "2850",
     "payloadType": "num",
-    "x": 210,
-    "y": 140,
+    "x": 160,
+    "y": 160,
     "wires": [
       [
         "8b41239661152d33"
@@ -790,8 +790,8 @@
     "topic": "",
     "payload": "9.55",
     "payloadType": "num",
-    "x": 220,
-    "y": 240,
+    "x": 160,
+    "y": 260,
     "wires": [
       [
         "8b41239661152d33",
@@ -816,8 +816,8 @@
     "topic": "",
     "payload": "13.5",
     "payloadType": "num",
-    "x": 230,
-    "y": 300,
+    "x": 160,
+    "y": 340,
     "wires": [
       [
         "8b41239661152d33",
@@ -844,8 +844,8 @@
     "initial": 9.55,
     "name": "",
     "onlyChanges": false,
-    "x": 930,
-    "y": 260,
+    "x": 1280,
+    "y": 300,
     "wires": []
   },
   {
@@ -867,8 +867,8 @@
     "initial": 1980,
     "name": "",
     "onlyChanges": false,
-    "x": 880,
-    "y": 180,
+    "x": 1280,
+    "y": 120,
     "wires": []
   },
   {
@@ -888,8 +888,8 @@
     "drop": true,
     "allowrate": false,
     "outputs": 1,
-    "x": 580,
-    "y": 180,
+    "x": 1060,
+    "y": 120,
     "wires": [
       [
         "7aa133df1d5e66a6"
@@ -915,8 +915,8 @@
     "initial": 0,
     "name": "DVCC Charge current Limit (A)",
     "onlyChanges": false,
-    "x": 970,
-    "y": 560,
+    "x": 1280,
+    "y": 440,
     "wires": []
   },
   {
@@ -937,8 +937,8 @@
     "name": "",
     "onlyChanges": false,
     "roundValues": "1",
-    "x": 200,
-    "y": 460,
+    "x": 160,
+    "y": 520,
     "wires": [
       [
         "6fa076ce802cb026"
@@ -964,8 +964,8 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 690,
-    "y": 460,
+    "x": 590,
+    "y": 520,
     "wires": [
       [
         "8b41239661152d33"
@@ -989,8 +989,8 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 500,
-    "y": 380,
+    "x": 560,
+    "y": 440,
     "wires": [
       [
         "8fda65985ff7ea11"
@@ -1016,8 +1016,8 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 690,
-    "y": 380,
+    "x": 750,
+    "y": 440,
     "wires": [
       [
         "8b41239661152d33"
@@ -1036,8 +1036,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 210,
-    "y": 580,
+    "x": 820,
+    "y": 520,
     "wires": [
       [
         "02f9c8b4338cd074"
@@ -1073,8 +1073,8 @@
     "topic": "",
     "payload": "Manual test notification from Day / Night Grid Control",
     "payloadType": "str",
-    "x": 300,
-    "y": 660,
+    "x": 820,
+    "y": 700,
     "wires": [
       [
         "86e9a3554faa5fed"
@@ -1093,8 +1093,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 590,
-    "y": 660,
+    "x": 1060,
+    "y": 560,
     "wires": [
       [
         "35aac1807d506c2c"
@@ -1120,8 +1120,8 @@
     "initial": "",
     "name": "GX notification output",
     "onlyChanges": false,
-    "x": 840,
-    "y": 660,
+    "x": 1280,
+    "y": 560,
     "wires": []
   },
   {
@@ -1141,8 +1141,8 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 460,
-    "y": 460,
+    "x": 400,
+    "y": 520,
     "wires": [
       [
         "0124f55e1e8bacce"
@@ -1167,8 +1167,8 @@
     "name": "GRID CT import power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 200,
-    "y": 380,
+    "x": 160,
+    "y": 440,
     "wires": [
       [
         "161e9cd83df516fb"
@@ -1181,8 +1181,8 @@
     "z": "b39f968e1031d079",
     "name": "Grid import power override (W)",
     "links": [],
-    "x": 385,
-    "y": 380,
+    "x": 370,
+    "y": 440,
     "wires": [
       [
         "161e9cd83df516fb"
@@ -1206,8 +1206,8 @@
     "drop": true,
     "allowrate": false,
     "outputs": 1,
-    "x": 650,
-    "y": 560,
+    "x": 1060,
+    "y": 440,
     "wires": [
       [
         "6960ea566e7cdb62"
@@ -1235,8 +1235,8 @@
     "topic": "solar-forecast-refresh",
     "payload": "",
     "payloadType": "date",
-    "x": 230,
-    "y": 740,
+    "x": 160,
+    "y": 900,
     "wires": [
       [
         "506b5264af3e2ea0"
@@ -1310,8 +1310,8 @@
         "type": "bool"
       }
     ],
-    "x": 500,
-    "y": 740,
+    "x": 400,
+    "y": 900,
     "wires": [
       [
         "5e3a7f6b76cc6ed5"
@@ -1331,8 +1331,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 790,
-    "y": 740,
+    "x": 660,
+    "y": 900,
     "wires": [
       [
         "93a0d07f7da3f1b8"
@@ -1351,8 +1351,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1050,
-    "y": 740,
+    "x": 920,
+    "y": 900,
     "wires": [
       [
         "8b41239661152d33"
@@ -1377,8 +1377,8 @@
     "name": "AC Loads power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 200,
-    "y": 840,
+    "x": 160,
+    "y": 600,
     "wires": [
       [
         "ac-loads-dly-01"
@@ -1402,8 +1402,8 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 430,
-    "y": 840,
+    "x": 400,
+    "y": 600,
     "wires": [
       [
         "ac-loads-tag-01"
@@ -1429,8 +1429,8 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 660,
-    "y": 840,
+    "x": 590,
+    "y": 600,
     "wires": [
       [
         "8b41239661152d33"
@@ -1449,8 +1449,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 320,
-    "y": 760,
+    "x": 1060,
+    "y": 640,
     "wires": [
       [
         "notif-log-file-01"
@@ -1468,8 +1468,8 @@
     "createDir": true,
     "overwriteFile": "false",
     "encoding": "utf8",
-    "x": 560,
-    "y": 760,
+    "x": 1280,
+    "y": 640,
     "wires": [
       []
     ]
@@ -1491,8 +1491,8 @@
     "topic": "",
     "payload": "",
     "payloadType": "date",
-    "x": 200,
-    "y": 920,
+    "x": 160,
+    "y": 1000,
     "wires": [
       [
         "notif-log-cln-ex-01"
@@ -1511,8 +1511,8 @@
     "winTimer": "10",
     "oldrc": false,
     "name": "Delete logs older than 45 days",
-    "x": 480,
-    "y": 920,
+    "x": 460,
+    "y": 1000,
     "wires": [
       [],
       [],
@@ -1531,8 +1531,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 730,
-    "y": 980,
+    "x": 1060,
+    "y": 720,
     "wires": [
       [
         "energy-log-file-01"
@@ -1550,8 +1550,8 @@
     "createDir": true,
     "overwriteFile": "false",
     "encoding": "utf8",
-    "x": 980,
-    "y": 980,
+    "x": 1280,
+    "y": 720,
     "wires": [
       []
     ]
@@ -1568,8 +1568,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 730,
-    "y": 1060,
+    "x": 1060,
+    "y": 800,
     "wires": [
       [
         "energy-summary-file-01"
@@ -1587,8 +1587,8 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 980,
-    "y": 1060,
+    "x": 1280,
+    "y": 800,
     "wires": [
       []
     ]
