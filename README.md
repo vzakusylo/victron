@@ -54,6 +54,10 @@ This logic is especially useful when:
 
 ## High-level architecture
 
+### Current Node-RED flow
+
+![Current Node-RED flow](image.png)
+
 ```mermaid
 flowchart LR
     A[GRID CT sensor<br/>House import power] --> B[GX System service<br/>Ac Grid L1 Power]
