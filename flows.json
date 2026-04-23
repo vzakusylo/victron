@@ -844,8 +844,8 @@
         "initial": 9.55,
         "name": "",
         "onlyChanges": false,
-        "x": 1250,
-        "y": 180,
+        "x": 550,
+        "y": 260,
         "wires": []
     },
     {
@@ -867,8 +867,8 @@
         "initial": 1980,
         "name": "",
         "onlyChanges": false,
-        "x": 1200,
-        "y": 120,
+        "x": 720,
+        "y": 60,
         "wires": []
     },
     {
@@ -888,8 +888,8 @@
         "drop": true,
         "allowrate": false,
         "outputs": 1,
-        "x": 960,
-        "y": 120,
+        "x": 480,
+        "y": 60,
         "wires": [
             [
                 "35d8e672e84afb7d"
@@ -915,8 +915,8 @@
         "initial": 0,
         "name": "DVCC Charge current Limit (A)",
         "onlyChanges": false,
-        "x": 1190,
-        "y": 240,
+        "x": 1590,
+        "y": 460,
         "wires": []
     },
     {
@@ -1064,8 +1064,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1190,
-        "y": 560,
+        "x": 1070,
+        "y": 160,
         "wires": []
     },
     {
@@ -1171,8 +1171,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1190,
-        "y": 440,
+        "x": 1070,
+        "y": 40,
         "wires": []
     },
     {
@@ -1188,8 +1188,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1180,
-        "y": 480,
+        "x": 1060,
+        "y": 80,
         "wires": []
     },
     {
@@ -1205,8 +1205,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1170,
-        "y": 520,
+        "x": 1050,
+        "y": 120,
         "wires": []
     },
     {
@@ -1239,8 +1239,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1170,
-        "y": 600,
+        "x": 1050,
+        "y": 200,
         "wires": []
     },
     {
@@ -1393,8 +1393,8 @@
         "drop": true,
         "allowrate": false,
         "outputs": 1,
-        "x": 940,
-        "y": 240,
+        "x": 1380,
+        "y": 460,
         "wires": [
             [
                 "9331d8d6ae5ef07d"
