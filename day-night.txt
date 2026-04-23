@@ -314,7 +314,7 @@ function buildNotification(window, gridSetpoint) {
     };
 }
 
-function buildOutputs(chargeCurrent, gridSetpoint) {
+function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
     const notifyMsg =
         gridSetpoint !== previousGridSetpoint
             ? buildNotification(windowName, gridSetpoint)
@@ -333,15 +333,20 @@ function buildOutputs(chargeCurrent, gridSetpoint) {
             topic: "ac-input-current-limit",
             payload: null
         },
-        notifyMsg
+        notifyMsg,
+        hourlyLogMsg || null
     ];
 }
 
 // ==========================
 // UPDATE STORED INPUTS
 // ==========================
+const prevHourKey = hourBudget.hourKey;
+const prevHourGridWh = Number(hourBudget.usedWh) || 0;
+const prevHourAcWh = Number(acLoadBudget.usedWh) || 0;
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
 acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
+const hourRolledOver = prevHourKey && prevHourKey !== hourBudget.hourKey;
 
 if (msg.topic === BATTERY_TOPIC) {
     const incomingVoltage = Number(msg.payload);
@@ -569,12 +574,12 @@ node.status({
     text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
 });
 
-return buildOutputs(
-    finalChargeCurrent,
-    finalGridSetpoint
-);
+const hourlyLogMsg = hourRolledOver
+    ? { topic: "hourly-energy", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh) } }
+    : null;
 
 return buildOutputs(
     finalChargeCurrent,
-    finalGridSetpoint
+    finalGridSetpoint,
+    hourlyLogMsg
 );
