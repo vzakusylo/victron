@@ -6,12 +6,13 @@
 // - increment that marker every time `flows.json` changes so the active Node-RED flow version is visible
 // - keep this file, the embedded controller function, and the tab version rule synchronized
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 5 outputs:
+// 1. This function now has 6 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
 //    - output 3 -> VE.Bus AC input current limit (A)
 //    - output 4 -> notification/log message when the grid setpoint changes
 //    - output 5 -> hourly energy rollover message for log/summary writers
+//    - output 6 -> structured controller trace payload for debugging
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = battery-consumed-ah` -> updates the BMS net consumed Ah deficit
@@ -325,11 +326,62 @@ function buildNotification(window, gridSetpoint) {
     };
 }
 
+function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
+    return {
+        topic: "controller-trace",
+        payload: {
+            timestamp: now.toISOString(),
+            inputTopic: msg.topic || "",
+            inputPayload: msg.payload,
+            window: windowName,
+            previousWindow,
+            batteryVoltage: round1(batteryVoltage),
+            consumedAhDeficit: round1(consumedAhDeficit),
+            solarForecast: {
+                valid: solarForecast.valid,
+                condition: solarForecast.condition,
+                energyKWh: round1(solarForecast.energyKWh),
+                peakKW: round1(solarForecast.peakKW)
+            },
+            forecastRestoreAh: round1(forecastRestoreAh),
+            gridRestoreAhNeeded: round1(gridRestoreAhNeeded),
+            remainingNightHours: round1(remainingNightHours),
+            remainingMorningHours: round1(remainingMorningHours),
+            remainingMorningCapacityAh: round1(remainingMorningCapacityAh),
+            boostActive,
+            voltageLimitActive,
+            baseScheduleSetpoint,
+            voltageLimitedSetpoint,
+            finalGridSetpoint: gridSetpoint,
+            baseChargeCurrent: round1(baseChargeCurrent),
+            finalChargeCurrent: round1(chargeCurrent),
+            storedGridPowerW: Math.round(storedGridPowerW),
+            storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
+            hourBudget: {
+                hourKey: hourBudget.hourKey,
+                usedWh: Math.round(usedWh),
+                fullHourCoverage: hourBudget.fullHourCoverage,
+                startTs: hourBudget.startTs || 0
+            },
+            acLoadBudget: {
+                hourKey: acLoadBudget.hourKey,
+                usedWh: Math.round(acUsedWh),
+                fullHourCoverage: acLoadBudget.fullHourCoverage,
+                startTs: acLoadBudget.startTs || 0
+            },
+            hourRolledOver,
+            hourlyLogMsg: hourlyLogMsg || null,
+            limitFlags: limitFlags.slice()
+        }
+    };
+}
+
 function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
     const notifyMsg =
         gridSetpoint !== previousGridSetpoint
             ? buildNotification(windowName, gridSetpoint)
             : null;
+    const traceMsg = buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg);
 
     return [
         {
@@ -345,7 +397,8 @@ function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             payload: null
         },
         notifyMsg,
-        hourlyLogMsg || null
+        hourlyLogMsg || null,
+        traceMsg
     ];
 }
 
