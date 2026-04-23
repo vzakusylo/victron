@@ -6,11 +6,18 @@ The project is designed to reduce hourly grid peaks in Norway while still allowi
 
 - battery-voltage driven charging windows
 - dynamic grid setpoint control
-- dynamic VE.Bus Input 1 current limit control
+- DVCC charge current control with solar-forecast scaling
 - hourly imported-energy tracking from the house GRID CT sensor
 - high-voltage protection when an external charger or MPPT raises battery voltage
+- GX notification output when the grid setpoint changes
 
 The repository keeps a readable controller source in `day-night.txt` and a live Node-RED export in `flows.json`.
+
+Flow versioning rule:
+
+- the Node-RED tab label in `flows.json` uses `d#<n>` as the live flow version marker
+- every change to `flows.json` must increment that marker by 1
+- this makes it visible in Node-RED which exported flow revision is currently loaded
 
 ---
 
@@ -33,8 +40,8 @@ The main operational goal is to keep hourly raw grid import under practical limi
 
 The current design target is:
 
-- daytime raw import target around `1950-2000 W`
-- night raw import target around `2700 W`
+- daytime raw import target around `1980 W`
+- night raw import target around `2850 W`
 - night is allowed to be higher because this project was tuned around an Elvenett-style reduced night weighting factor
 
 This logic is especially useful when:
@@ -53,14 +60,14 @@ flowchart LR
     C[Battery service<br/>DC voltage] --> D[Node-RED controller]
     B --> D
     E[Time windows<br/>Day / Night / Morning / Evening] --> D
+    X[Solar forecast summary<br/>flow.solarForecastToday] --> D
 
     D --> F[DVCC charge current limit]
     D --> G[ESS grid setpoint]
-    D --> H[VE.Bus Input 1 current limit]
+    D --> H[Notification message]
     D --> I[Notification message]
 
     G --> J[MultiPlus / ESS behavior]
-    H --> J
     F --> J
     J --> K[Actual house import from grid]
     K --> A
@@ -75,8 +82,8 @@ flowchart LR
    - current time
 3. The controller calculates:
    - whether charging boost should be active
+  - whether solar forecast should reduce morning or evening charge current
    - the final grid setpoint
-   - the final VE.Bus Input 1 current limit
    - the hourly imported energy used so far
 4. The outputs are written back into Victron settings and VE.Bus controls.
 5. Actual import changes and the loop repeats.
@@ -89,11 +96,10 @@ The controller is not a single rule. It is a stack of limits.
 
 ```mermaid
 flowchart TD
-    A[Base schedule<br/>Day 1950 W / Night 2700 W] --> E[Final grid setpoint]
+  A[Base schedule<br/>Day 1980 W / Night 2850 W] --> E[Final grid setpoint]
     B[Battery window logic<br/>Night / Morning / Evening hysteresis] --> F[Final charge current]
-    C[High-voltage limiter<br/>55.0 V start, 54.8 V release] --> E
-    D[Hourly import budget limiter<br/>Wh used this hour] --> E
-    E --> G[Derived Input 1 current limit]
+  C[Solar forecast factor<br/>Morning / Evening only] --> F
+  D[High-voltage limiter<br/>55.4 V start, 55.2 V release] --> E
     F --> H[DVCC charge current limit]
 ```
 
@@ -103,9 +109,8 @@ The final grid setpoint is the minimum of:
 
 1. base schedule
 2. high-voltage limiter
-3. hourly budget limiter
 
-That means the hourly budget limiter can override the normal schedule when the hour is already too “full”.
+Hourly imported energy is still tracked and shown in status text, but it is display-only and does not override the schedule.
 
 ---
 
@@ -147,13 +152,12 @@ The battery charging logic uses hysteresis, so it does not rapidly chatter on sm
 
 Base target:
 
-- day: `1950 W`
-- night: `2700 W`
+- day: `1980 W`
+- night: `2850 W`
 
 This is only the starting point. The controller may lower it further if:
 
 - the battery voltage is already too high
-- the allowed hourly energy budget is being exhausted
 
 ---
 
@@ -163,16 +167,36 @@ This layer exists because an external charger or MPPT may increase battery volta
 
 Behavior:
 
-- limiter starts when battery voltage rises above `55.0 V`
-- limiter remains active until battery voltage falls back to `54.8 V` or below
+- limiter starts when battery voltage rises above `55.4 V`
+- limiter remains active until battery voltage falls back to `55.2 V` or below
 - the grid setpoint tapers down smoothly
-- by `55.2 V`, the voltage limiter can push the setpoint down toward `200 W`
+- by `55.6 V`, the voltage limiter can push the setpoint down toward `200 W`
 
 Smoothing is used so the grid setpoint does not jump too aggressively.
 
 ---
 
-## 4. Hourly consumed-energy counter
+## 4. Solar forecast effect
+
+The controller reads `flow.solarForecastToday` and uses it only to scale charge current during forecast-active hours.
+
+Behavior:
+
+- forecast is accepted only when it is for the current day and not older than `18` hours
+- active forecast window is `05:00-20:59`
+- morning and evening charging may be reduced on `sunny` or `cloudy` days
+- grid setpoint is not changed by the forecast
+
+Current factors:
+
+- sunny morning: `0.25`
+- cloudy morning: `0.6`
+- sunny evening: `0.5`
+- cloudy evening: `0.8`
+
+---
+
+## 5. Hourly consumed-energy counter
 
 The controller keeps an hourly counter of imported energy in `Wh`.
 
@@ -197,30 +221,29 @@ Meaning:
 - the current hour ends at `14:00`
 - `606 Wh` has been counted so far in that hour window
 
----
-
-## 5. Dynamic Input 1 current limit
-
-The VE.Bus Input 1 current limit is derived from the final grid setpoint.
-
-Approximate logic:
-
-- current limit = `grid setpoint / grid voltage`
-- grid voltage defaults to `230 V` if no better value is available
-- safe caps:
-  - day: `9.6 A`
-  - night: `12.6 A`
-
-If the hourly budget is already exhausted, or grid-power data is unavailable, the controller falls back to these safe caps instead of pushing the limit to zero.
+If tracking started exactly at the top of the hour, the status also shows the remaining average watts left in the hour. This is informational only and does not change any outputs.
 
 ---
 
-## 6. Output update pacing
+## 6. Notifications and outputs
+
+The main controller returns four outputs:
+
+- DVCC charge current limit
+- ESS grid setpoint
+- a placeholder third output where `ac-input-current-limit` is emitted as `null`
+- a GX notification when the grid setpoint changes
+
+The live flow still contains separate inject nodes for manual or scheduled current values, but the main controller no longer manages VE.Bus Input 1 current limit dynamically.
+
+---
+
+## 7. Output update pacing
 
 To avoid excessive control chatter, the live flow adds output delays:
 
+- charge current limit changes are rate-limited to every `10 seconds`
 - grid setpoint changes are rate-limited to every `10 seconds`
-- Input 1 current limit changes are rate-limited to every `10 seconds`
 
 This prevents rewriting Victron settings every second.
 
@@ -243,10 +266,10 @@ flowchart LR
     H --> I[DVCC charge current limit]
     H --> J[Delay grid setpoint 10s]
     J --> K[ESS grid setpoint output]
-    H --> L[Delay input limit 10s]
-    L --> M[VE.Bus Input 1 current limit output]
+    H --> L[Format GX notification]
+    L --> M[GX notification output]
     H --> N[Notification formatter]
-    N --> O[GX notification output]
+    N --> O[Unused / legacy branch depending on local edits]
 ```
 
 ### Notes
@@ -320,24 +343,24 @@ This repository therefore aims to flatten imported power by controlling charging
 
 This project was tuned around an Elvenett interpretation discussed during development:
 
-- daytime practical raw target around `2.0 kW`
+- daytime practical raw target around `1.98 kW`
 - night hours may be weighted lower for capacity purposes
 - the user specifically optimized around a night factor of `0.7`
 
 That implies the following reasoning:
 
-- daytime raw `2.0 kW` stays close to the desired practical cap
+- daytime raw `1.98 kW` stays close to the desired practical cap
 - night raw import can be somewhat higher without causing the same effective capacity burden
-- a practical night target of `2.5-2.7 kW` is acceptable for this system design
+- a practical night target of about `2.85 kW` is acceptable for this system design
 
 Example project math:
 
-- `2.7 kW raw * 0.7 = 1.89 kW effective`
+- `2.85 kW raw * 0.7 = 1.995 kW effective`
 
 This is why the repository uses:
 
-- day base setpoint: `1950 W`
-- night base setpoint: `2700 W`
+- day base setpoint: `1980 W`
+- night base setpoint: `2850 W`
 
 ---
 
@@ -355,14 +378,14 @@ Risk pattern:
 The controller reduces that risk by:
 
 - lowering charging when the battery is already sufficiently charged
-- limiting import if too much has already been used earlier in the same hour
+- displaying how much import has already been used earlier in the same hour
 - allowing more relaxed behavior at night
 
 ---
 
-## 5. Hourly budget model used by this controller
+## 5. Hourly visibility model used by this controller
 
-The controller internally uses an hourly energy budget approximation.
+The controller keeps an hourly energy visibility approximation for status and tuning.
 
 For each clock hour:
 
@@ -379,7 +402,7 @@ E_left_Wh   = max(0, E_budget_Wh - E_used_Wh)
 P_allow_W   = E_left_Wh / t_left_h
 ```
 
-This allows the controller to be stricter near the end of an hour if too much energy has already been imported earlier in that same hour.
+This is currently shown for operator awareness only. It does not directly tighten the controller outputs.
 
 ---
 
@@ -418,12 +441,13 @@ Recommended workflow when editing the logic:
 
 1. edit `day-night.txt`
 2. synchronize the function content into `flows.json`
-3. import or deploy the updated flow to the Cerbo GX
-4. verify:
+3. increment the `d#<n>` tab version in `flows.json`
+4. import or deploy the updated flow to the Cerbo GX
+5. verify:
    - battery voltage input is updating
    - GRID CT import power is updating
    - status text shows correct hour range and `Wh`
-   - grid setpoint and Input 1 current limit change no faster than every 10 seconds
+  - charge current limit and grid setpoint change no faster than every 10 seconds
 
 ---
 
@@ -433,6 +457,7 @@ Recommended workflow when editing the logic:
 - the project is tuned to one specific tariff interpretation and should be validated against the actual current network tariff
 - local GX notification injection may not work on all installed Victron node versions
 - actual charging behavior still depends on ESS mode and total system state; a DVCC limit is not itself a direct “force charge” command
+- `flows.json` may still contain legacy inject nodes or unused branches that are no longer driven by the main controller
 
 ---
 
@@ -456,6 +481,7 @@ This repository is a practical Victron + Node-RED implementation for Norwegian h
 It combines:
 
 - time-window charging
+- solar-forecast-aware current reduction
 - voltage hysteresis
 - hourly imported-energy counting
 - dynamic power limiting
