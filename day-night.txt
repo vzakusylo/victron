@@ -20,6 +20,7 @@
 //      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)
 //    - `topic = ac-load-power` -> updates measured AC loads power in W
 //      (source: GX System `/Ac/Consumption/L1/Power`)
+//    - `topic = manual-discharge` -> starts/stops a manual discharge override
 //    - any other topic / inject -> recalculates outputs using stored state
 // 3. Battery restoration uses BMS Consumed Amphours as the net deficit to refill.
 // 4. Grid charging happens only in NIGHT and MORNING windows and runs at 25A when needed.
@@ -59,6 +60,10 @@
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
 // 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
 //     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
+// 20. Manual discharge can be started/stopped with inject nodes:
+//     - while active it overrides the normal schedule
+//     - ESS grid setpoint is driven negative to target up to 20A battery discharge
+//     - the override auto-stops when battery voltage reaches 44.5V or lower
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -67,6 +72,7 @@ const BATTERY_TOPIC = "battery-voltage";
 const BATTERY_CONSUMED_AH_TOPIC = "battery-consumed-ah";
 const GRID_TOPIC = "grid-power";
 const AC_LOAD_TOPIC = "ac-load-power";
+const MANUAL_DISCHARGE_TOPIC = "manual-discharge";
 
 // ==========================
 // CONSTANTS
@@ -88,6 +94,8 @@ const HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;
 const HIGH_VOLTAGE_LIMIT_FULL = 55.6;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
+const MANUAL_DISCHARGE_STOP_VOLTAGE = 44.5;
+const MANUAL_DISCHARGE_MAX_CURRENT = 20;
 
 // ==========================
 // TIME
@@ -114,6 +122,11 @@ const hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPo
 const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
+let manualDischarge = context.get("manualDischarge") || {
+    active: false,
+    startedAt: "",
+    source: ""
+};
 let hourBudget = context.get("hourBudget") || {
     hourKey: "",
     lastTs: 0,
@@ -304,6 +317,36 @@ function smoothReduction(previousValue, targetValue, maxStep) {
     return targetValue;
 }
 
+function parseManualDischargeCommand(input) {
+    if (input === true || input === "start" || input === "on") {
+        return { active: true, source: "inject" };
+    }
+
+    if (input === false || input === "stop" || input === "off") {
+        return { active: false, source: "inject" };
+    }
+
+    if (!input || typeof input !== "object") {
+        return null;
+    }
+
+    if (input.active === true || input.enabled === true || input.command === "start") {
+        return {
+            active: true,
+            source: String(input.source || input.reason || "inject")
+        };
+    }
+
+    if (input.active === false || input.enabled === false || input.command === "stop") {
+        return {
+            active: false,
+            source: String(input.source || input.reason || "inject")
+        };
+    }
+
+    return null;
+}
+
 function buildNotification(window, gridSetpoint) {
     const parts = [
         `${window}`,
@@ -349,6 +392,7 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             remainingMorningHours: round1(remainingMorningHours),
             remainingMorningCapacityAh: round1(remainingMorningCapacityAh),
             boostActive,
+            manualDischarge,
             voltageLimitActive,
             baseScheduleSetpoint,
             voltageLimitedSetpoint,
@@ -443,6 +487,18 @@ else if (msg.topic === AC_LOAD_TOPIC) {
         context.set("acLoadPowerW", Math.max(0, incomingAcLoadPower));
     }
 }
+else if (msg.topic === MANUAL_DISCHARGE_TOPIC) {
+    const manualCommand = parseManualDischargeCommand(msg.payload);
+
+    if (manualCommand) {
+        manualDischarge = {
+            active: manualCommand.active,
+            startedAt: manualCommand.active ? now.toISOString() : "",
+            source: manualCommand.source || "inject"
+        };
+        context.set("manualDischarge", manualDischarge);
+    }
+}
 
 context.set("hourBudget", hourBudget);
 context.set("acLoadBudget", acLoadBudget);
@@ -456,7 +512,7 @@ if (!Number.isFinite(batteryVoltage)) {
     return null;
 }
 
-if (!Number.isFinite(consumedAhDeficit)) {
+if (!Number.isFinite(consumedAhDeficit) && !manualDischarge.active) {
     node.status({
         fill: "grey",
         shape: "ring",
@@ -486,13 +542,28 @@ const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGE
 let windowName = "OUTSIDE";
 let baseChargeCurrent = 0;
 const solarForecast = getSolarForecastSummary(now);
+const effectiveConsumedAhDeficit = Number.isFinite(consumedAhDeficit) ? consumedAhDeficit : 0;
 const forecastRestoreAh = getForecastRestoreAh(solarForecast, batteryVoltage);
-const gridRestoreAhNeeded = Math.max(0, consumedAhDeficit - forecastRestoreAh);
+const gridRestoreAhNeeded = Math.max(0, effectiveConsumedAhDeficit - forecastRestoreAh);
 const remainingNightHours = getRemainingNightHours(now);
 const remainingMorningHours = getRemainingMorningHours(now);
 const remainingMorningCapacityAh = remainingMorningHours * MAX_CHARGE_CURRENT;
 
-if (nightWindow) {
+if (manualDischarge.active && batteryVoltage <= MANUAL_DISCHARGE_STOP_VOLTAGE) {
+    manualDischarge = {
+        active: false,
+        startedAt: "",
+        source: "auto-stop-low-voltage"
+    };
+    context.set("manualDischarge", manualDischarge);
+}
+
+if (manualDischarge.active) {
+    windowName = "MANUAL-DISCHARGE";
+    boostActive = false;
+    baseChargeCurrent = 0;
+}
+else if (nightWindow) {
     windowName = "NIGHT";
     boostActive = gridRestoreAhNeeded > Math.max(RESTORE_AH_DEADBAND, remainingMorningCapacityAh);
     baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;
@@ -552,23 +623,31 @@ if (voltageLimitActive) {
 // ==========================
 // FINAL OUTPUTS
 // ==========================
-const finalGridSetpoint = Math.max(
-    0,
-    Math.round(
-        Math.min(
-            baseScheduleSetpoint,
-            voltageLimitedSetpoint
-        )
-    )
+const manualDischargePowerW = Math.round(
+    Math.max(0, batteryVoltage) * MANUAL_DISCHARGE_MAX_CURRENT
 );
+
+const finalGridSetpoint = manualDischarge.active
+    ? -manualDischargePowerW
+    : Math.max(
+        0,
+        Math.round(
+            Math.min(
+                baseScheduleSetpoint,
+                voltageLimitedSetpoint
+            )
+        )
+    );
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
     : 0;
 
-const finalChargeCurrent = baseChargeCurrent > 0
-    ? round1(baseChargeCurrent * currentRatio)
-    : 0;
+const finalChargeCurrent = manualDischarge.active
+    ? 0
+    : (baseChargeCurrent > 0
+        ? round1(baseChargeCurrent * currentRatio)
+        : 0);
 const usedWh = hourBudget.usedWh || 0;
 const acUsedWh = acLoadBudget.usedWh || 0;
 const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
@@ -586,6 +665,7 @@ context.set("boostActive", boostActive);
 context.set("activeWindow", windowName);
 context.set("voltageLimitActive", voltageLimitActive);
 context.set("gridSetpoint", finalGridSetpoint);
+context.set("manualDischarge", manualDischarge);
 
 // ==========================
 // STATUS
@@ -600,9 +680,16 @@ if (solarForecast.valid && forecastRestoreAh > 0) {
     limitFlags.push(`SOL:${solarForecast.condition.toUpperCase()}`);
 }
 
+if (manualDischarge.active) {
+    limitFlags.push(`MD:${MANUAL_DISCHARGE_MAX_CURRENT}A`);
+}
+
 let fill = "grey";
 
-if (windowName === "NIGHT") {
+if (windowName === "MANUAL-DISCHARGE") {
+    fill = "red";
+}
+else if (windowName === "NIGHT") {
     fill = finalChargeCurrent > 0 ? "blue" : "yellow";
 }
 else if (windowName === "MORNING" || windowName === "EVENING") {
@@ -613,12 +700,15 @@ const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
 const forecastText = solarForecast.valid
     ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`
     : "";
-const restoreText = ` | Def ${consumedAhDeficit.toFixed(1)}Ah | Grid ${gridRestoreAhNeeded.toFixed(1)}Ah`;
+const restoreText = ` | Def ${effectiveConsumedAhDeficit.toFixed(1)}Ah | Grid ${gridRestoreAhNeeded.toFixed(1)}Ah`;
+const manualText = manualDischarge.active
+    ? ` | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V | Target ${MANUAL_DISCHARGE_MAX_CURRENT}A`
+    : "";
 
 node.status({
     fill,
-    shape: finalChargeCurrent > 0 || finalGridSetpoint > 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
+    shape: finalChargeCurrent > 0 || finalGridSetpoint !== 0 ? "dot" : "ring",
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText}${manualText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
 });
 
 const hourlyLogMsg = hourRolledOver
