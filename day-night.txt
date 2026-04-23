@@ -62,7 +62,8 @@
 //     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
 // 20. Manual discharge can be started/stopped with inject nodes:
 //     - while active it overrides the normal schedule
-//     - ESS grid setpoint is driven negative to target up to 20A battery discharge
+//     - ESS grid setpoint is raised/lowered dynamically but never below 200W import
+//     - battery discharge is capped to the equivalent of 20A using the live battery voltage
 //     - the override auto-stops when battery voltage reaches 44.5V or lower
 
 // ==========================
@@ -94,6 +95,7 @@ const HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;
 const HIGH_VOLTAGE_LIMIT_FULL = 55.6;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
+const MANUAL_DISCHARGE_MIN_GRID_W = 200;
 const MANUAL_DISCHARGE_STOP_VOLTAGE = 44.5;
 const MANUAL_DISCHARGE_MAX_CURRENT = 20;
 
@@ -627,8 +629,13 @@ const manualDischargePowerW = Math.round(
     Math.max(0, batteryVoltage) * MANUAL_DISCHARGE_MAX_CURRENT
 );
 
+const manualGridSetpoint = Math.max(
+    MANUAL_DISCHARGE_MIN_GRID_W,
+    Math.round(Math.max(0, storedAcLoadPowerW) - manualDischargePowerW)
+);
+
 const finalGridSetpoint = manualDischarge.active
-    ? -manualDischargePowerW
+    ? manualGridSetpoint
     : Math.max(
         0,
         Math.round(
@@ -660,6 +667,12 @@ const remainingAverageW = Math.round(remainingWh / hoursLeftInHour);
 const remainingAverageText = hourBudget.fullHourCoverage
     ? ` | ${remainingAverageW}W left`
     : "";
+const estimatedDischargeW = manualDischarge.active
+    ? Math.max(0, Math.round(Math.max(0, storedAcLoadPowerW) - finalGridSetpoint))
+    : 0;
+const estimatedDischargeA = manualDischarge.active && batteryVoltage > 0
+    ? round1(estimatedDischargeW / batteryVoltage)
+    : 0;
 
 context.set("boostActive", boostActive);
 context.set("activeWindow", windowName);
@@ -702,7 +715,7 @@ const forecastText = solarForecast.valid
     : "";
 const restoreText = ` | Def ${effectiveConsumedAhDeficit.toFixed(1)}Ah | Grid ${gridRestoreAhNeeded.toFixed(1)}Ah`;
 const manualText = manualDischarge.active
-    ? ` | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V | Target ${MANUAL_DISCHARGE_MAX_CURRENT}A`
+    ? ` | Grid>=${MANUAL_DISCHARGE_MIN_GRID_W}W | Dis ${estimatedDischargeA.toFixed(1)}A/${MANUAL_DISCHARGE_MAX_CURRENT}A | Stop<=${MANUAL_DISCHARGE_STOP_VOLTAGE.toFixed(1)}V`
     : "";
 
 node.status({
