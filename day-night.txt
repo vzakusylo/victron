@@ -99,12 +99,16 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     start: 55.4,
     release: 55.2,
     full: 55.6,
-    gridSupportW: 0
+    gridSupportW: 0,
+    forceChargeEnabled: false,
+    forceChargeGridW: 0
 });
 const HIGH_VOLTAGE_SETTINGS_MIN = 50;
 const HIGH_VOLTAGE_SETTINGS_MAX = 60;
 const HIGH_VOLTAGE_GRID_SUPPORT_MIN_W = 0;
 const HIGH_VOLTAGE_GRID_SUPPORT_MAX_W = 1000;
+const FORCE_CHARGE_MIN_W = 0;
+const FORCE_CHARGE_MAX_W = 3000;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
 const MANUAL_DISCHARGE_MIN_GRID_W = 200;
@@ -186,6 +190,12 @@ function sanitizeHighVoltageSettings(value) {
     const rawGridSupportW = value.gridSupportW === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportW
         : Number(value.gridSupportW);
+    const forceChargeEnabled = value.forceChargeEnabled === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeEnabled
+        : Boolean(value.forceChargeEnabled);
+    const rawForceChargeGridW = value.forceChargeGridW === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeGridW
+        : Number(value.forceChargeGridW);
     const allFinite = [start, release, full].every(Number.isFinite);
     const inRange = [start, release, full].every(
         setting => setting >= HIGH_VOLTAGE_SETTINGS_MIN && setting <= HIGH_VOLTAGE_SETTINGS_MAX
@@ -194,8 +204,12 @@ function sanitizeHighVoltageSettings(value) {
     const validGridSupportW = Number.isFinite(rawGridSupportW)
         && gridSupportW >= HIGH_VOLTAGE_GRID_SUPPORT_MIN_W
         && gridSupportW <= HIGH_VOLTAGE_GRID_SUPPORT_MAX_W;
+    const forceChargeGridW = Math.round(rawForceChargeGridW);
+    const validForceChargeGridW = Number.isFinite(rawForceChargeGridW)
+        && forceChargeGridW >= FORCE_CHARGE_MIN_W
+        && forceChargeGridW <= FORCE_CHARGE_MAX_W;
 
-    if (!allFinite || !inRange || !validGridSupportW || !(full > start) || !(start >= release)) {
+    if (!allFinite || !inRange || !validGridSupportW || !validForceChargeGridW || !(full > start) || !(start >= release)) {
         return null;
     }
 
@@ -204,7 +218,9 @@ function sanitizeHighVoltageSettings(value) {
         start,
         release,
         full,
-        gridSupportW
+        gridSupportW,
+        forceChargeEnabled,
+        forceChargeGridW
     };
 }
 
@@ -458,10 +474,14 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             manualDischarge,
             voltageLimitActive,
             baseScheduleSetpoint,
+            requestedGridSetpoint,
             voltageLimitedSetpoint,
             finalGridSetpoint: gridSetpoint,
             baseChargeCurrent: round1(baseChargeCurrent),
             finalChargeCurrent: round1(chargeCurrent),
+            currentChargingPowerW,
+            forceChargeEnabled,
+            forceChargeGridW,
             storedGridPowerW: Math.round(storedGridPowerW),
             storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
             hourBudget: {
@@ -609,6 +629,13 @@ const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGE
 const highVoltageSettings = getHighVoltageSettings();
 const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
+const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
+const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
+const forceChargeTargetCurrent = round1(clamp(
+    forceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE),
+    0,
+    MAX_CHARGE_CURRENT
+));
 
 // ==========================
 // CAPACITY RESTORATION LOGIC
@@ -640,6 +667,11 @@ if (manualDischargeEnabled) {
     windowName = "MANUAL-DISCHARGE";
     boostActive = false;
     baseChargeCurrent = 0;
+}
+else if (forceChargeEnabled && forceChargeGridW > 0) {
+    windowName = "FORCE-CHARGE";
+    boostActive = false;
+    baseChargeCurrent = forceChargeTargetCurrent;
 }
 else if (nightWindow) {
     windowName = "NIGHT";
@@ -676,14 +708,26 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
 }
 
 let voltageLimitedSetpoint = baseScheduleSetpoint;
+const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
+    ? Math.max(
+        baseScheduleSetpoint,
+        Math.round(Math.max(0, storedAcLoadPowerW) + forceChargeGridW)
+    )
+    : baseScheduleSetpoint;
 
 if (voltageLimitActive) {
-    const voltageLimitFloorSetpoint = hasGridPowerReading
-        ? Math.min(
-            baseScheduleSetpoint,
-            Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
-        )
-        : Math.max(0, baseScheduleSetpoint - highVoltageGridSupportW);
+    const forceChargeFloorSetpoint = Math.max(
+        0,
+        Math.round(Math.max(0, storedAcLoadPowerW) - highVoltageGridSupportW)
+    );
+    const voltageLimitFloorSetpoint = forceChargeEnabled && forceChargeGridW > 0
+        ? Math.min(requestedGridSetpoint, forceChargeFloorSetpoint)
+        : (hasGridPowerReading
+            ? Math.min(
+                requestedGridSetpoint,
+                Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
+            )
+            : Math.max(0, requestedGridSetpoint - highVoltageGridSupportW));
     const taper = clamp(
         (highVoltageSettings.full - batteryVoltage) /
         (highVoltageSettings.full - highVoltageSettings.start),
@@ -692,7 +736,7 @@ if (voltageLimitActive) {
     );
 
     voltageLimitedSetpoint = Math.round(
-        voltageLimitFloorSetpoint + (baseScheduleSetpoint - voltageLimitFloorSetpoint) * taper
+        voltageLimitFloorSetpoint + (requestedGridSetpoint - voltageLimitFloorSetpoint) * taper
     );
 }
 
@@ -725,7 +769,7 @@ const finalGridSetpoint = manualDischargeEnabled
         0,
         Math.round(
             Math.min(
-                baseScheduleSetpoint,
+                requestedGridSetpoint,
                 voltageLimitedSetpoint
             )
         )
@@ -734,12 +778,18 @@ const finalGridSetpoint = manualDischargeEnabled
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
     : 0;
+const forceChargeAvailableW = Math.max(0, Math.round(finalGridSetpoint - Math.max(0, storedAcLoadPowerW)));
+const forceChargeRatio = forceChargeGridW > 0
+    ? clamp(forceChargeAvailableW / forceChargeGridW, 0, 1)
+    : 0;
 
 const finalChargeCurrent = manualDischargeEnabled
     ? 0
-    : (baseChargeCurrent > 0
-        ? round1(baseChargeCurrent * currentRatio)
-        : 0);
+    : (forceChargeEnabled && forceChargeGridW > 0
+        ? round1(baseChargeCurrent * forceChargeRatio)
+        : (baseChargeCurrent > 0
+            ? round1(baseChargeCurrent * currentRatio)
+            : 0));
 const usedWh = hourBudget.usedWh || 0;
 const acUsedWh = acLoadBudget.usedWh || 0;
 const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
@@ -758,6 +808,7 @@ const estimatedDischargeW = manualDischargeEnabled
 const estimatedDischargeA = manualDischargeEnabled && batteryVoltage > 0
     ? round1(estimatedDischargeW / batteryVoltage)
     : 0;
+const currentChargingPowerW = Math.max(0, Math.round(Math.max(0, batteryVoltage) * finalChargeCurrent));
 
 context.set("boostActive", boostActive);
 context.set("activeWindow", windowName);
@@ -785,10 +836,17 @@ else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
     limitFlags.push(`MD-HOLD>${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W`);
 }
 
+if (forceChargeEnabled && forceChargeGridW > 0) {
+    limitFlags.push(`FC:${forceChargeGridW}W`);
+}
+
 let fill = "grey";
 
 if (windowName === "MANUAL-DISCHARGE") {
     fill = "red";
+}
+else if (windowName === "FORCE-CHARGE") {
+    fill = finalChargeCurrent > 0 ? "blue" : "yellow";
 }
 else if (windowName === "NIGHT") {
     fill = finalChargeCurrent > 0 ? "blue" : "yellow";
