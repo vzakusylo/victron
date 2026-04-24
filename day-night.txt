@@ -95,12 +95,16 @@ const DAY_HOURLY_BUDGET_W = 1980;
 const NIGHT_HOURLY_BUDGET_W = 2850;
 
 const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
+    enabled: true,
     start: 55.4,
     release: 55.2,
-    full: 55.6
+    full: 55.6,
+    gridSupportW: 0
 });
 const HIGH_VOLTAGE_SETTINGS_MIN = 50;
 const HIGH_VOLTAGE_SETTINGS_MAX = 60;
+const HIGH_VOLTAGE_GRID_SUPPORT_MIN_W = 0;
+const HIGH_VOLTAGE_GRID_SUPPORT_MAX_W = 1000;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
 const MANUAL_DISCHARGE_MIN_GRID_W = 200;
@@ -173,22 +177,34 @@ function sanitizeHighVoltageSettings(value) {
         return null;
     }
 
+    const enabled = value.enabled === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.enabled
+        : Boolean(value.enabled);
     const start = Number(value.start);
     const release = Number(value.release);
     const full = Number(value.full);
+    const rawGridSupportW = value.gridSupportW === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportW
+        : Number(value.gridSupportW);
     const allFinite = [start, release, full].every(Number.isFinite);
     const inRange = [start, release, full].every(
         setting => setting >= HIGH_VOLTAGE_SETTINGS_MIN && setting <= HIGH_VOLTAGE_SETTINGS_MAX
     );
+    const gridSupportW = Math.round(rawGridSupportW);
+    const validGridSupportW = Number.isFinite(rawGridSupportW)
+        && gridSupportW >= HIGH_VOLTAGE_GRID_SUPPORT_MIN_W
+        && gridSupportW <= HIGH_VOLTAGE_GRID_SUPPORT_MAX_W;
 
-    if (!allFinite || !inRange || !(full > start) || !(start >= release)) {
+    if (!allFinite || !inRange || !validGridSupportW || !(full > start) || !(start >= release)) {
         return null;
     }
 
     return {
+        enabled,
         start,
         release,
-        full
+        full,
+        gridSupportW
     };
 }
 
@@ -591,6 +607,8 @@ const eveningWindow = hour >= 17;
 const baseScheduleSetpoint = nightWindow ? NIGHT_BASE_GRID_SETPOINT : DAY_BASE_GRID_SETPOINT;
 const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGET_W;
 const highVoltageSettings = getHighVoltageSettings();
+const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
+const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
 
 // ==========================
 // CAPACITY RESTORATION LOGIC
@@ -646,7 +664,10 @@ else {
 // ==========================
 // HIGH-VOLTAGE GRID SETPOINT LIMIT
 // ==========================
-if (!voltageLimitActive && batteryVoltage > highVoltageSettings.start) {
+if (!highVoltageProtectionEnabled) {
+    voltageLimitActive = false;
+}
+else if (!voltageLimitActive && batteryVoltage > highVoltageSettings.start) {
     voltageLimitActive = true;
 }
 
@@ -657,6 +678,12 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
 let voltageLimitedSetpoint = baseScheduleSetpoint;
 
 if (voltageLimitActive) {
+    const voltageLimitFloorSetpoint = hasGridPowerReading
+        ? Math.min(
+            baseScheduleSetpoint,
+            Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
+        )
+        : Math.max(0, baseScheduleSetpoint - highVoltageGridSupportW);
     const taper = clamp(
         (highVoltageSettings.full - batteryVoltage) /
         (highVoltageSettings.full - highVoltageSettings.start),
@@ -665,7 +692,7 @@ if (voltageLimitActive) {
     );
 
     voltageLimitedSetpoint = Math.round(
-        MIN_GRID_SETPOINT + (baseScheduleSetpoint - MIN_GRID_SETPOINT) * taper
+        voltageLimitFloorSetpoint + (baseScheduleSetpoint - voltageLimitFloorSetpoint) * taper
     );
 }
 
