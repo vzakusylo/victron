@@ -2298,16 +2298,16 @@
         "id": "9cc85e71fc92bf82",
         "type": "victron-input-system",
         "z": "6850b365fb613dcb",
-        "service": "com.victronenergy.system",
+        "service": "com.victronenergy.system/0",
         "path": "/Ac/Grid/L1/Power",
         "serviceObj": {
-            "service": "com.victronenergy.system",
-            "name": "System"
+            "service": "com.victronenergy.system/0",
+            "name": "Venus system"
         },
         "pathObj": {
             "path": "/Ac/Grid/L1/Power",
             "type": "float",
-            "name": "Grid L1 power (W)"
+            "name": "Grid L1 (W)"
         },
         "name": "GRID CT import power",
         "onlyChanges": false,
