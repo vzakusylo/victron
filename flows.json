@@ -2,7 +2,7 @@
     {
         "id": "995ac4ed6222a706",
         "type": "tab",
-        "label": "d#36 Day / Night Grid Control",
+        "label": "d#37 Day / Night Grid Control",
         "disabled": false,
         "info": ""
     },
@@ -831,6 +831,26 @@
         "type": "ui_group",
         "name": "High-Voltage Protection",
         "tab": "ui-tab-hv-protection-01",
+        "order": 1,
+        "disp": true,
+        "width": "18",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui-tab-files-root-01",
+        "type": "ui_tab",
+        "name": "Files",
+        "icon": "folder",
+        "order": 4,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "ui-group-files-root-01",
+        "type": "ui_group",
+        "name": "Node-RED Root Files",
+        "tab": "ui-tab-files-root-01",
         "order": 1,
         "disp": true,
         "width": "18",
@@ -2893,7 +2913,8 @@
         "wires": [
             [
                 "137dd306ca7275e6",
-                "d649c2e4d8ca5f12"
+                "d649c2e4d8ca5f12",
+                "2a4cce0a3d3c4f11"
             ]
         ]
     },
@@ -3015,6 +3036,165 @@
         "className": "",
         "x": 1700,
         "y": 1080,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "2a4cce0a3d3c4f11",
+        "type": "function",
+        "z": "995ac4ed6222a706",
+        "name": "Refresh root files dashboard",
+        "func": "return { topic: 'files-refresh' };",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 530,
+        "y": 1160,
+        "wires": [
+            [
+                "5a1f7d0be2c64f44"
+            ]
+        ]
+    },
+    {
+        "id": "5a1f7d0be2c64f44",
+        "type": "function",
+        "z": "995ac4ed6222a706",
+        "name": "Manage root files dashboard",
+        "func": "const ROOT_PATH = '/data/home/nodered';\n\nfunction byteSize(rawText) {\n    if (typeof rawText !== 'string' || !rawText.length) {\n        return 0;\n    }\n\n    return typeof Buffer !== 'undefined'\n        ? Buffer.byteLength(rawText, 'utf8')\n        : rawText.length;\n}\n\nfunction getState() {\n    const files = Array.isArray(flow.get('dashboardRootFiles')) ? flow.get('dashboardRootFiles') : [];\n    const selectedIndex = Math.max(0, Number(flow.get('dashboardRootFileIndex')) || 0);\n    const content = flow.get('dashboardRootFileContent') || {\n        path: ROOT_PATH,\n        name: '',\n        status: 'idle',\n        fileSize: 0,\n        rawText: ''\n    };\n\n    return { files, selectedIndex, content };\n}\n\nfunction saveState(state) {\n    flow.set('dashboardRootFiles', state.files);\n    flow.set('dashboardRootFileIndex', state.selectedIndex);\n    flow.set('dashboardRootFileContent', state.content);\n}\n\nfunction buildOutputs(state, listMsg, readMsg) {\n    const selectedFile = state.files[state.selectedIndex] || null;\n    const summary = 'Files ' + state.files.length + ' | Selected ' + (selectedFile ? selectedFile.name : 'none') + ' | Status ' + (state.content.status || 'idle') + ' | Size ' + (state.content.fileSize || 0) + ' bytes';\n\n    const listPayload = {\n        rootPath: ROOT_PATH,\n        count: state.files.length,\n        selectedIndex: selectedFile ? state.selectedIndex : -1,\n        selectedName: selectedFile ? selectedFile.name : '',\n        selectedPath: selectedFile ? selectedFile.path : '',\n        canPrev: state.selectedIndex > 0,\n        canNext: state.selectedIndex >= 0 && state.selectedIndex < state.files.length - 1,\n        files: state.files.map((file, index) => ({\n            index,\n            name: file.name,\n            path: file.path,\n            selected: index === state.selectedIndex\n        }))\n    };\n\n    const rawPayload = {\n        fileName: state.content.path || (selectedFile ? selectedFile.path : ROOT_PATH),\n        status: state.content.status || 'idle',\n        fileSize: state.content.fileSize || 0,\n        rawText: state.content.rawText || ''\n    };\n\n    return [\n        { payload: summary },\n        { payload: listPayload },\n        { payload: rawPayload },\n        listMsg || null,\n        readMsg || null\n    ];\n}\n\nlet state = getState();\n\nif (msg.topic === 'files-refresh') {\n    state.content = {\n        path: ROOT_PATH,\n        name: '',\n        status: 'loading-list',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, {\n        topic: 'root-files-list',\n        payload: 'find \"' + ROOT_PATH + '\" -maxdepth 1 -type f 2>/dev/null | sort || printf \"\"'\n    }, null);\n}\n\nif (msg.topic === 'root-files-nav') {\n    const action = msg.payload && msg.payload.action;\n\n    if (action === 'refresh' || !state.files.length) {\n        state.content = {\n            path: ROOT_PATH,\n            name: '',\n            status: 'loading-list',\n            fileSize: 0,\n            rawText: ''\n        };\n        saveState(state);\n\n        return buildOutputs(state, {\n            topic: 'root-files-list',\n            payload: 'find \"' + ROOT_PATH + '\" -maxdepth 1 -type f 2>/dev/null | sort || printf \"\"'\n        }, null);\n    }\n\n    if (action === 'prev') {\n        state.selectedIndex = Math.max(0, state.selectedIndex - 1);\n    }\n    else if (action === 'next') {\n        state.selectedIndex = Math.min(state.files.length - 1, state.selectedIndex + 1);\n    }\n    else if (action === 'select') {\n        const requestedIndex = Number(msg.payload && msg.payload.index);\n        if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < state.files.length) {\n            state.selectedIndex = requestedIndex;\n        }\n    }\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null);\n}\n\nif (msg.topic === 'root-files-list') {\n    const files = String(msg.payload || '')\n        .split(/\\r?\\n/)\n        .map(line => line.trim())\n        .filter(Boolean)\n        .map(path => ({\n            path,\n            name: path.split('/').pop() || path\n        }));\n\n    state.files = files;\n    state.selectedIndex = files.length ? Math.min(state.selectedIndex, files.length - 1) : 0;\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null);\n}\n\nif (msg.topic === 'root-file-content') {\n    const rawText = typeof msg.payload === 'string' ? msg.payload : '';\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: msg.filePath || (selectedFile ? selectedFile.path : ROOT_PATH),\n        name: msg.fileName || (selectedFile ? selectedFile.name : ''),\n        status: rawText ? 'loaded' : 'empty',\n        fileSize: byteSize(rawText),\n        rawText\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, null);\n}\n\nreturn buildOutputs(state, null, null);",
+        "outputs": 5,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 1160,
+        "wires": [
+            [
+                "9d2a7ed0c1bd4f21"
+            ],
+            [
+                "af24074a74864f57"
+            ],
+            [
+                "df94619fdb8449e7"
+            ],
+            [
+                "63b9b2d57b174422"
+            ],
+            [
+                "7bca218a93c14789"
+            ]
+        ]
+    },
+    {
+        "id": "63b9b2d57b174422",
+        "type": "exec",
+        "z": "995ac4ed6222a706",
+        "command": "sh",
+        "addpay": "payload",
+        "append": "-c",
+        "useSpawn": "false",
+        "timer": "10",
+        "oldrc": false,
+        "name": "List Node-RED root files",
+        "x": 1130,
+        "y": 1200,
+        "wires": [
+            [
+                "5a1f7d0be2c64f44"
+            ],
+            [
+                "5a1f7d0be2c64f44"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "7bca218a93c14789",
+        "type": "exec",
+        "z": "995ac4ed6222a706",
+        "command": "sh",
+        "addpay": "payload",
+        "append": "-c",
+        "useSpawn": "false",
+        "timer": "10",
+        "oldrc": false,
+        "name": "Read selected root file",
+        "x": 1120,
+        "y": 1240,
+        "wires": [
+            [
+                "5a1f7d0be2c64f44"
+            ],
+            [
+                "5a1f7d0be2c64f44"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "9d2a7ed0c1bd4f21",
+        "type": "ui_text",
+        "z": "995ac4ed6222a706",
+        "group": "ui-group-files-root-01",
+        "order": 1,
+        "width": "18",
+        "height": "1",
+        "name": "Root files summary",
+        "label": "Summary",
+        "format": "{{msg.payload}}",
+        "layout": "row-left",
+        "className": "",
+        "x": 1130,
+        "y": 1120,
+        "wires": []
+    },
+    {
+        "id": "af24074a74864f57",
+        "type": "ui_template",
+        "z": "995ac4ed6222a706",
+        "group": "ui-group-files-root-01",
+        "name": "Root files navigator",
+        "order": 2,
+        "width": "18",
+        "height": "10",
+        "format": "<style>\n.root-files-wrap { padding: 6px 2px; }\n.root-files-nav { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 0 0 10px 0; }\n.root-files-nav-buttons { display: flex; gap: 8px; }\n.root-files-nav button { border: 0; border-radius: 999px; padding: 6px 12px; background: #0094ce; color: #fff; cursor: pointer; font-size: 12px; }\n.root-files-title { font-weight: 600; }\n.root-files-path { margin-top: 4px; font-size: 12px; opacity: 0.7; word-break: break-all; }\n.root-files-table { width: 100%; border-collapse: collapse; font-size: 13px; }\n.root-files-table th, .root-files-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); text-align: left; }\n.root-files-table tr.selected-row { font-weight: 600; background: rgba(0, 148, 206, 0.12); }\n.root-files-table tr { cursor: pointer; }\n.root-files-empty { opacity: 0.7; font-size: 13px; padding: 8px 0; }\n</style>\n<div class=\"root-files-wrap\">\n  <div class=\"root-files-nav\">\n    <div>\n      <div class=\"root-files-title\">Node-RED root files</div>\n      <div>{{msg.payload.count || 0}} file(s)</div>\n      <div class=\"root-files-path\">{{msg.payload.rootPath || '/data/home/nodered'}}</div>\n    </div>\n    <div class=\"root-files-nav-buttons\">\n      <button ng-click=\"navigate('prev')\" ng-disabled=\"!msg.payload.canPrev\">Previous file</button>\n      <button ng-click=\"navigate('refresh')\">Refresh</button>\n      <button ng-click=\"navigate('next')\" ng-disabled=\"!msg.payload.canNext\">Next file</button>\n    </div>\n  </div>\n  <div class=\"root-files-path\" ng-if=\"msg.payload.selectedPath\">Selected: {{msg.payload.selectedPath}}</div>\n  <div class=\"root-files-empty\" ng-if=\"!msg.payload.files || !msg.payload.files.length\">No files found in the Node-RED root folder.</div>\n  <table class=\"root-files-table\" ng-if=\"msg.payload.files && msg.payload.files.length\">\n    <thead>\n      <tr>\n        <th>#</th>\n        <th>Name</th>\n        <th>Path</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr ng-repeat=\"file in msg.payload.files track by file.index\" ng-class=\"{'selected-row': file.selected}\" ng-click=\"selectFile(file.index)\">\n        <td>{{file.index + 1}}</td>\n        <td>{{file.name}}</td>\n        <td>{{file.path}}</td>\n      </tr>\n    </tbody>\n  </table>\n</div>\n<script>\n(function(scope) {\n    scope.navigate = function(action) {\n        scope.send({ topic: 'root-files-nav', payload: { action: action } });\n    };\n    scope.selectFile = function(index) {\n        scope.send({ topic: 'root-files-nav', payload: { action: 'select', index: index } });\n    };\n})(scope);\n</script>",
+        "storeOutMessages": true,
+        "fwdInMessages": false,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 1140,
+        "y": 1160,
+        "wires": [
+            [
+                "5a1f7d0be2c64f44"
+            ]
+        ]
+    },
+    {
+        "id": "df94619fdb8449e7",
+        "type": "ui_template",
+        "z": "995ac4ed6222a706",
+        "group": "ui-group-files-root-01",
+        "name": "Selected root file contents",
+        "order": 3,
+        "width": "18",
+        "height": "12",
+        "format": "<style>\n.root-file-box { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; background: #fafafa; padding: 10px; }\n.root-file-box-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }\n.root-file-box-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-bottom: 6px; }\n.root-file-box-status { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: #d8e8fb; color: #0f5ca8; font-weight: 600; text-transform: capitalize; }\n.root-file-box-size { opacity: 0.75; }\n.root-file-box-name { font-size: 12px; opacity: 0.75; margin-bottom: 8px; word-break: break-all; }\n.root-file-box-scroll { max-height: 420px; overflow-y: auto; overflow-x: auto; padding: 10px; border-radius: 8px; background: #ffffff; border: 1px solid rgba(0,0,0,0.06); }\n.root-file-box-scroll pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; }\n</style>\n<div class=\"root-file-box\">\n  <div class=\"root-file-box-title\">Selected file contents</div>\n  <div class=\"root-file-box-meta\">\n    <div class=\"root-file-box-status\">{{msg.payload.status || 'idle'}}</div>\n    <div class=\"root-file-box-size\">Size: {{msg.payload.fileSize || 0}} bytes</div>\n  </div>\n  <div class=\"root-file-box-name\">{{msg.payload.fileName || '/data/home/nodered'}}</div>\n  <div class=\"root-file-box-scroll\">\n    <pre>{{msg.payload.rawText || 'No file contents loaded.'}}</pre>\n  </div>\n</div>",
+        "storeOutMessages": true,
+        "fwdInMessages": false,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 1150,
+        "y": 1200,
         "wires": [
             []
         ]
