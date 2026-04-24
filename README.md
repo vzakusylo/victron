@@ -239,6 +239,106 @@ If tracking started exactly at the top of the hour, the status also shows the re
 
 ## 6. Notifications and outputs
 
+## Dashboard
+
+The live flow now includes several dashboard surfaces for operation and diagnostics, including a dedicated `Protection` tab for runtime control of the high-voltage limiter and AC-assisted charging.
+
+### Protection dashboard
+
+The `Protection` tab is meant for operational tuning without editing controller code.
+
+It reads the active runtime settings from:
+
+- `flow.highVoltageSettings`
+- `/data/home/nodered/grid-control-config/high-voltage-settings.json`
+
+The dashboard shows two rounded control cards:
+
+1. `Grid CT Support`
+2. `AC Force Charging`
+
+#### Grid CT Support card
+
+This card controls the high-voltage limiter behavior and how much battery support is allowed on the GRID CT signal.
+
+Available controls:
+
+- `Enable protection`
+- `Limiter start (V)`
+- `Limiter release (V)`
+- `Full taper (V)`
+- `Maximum grid CT battery support`
+
+Behavior:
+
+- `Enable protection = off` disables the high-voltage limiter entirely
+- when enabled, the limiter uses the configured `start`, `release`, and `full` voltages instead of fixed code constants
+- `gridSupportW = 0` means the battery should not offset GRID CT import during voltage limiting
+- `gridSupportW = 100` allows the controller to let the battery offset up to `100 W` dynamically on the GRID CT signal while the limiter is active
+
+Displayed status:
+
+- `Disabled` when protection is turned off
+- `Idle` when protection is enabled but the voltage limiter is not active
+- `Running` when the voltage limiter is currently active in the controller trace
+
+#### AC Force Charging card
+
+This card provides a simple runtime way to request grid-assisted charging from AC.
+
+Available controls:
+
+- `Enable force charge from AC`
+- `Charging power from grid`
+
+Behavior:
+
+- when enabled, the controller enters the `FORCE-CHARGE` operating window
+- the requested grid setpoint becomes approximately `AC load + configured charging power`
+- the requested charging power is converted to an approximate battery charging current using the live battery voltage
+- if high-voltage protection becomes active, the force-charge request is tapered down by the same voltage limiter logic
+
+Displayed status:
+
+- `Disabled` when AC force charging is off
+- `Armed` when enabled but not yet producing charge power
+- `Running` when the controller trace reports active charging power
+
+The `Current charging power` value is display-only and comes from the live controller trace. It reflects what the controller is actually commanding at that moment, not only the slider target.
+
+### Save and persistence behavior
+
+The Protection dashboard uses explicit save semantics.
+
+That means:
+
+- moving sliders does not immediately change the saved file
+- pressing `Save` validates the values first
+- valid settings are written to flow context and persisted to `/data/home/nodered/grid-control-config/high-voltage-settings.json`
+- dashboard reload and reconnect repopulate the form from the persisted runtime settings
+
+Validation currently enforces:
+
+- voltage values must stay in the `50-60 V` range
+- `full > start >= release`
+- GRID CT support must stay between `0` and `1000 W`
+- AC force-charge power must stay between `0` and `3000 W`
+
+### Dashboard data path
+
+The dashboard depends on the controller trace output to show live state.
+
+Important trace-backed values include:
+
+- voltage limiter active state
+- current active window such as `NIGHT`, `MORNING`, or `FORCE-CHARGE`
+- live charging power in watts
+- final grid setpoint and final charge current
+
+This is why the flow now uses a sixth controller output for structured trace data.
+
+---
+
 The main controller returns five outputs:
 
 - DVCC charge current limit
@@ -246,6 +346,7 @@ The main controller returns five outputs:
 - a placeholder third output where `ac-input-current-limit` is emitted as `null`
 - a notification/log message when the grid setpoint changes
 - an hourly energy rollover message used by the energy log and daily summary writers
+- a structured `controller-trace` payload used by the dashboard and analytics views
 
 The live flow still contains separate inject nodes for manual or scheduled current values, but the main controller no longer manages VE.Bus Input 1 current limit dynamically.
 
