@@ -554,6 +554,7 @@ const remainingNightHours = getRemainingNightHours(now);
 const remainingMorningHours = getRemainingMorningHours(now);
 const remainingMorningCapacityAh = remainingMorningHours * MAX_CHARGE_CURRENT;
 const manualDischargeAllowedByLoad = Math.max(0, storedAcLoadPowerW) <= MANUAL_DISCHARGE_MAX_AC_LOAD_W;
+const morningSolarChargeHold = solarForecast.valid && forecastRestoreAh > 0 && batteryVoltage > 54.5;
 
 if (manualDischarge.active && batteryVoltage <= MANUAL_DISCHARGE_STOP_VOLTAGE) {
     manualDischarge = {
@@ -578,7 +579,7 @@ else if (nightWindow) {
 }
 else if (morningWindow) {
     windowName = "MORNING";
-    boostActive = gridRestoreAhNeeded > RESTORE_AH_DEADBAND;
+    boostActive = !morningSolarChargeHold && gridRestoreAhNeeded > RESTORE_AH_DEADBAND;
     baseChargeCurrent = boostActive ? MAX_CHARGE_CURRENT : 0;
 }
 else if (eveningWindow) {
