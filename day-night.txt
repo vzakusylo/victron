@@ -30,9 +30,9 @@
 //    - 2850W at night
 //    - 1980W during the rest of the day
 // 7. High-voltage protection for unknown external MPPT charging:
-//    - start limiting when battery voltage rises above 54.6V
-//    - release only after voltage drops back to 54.7V or lower
-//    - taper grid setpoint smoothly down to a minimum of 200W by 55.0V
+//    - start limiting when battery voltage rises above 55.4V
+//    - release only after voltage drops back to 55.2V or lower
+//    - taper grid setpoint smoothly down to a minimum of 200W by 55.6V
 // 8. Hourly import Wh is tracked for display only:
 //    - integrates positive grid import within the current clock hour
 //    - shows accumulated Wh together with the actual accumulation start/end time in status
@@ -58,7 +58,7 @@
 // 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
-// 19. Notifications are written to a daily file at `/data/home/nodered/grid-control-logs/grid-control-YYYY-MM-DD.log`.
+// 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
 //     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
 // 20. Manual discharge can be started/stopped with inject nodes:
 //     - while active it overrides the normal schedule
@@ -92,9 +92,9 @@ const NIGHT_BASE_GRID_SETPOINT = 2850;
 const DAY_HOURLY_BUDGET_W = 1980;
 const NIGHT_HOURLY_BUDGET_W = 2850;
 
-const HIGH_VOLTAGE_LIMIT_START = 54.6;
-const HIGH_VOLTAGE_LIMIT_RELEASE = 54.5;
-const HIGH_VOLTAGE_LIMIT_FULL = 55.0;
+const HIGH_VOLTAGE_LIMIT_START = 55.4;
+const HIGH_VOLTAGE_LIMIT_RELEASE = 55.2;
+const HIGH_VOLTAGE_LIMIT_FULL = 55.6;
 const MIN_GRID_SETPOINT = 200;
 const MAX_GRID_STEP_W = 100;
 const MANUAL_DISCHARGE_MIN_GRID_W = 200;
