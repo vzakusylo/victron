@@ -857,8 +857,8 @@ if (forceChargeEnabled && forceChargeGridW > 0) {
     limitFlags.push(`FC:${forceChargeGridW}W`);
 }
 
-if (applyGridSupport) {
-    limitFlags.push(`GS:${highVoltageGridSupportW}W`);
+if (applyGridSupport || (highVoltageGridSupportW > 0 && voltageLimitActive)) {
+    limitFlags.push(`GS:${highVoltageGridSupportW}W${voltageLimitActive ? "(HV)" : ""}`);
 }
 
 let fill = "grey";
