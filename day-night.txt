@@ -712,7 +712,7 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
 }
 
 const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
-    ? Math.max(
+    ? Math.min(
         baseScheduleSetpoint,
         Math.round(Math.max(0, storedAcLoadPowerW) + forceChargeGridW)
     )
