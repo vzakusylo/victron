@@ -48,8 +48,12 @@
 // 10. Remaining average watts left in the current hour are shown for info only when
 //    tracking for that hour started at the beginning of the hour.
 // 11. Final grid setpoint is the minimum of:
-//    - base schedule
-//    - high-voltage limit
+//    - requested setpoint (force charge target + AC load, or base schedule in normal mode)
+//    - high-voltage limit (when active; FORCE-CHARGE mode raises the requested setpoint above base)
+// 21. Grid CT battery support (gridSupportW) is applied as a permanent reduction to the final
+//     grid setpoint so the battery continuously offsets that many watts from the GRID CT reading.
+//     It is skipped during FORCE-CHARGE, MANUAL-DISCHARGE, and when the HV voltage-limiter is
+//     already active (the HV floor already incorporates the support via storedGridPowerW - supportW).
 // 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
 // 13. VE.Bus Input 1 current limit is no longer controlled by this function.
@@ -631,11 +635,10 @@ const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
-const forceChargeTargetCurrent = round1(clamp(
-    forceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE),
-    0,
-    MAX_CHARGE_CURRENT
-));
+// In FORCE-CHARGE mode the DVCC limit must reach the full target current; no MAX_CHARGE_CURRENT cap.
+const forceChargeTargetCurrent = Math.round(
+    forceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)
+);
 
 // ==========================
 // CAPACITY RESTORATION LOGIC
@@ -707,13 +710,14 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
     voltageLimitActive = false;
 }
 
-let voltageLimitedSetpoint = baseScheduleSetpoint;
 const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
     ? Math.max(
         baseScheduleSetpoint,
         Math.round(Math.max(0, storedAcLoadPowerW) + forceChargeGridW)
     )
     : baseScheduleSetpoint;
+// Start at the full requested setpoint; voltage-limit block reduces it only when battery voltage is high.
+let voltageLimitedSetpoint = requestedGridSetpoint;
 
 if (voltageLimitActive) {
     const forceChargeFloorSetpoint = Math.max(
@@ -763,7 +767,7 @@ const manualGridSetpoint = Math.max(
     Math.round(Math.max(0, storedAcLoadPowerW) - manualDischargePowerW)
 );
 
-const finalGridSetpoint = manualDischargeEnabled
+const rawFinalGridSetpoint = manualDischargeEnabled
     ? manualGridSetpoint
     : Math.max(
         0,
@@ -774,6 +778,19 @@ const finalGridSetpoint = manualDischargeEnabled
             )
         )
     );
+
+// Grid CT battery support: always reduce the final setpoint so ESS discharges the battery
+// by gridSupportW, pulling that many watts off the GRID CT reading every cycle.
+// Skipped during force charge (we want max import), manual discharge (handled separately),
+// and while HV limiting is active (the HV floor already subtracts supportW from the floor).
+const applyGridSupport = highVoltageGridSupportW > 0
+    && !forceChargeEnabled
+    && !manualDischargeEnabled
+    && !voltageLimitActive;
+
+const finalGridSetpoint = applyGridSupport
+    ? Math.max(0, rawFinalGridSetpoint - highVoltageGridSupportW)
+    : rawFinalGridSetpoint;
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
@@ -838,6 +855,10 @@ else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
 
 if (forceChargeEnabled && forceChargeGridW > 0) {
     limitFlags.push(`FC:${forceChargeGridW}W`);
+}
+
+if (applyGridSupport) {
+    limitFlags.push(`GS:${highVoltageGridSupportW}W`);
 }
 
 let fill = "grey";
