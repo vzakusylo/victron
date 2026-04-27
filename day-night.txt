@@ -774,17 +774,18 @@ const rawFinalGridSetpoint = manualDischargeEnabled
         )
     );
 
-// Grid CT battery support: dynamic cap on the final setpoint based on live grid CT reading.
-// cap = max(0, storedGridPowerW - supportW) — ESS discharges battery until grid CT ≈ 0W.
-// Applies regardless of HV protection state. Skipped during force charge and manual discharge.
+// Grid CT battery support: active only when HV protection is enabled AND voltage is in the
+// limiter range (voltageLimitActive). Target setpoint = max(200, ACloads - supportW) so
+// the battery covers exactly supportW watts of AC load, pulling grid CT down by that amount.
 const applyGridSupport = highVoltageGridSupportW > 0
     && highVoltageProtectionEnabled
+    && voltageLimitActive
     && hasGridPowerReading
     && !forceChargeEnabled
     && !manualDischargeEnabled;
 
 const supportCap = applyGridSupport
-    ? Math.max(MIN_GRID_SETPOINT, Math.round(storedGridPowerW - highVoltageGridSupportW))
+    ? Math.max(MIN_GRID_SETPOINT, Math.round(storedAcLoadPowerW - highVoltageGridSupportW))
     : Number.POSITIVE_INFINITY;
 
 const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap);
