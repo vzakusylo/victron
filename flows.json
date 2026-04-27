@@ -2,7 +2,7 @@
     {
         "id": "995ac4ed6222a706",
         "type": "tab",
-        "label": "d#50 Day / Night Grid Control",
+        "label": "d#51 Day / Night Grid Control",
         "disabled": false,
         "info": ""
     },
@@ -10,7 +10,7 @@
         "id": "93f485839dfa27a8",
         "type": "subflow",
         "name": "Solar forecast",
-        "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) ΓÇª 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) ΓÇª 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) ΓÇª 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 ΓÇª 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
+        "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) … 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) … 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) … 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 … 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
         "category": "",
         "in": [
             {
@@ -335,7 +335,7 @@
         "id": "8a21567701c5528c",
         "type": "subflow",
         "name": "Solar forecast",
-        "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) ΓÇª 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) ΓÇª 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) ΓÇª 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 ΓÇª 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
+        "info": "This subflow uses the http request node to fetch solar forecasts for geographical positions, using the API from https://forecast.solar/. Please check their website and consider getting a paid account.\n\nDo note that, on a free account, you are limited in the number of requests to do. Also note that the data only gets updated once every 15 minutes, so there is no reason to query more often. There is rate limiting built in the subflow not to perform requests more than once every 15 minutes.\n\n# Configuration\n\nIt uses the parameters as described on: http://doc.forecast.solar/doku.php\n\n - `:apikey` - personal API key for registered users\n - `:lat` - latitude of location, -90 (south) … 90 (north); Internal precission is 0.0001 or abt. 10 m\n - `:lon` - longitude of location, -180 (west) … 180 (east); Internal precission is 0.0001 or abt. 10 m\n - `:dec` - plane declination, 0 (horizontal) … 90 (vertical); Internal precission is integer\n - `:az` - plane azimuth, -180 … 180 (-180 = north, -90 = east, 0 = south, 90 = west, 180 = north); Internal precission is integer\n - `:kwp` - installed modules power in kilo watt peak (kWp)\n\nYou can choose between 3 different type of requests. Note that only `estimate` is available on the free plan.\n\n- `estimate` - this is the forecasted estimate that your panels should produce (given the right parameter settings)\n- `history` - historical data showing the long term averages for the days to come. See [https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en](https://joint-research-centre.ec.europa.eu/pvgis-online-tool/pvgis-data-download/cm-saf-solar-radiation_en) for where the data is fetched from.\n- `clear sky` - estimate given if there would be a clear sky tomorrow\n\nIn case of estimates, one of the following options can be selected:\n- `watts` - Watts (power) average for the period\n- `watt_hours_period` - Watt hours (energy) for the period\n- `watt_hours` - Watt hours (energy) summarized over the day\n- `watt_hours_day` - Watt hours (energy) summarized for each day\n\nFor the graph output there are some extra settings available:\n\n- _Output in kWh_ - when checked output can be set to kWh instead of Wh\n- _Show todays forecast_ - whether or not to include todays forecast\n- _Days to forecast_ - the number of days to forecast (excluding today). Note that you can not get more days forecasted than your API key allows.\n- _Widen graph_ - widen the graph to only show non-zero values\n\n# Input \n\nThe input is for triggering the solar forecast request. \nIt triggers when injecting a message into the node.\n\n# Output\n\nThere are two outputs. The first output is an object with the result and a status message stored into the `msg.payload`.\n\nMost important is the `msg.payload.result`, which contains the estimated production of the panels. E.g.:\n\n```\npayload: object\n  result: object\n    2022-11-28: 23\n    2022-11-29: 35\n```\n\nThe `msg.payload.message` gives information on how successful the query was, the exitcode of the query and the status of the rate limit (how many queries you have left).\n\nThe **second** output can be directly linked to a line or a bar chart, quickly giving a once-glance overview for the predicted forecast.\n\n# Status\n\nInitially the status of the note will be a blue dot, showing \"_Unknown limit_\", as it is unaware of the set ratelmits. After the first request, the returned ratelimit will be put in the text in the form of `remaining/limit`. If more than half the limit is remaining, the dot will be green. If less then half the limit is remaining, the dot will be yellow. If no limit is left, the dot will turn red.\nPlease keep in mind that the ratelimit will be reset after one hour, so you can send a new request after that hour.\n\nIf something is wrong in the API request, the dot will turn red\nand the message will contain the msg.payload with the error. This\nhappens typically when the API is temporally down for maintenance.",
         "category": "",
         "in": [
             {
@@ -664,6 +664,26 @@
         "enablePolling": false
     },
     {
+        "id": "ui-tab-hourly-stats-01",
+        "type": "ui_tab",
+        "name": "Energy",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "ui-group-hourly-stats-01",
+        "type": "ui_group",
+        "name": "Hourly Grid and AC",
+        "tab": "ui-tab-hourly-stats-01",
+        "order": 1,
+        "disp": true,
+        "width": "18",
+        "collapse": false,
+        "className": ""
+    },
+    {
         "id": "a580dfa09dbff3d5",
         "type": "ui_base",
         "theme": {
@@ -767,11 +787,31 @@
         "enablePolling": false
     },
     {
-        "id": "ui-tab-hourly-stats-02",
+        "id": "6fb98cc3df6410d0",
         "type": "ui_tab",
         "name": "Energy",
         "icon": "dashboard",
         "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "1f1844ac6ade5f1d",
+        "type": "ui_group",
+        "name": "Hourly Grid and AC",
+        "tab": "6fb98cc3df6410d0",
+        "order": 1,
+        "disp": true,
+        "width": "18",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui-tab-hourly-stats-02",
+        "type": "ui_tab",
+        "name": "Energy Detail",
+        "icon": "dashboard",
+        "order": 2,
         "disabled": false,
         "hidden": false
     },
@@ -791,7 +831,7 @@
         "type": "ui_tab",
         "name": "Analytics",
         "icon": "assessment",
-        "order": 2,
+        "order": 3,
         "disabled": false,
         "hidden": false
     },
@@ -822,7 +862,7 @@
         "type": "ui_tab",
         "name": "Protection",
         "icon": "warning",
-        "order": 3,
+        "order": 4,
         "disabled": false,
         "hidden": false
     },
@@ -849,7 +889,7 @@
     {
         "id": "ui-group-files-root-01",
         "type": "ui_group",
-        "name": "Node-RED Files",
+        "name": "Node-RED Root Files",
         "tab": "ui-tab-files-root-01",
         "order": 1,
         "disp": true,
@@ -1771,8 +1811,8 @@
         "initial": 1980,
         "name": "",
         "onlyChanges": false,
-        "x": 720,
-        "y": 60,
+        "x": 500,
+        "y": 200,
         "wires": []
     },
     {
@@ -1819,8 +1859,8 @@
         "initial": 0,
         "name": "DVCC Charge current Limit (A)",
         "onlyChanges": false,
-        "x": 1590,
-        "y": 460,
+        "x": 510,
+        "y": 320,
         "wires": []
     },
     {
@@ -1842,7 +1882,7 @@
         "onlyChanges": false,
         "roundValues": "1",
         "x": 180,
-        "y": 560,
+        "y": 520,
         "wires": [
             [
                 "87b4ad2bc3ec6903"
@@ -1895,7 +1935,7 @@
         "onlyChanges": false,
         "roundValues": "1",
         "x": 160,
-        "y": 620,
+        "y": 640,
         "wires": [
             [
                 "fd95dc1c428330fb"
@@ -2223,7 +2263,7 @@
         "onlyChanges": false,
         "roundValues": "0",
         "x": 120,
-        "y": 440,
+        "y": 400,
         "wires": [
             [
                 "e84b0d054ca0f956"
@@ -2434,7 +2474,7 @@
         "onlyChanges": false,
         "roundValues": "0",
         "x": 100,
-        "y": 500,
+        "y": 460,
         "wires": [
             [
                 "ec0378c28791feff"
@@ -2673,8 +2713,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 140,
-        "y": 700,
+        "x": 130,
+        "y": 760,
         "wires": [
             [
                 "bb946fa3e17a4fd1"
@@ -2693,7 +2733,7 @@
         "overwriteFile": "false",
         "encoding": "utf8",
         "x": 400,
-        "y": 700,
+        "y": 740,
         "wires": [
             []
         ]
@@ -3086,7 +3126,7 @@
         "type": "function",
         "z": "995ac4ed6222a706",
         "name": "Manage root files dashboard",
-        "func": "const ROOT_PATH = '/data/home/nodered/grid-control-logs';\nconst CONFIG_PATH = '/data/home/nodered/grid-control-config/files-dashboard-state.json';\nconst FOLDER_SECTIONS = [\n    '/data/home/nodered/grid-control-logs',\n    '/data/home/nodered/grid-control-logs/'\n];\n\nfunction byteSize(rawText) {\n    if (typeof rawText !== 'string' || !rawText.length) {\n        return 0;\n    }\n\n    return typeof Buffer !== 'undefined'\n        ? Buffer.byteLength(rawText, 'utf8')\n        : rawText.length;\n}\n\nfunction normalizeFolder(path) {\n    return String(path || '').replace(/\/+$/, '');\n}\n\nfunction sanitizeFile(file) {\n    if (!file || typeof file !== 'object') {\n        return null;\n    }\n\n    const path = typeof file.path === 'string' ? file.path.trim() : '';\n    if (!path) {\n        return null;\n    }\n\n    return {\n        path,\n        name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : (path.split('/').pop() || path)\n    };\n}\n\nfunction normalizeLoadedState(rawState) {\n    if (!rawState || typeof rawState !== 'object') {\n        return null;\n    }\n\n    const files = Array.isArray(rawState.files)\n        ? rawState.files.map(sanitizeFile).filter(Boolean)\n        : [];\n    const requestedPath = typeof rawState.selectedPath === 'string' ? rawState.selectedPath.trim() : '';\n    let selectedIndex = Number.isInteger(rawState.selectedIndex) ? rawState.selectedIndex : -1;\n\n    if (requestedPath) {\n        const matchedIndex = files.findIndex(file => file.path === requestedPath);\n        if (matchedIndex >= 0) {\n            selectedIndex = matchedIndex;\n        }\n    }\n\n    if (!(selectedIndex >= 0 && selectedIndex < files.length)) {\n        selectedIndex = files.length ? 0 : 0;\n    }\n\n    const rawContent = rawState.content && typeof rawState.content === 'object' ? rawState.content : {};\n    const rawText = typeof rawContent.rawText === 'string' ? rawContent.rawText : '';\n    const rawStatus = typeof rawContent.status === 'string' ? rawContent.status : 'idle';\n    const contentStatus = (rawStatus === 'loading' || rawStatus === 'loading-list')\n        ? (rawText ? 'loaded' : (files.length ? 'idle' : 'empty'))\n        : rawStatus;\n    const contentPath = typeof rawContent.path === 'string' && rawContent.path.trim() ? rawContent.path.trim() : (files[selectedIndex] ? files[selectedIndex].path : ROOT_PATH);\n\n    return {\n        files,\n        selectedIndex,\n        content: {\n            path: contentPath,\n            name: typeof rawContent.name === 'string' && rawContent.name.trim() ? rawContent.name.trim() : (contentPath.split('/').pop() || ''),\n            status: contentStatus,\n            fileSize: Number(rawContent.fileSize) || 0,\n            rawText\n        }\n    };\n}\n\nfunction getState() {\n    const files = Array.isArray(flow.get('dashboardRootFiles')) ? flow.get('dashboardRootFiles') : [];\n    const selectedIndex = Math.max(0, Number(flow.get('dashboardRootFileIndex')) || 0);\n    const content = flow.get('dashboardRootFileContent') || {\n        path: ROOT_PATH,\n        name: '',\n        status: 'idle',\n        fileSize: 0,\n        rawText: ''\n    };\n\n    return { files, selectedIndex, content };\n}\n\nfunction saveState(state) {\n    flow.set('dashboardRootFiles', state.files);\n    flow.set('dashboardRootFileIndex', state.selectedIndex);\n    flow.set('dashboardRootFileContent', state.content);\n}\n\nfunction buildPersistMsg(state) {\n    const selectedFile = state.files[state.selectedIndex] || null;\n    return {\n        filename: CONFIG_PATH,\n        payload: JSON.stringify({\n            selectedIndex: state.selectedIndex,\n            selectedPath: selectedFile ? selectedFile.path : '',\n            files: state.files,\n            content: state.content,\n            updatedAt: new Date().toISOString()\n        }, null, 2),\n        encoding: 'utf8'\n    };\n}\n\nfunction buildOutputs(state, listMsg, readMsg, persistMsg) {\n    const selectedFile = state.files[state.selectedIndex] || null;\n    const status = state.content.status || 'idle';\n    const summary = 'Files ' + state.files.length + ' | Selected ' + (selectedFile ? selectedFile.name : 'none') + ' | Status ' + status + ' | Size ' + (state.content.fileSize || 0) + ' bytes';\n\n    const folderSections = FOLDER_SECTIONS.map((folderPath, sectionIndex) => {\n        const normalized = normalizeFolder(folderPath);\n        const sectionFiles = state.files.filter(file => file.path === normalized || file.path.startsWith(normalized + '/'));\n        const selectedInSection = selectedFile && (selectedFile.path === normalized || selectedFile.path.startsWith(normalized + '/'));\n\n        return {\n            index: sectionIndex,\n            path: folderPath,\n            count: sectionFiles.length,\n            selected: Boolean(selectedInSection),\n            firstIndex: sectionFiles.length ? state.files.indexOf(sectionFiles[0]) : -1\n        };\n    });\n\n    const listPayload = {\n        rootPath: ROOT_PATH,\n        count: state.files.length,\n        status,\n        selectedIndex: selectedFile ? state.selectedIndex : -1,\n        selectedName: selectedFile ? selectedFile.name : '',\n        selectedPath: selectedFile ? selectedFile.path : '',\n        canPrev: status !== 'loading-list' && state.selectedIndex > 0,\n        canNext: status !== 'loading-list' && state.selectedIndex >= 0 && state.selectedIndex < state.files.length - 1,\n        isLoading: status === 'loading-list' || status === 'loading',\n        folderSections,\n        files: state.files.map((file, index) => ({\n            index,\n            name: file.name,\n            path: file.path,\n            selected: index === state.selectedIndex\n        }))\n    };\n\n    const rawPayload = {\n        fileName: state.content.path || (selectedFile ? selectedFile.path : ROOT_PATH),\n        status,\n        fileSize: state.content.fileSize || 0,\n        rawText: state.content.rawText || ''\n    };\n\n    return [\n        { payload: summary },\n        { payload: listPayload },\n        { payload: rawPayload },\n        listMsg || null,\n        readMsg || null,\n        persistMsg || null\n    ];\n}\n\nfunction startListReload(state) {\n    state.files = [];\n    state.selectedIndex = 0;\n    state.content = {\n        path: ROOT_PATH,\n        name: '',\n        status: 'loading-list',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, {\n        topic: 'root-files-list',\n        payload: 'find \"' + ROOT_PATH + '\" -type f 2>/dev/null | sort || printf \"\"'\n    }, null, buildPersistMsg(state));\n}\n\nlet state = getState();\n\nif (msg.topic === 'load-root-files-ui-state-request') {\n    return buildOutputs(state, null, null, null);\n}\n\nif (msg.topic === 'load-root-files-ui-state' || msg.execNode === 'Read root files UI state file') {\n    const rawText = typeof msg.payload === 'string' ? msg.payload.trim() : '';\n\n    if (!rawText) {\n        return startListReload(state);\n    }\n\n    try {\n        const parsed = JSON.parse(rawText);\n        const loadedState = normalizeLoadedState(parsed);\n        if (loadedState) {\n            state = loadedState;\n            saveState(state);\n            return buildOutputs(state, null, null, null);\n        }\n    }\n    catch (error) {\n    }\n\n    return startListReload(state);\n}\n\nif (msg.topic === 'files-refresh') {\n    return startListReload(state);\n}\n\nif (msg.topic === 'root-files-nav') {\n    const action = msg.payload && msg.payload.action;\n\n    if (action === 'refresh' || !state.files.length) {\n        return startListReload(state);\n    }\n\n    if (action === 'prev') {\n        state.selectedIndex = Math.max(0, state.selectedIndex - 1);\n    }\n    else if (action === 'next') {\n        state.selectedIndex = Math.min(state.files.length - 1, state.selectedIndex + 1);\n    }\n    else if (action === 'select') {\n        const requestedIndex = Number(msg.payload && msg.payload.index);\n        if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < state.files.length) {\n            state.selectedIndex = requestedIndex;\n        }\n    }\n    else if (action === 'select-section') {\n        const requestedIndex = Number(msg.payload && msg.payload.index);\n        const folderPath = FOLDER_SECTIONS[requestedIndex];\n        const normalized = normalizeFolder(folderPath);\n        const firstIndex = state.files.findIndex(file => file.path === normalized || file.path.startsWith(normalized + '/'));\n        if (firstIndex >= 0) {\n            state.selectedIndex = firstIndex;\n        }\n    }\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null, buildPersistMsg(state));\n}\n\nif (msg.topic === 'root-files-list') {\n    const files = String(msg.payload || '')\n        .split(/\\r?\\n/)\n        .map(line => line.trim())\n        .filter(Boolean)\n        .map(path => ({\n            path,\n            name: path.split('/').pop() || path\n        }));\n\n    state.files = files;\n\n    const currentPath = state.content && typeof state.content.path === 'string' ? state.content.path : '';\n    const matchedIndex = currentPath ? state.files.findIndex(file => file.path === currentPath) : -1;\n    state.selectedIndex = matchedIndex >= 0 ? matchedIndex : (files.length ? 0 : 0);\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null, buildPersistMsg(state));\n}\n\nif (msg.topic === 'root-file-content') {\n    const rawText = typeof msg.payload === 'string' ? msg.payload : '';\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: msg.filePath || (selectedFile ? selectedFile.path : ROOT_PATH),\n        name: msg.fileName || (selectedFile ? selectedFile.name : ''),\n        status: rawText ? 'loaded' : 'empty',\n        fileSize: byteSize(rawText),\n        rawText\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, null, buildPersistMsg(state));\n}\n\nreturn buildOutputs(state, null, null, null);",
+        "func": "const ROOT_PATH = '/data/home/nodered/grid-control-logs';\nconst CONFIG_PATH = '/data/home/nodered/grid-control-config/files-dashboard-state.json';\nconst FOLDER_SECTIONS = [\n    '/data/home/nodered/grid-control-logs',\n    '/data/home/nodered/grid-control-logs/'\n];\n\nfunction byteSize(rawText) {\n    if (typeof rawText !== 'string' || !rawText.length) {\n        return 0;\n    }\n\n    return typeof Buffer !== 'undefined'\n        ? Buffer.byteLength(rawText, 'utf8')\n        : rawText.length;\n}\n\nfunction normalizeFolder(path) {\n    return String(path || '').replace(//+$/, '');\n}\n\nfunction sanitizeFile(file) {\n    if (!file || typeof file !== 'object') {\n        return null;\n    }\n\n    const path = typeof file.path === 'string' ? file.path.trim() : '';\n    if (!path) {\n        return null;\n    }\n\n    return {\n        path,\n        name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : (path.split('/').pop() || path)\n    };\n}\n\nfunction normalizeLoadedState(rawState) {\n    if (!rawState || typeof rawState !== 'object') {\n        return null;\n    }\n\n    const files = Array.isArray(rawState.files)\n        ? rawState.files.map(sanitizeFile).filter(Boolean)\n        : [];\n    const requestedPath = typeof rawState.selectedPath === 'string' ? rawState.selectedPath.trim() : '';\n    let selectedIndex = Number.isInteger(rawState.selectedIndex) ? rawState.selectedIndex : -1;\n\n    if (requestedPath) {\n        const matchedIndex = files.findIndex(file => file.path === requestedPath);\n        if (matchedIndex >= 0) {\n            selectedIndex = matchedIndex;\n        }\n    }\n\n    if (!(selectedIndex >= 0 && selectedIndex < files.length)) {\n        selectedIndex = files.length ? 0 : 0;\n    }\n\n    const rawContent = rawState.content && typeof rawState.content === 'object' ? rawState.content : {};\n    const rawText = typeof rawContent.rawText === 'string' ? rawContent.rawText : '';\n    const rawStatus = typeof rawContent.status === 'string' ? rawContent.status : 'idle';\n    const contentStatus = (rawStatus === 'loading' || rawStatus === 'loading-list')\n        ? (rawText ? 'loaded' : (files.length ? 'idle' : 'empty'))\n        : rawStatus;\n    const contentPath = typeof rawContent.path === 'string' && rawContent.path.trim() ? rawContent.path.trim() : (files[selectedIndex] ? files[selectedIndex].path : ROOT_PATH);\n\n    return {\n        files,\n        selectedIndex,\n        content: {\n            path: contentPath,\n            name: typeof rawContent.name === 'string' && rawContent.name.trim() ? rawContent.name.trim() : (contentPath.split('/').pop() || ''),\n            status: contentStatus,\n            fileSize: Number(rawContent.fileSize) || 0,\n            rawText\n        }\n    };\n}\n\nfunction getState() {\n    const files = Array.isArray(flow.get('dashboardRootFiles')) ? flow.get('dashboardRootFiles') : [];\n    const selectedIndex = Math.max(0, Number(flow.get('dashboardRootFileIndex')) || 0);\n    const content = flow.get('dashboardRootFileContent') || {\n        path: ROOT_PATH,\n        name: '',\n        status: 'idle',\n        fileSize: 0,\n        rawText: ''\n    };\n\n    return { files, selectedIndex, content };\n}\n\nfunction saveState(state) {\n    flow.set('dashboardRootFiles', state.files);\n    flow.set('dashboardRootFileIndex', state.selectedIndex);\n    flow.set('dashboardRootFileContent', state.content);\n}\n\nfunction buildPersistMsg(state) {\n    const selectedFile = state.files[state.selectedIndex] || null;\n    return {\n        filename: CONFIG_PATH,\n        payload: JSON.stringify({\n            selectedIndex: state.selectedIndex,\n            selectedPath: selectedFile ? selectedFile.path : '',\n            files: state.files,\n            content: state.content,\n            updatedAt: new Date().toISOString()\n        }, null, 2),\n        encoding: 'utf8'\n    };\n}\n\nfunction buildOutputs(state, listMsg, readMsg, persistMsg) {\n    const selectedFile = state.files[state.selectedIndex] || null;\n    const status = state.content.status || 'idle';\n    const summary = 'Files ' + state.files.length + ' | Selected ' + (selectedFile ? selectedFile.name : 'none') + ' | Status ' + status + ' | Size ' + (state.content.fileSize || 0) + ' bytes';\n\n    const folderSections = FOLDER_SECTIONS.map((folderPath, sectionIndex) => {\n        const normalized = normalizeFolder(folderPath);\n        const sectionFiles = state.files.filter(file => file.path === normalized || file.path.startsWith(normalized + '/'));\n        const selectedInSection = selectedFile && (selectedFile.path === normalized || selectedFile.path.startsWith(normalized + '/'));\n\n        return {\n            index: sectionIndex,\n            path: folderPath,\n            count: sectionFiles.length,\n            selected: Boolean(selectedInSection),\n            firstIndex: sectionFiles.length ? state.files.indexOf(sectionFiles[0]) : -1\n        };\n    });\n\n    const listPayload = {\n        rootPath: ROOT_PATH,\n        count: state.files.length,\n        status,\n        selectedIndex: selectedFile ? state.selectedIndex : -1,\n        selectedName: selectedFile ? selectedFile.name : '',\n        selectedPath: selectedFile ? selectedFile.path : '',\n        canPrev: status !== 'loading-list' && state.selectedIndex > 0,\n        canNext: status !== 'loading-list' && state.selectedIndex >= 0 && state.selectedIndex < state.files.length - 1,\n        isLoading: status === 'loading-list' || status === 'loading',\n        folderSections,\n        files: state.files.map((file, index) => ({\n            index,\n            name: file.name,\n            path: file.path,\n            selected: index === state.selectedIndex\n        }))\n    };\n\n    const rawPayload = {\n        fileName: state.content.path || (selectedFile ? selectedFile.path : ROOT_PATH),\n        status,\n        fileSize: state.content.fileSize || 0,\n        rawText: state.content.rawText || ''\n    };\n\n    return [\n        { payload: summary },\n        { payload: listPayload },\n        { payload: rawPayload },\n        listMsg || null,\n        readMsg || null,\n        persistMsg || null\n    ];\n}\n\nfunction startListReload(state) {\n    state.files = [];\n    state.selectedIndex = 0;\n    state.content = {\n        path: ROOT_PATH,\n        name: '',\n        status: 'loading-list',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, {\n        topic: 'root-files-list',\n        payload: 'find \"' + ROOT_PATH + '\" -type f 2>/dev/null | sort || printf \"\"'\n    }, null, buildPersistMsg(state));\n}\n\nlet state = getState();\n\nif (msg.topic === 'load-root-files-ui-state-request') {\n    return buildOutputs(state, null, null, null);\n}\n\nif (msg.topic === 'load-root-files-ui-state' || msg.execNode === 'Read root files UI state file') {\n    const rawText = typeof msg.payload === 'string' ? msg.payload.trim() : '';\n\n    if (!rawText) {\n        return startListReload(state);\n    }\n\n    try {\n        const parsed = JSON.parse(rawText);\n        const loadedState = normalizeLoadedState(parsed);\n        if (loadedState) {\n            state = loadedState;\n            saveState(state);\n            return buildOutputs(state, null, null, null);\n        }\n    }\n    catch (error) {\n    }\n\n    return startListReload(state);\n}\n\nif (msg.topic === 'files-refresh') {\n    return startListReload(state);\n}\n\nif (msg.topic === 'root-files-nav') {\n    const action = msg.payload && msg.payload.action;\n\n    if (action === 'refresh' || !state.files.length) {\n        return startListReload(state);\n    }\n\n    if (action === 'prev') {\n        state.selectedIndex = Math.max(0, state.selectedIndex - 1);\n    }\n    else if (action === 'next') {\n        state.selectedIndex = Math.min(state.files.length - 1, state.selectedIndex + 1);\n    }\n    else if (action === 'select') {\n        const requestedIndex = Number(msg.payload && msg.payload.index);\n        if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < state.files.length) {\n            state.selectedIndex = requestedIndex;\n        }\n    }\n    else if (action === 'select-section') {\n        const requestedIndex = Number(msg.payload && msg.payload.index);\n        const folderPath = FOLDER_SECTIONS[requestedIndex];\n        const normalized = normalizeFolder(folderPath);\n        const firstIndex = state.files.findIndex(file => file.path === normalized || file.path.startsWith(normalized + '/'));\n        if (firstIndex >= 0) {\n            state.selectedIndex = firstIndex;\n        }\n    }\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null, buildPersistMsg(state));\n}\n\nif (msg.topic === 'root-files-list') {\n    const files = String(msg.payload || '')\n        .split(/\\r?\\n/)\n        .map(line => line.trim())\n        .filter(Boolean)\n        .map(path => ({\n            path,\n            name: path.split('/').pop() || path\n        }));\n\n    state.files = files;\n\n    const currentPath = state.content && typeof state.content.path === 'string' ? state.content.path : '';\n    const matchedIndex = currentPath ? state.files.findIndex(file => file.path === currentPath) : -1;\n    state.selectedIndex = matchedIndex >= 0 ? matchedIndex : (files.length ? 0 : 0);\n\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: selectedFile ? selectedFile.path : ROOT_PATH,\n        name: selectedFile ? selectedFile.name : '',\n        status: selectedFile ? 'loading' : 'empty',\n        fileSize: 0,\n        rawText: ''\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, selectedFile ? {\n        topic: 'root-file-content',\n        payload: 'cat \"' + selectedFile.path + '\" 2>/dev/null || printf \"\"',\n        filePath: selectedFile.path,\n        fileName: selectedFile.name\n    } : null, buildPersistMsg(state));\n}\n\nif (msg.topic === 'root-file-content') {\n    const rawText = typeof msg.payload === 'string' ? msg.payload : '';\n    const selectedFile = state.files[state.selectedIndex] || null;\n    state.content = {\n        path: msg.filePath || (selectedFile ? selectedFile.path : ROOT_PATH),\n        name: msg.fileName || (selectedFile ? selectedFile.name : ''),\n        status: rawText ? 'loaded' : 'empty',\n        fileSize: byteSize(rawText),\n        rawText\n    };\n    saveState(state);\n\n    return buildOutputs(state, null, null, buildPersistMsg(state));\n}\n\nreturn buildOutputs(state, null, null, null);",
         "outputs": 6,
         "timeout": 0,
         "noerr": 0,
@@ -3475,6 +3515,30 @@
             [
                 "c125191024e87a94"
             ]
+        ]
+    },
+    {
+        "id": "f46ecea6668505f3",
+        "type": "victron-input-battery",
+        "z": "995ac4ed6222a706",
+        "service": "com.victronenergy.battery/289",
+        "path": "/Dc/0/Current",
+        "serviceObj": {
+            "service": "com.victronenergy.battery/289",
+            "name": "SmartShunt IP65 300A"
+        },
+        "pathObj": {
+            "path": "/Dc/0/Current",
+            "type": "float",
+            "name": "Battery current (A)"
+        },
+        "name": "",
+        "onlyChanges": false,
+        "roundValues": "2",
+        "x": 180,
+        "y": 580,
+        "wires": [
+            []
         ]
     }
 ]
