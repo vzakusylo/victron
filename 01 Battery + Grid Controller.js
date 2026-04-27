@@ -48,21 +48,15 @@
 // 10. Remaining average watts left in the current hour are shown for info only when
 //    tracking for that hour started at the beginning of the hour.
 // 11. Final grid setpoint is the minimum of:
-//    - requested setpoint (force charge target + AC load, or base schedule in normal mode)
-//    - high-voltage limit (when active; FORCE-CHARGE mode raises the requested setpoint above base)
-// 21. Grid CT battery support (gridSupportW) is applied as a dynamic cap on the final
-//     grid setpoint based on the live GRID CT reading: cap = max(0, storedGridPowerW - supportW).
-//     This makes ESS discharge the battery until grid CT reaches ~0W when support >= gridCT.
-//     Active independent of HV protection state; skipped only during FORCE-CHARGE and MANUAL-DISCHARGE.
-//     Support is NOT baked into the HV floor (doing so allows the taper to cancel it out).
+//    - base schedule
+//    - high-voltage limit
 // 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
 // 13. VE.Bus Input 1 current limit is no longer controlled by this function.
 // 14. A VRM notification is emitted when the grid setpoint changes.
 // 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
 //     all stored in context.
-// 16. `01 Battery + Grid Controller.js` and the embedded `func` in `flows.json` must always stay synchronized.
-//     `02 Build analytics tab model.js` and the embedded `func` for "Build analytics tab model" in `flows.json` must also stay synchronized.
+// 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
 // 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
@@ -107,9 +101,7 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     full: 55.6,
     gridSupportW: 0,
     forceChargeEnabled: false,
-    forceChargeGridW: 0,
-    forceChargeFromV: 52.0,
-    forceChargeToV: 54.0
+    forceChargeGridW: 0
 });
 const HIGH_VOLTAGE_SETTINGS_MIN = 50;
 const HIGH_VOLTAGE_SETTINGS_MAX = 60;
@@ -149,7 +141,6 @@ const hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPo
 const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;
 const rawStoredManualDischargeStopVoltage = context.get("manualDischargeStopVoltage");
 let voltageLimitActive = context.get("voltageLimitActive") || false;
-let forceChargeVoltageActive = context.get("forceChargeVoltageActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
 let manualDischargeStopVoltage = Number.isFinite(Number(rawStoredManualDischargeStopVoltage))
     ? Number(rawStoredManualDischargeStopVoltage)
@@ -205,21 +196,10 @@ function sanitizeHighVoltageSettings(value) {
     const rawForceChargeGridW = value.forceChargeGridW === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeGridW
         : Number(value.forceChargeGridW);
-    const forceChargeFromV = Number(
-        value.forceChargeFromV === undefined ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeFromV : value.forceChargeFromV
-    );
-    const forceChargeToV = Number(
-        value.forceChargeToV === undefined ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeToV : value.forceChargeToV
-    );
     const allFinite = [start, release, full].every(Number.isFinite);
     const inRange = [start, release, full].every(
         setting => setting >= HIGH_VOLTAGE_SETTINGS_MIN && setting <= HIGH_VOLTAGE_SETTINGS_MAX
     );
-    const validForceChargeVoltages = Number.isFinite(forceChargeFromV)
-        && Number.isFinite(forceChargeToV)
-        && forceChargeFromV >= HIGH_VOLTAGE_SETTINGS_MIN
-        && forceChargeToV <= HIGH_VOLTAGE_SETTINGS_MAX
-        && forceChargeToV > forceChargeFromV;
     const gridSupportW = Math.round(rawGridSupportW);
     const validGridSupportW = Number.isFinite(rawGridSupportW)
         && gridSupportW >= HIGH_VOLTAGE_GRID_SUPPORT_MIN_W
@@ -229,7 +209,7 @@ function sanitizeHighVoltageSettings(value) {
         && forceChargeGridW >= FORCE_CHARGE_MIN_W
         && forceChargeGridW <= FORCE_CHARGE_MAX_W;
 
-    if (!allFinite || !inRange || !validGridSupportW || !validForceChargeGridW || !validForceChargeVoltages || !(full > start) || !(start >= release)) {
+    if (!allFinite || !inRange || !validGridSupportW || !validForceChargeGridW || !(full > start) || !(start >= release)) {
         return null;
     }
 
@@ -240,9 +220,7 @@ function sanitizeHighVoltageSettings(value) {
         full,
         gridSupportW,
         forceChargeEnabled,
-        forceChargeGridW,
-        forceChargeFromV,
-        forceChargeToV
+        forceChargeGridW
     };
 }
 
@@ -504,10 +482,6 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             currentChargingPowerW,
             forceChargeEnabled,
             forceChargeGridW,
-            forceChargeFromV,
-            forceChargeToV,
-            forceChargeVoltageActive,
-            activeForceCharge,
             storedGridPowerW: Math.round(storedGridPowerW),
             storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
             hourBudget: {
@@ -657,8 +631,6 @@ const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
-const forceChargeFromV = Number(highVoltageSettings.forceChargeFromV) || DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeFromV;
-const forceChargeToV = Number(highVoltageSettings.forceChargeToV) || DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeToV;
 // In FORCE-CHARGE mode the DVCC limit must reach the full target current; no MAX_CHARGE_CURRENT cap.
 const forceChargeTargetCurrent = Math.round(
     forceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)
@@ -688,16 +660,6 @@ if (manualDischarge.active && batteryVoltage <= manualDischargeStopVoltage) {
     context.set("manualDischarge", manualDischarge);
 }
 
-// Force charge voltage hysteresis: starts when battery voltage <= forceChargeFromV, stops when >= forceChargeToV.
-if (forceChargeVoltageActive && batteryVoltage >= forceChargeToV) {
-    forceChargeVoltageActive = false;
-}
-else if (!forceChargeVoltageActive && batteryVoltage <= forceChargeFromV) {
-    forceChargeVoltageActive = true;
-}
-context.set("forceChargeVoltageActive", forceChargeVoltageActive);
-
-const activeForceCharge = forceChargeEnabled && forceChargeGridW > 0 && forceChargeVoltageActive;
 const manualDischargeEnabled = manualDischarge.active && manualDischargeAllowedByLoad;
 
 if (manualDischargeEnabled) {
@@ -705,15 +667,10 @@ if (manualDischargeEnabled) {
     boostActive = false;
     baseChargeCurrent = 0;
 }
-else if (activeForceCharge) {
+else if (forceChargeEnabled && forceChargeGridW > 0) {
     windowName = "FORCE-CHARGE";
     boostActive = false;
     baseChargeCurrent = forceChargeTargetCurrent;
-}
-else if (forceChargeEnabled && forceChargeGridW > 0) {
-    windowName = "FC-ARMED";
-    boostActive = false;
-    baseChargeCurrent = 0;
 }
 else if (nightWindow) {
     windowName = "NIGHT";
@@ -749,7 +706,7 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
     voltageLimitActive = false;
 }
 
-const requestedGridSetpoint = activeForceCharge
+const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
     ? Math.min(
         baseScheduleSetpoint,
         Math.round(Math.max(0, storedAcLoadPowerW) + forceChargeGridW)
@@ -760,7 +717,7 @@ let voltageLimitedSetpoint = requestedGridSetpoint;
 
 if (voltageLimitActive) {
     const forceChargeFloorSetpoint = Math.round(Math.max(0, storedAcLoadPowerW));
-    const voltageLimitFloorSetpoint = activeForceCharge
+    const voltageLimitFloorSetpoint = forceChargeEnabled && forceChargeGridW > 0
         ? Math.min(requestedGridSetpoint, forceChargeFloorSetpoint)
         : (hasGridPowerReading
             ? Math.min(requestedGridSetpoint, Math.max(0, Math.round(storedGridPowerW)))
@@ -838,7 +795,7 @@ const forceChargeRatio = forceChargeGridW > 0
 
 const finalChargeCurrent = manualDischargeEnabled
     ? 0
-    : (activeForceCharge
+    : (forceChargeEnabled && forceChargeGridW > 0
         ? round1(baseChargeCurrent * forceChargeRatio)
         : (baseChargeCurrent > 0
             ? round1(baseChargeCurrent * currentRatio)
@@ -890,11 +847,11 @@ else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
 }
 
 if (forceChargeEnabled && forceChargeGridW > 0) {
-    limitFlags.push(`FC:${forceChargeGridW}W${!activeForceCharge ? '(ARMED)' : ''}`);
+    limitFlags.push(`FC:${forceChargeGridW}W`);
 }
 
 if (applyGridSupport || (highVoltageGridSupportW > 0 && voltageLimitActive)) {
-    limitFlags.push(`GS:${highVoltageGridSupportW}W${voltageLimitActive ? "(HV)" : ""}`);
+    limitFlags.push(`GS:${highVoltageGridSupportW}W${voltageLimitActive ? '(HV)' : ''}`);
 }
 
 let fill = "grey";
@@ -904,9 +861,6 @@ if (windowName === "MANUAL-DISCHARGE") {
 }
 else if (windowName === "FORCE-CHARGE") {
     fill = finalChargeCurrent > 0 ? "blue" : "yellow";
-}
-else if (windowName === "FC-ARMED") {
-    fill = "grey";
 }
 else if (windowName === "NIGHT") {
     fill = finalChargeCurrent > 0 ? "blue" : "yellow";

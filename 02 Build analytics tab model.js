@@ -8,20 +8,22 @@
 // - `controller-trace`  -> stores trace payload into flow context `dashboardControllerTrace`
 // - any other topic / inject -> rebuilds the full analytics model from stored flow context
 // Flow context read:
-// - `dailySummary`            -> completed hourly energy rows for today
-// - `dashboardLiveHour`       -> live (partial) current-hour energy accumulators
-// - `dashboardControllerTrace`-> latest controller trace for diagnostics panel
-// - `solarForecastToday`      -> today's solar forecast summary (energyKWh)
-// - `solarForecastAdjusted`   -> hourly adjusted solar forecast map (hour key -> W)
+// - `dailySummary`             -> completed hourly energy rows for today
+// - `dashboardLiveHour`        -> live (partial) current-hour energy accumulators
+// - `dashboardControllerTrace` -> latest controller trace for diagnostics panel
+// - `solarForecastToday`       -> today's solar forecast summary (energyKWh)
+// - `solarForecastAdjusted`    -> hourly adjusted solar forecast map (hour key -> W)
 // Outputs (6):
-// - output 1 -> KPI payload  (totalGridKWh, totalAcKWh, forecastSolarKWh, live W, etc.)
+// - output 1 -> KPI payload  (totalGridKWh, totalAcKWh, forecastSolarKWh, liveGridW, liveAcW, …)
 // - output 2 -> actual chart  (hourly Grid Wh / AC Wh bar series)
 // - output 3 -> forecast chart (adjusted hourly solar forecast W; null when no data)
-// - output 4 -> diagnostics payload (active window, setpoint, charge current, voltages…)
+// - output 4 -> diagnostics payload (active window, setpoint, charge current, voltages, …)
 // - output 5 -> hourly rows payload (dateKey + rows array for table display)
 // - output 6 -> pending payload (lists available vs. missing metrics)
 // Change notes:
-// - Initial version: builds KPI, actual/forecast charts, diagnostics, and pending panels.
+// 1. Initial version: builds KPI, actual/forecast charts, diagnostics, hourly rows, and pending panels.
+//    Reads dailySummary + dashboardLiveHour for grid/AC Wh totals; reads solarForecastAdjusted for
+//    per-hour solar forecast; reads dashboardControllerTrace for diagnostics.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
