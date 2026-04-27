@@ -50,10 +50,11 @@
 // 11. Final grid setpoint is the minimum of:
 //    - requested setpoint (force charge target + AC load, or base schedule in normal mode)
 //    - high-voltage limit (when active; FORCE-CHARGE mode raises the requested setpoint above base)
-// 21. Grid CT battery support (gridSupportW) is applied as a permanent reduction to the final
-//     grid setpoint so the battery continuously offsets that many watts from the GRID CT reading.
-//     It is skipped during FORCE-CHARGE, MANUAL-DISCHARGE, and when the HV voltage-limiter is
-//     already active (the HV floor already incorporates the support via storedGridPowerW - supportW).
+// 21. Grid CT battery support (gridSupportW) is applied as a dynamic cap on the final
+//     grid setpoint based on the live GRID CT reading: cap = max(0, storedGridPowerW - supportW).
+//     This makes ESS discharge the battery until grid CT reaches ~0W when support >= gridCT.
+//     Active independent of HV protection state; skipped only during FORCE-CHARGE and MANUAL-DISCHARGE.
+//     Support is NOT baked into the HV floor (doing so allows the taper to cancel it out).
 // 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
 // 13. VE.Bus Input 1 current limit is no longer controlled by this function.
@@ -720,18 +721,12 @@ const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
 let voltageLimitedSetpoint = requestedGridSetpoint;
 
 if (voltageLimitActive) {
-    const forceChargeFloorSetpoint = Math.max(
-        0,
-        Math.round(Math.max(0, storedAcLoadPowerW) - highVoltageGridSupportW)
-    );
+    const forceChargeFloorSetpoint = Math.round(Math.max(0, storedAcLoadPowerW));
     const voltageLimitFloorSetpoint = forceChargeEnabled && forceChargeGridW > 0
         ? Math.min(requestedGridSetpoint, forceChargeFloorSetpoint)
         : (hasGridPowerReading
-            ? Math.min(
-                requestedGridSetpoint,
-                Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
-            )
-            : Math.max(0, requestedGridSetpoint - highVoltageGridSupportW));
+            ? Math.min(requestedGridSetpoint, Math.max(0, Math.round(storedGridPowerW)))
+            : 0);
     const taper = clamp(
         (highVoltageSettings.full - batteryVoltage) /
         (highVoltageSettings.full - highVoltageSettings.start),
@@ -779,18 +774,19 @@ const rawFinalGridSetpoint = manualDischargeEnabled
         )
     );
 
-// Grid CT battery support: always reduce the final setpoint so ESS discharges the battery
-// by gridSupportW, pulling that many watts off the GRID CT reading every cycle.
-// Skipped during force charge (we want max import), manual discharge (handled separately),
-// and while HV limiting is active (the HV floor already subtracts supportW from the floor).
+// Grid CT battery support: dynamic cap on the final setpoint based on live grid CT reading.
+// cap = max(0, storedGridPowerW - supportW) — ESS discharges battery until grid CT ≈ 0W.
+// Applies regardless of HV protection state. Skipped during force charge and manual discharge.
 const applyGridSupport = highVoltageGridSupportW > 0
+    && hasGridPowerReading
     && !forceChargeEnabled
-    && !manualDischargeEnabled
-    && !voltageLimitActive;
+    && !manualDischargeEnabled;
 
-const finalGridSetpoint = applyGridSupport
-    ? Math.max(0, rawFinalGridSetpoint - highVoltageGridSupportW)
-    : rawFinalGridSetpoint;
+const supportCap = applyGridSupport
+    ? Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
+    : Number.POSITIVE_INFINITY;
+
+const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap);
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
