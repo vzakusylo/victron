@@ -1,3 +1,27 @@
+// ==========================
+// LOGIC SUMMARY / CHANGE NOTES
+// ==========================
+// Sync rule:
+// - `04 Manage root files dashboard.js` and the embedded `func` for "Manage root files dashboard"
+//   in `flows.json` must always stay synchronized.
+// Purpose:
+// - Full file-management handler for the root-files dashboard panel.
+// - Lists, previews, deletes and refreshes log files in configured folder sections.
+// - Persists expanded/selected UI state to a JSON config file.
+// Config / paths:
+// - Config : /data/home/nodered/grid-control-config/files-dashboard-state.json
+// - Logs   : /data/home/nodered/grid-control-logs/
+// Input (msg.topic):
+// - `load-root-files-ui-state-request` -> load persisted UI state + send file list
+// - `root-files-toggle-section`         -> toggle a folder section expanded/collapsed
+// - `root-files-select-file`            -> select file and preview its content
+// - `root-files-delete-file`            -> delete file and refresh list
+// - `root-files-refresh`                -> re-scan folders and send updated list
+// Output (1):
+// - output 1 -> dashboard UI payload for the root-files panel
+// Change notes:
+// 1. Initial version.
+// ==========================
 const ROOT_PATH = '/data/home/nodered/grid-control-logs';
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/files-dashboard-state.json';
 const FOLDER_SECTIONS = [

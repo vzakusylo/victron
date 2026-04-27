@@ -1,3 +1,22 @@
+// ==========================
+// LOGIC SUMMARY / CHANGE NOTES
+// ==========================
+// Sync rule:
+// - `06 Apply HV settings.js` and the embedded `func` for "Apply HV settings"
+//   in `flows.json` must always stay synchronized.
+// Purpose:
+// - Reads the persisted high-voltage settings JSON from disk and stores them into
+//   flow context so the battery controller and dashboard always use the latest values.
+// - Called on startup and whenever the settings are saved from the dashboard.
+// Config file:
+// - /data/home/nodered/grid-control-config/high-voltage-settings.json
+// Input:
+// - msg (any) -> triggers a reload from disk
+// Output (1):
+// - output 1 -> msg with flow.highVoltageSettings updated
+// Change notes:
+// 1. Initial version.
+// ==========================
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/high-voltage-settings.json';
 const DEFAULT_SETTINGS = {
     enabled: true,
