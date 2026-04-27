@@ -778,6 +778,7 @@ const rawFinalGridSetpoint = manualDischargeEnabled
 // cap = max(0, storedGridPowerW - supportW) — ESS discharges battery until grid CT ≈ 0W.
 // Applies regardless of HV protection state. Skipped during force charge and manual discharge.
 const applyGridSupport = highVoltageGridSupportW > 0
+    && highVoltageProtectionEnabled
     && hasGridPowerReading
     && !forceChargeEnabled
     && !manualDischargeEnabled;
