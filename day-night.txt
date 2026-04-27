@@ -783,7 +783,7 @@ const applyGridSupport = highVoltageGridSupportW > 0
     && !manualDischargeEnabled;
 
 const supportCap = applyGridSupport
-    ? Math.max(0, Math.round(storedGridPowerW - highVoltageGridSupportW))
+    ? Math.max(MIN_GRID_SETPOINT, Math.round(storedGridPowerW - highVoltageGridSupportW))
     : Number.POSITIVE_INFINITY;
 
 const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap);
