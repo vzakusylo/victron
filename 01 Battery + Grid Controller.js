@@ -61,7 +61,8 @@
 // 14. A VRM notification is emitted when the grid setpoint changes.
 // 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
 //     all stored in context.
-// 16. `day-night.txt` and the embedded `func` in `flows.json` must always stay synchronized.
+// 16. `01 Battery + Grid Controller.js` and the embedded `func` in `flows.json` must always stay synchronized.
+//     `02 Build analytics tab model.js` and the embedded `func` for "Build analytics tab model" in `flows.json` must also stay synchronized.
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
 // 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
