@@ -20,6 +20,8 @@
 //      (preferred source: GX System GRID CT sensor, e.g. `/Ac/Grid/L1/Power`)
 //    - `topic = ac-load-power` -> updates measured AC loads power in W
 //      (source: GX System `/Ac/Consumption/L1/Power`)
+//    - `topic = dc-power` -> updates measured DC bus power in W
+//      (source: GX System `/Dc/System/Power`; negative = DC source producing power onto the bus)
 //    - `topic = manual-discharge` -> starts/stops a manual discharge override
 //    - `topic = manual-discharge-stop-voltage` -> updates the manual discharge auto-stop voltage
 //    - any other topic / inject -> recalculates outputs using stored state
@@ -68,6 +70,10 @@
 //     - the override is suspended whenever AC loads rise above 3000W
 //     - when suspended by high load, normal day/night grid setpoint control is used
 //     - the override auto-stops when battery voltage reaches the configured stop voltage or lower
+// 21. DC bus power (`/Dc/System/Power` from GX System) is now captured as topic `dc-power`.
+//     - negative value means a DC source (e.g. MPPT solar charger) is producing onto the bus
+//     - stored in context as `dcPowerW`; shown in node status and included in controller trace
+//     - informational only: does not affect grid setpoint or charge current decisions
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -78,6 +84,7 @@ const GRID_TOPIC = "grid-power";
 const AC_LOAD_TOPIC = "ac-load-power";
 const MANUAL_DISCHARGE_TOPIC = "manual-discharge";
 const MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC = "manual-discharge-stop-voltage";
+const DC_POWER_TOPIC = "dc-power";
 
 // ==========================
 // CONSTANTS
@@ -139,6 +146,9 @@ let gridPowerW = storedGridPowerW;
 const rawStoredAcLoadPower = context.get("acLoadPowerW");
 const hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPower !== null && Number.isFinite(Number(rawStoredAcLoadPower));
 const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;
+const rawStoredDcPower = context.get("dcPowerW");
+const hasDcPowerReading = rawStoredDcPower !== undefined && rawStoredDcPower !== null && Number.isFinite(Number(rawStoredDcPower));
+const storedDcPowerW = hasDcPowerReading ? Number(rawStoredDcPower) : 0;
 const rawStoredManualDischargeStopVoltage = context.get("manualDischargeStopVoltage");
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
@@ -484,6 +494,8 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             forceChargeGridW,
             storedGridPowerW: Math.round(storedGridPowerW),
             storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
+            storedDcPowerW: Math.round(storedDcPowerW),
+            hasDcPowerReading,
             hourBudget: {
                 hourKey: hourBudget.hourKey,
                 usedWh: Math.round(usedWh),
@@ -568,6 +580,13 @@ else if (msg.topic === AC_LOAD_TOPIC) {
 
     if (Number.isFinite(incomingAcLoadPower)) {
         context.set("acLoadPowerW", Math.max(0, incomingAcLoadPower));
+    }
+}
+else if (msg.topic === DC_POWER_TOPIC) {
+    const incomingDcPower = Number(msg.payload);
+
+    if (Number.isFinite(incomingDcPower)) {
+        context.set("dcPowerW", incomingDcPower);
     }
 }
 else if (msg.topic === MANUAL_DISCHARGE_TOPIC) {
@@ -870,6 +889,7 @@ else if (windowName === "MORNING" || windowName === "EVENING") {
 }
 
 const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
+const dcPowerText = hasDcPowerReading ? ` | DC ${Math.round(storedDcPowerW)}W` : "";
 const forecastText = solarForecast.valid
     ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`
     : "";
@@ -883,7 +903,7 @@ const manualText = manualDischarge.active
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint !== 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText}${manualText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${forecastText}${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText}${manualText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${dcPowerText}${forecastText}${flagsText}`
 });
 
 const hourlyLogMsg = hourRolledOver
