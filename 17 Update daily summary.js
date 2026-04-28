@@ -9,16 +9,18 @@
 //   flow context `dailySummary` for today's date.
 // - Automatically resets the summary when the date rolls over to a new day.
 // Input:
-// - msg.payload : { hourKey: 'YYYY-MM-DD HH', gridWh: number, acWh: number }
+// - msg.payload : { hourKey: 'YYYY-MM-DD HH', gridWh: number, acWh: number, solarWh: number }
 // Flow context write:
-// - `dailySummary` -> { dateKey: 'YYYY-MM-DD', hours: [{ hour, gridWh, acWh }, …] }
+// - `dailySummary` -> { dateKey: 'YYYY-MM-DD', hours: [{ hour, gridWh, acWh, solarWh }, …] }
 // Output (1):
 // - output 1 -> msg with the updated daily summary payload
 // Change notes:
 // 1. Initial version.
+// 2. Added solarWh field: accumulated MPPT solar generation Wh per hour (from negative DC System Power).
 // ==========================
 if (!msg.payload || !msg.payload.hourKey) return null;
 const { hourKey, gridWh, acWh } = msg.payload;
+const solarWh = Number(msg.payload.solarWh) || 0;
 const dateKey = hourKey.substring(0, 10);
 const hourLabel = hourKey.substring(11, 13) + ':00';
 
@@ -27,15 +29,16 @@ if (summary.dateKey !== dateKey) {
     summary = { dateKey, hours: [] };
 }
 summary.hours = summary.hours.filter(h => h.hour !== hourLabel);
-summary.hours.push({ hour: hourLabel, gridWh, acWh });
+summary.hours.push({ hour: hourLabel, gridWh, acWh, solarWh });
 summary.hours.sort((a, b) => a.hour.localeCompare(b.hour));
 flow.set('dailySummary', summary);
 
 const totalGrid = summary.hours.reduce((s, h) => s + h.gridWh, 0);
 const totalAc = summary.hours.reduce((s, h) => s + h.acWh, 0);
-const lines = summary.hours.map(h => dateKey + ' ' + h.hour + ' | Grid ' + h.gridWh + 'Wh | AC ' + h.acWh + 'Wh');
+const totalSolar = summary.hours.reduce((s, h) => s + (h.solarWh || 0), 0);
+const lines = summary.hours.map(h => dateKey + ' ' + h.hour + ' | Grid ' + h.gridWh + 'Wh | AC ' + h.acWh + 'Wh | Sol ' + (h.solarWh || 0) + 'Wh');
 lines.push('');
-lines.push('TOTAL | Grid ' + totalGrid + 'Wh | AC ' + totalAc + 'Wh');
+lines.push('TOTAL | Grid ' + totalGrid + 'Wh | AC ' + totalAc + 'Wh | Sol ' + totalSolar + 'Wh');
 
 const fileMsg = {
     payload: lines.join('\n') + '\n',
@@ -45,10 +48,11 @@ const fileMsg = {
 
 const chart = {
     labels: summary.hours.map(h => h.hour),
-    series: ['Grid Wh', 'AC Wh'],
+    series: ['Grid Wh', 'AC Wh', 'Solar Wh'],
     data: [
         summary.hours.map(h => h.gridWh),
-        summary.hours.map(h => h.acWh)
+        summary.hours.map(h => h.acWh),
+        summary.hours.map(h => h.solarWh || 0)
     ]
 };
 

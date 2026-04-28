@@ -24,6 +24,8 @@
 // 1. Initial version: builds KPI, actual/forecast charts, diagnostics, hourly rows, and pending panels.
 //    Reads dailySummary + dashboardLiveHour for grid/AC Wh totals; reads solarForecastAdjusted for
 //    per-hour solar forecast; reads dashboardControllerTrace for diagnostics.
+// 2. Added actualSolarKWh to KPI: sums solarWh from completed dailySummary rows + live hour.
+//    solarWh is MPPT solar generation accumulated per hour from negative DC System Power.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
@@ -54,15 +56,19 @@ const solarAdjusted = flow.get('solarForecastAdjusted') || {};
 
 const totalGridCompleted = summaryHours.reduce((sum, row) => sum + (Number(row.gridWh) || 0), 0);
 const totalAcCompleted = summaryHours.reduce((sum, row) => sum + (Number(row.acWh) || 0), 0);
+const totalSolarCompleted = summaryHours.reduce((sum, row) => sum + (Number(row.solarWh) || 0), 0);
 const liveGridWh = live && live.hourKey && live.hourKey.startsWith(todayKey) ? Math.round(Number(live.gridWh) || 0) : 0;
 const liveAcWh = live && live.hourKey && live.hourKey.startsWith(todayKey) ? Math.round(Number(live.acWh) || 0) : 0;
+const liveSolarWh = live && live.hourKey && live.hourKey.startsWith(todayKey) ? Math.round(Number(live.solarWh) || 0) : 0;
 const totalGridToday = totalGridCompleted + liveGridWh;
 const totalAcToday = totalAcCompleted + liveAcWh;
+const totalSolarToday = totalSolarCompleted + liveSolarWh;
 
 const hourlyRows = summaryHours.map(row => ({
     hour: row.hour,
     gridWh: Number(row.gridWh) || 0,
     acWh: Number(row.acWh) || 0,
+    solarWh: Number(row.solarWh) || 0,
     forecastSolarW: null,
     state: 'done'
 }));
@@ -72,6 +78,7 @@ if (live && live.hourKey && live.hourKey.startsWith(todayKey)) {
         hour: hourLabelFromKey(live.hourKey) + ' *',
         gridWh: liveGridWh,
         acWh: liveAcWh,
+        solarWh: liveSolarWh,
         forecastSolarW: null,
         state: 'live'
     });
@@ -106,10 +113,11 @@ const forecastChart = {
 
 const actualChart = {
     labels: hourlyRows.map(row => row.hour),
-    series: ['Grid Wh', 'AC Wh'],
+    series: ['Grid Wh', 'AC Wh', 'Solar Wh'],
     data: [
         hourlyRows.map(row => row.gridWh),
-        hourlyRows.map(row => row.acWh)
+        hourlyRows.map(row => row.acWh),
+        hourlyRows.map(row => row.solarWh)
     ]
 };
 
@@ -117,7 +125,7 @@ const forecastSolarKWh = Number(solarToday.energyKWh) || 0;
 const kpiPayload = {
     dateKey: todayKey,
     forecastSolarKWh: forecastSolarKWh.toFixed(2),
-    actualSolarKWh: 'pending metric',
+    actualSolarKWh: (totalSolarToday / 1000).toFixed(2),
     forecastLoadKWh: 'pending metric',
     actualGridKWh: (totalGridToday / 1000).toFixed(2),
     actualAcKWh: (totalAcToday / 1000).toFixed(2),
@@ -151,7 +159,6 @@ const pendingPayload = {
         'controller diagnostics from trace'
     ],
     missing: [
-        'actual solar kWh and hourly solar series',
         'load forecast series',
         'surplus forecast/actual series',
         'PV to load/battery/grid routing',

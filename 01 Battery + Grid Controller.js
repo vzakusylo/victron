@@ -74,6 +74,10 @@
 //     - negative value means a DC source (e.g. MPPT solar charger) is producing onto the bus
 //     - stored in context as `dcPowerW`; shown in node status and included in controller trace
 //     - informational only: does not affect grid setpoint or charge current decisions
+// 22. Solar generation is derived from negative DC System Power (MPPT charging the battery).
+//     - `solarBudget` integrates `max(0, -dcPowerW)` per hour using the same `advanceHourBudget` logic
+//     - on hour rollover `solarWh` is included in the hourly-energy message alongside gridWh and acWh
+//     - live `solarUsedWh` is shown in node status as `Sol <n>Wh`
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -168,6 +172,13 @@ let hourBudget = context.get("hourBudget") || {
     fullHourCoverage: false
 };
 let acLoadBudget = context.get("acLoadBudget") || {
+    hourKey: "",
+    lastTs: 0,
+    usedWh: 0,
+    startTs: 0,
+    fullHourCoverage: false
+};
+let solarBudget = context.get("solarBudget") || {
     hourKey: "",
     lastTs: 0,
     usedWh: 0,
@@ -508,6 +519,13 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
                 fullHourCoverage: acLoadBudget.fullHourCoverage,
                 startTs: acLoadBudget.startTs || 0
             },
+            solarBudget: {
+                hourKey: solarBudget.hourKey,
+                usedWh: Math.round(solarUsedWh),
+                fullHourCoverage: solarBudget.fullHourCoverage,
+                startTs: solarBudget.startTs || 0
+            },
+            solarGenerationW: Math.round(solarGenerationW),
             hourRolledOver,
             hourlyLogMsg: hourlyLogMsg || null,
             limitFlags: limitFlags.slice()
@@ -547,8 +565,12 @@ function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
 const prevHourKey = hourBudget.hourKey;
 const prevHourGridWh = Number(hourBudget.usedWh) || 0;
 const prevHourAcWh = Number(acLoadBudget.usedWh) || 0;
+const prevHourSolarWh = Number(solarBudget.usedWh) || 0;
+// Solar generation = MPPT charging onto DC bus; shows as negative DC System Power.
+const solarGenerationW = hasDcPowerReading ? Math.max(0, -storedDcPowerW) : 0;
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
 acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
+solarBudget = advanceHourBudget(solarBudget, now, solarGenerationW);
 const hourRolledOver = prevHourKey && prevHourKey !== hourBudget.hourKey;
 
 if (msg.topic === BATTERY_TOPIC) {
@@ -612,6 +634,7 @@ else if (msg.topic === MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC) {
 
 context.set("hourBudget", hourBudget);
 context.set("acLoadBudget", acLoadBudget);
+context.set("solarBudget", solarBudget);
 
 if (!Number.isFinite(batteryVoltage)) {
     node.status({
@@ -821,6 +844,7 @@ const finalChargeCurrent = manualDischargeEnabled
             : 0));
 const usedWh = hourBudget.usedWh || 0;
 const acUsedWh = acLoadBudget.usedWh || 0;
+const solarUsedWh = solarBudget.usedWh || 0;
 const usedEnergyStartLabel = formatTime(new Date(hourBudget.startTs || now.getTime()));
 const usedEnergyEndLabel = formatTime(now);
 const secondsIntoHour = minute * 60 + second;
@@ -889,7 +913,7 @@ else if (windowName === "MORNING" || windowName === "EVENING") {
 }
 
 const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
-const dcPowerText = hasDcPowerReading ? ` | DC ${Math.round(storedDcPowerW)}W` : "";
+const dcPowerText = hasDcPowerReading ? ` | DC ${Math.round(storedDcPowerW)}W | Sol ${Math.round(solarUsedWh)}Wh` : "";
 const forecastText = solarForecast.valid
     ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`
     : "";
@@ -907,7 +931,7 @@ node.status({
 });
 
 const hourlyLogMsg = hourRolledOver
-    ? { topic: "hourly-energy", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh) } }
+    ? { topic: "hourly-energy", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh), solarWh: Math.round(prevHourSolarWh) } }
     : null;
 
 return buildOutputs(
