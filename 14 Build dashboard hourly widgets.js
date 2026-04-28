@@ -16,6 +16,8 @@
 // - output 1 -> dashboard hourly widget payload array
 // Change notes:
 // 1. Initial version.
+// 2. Added Sol Wh column: parses optional '| Sol NWh' from energy/summary log files;
+//    carries solarWh per row; adds Solar Wh chart series; shows solar in summary and live text.
 // ==========================
 function todayKeyFromDate(date) {
     return [
@@ -33,6 +35,7 @@ function buildEmptySummary(dateKey) {
             hour: String(index).padStart(2, '0') + ':00',
             gridWh: 0,
             acWh: 0,
+            solarWh: 0,
             status: 'pending'
         });
     }
@@ -42,6 +45,7 @@ function buildEmptySummary(dateKey) {
         hours,
         totalGrid: 0,
         totalAc: 0,
+        totalSolar: 0,
         availableHours: 0
     };
 }
@@ -53,7 +57,7 @@ function parseSummaryText(rawText, dateKey) {
     if (typeof rawText === 'string' && rawText.trim()) {
         rawText.split(/\r?\n/).forEach(line => {
             const trimmed = line.trim();
-            const match = trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \| Grid ([-]?\d+)Wh \| AC ([-]?\d+)Wh$/);
+            const match = trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \| Grid ([-]?\d+)Wh \| AC ([-]?\d+)Wh(?:\s*\|\s*Sol\s*([-]?\d+)Wh)?/);
 
             if (!match || match[1] !== dateKey) {
                 return;
@@ -63,6 +67,7 @@ function parseSummaryText(rawText, dateKey) {
                 hour: match[2],
                 gridWh: Number(match[3]) || 0,
                 acWh: Number(match[4]) || 0,
+                solarWh: Number(match[5]) || 0,
                 status: 'done'
             };
         });
@@ -72,6 +77,7 @@ function parseSummaryText(rawText, dateKey) {
     summary.availableHours = summary.hours.filter(row => row.status === 'done').length;
     summary.totalGrid = summary.hours.reduce((sum, row) => sum + (row.status === 'done' ? row.gridWh : 0), 0);
     summary.totalAc = summary.hours.reduce((sum, row) => sum + (row.status === 'done' ? row.acWh : 0), 0);
+    summary.totalSolar = summary.hours.reduce((sum, row) => sum + (row.status === 'done' ? (row.solarWh || 0) : 0), 0);
     return summary;
 }
 
@@ -91,6 +97,7 @@ if (msg.topic === 'controller-trace' && msg.payload && msg.payload.hourBudget) {
         hourKey: msg.payload.hourBudget.hourKey || '',
         gridWh: Number(msg.payload.hourBudget.usedWh) || 0,
         acWh: Number(msg.payload.acLoadBudget && msg.payload.acLoadBudget.usedWh) || 0,
+        solarWh: Number(msg.payload.solarBudget && msg.payload.solarBudget.usedWh) || 0,
         gridPowerW: Number(msg.payload.storedGridPowerW) || 0,
         acPowerW: Number(msg.payload.storedAcLoadPowerW) || 0
     });
@@ -145,6 +152,7 @@ const live = flow.get('dashboardLiveHour') || null;
 const isToday = selectedDate === todayKey;
 let displayGridTotal = Number(summary.totalGrid) || 0;
 let displayAcTotal = Number(summary.totalAc) || 0;
+let displaySolarTotal = Number(summary.totalSolar) || 0;
 let liveText = 'Selected day loaded from file';
 
 if (isToday && live && live.hourKey && live.hourKey.substring(0, 10) === selectedDate) {
@@ -154,12 +162,14 @@ if (isToday && live && live.hourKey && live.hourKey.substring(0, 10) === selecte
     if (liveRow) {
         liveRow.gridWh = Math.round(live.gridWh);
         liveRow.acWh = Math.round(live.acWh);
+        liveRow.solarWh = Math.round(live.solarWh || 0);
         liveRow.status = 'live';
     }
 
     displayGridTotal += Math.round(live.gridWh);
     displayAcTotal += Math.round(live.acWh);
-    liveText = 'Live ' + liveHourLabel + ' | Grid ' + Math.round(live.gridWh) + 'Wh @ ' + Math.round(live.gridPowerW) + 'W | AC ' + Math.round(live.acWh) + 'Wh @ ' + Math.round(live.acPowerW) + 'W';
+    displaySolarTotal += Math.round(live.solarWh || 0);
+    liveText = 'Live ' + liveHourLabel + ' | Grid ' + Math.round(live.gridWh) + 'Wh @ ' + Math.round(live.gridPowerW) + 'W | AC ' + Math.round(live.acWh) + 'Wh @ ' + Math.round(live.acPowerW) + 'W | Sol ' + Math.round(live.solarWh || 0) + 'Wh';
 }
 else if (summary.availableHours === 0) {
     liveText = 'No saved hourly file data for ' + selectedDate;
@@ -167,14 +177,15 @@ else if (summary.availableHours === 0) {
 
 const chart = {
     labels: rows.map(row => row.hour),
-    series: ['Grid Wh', 'AC Wh'],
+    series: ['Grid Wh', 'AC Wh', 'Solar Wh'],
     data: [
         rows.map(row => row.gridWh),
-        rows.map(row => row.acWh)
+        rows.map(row => row.acWh),
+        rows.map(row => row.solarWh || 0)
     ]
 };
 
-const summaryText = selectedDate + ' | Hours ' + summary.availableHours + '/24 | Grid ' + displayGridTotal + 'Wh | AC ' + displayAcTotal + 'Wh';
+const summaryText = selectedDate + ' | Hours ' + summary.availableHours + '/24 | Grid ' + displayGridTotal + 'Wh | AC ' + displayAcTotal + 'Wh | Sol ' + displaySolarTotal + 'Wh';
 
 return [
     { topic: 'hourly-load-stats', payload: [chart] },
