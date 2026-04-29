@@ -78,6 +78,13 @@
 //     - `solarBudget` integrates `max(0, -dcPowerW)` per hour using the same `advanceHourBudget` logic
 //     - on hour rollover `solarWh` is included in the hourly-energy message alongside gridWh and acWh
 //     - live `solarUsedWh` is shown in node status as `Sol <n>Wh`
+// 23. AC Force Charging has optional voltage-based limiters (same concept as Grid CT Support).
+//     - `forceChargeLimiterEnabled` enables automatic voltage-based activation/deactivation
+//     - `forceChargeLimiterStart` (V): activate force charging when battery voltage drops to this
+//     - `forceChargeLimiterRelease` (V): deactivate force charging when battery voltage rises to this
+//     - `forceChargeLimiterFull` (V): charge at maximum DVCC (25A) when voltage is at or below this
+//     - between Full and Start, effective charge power tapers from max down to forceChargeGridW
+//     - when limiter is disabled, force charge behaves as before (always on when enabled flag is set)
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -112,7 +119,11 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     full: 55.6,
     gridSupportW: 0,
     forceChargeEnabled: false,
-    forceChargeGridW: 0
+    forceChargeGridW: 0,
+    forceChargeLimiterEnabled: false,
+    forceChargeLimiterStart: 53,
+    forceChargeLimiterRelease: 54,
+    forceChargeLimiterFull: 52
 });
 const HIGH_VOLTAGE_SETTINGS_MIN = 50;
 const HIGH_VOLTAGE_SETTINGS_MAX = 60;
@@ -185,6 +196,7 @@ let solarBudget = context.get("solarBudget") || {
     startTs: 0,
     fullHourCoverage: false
 };
+let forceChargeLimiterActive = context.get("forceChargeLimiterActive") || false;
 
 // ==========================
 // HELPERS
@@ -217,6 +229,18 @@ function sanitizeHighVoltageSettings(value) {
     const rawForceChargeGridW = value.forceChargeGridW === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeGridW
         : Number(value.forceChargeGridW);
+    const forceChargeLimiterEnabled = value.forceChargeLimiterEnabled === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeLimiterEnabled
+        : Boolean(value.forceChargeLimiterEnabled);
+    const fcLimiterStart = value.forceChargeLimiterStart === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeLimiterStart
+        : Number(value.forceChargeLimiterStart);
+    const fcLimiterRelease = value.forceChargeLimiterRelease === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeLimiterRelease
+        : Number(value.forceChargeLimiterRelease);
+    const fcLimiterFull = value.forceChargeLimiterFull === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeLimiterFull
+        : Number(value.forceChargeLimiterFull);
     const allFinite = [start, release, full].every(Number.isFinite);
     const inRange = [start, release, full].every(
         setting => setting >= HIGH_VOLTAGE_SETTINGS_MIN && setting <= HIGH_VOLTAGE_SETTINGS_MAX
@@ -229,8 +253,14 @@ function sanitizeHighVoltageSettings(value) {
     const validForceChargeGridW = Number.isFinite(rawForceChargeGridW)
         && forceChargeGridW >= FORCE_CHARGE_MIN_W
         && forceChargeGridW <= FORCE_CHARGE_MAX_W;
+    const fcLimiterFinite = [fcLimiterStart, fcLimiterRelease, fcLimiterFull].every(Number.isFinite);
+    const fcLimiterInRange = [fcLimiterStart, fcLimiterRelease, fcLimiterFull].every(
+        v => v >= HIGH_VOLTAGE_SETTINGS_MIN && v <= HIGH_VOLTAGE_SETTINGS_MAX
+    );
 
-    if (!allFinite || !inRange || !validGridSupportW || !validForceChargeGridW || !(full > start) || !(start >= release)) {
+    if (!allFinite || !inRange || !validGridSupportW || !validForceChargeGridW || !(full > start) || !(start >= release)
+        || !fcLimiterFinite || !fcLimiterInRange
+        || !(fcLimiterRelease > fcLimiterStart) || !(fcLimiterStart > fcLimiterFull)) {
         return null;
     }
 
@@ -241,7 +271,11 @@ function sanitizeHighVoltageSettings(value) {
         full,
         gridSupportW,
         forceChargeEnabled,
-        forceChargeGridW
+        forceChargeGridW,
+        forceChargeLimiterEnabled,
+        forceChargeLimiterStart: fcLimiterStart,
+        forceChargeLimiterRelease: fcLimiterRelease,
+        forceChargeLimiterFull: fcLimiterFull
     };
 }
 
@@ -503,6 +537,8 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             currentChargingPowerW,
             forceChargeEnabled,
             forceChargeGridW,
+            forceChargeLimiterActive,
+            effectiveForceChargeGridW: Math.round(effectiveForceChargeGridW),
             storedGridPowerW: Math.round(storedGridPowerW),
             storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
             storedDcPowerW: Math.round(storedDcPowerW),
@@ -673,9 +709,43 @@ const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
+const forceChargeLimiterEnabled = Boolean(highVoltageSettings.forceChargeLimiterEnabled);
+const forceChargeLimiterStart = Number(highVoltageSettings.forceChargeLimiterStart) || 53;
+const forceChargeLimiterRelease = Number(highVoltageSettings.forceChargeLimiterRelease) || 54;
+const forceChargeLimiterFull = Number(highVoltageSettings.forceChargeLimiterFull) || 52;
+
+// Force charge voltage limiter hysteresis (activates at LOW voltage, opposite to HV protection)
+if (forceChargeLimiterEnabled && forceChargeEnabled && forceChargeGridW > 0) {
+    if (!forceChargeLimiterActive && batteryVoltage <= forceChargeLimiterStart) {
+        forceChargeLimiterActive = true;
+    }
+    if (forceChargeLimiterActive && batteryVoltage >= forceChargeLimiterRelease) {
+        forceChargeLimiterActive = false;
+    }
+} else {
+    forceChargeLimiterActive = false;
+}
+context.set("forceChargeLimiterActive", forceChargeLimiterActive);
+
+const forceChargeAllowed = forceChargeEnabled && forceChargeGridW > 0
+    && (!forceChargeLimiterEnabled || forceChargeLimiterActive);
+
+// Taper: at/below forceChargeLimiterFull charge at max (25A × V); taper down to forceChargeGridW at start V
+let effectiveForceChargeGridW = forceChargeGridW;
+if (forceChargeAllowed && forceChargeLimiterEnabled && forceChargeLimiterStart > forceChargeLimiterFull) {
+    const fcTaper = clamp(
+        (forceChargeLimiterStart - batteryVoltage) / (forceChargeLimiterStart - forceChargeLimiterFull),
+        0, 1
+    );
+    const maxForceChargeW = Math.round(MAX_CHARGE_CURRENT * Math.max(1, batteryVoltage));
+    effectiveForceChargeGridW = Math.round(
+        forceChargeGridW + fcTaper * (maxForceChargeW - forceChargeGridW)
+    );
+}
+
 // In FORCE-CHARGE mode the DVCC limit must reach the full target current; no MAX_CHARGE_CURRENT cap.
 const forceChargeTargetCurrent = Math.round(
-    forceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)
+    effectiveForceChargeGridW / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)
 );
 
 // ==========================
@@ -709,7 +779,7 @@ if (manualDischargeEnabled) {
     boostActive = false;
     baseChargeCurrent = 0;
 }
-else if (forceChargeEnabled && forceChargeGridW > 0) {
+else if (forceChargeAllowed) {
     windowName = "FORCE-CHARGE";
     boostActive = false;
     baseChargeCurrent = forceChargeTargetCurrent;
@@ -748,10 +818,10 @@ if (voltageLimitActive && batteryVoltage <= highVoltageSettings.release) {
     voltageLimitActive = false;
 }
 
-const requestedGridSetpoint = forceChargeEnabled && forceChargeGridW > 0
+const requestedGridSetpoint = forceChargeAllowed
     ? Math.min(
         baseScheduleSetpoint,
-        Math.round(Math.max(0, storedAcLoadPowerW) + forceChargeGridW)
+        Math.round(Math.max(0, storedAcLoadPowerW) + effectiveForceChargeGridW)
     )
     : baseScheduleSetpoint;
 // Start at the full requested setpoint; voltage-limit block reduces it only when battery voltage is high.
@@ -759,7 +829,7 @@ let voltageLimitedSetpoint = requestedGridSetpoint;
 
 if (voltageLimitActive) {
     const forceChargeFloorSetpoint = Math.round(Math.max(0, storedAcLoadPowerW));
-    const voltageLimitFloorSetpoint = forceChargeEnabled && forceChargeGridW > 0
+    const voltageLimitFloorSetpoint = forceChargeAllowed
         ? Math.min(requestedGridSetpoint, forceChargeFloorSetpoint)
         : (hasGridPowerReading
             ? Math.min(requestedGridSetpoint, Math.max(0, Math.round(storedGridPowerW)))
@@ -818,7 +888,7 @@ const applyGridSupport = highVoltageGridSupportW > 0
     && highVoltageProtectionEnabled
     && voltageLimitActive
     && hasGridPowerReading
-    && !forceChargeEnabled
+    && !forceChargeAllowed
     && !manualDischargeEnabled;
 
 const supportCap = applyGridSupport
@@ -831,13 +901,13 @@ const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
     : 0;
 const forceChargeAvailableW = Math.max(0, Math.round(finalGridSetpoint - Math.max(0, storedAcLoadPowerW)));
-const forceChargeRatio = forceChargeGridW > 0
-    ? clamp(forceChargeAvailableW / forceChargeGridW, 0, 1)
+const forceChargeRatio = effectiveForceChargeGridW > 0
+    ? clamp(forceChargeAvailableW / effectiveForceChargeGridW, 0, 1)
     : 0;
 
 const finalChargeCurrent = manualDischargeEnabled
     ? 0
-    : (forceChargeEnabled && forceChargeGridW > 0
+    : (forceChargeAllowed
         ? round1(baseChargeCurrent * forceChargeRatio)
         : (baseChargeCurrent > 0
             ? round1(baseChargeCurrent * currentRatio)
@@ -889,8 +959,10 @@ else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
     limitFlags.push(`MD-HOLD>${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W`);
 }
 
-if (forceChargeEnabled && forceChargeGridW > 0) {
-    limitFlags.push(`FC:${forceChargeGridW}W`);
+if (forceChargeAllowed) {
+    limitFlags.push(`FC:${effectiveForceChargeGridW}W${forceChargeLimiterEnabled ? '(LIM)' : ''}`);
+} else if (forceChargeEnabled && forceChargeGridW > 0 && forceChargeLimiterEnabled) {
+    limitFlags.push(`FC-ARMED:${forceChargeGridW}W`);
 }
 
 if (applyGridSupport || (highVoltageGridSupportW > 0 && voltageLimitActive)) {

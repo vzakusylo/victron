@@ -25,6 +25,10 @@ const DEFAULT_SETTINGS = {
     gridSupportW: 0,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
+    forceChargeLimiterEnabled: false,
+    forceChargeLimiterStart: 53,
+    forceChargeLimiterRelease: 54,
+    forceChargeLimiterFull: 52,
     source: 'default',
     updatedAt: ''
 };
@@ -50,7 +54,11 @@ return {
         full: Number(current.full) || DEFAULT_SETTINGS.full,
         gridSupportW: Math.max(0, Math.round(Number(current.gridSupportW) || 0)),
         forceChargeEnabled,
-        forceChargeGridW
+        forceChargeGridW,
+        forceChargeLimiterEnabled: current.forceChargeLimiterEnabled === true,
+        forceChargeLimiterStart: Number(current.forceChargeLimiterStart) || DEFAULT_SETTINGS.forceChargeLimiterStart,
+        forceChargeLimiterRelease: Number(current.forceChargeLimiterRelease) || DEFAULT_SETTINGS.forceChargeLimiterRelease,
+        forceChargeLimiterFull: Number(current.forceChargeLimiterFull) || DEFAULT_SETTINGS.forceChargeLimiterFull
     },
     meta: {
         source: current.source || DEFAULT_SETTINGS.source,
