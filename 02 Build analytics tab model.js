@@ -122,6 +122,14 @@ const actualChart = {
 };
 
 const forecastSolarKWh = Number(solarToday.energyKWh) || 0;
+const liveGridW = live ? Math.round(Number(live.gridPowerW) || 0) : 0;
+const liveAcW = live ? Math.round(Number(live.acPowerW) || 0) : 0;
+const liveSolarW = trace ? Math.round(Number(trace.solarGenerationW) || 0) : 0;
+const totalInputW = liveGridW + liveSolarW;
+const efficiencyPct = totalInputW > 50
+    ? Math.round(Math.min(100, liveAcW / totalInputW * 100) * 10) / 10
+    : null;
+const lossesW = totalInputW > 50 ? Math.max(0, totalInputW - liveAcW) : null;
 const kpiPayload = {
     dateKey: todayKey,
     forecastSolarKWh: forecastSolarKWh.toFixed(2),
@@ -133,8 +141,12 @@ const kpiPayload = {
     batteryGridChargeKWh: 'pending metric',
     batterySolarChargeKWh: 'pending metric',
     dailyCost: 'pending metric',
-    liveGridW: live ? Math.round(Number(live.gridPowerW) || 0) : 0,
-    liveAcW: live ? Math.round(Number(live.acPowerW) || 0) : 0
+    liveGridW,
+    liveAcW,
+    liveSolarW,
+    totalInputW,
+    efficiencyPct,
+    lossesW
 };
 
 const diagnosticsPayload = {
