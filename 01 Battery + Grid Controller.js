@@ -31,7 +31,7 @@
 //    the remaining MORNING window alone; MORNING charges any remaining grid deficit.
 // 6. Base grid setpoint schedule:
 //    - 2850W at night
-//    - 1980W during the rest of the day
+//    - 1950W during the rest of the day
 // 7. High-voltage protection for unknown external MPPT charging:
 //    - start limiting when battery voltage rises above 55.4V
 //    - release only after voltage drops back to 55.2V or lower
@@ -107,9 +107,9 @@ const RESTORE_AH_DEADBAND = 0.5;
 
 const SOLAR_FORECAST_MAX_AGE_HOURS = 18;
 
-const DAY_BASE_GRID_SETPOINT = 1980;
+const DAY_BASE_GRID_SETPOINT = 1950;
 const NIGHT_BASE_GRID_SETPOINT = 2850;
-const DAY_HOURLY_BUDGET_W = 1980;
+const DAY_HOURLY_BUDGET_W = 1950;
 const NIGHT_HOURLY_BUDGET_W = 2850;
 
 const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
