@@ -122,6 +122,12 @@ function Sync-22 { Sync-Node 'Filter graph'                  '22 Filter graph.js
 # 23 — Set error status on node
 function Sync-23 { Sync-Node 'Set error status'              '23 Set error status.js'                  -BumpVersion }
 
+# 24 — Build controller constants state
+function Sync-24 { Sync-Node 'Build controller constants state' '24 Build controller constants state.js' -BumpVersion }
+
+# 25 — Save controller constants
+function Sync-25 { Sync-Node 'Save controller constants'        '25 Save controller constants.js'               -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -152,6 +158,8 @@ function Sync-All {
         @{ Name = 'Create graph output';                File = '21 Create graph output.js' }
         @{ Name = 'Filter graph';                       File = '22 Filter graph.js' }
         @{ Name = 'Set error status';                   File = '23 Set error status.js' }
+        @{ Name = 'Build controller constants state';    File = '24 Build controller constants state.js' }
+        @{ Name = 'Save controller constants';           File = '25 Save controller constants.js' }
     )
 
     $totalSynced = 0

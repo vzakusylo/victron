@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#63 Day / Night Grid Control",
+    "label": "d#67 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -3617,6 +3617,178 @@
       [
         "e4766632305fb432"
       ]
+    ]
+  },
+  {
+    "id": "ui-tab-constants-01",
+    "type": "ui_tab",
+    "name": "Constants",
+    "icon": "settings",
+    "order": 5,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "ui-group-constants-main-01",
+    "type": "ui_group",
+    "name": "Controller Constants",
+    "tab": "ui-tab-constants-01",
+    "order": 1,
+    "disp": true,
+    "width": "24",
+    "collapse": false,
+    "className": ""
+  },
+  {
+    "id": "constants-template-01",
+    "type": "ui_template",
+    "z": "995ac4ed6222a706",
+    "group": "ui-group-constants-main-01",
+    "name": "Controller constants editor",
+    "order": 1,
+    "width": "24",
+    "height": "20",
+    "format": "<style>\n.cc-wrap { padding: 10px 6px; }\n.cc-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }\n.cc-title { font-size: 20px; font-weight: 700; }\n.cc-meta { font-size: 12px; opacity: 0.7; }\n.cc-status { padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }\n.cc-status.ok { background: rgba(91,184,93,0.18); color: #2baf5f; }\n.cc-status.error { background: rgba(217,83,79,0.15); color: #d9534f; }\n.cc-status.idle { background: rgba(0,148,206,0.12); color: #005f86; }\n.cc-group { margin-bottom: 18px; }\n.cc-group-title { font-size: 14px; font-weight: 700; opacity: 0.85; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 4px; }\n.cc-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }\n.cc-field { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; }\n.cc-field.overridden { border-color: #f0ad4e; background: rgba(240,173,78,0.08); }\n.cc-field-label { font-size: 11px; opacity: 0.7; margin-bottom: 4px; }\n.cc-field-row { display: flex; align-items: center; gap: 6px; }\n.cc-field-input { flex: 1; padding: 6px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; background: rgba(0,0,0,0.2); color: inherit; font-size: 14px; font-weight: 600; width: 100%; box-sizing: border-box; }\n.cc-field-unit { font-size: 12px; opacity: 0.6; min-width: 24px; }\n.cc-field-default { font-size: 11px; opacity: 0.55; margin-top: 3px; }\n.cc-field-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: #f0ad4e; color: #000; font-weight: 700; margin-left: 4px; }\n.cc-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }\n.cc-btn { border: 0; border-radius: 10px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }\n.cc-btn-save { background: linear-gradient(135deg,#009fe3,#0077aa); color: #fff; }\n.cc-btn-reset { background: rgba(217,83,79,0.18); color: #d9534f; border: 1px solid rgba(217,83,79,0.35); }\n.cc-path { font-size: 11px; opacity: 0.55; margin-top: 10px; word-break: break-all; }\n</style>\n<div class=\"cc-wrap\">\n  <div class=\"cc-header\">\n    <div class=\"cc-title\">Controller Constants</div>\n    <div class=\"cc-meta\">Overrides: {{msg.payload.overrideCount || 0}} &nbsp;|&nbsp; Updated: {{msg.payload.updatedAt ? msg.payload.updatedAt.substring(0,19).replace('T',' ') : '—'}}</div>\n  </div>\n  <div class=\"cc-status\" ng-class=\"statusClass\">{{statusText}}</div>\n  <div ng-repeat=\"group in msg.payload.groups track by group.key\" class=\"cc-group\">\n    <div class=\"cc-group-title\">{{group.label}}</div>\n    <div class=\"cc-fields\">\n      <div ng-repeat=\"field in group.fields track by field.key\" class=\"cc-field\" ng-class=\"{'overridden': field.isOverridden}\">\n        <div class=\"cc-field-label\">{{field.label}}<span class=\"cc-field-badge\" ng-if=\"field.isOverridden\">custom</span></div>\n        <div class=\"cc-field-row\">\n          <input class=\"cc-field-input\" type=\"number\" ng-model=\"form[field.key]\" ng-init=\"form[field.key] = field.value\" step=\"{{field.step}}\" min=\"{{field.min}}\" max=\"{{field.max}}\">\n          <span class=\"cc-field-unit\">{{field.unit}}</span>\n        </div>\n        <div class=\"cc-field-default\">Default: {{field.defaultValue}} {{field.unit}}</div>\n      </div>\n    </div>\n  </div>\n  <div class=\"cc-actions\">\n    <button class=\"cc-btn cc-btn-save\" ng-click=\"save()\">Save overrides</button>\n    <button class=\"cc-btn cc-btn-reset\" ng-click=\"resetAll()\">Reset all to defaults</button>\n  </div>\n  <div class=\"cc-path\">Config: {{msg.payload.configPath}}</div>\n</div>\n<script>\n(function(scope) {\n    scope.form = scope.form || {};\n    scope.statusText = 'Ready';\n    scope.statusClass = 'idle';\n\n    scope.save = function() {\n        scope.send({ topic: 'save-controller-constants', payload: angular.copy(scope.form) });\n    };\n\n    scope.resetAll = function() {\n        if (!scope.msg || !scope.msg.payload || !scope.msg.payload.groups) { return; }\n        scope.msg.payload.groups.forEach(function(g) {\n            g.fields.forEach(function(f) {\n                scope.form[f.key] = f.defaultValue;\n            });\n        });\n        scope.send({ topic: 'save-controller-constants', payload: {} });\n    };\n\n    scope.$watch('msg', function(msg) {\n        if (!msg || !msg.payload) { return; }\n        if (msg.topic === 'controller-constants-ui') {\n            if (msg.payload.groups) {\n                msg.payload.groups.forEach(function(g) {\n                    g.fields.forEach(function(f) {\n                        scope.form[f.key] = f.value;\n                    });\n                });\n            }\n            scope.statusText = 'Ready — ' + (msg.payload.overrideCount || 0) + ' override(s) active';\n            scope.statusClass = 'idle';\n        }\n        if (msg.topic === 'controller-constants-save-status') {\n            scope.statusText = msg.payload.message || (msg.payload.ok ? 'Saved' : 'Error');\n            scope.statusClass = msg.payload.ok ? 'ok' : 'error';\n        }\n    });\n})(scope);\n</script>",
+    "storeOutMessages": true,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 900,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-save-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "constants-inject-startup-01",
+    "type": "inject",
+    "z": "995ac4ed6222a706",
+    "name": "Load constants on startup",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 0.5,
+    "topic": "",
+    "payload": "",
+    "payloadType": "str",
+    "x": 200,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-exec-read-01"
+      ]
+    ]
+  },
+  {
+    "id": "constants-exec-read-01",
+    "type": "exec",
+    "z": "995ac4ed6222a706",
+    "command": "mkdir -p /data/home/nodered/grid-control-config; [ -s /data/home/nodered/grid-control-config/controller-constants.json ] || echo '{}' > /data/home/nodered/grid-control-config/controller-constants.json; cat /data/home/nodered/grid-control-config/controller-constants.json",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "oldrc": false,
+    "name": "Read controller constants file",
+    "x": 470,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-build-fn-01"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "constants-build-fn-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Build controller constants state",
+    "func": "// ==========================\r\n// LOGIC SUMMARY / CHANGE NOTES\r\n// ==========================\r\n// Sync rule:\r\n// - `24 Build controller constants state.js` and the embedded `func` for \"Build controller constants state\"\r\n//   in `flows.json` must always stay synchronized.\r\n// Purpose:\r\n// - Reads persisted overrides from `/data/home/nodered/grid-control-config/controller-constants.json`\r\n//   (written by \"Save controller constants\") and merges them with the hardcoded defaults.\r\n// - Emits one dashboard UI payload so the Controller Settings page shows live values\r\n//   and distinguishes overridden vs. default values.\r\n// Input:\r\n// - msg (any) -> triggers a rebuild; exec stdout when topic = 'constants-file-loaded'\r\n// Output (1):\r\n// - output 1 -> msg with topic 'controller-constants-ui' and payload for the dashboard template\r\n// Change notes:\r\n// 1. Initial version.\r\n// ==========================\r\n\r\nconst CONFIG_PATH = '/data/home/nodered/grid-control-config/controller-constants.json';\r\n\r\n// Hardcoded defaults — mirrors 01 Battery + Grid Controller.js constants\r\nconst DEFAULTS = {\r\n    // Schedule\r\n    DAY_BASE_GRID_SETPOINT:     1950,\r\n    NIGHT_BASE_GRID_SETPOINT:   2850,\r\n    DAY_HOURLY_BUDGET_W:        1950,\r\n    NIGHT_HOURLY_BUDGET_W:      2850,\r\n    // Charge\r\n    MAX_CHARGE_CURRENT:         25,\r\n    RESTORE_AH_DEADBAND:        0.5,\r\n    BATTERY_NOMINAL_VOLTAGE:    52,\r\n    // Solar\r\n    SOLAR_TO_BATTERY_EFFICIENCY: 0.9,\r\n    SOLAR_FORECAST_MAX_AGE_HOURS: 18,\r\n    // Grid setpoint limits\r\n    MIN_GRID_SETPOINT:          200,\r\n    MAX_GRID_STEP_W:            100,\r\n    // Manual discharge\r\n    MANUAL_DISCHARGE_MAX_CURRENT:  20,\r\n    MANUAL_DISCHARGE_STOP_VOLTAGE: 54,\r\n    MANUAL_DISCHARGE_MIN_GRID_W:   200,\r\n    MANUAL_DISCHARGE_MAX_AC_LOAD_W: 3000,\r\n    // HV protection defaults\r\n    HV_START:    55.4,\r\n    HV_RELEASE:  55.2,\r\n    HV_FULL:     55.6,\r\n    HV_GRID_SUPPORT_MAX_W:  1000,\r\n    FORCE_CHARGE_MAX_W:     3000,\r\n    // Heavy-load\r\n    HEAVY_LOAD_THRESHOLD_W:    4000,\r\n    HEAVY_LOAD_RELEASE_W:      2500,\r\n    HEAVY_LOAD_GRID_SETPOINT_W: 1700\r\n};\r\n\r\n// Groups for the UI\r\nconst GROUPS = [\r\n    {\r\n        key: 'schedule',\r\n        label: 'Grid Setpoint Schedule',\r\n        fields: [\r\n            { key: 'DAY_BASE_GRID_SETPOINT',   label: 'Day base setpoint',   unit: 'W',   step: 10,  min: 500,  max: 5000 },\r\n            { key: 'NIGHT_BASE_GRID_SETPOINT',  label: 'Night base setpoint', unit: 'W',   step: 10,  min: 500,  max: 5000 },\r\n            { key: 'MIN_GRID_SETPOINT',         label: 'Minimum grid setpoint', unit: 'W', step: 10,  min: 50,   max: 1000 },\r\n            { key: 'MAX_GRID_STEP_W',           label: 'Max smoothing step',  unit: 'W',   step: 10,  min: 10,   max: 500  }\r\n        ]\r\n    },\r\n    {\r\n        key: 'charge',\r\n        label: 'Battery Charging',\r\n        fields: [\r\n            { key: 'MAX_CHARGE_CURRENT',        label: 'Max charge current',  unit: 'A',   step: 1,   min: 1,    max: 50   },\r\n            { key: 'RESTORE_AH_DEADBAND',       label: 'Restore Ah deadband', unit: 'Ah',  step: 0.1, min: 0,    max: 10   },\r\n            { key: 'BATTERY_NOMINAL_VOLTAGE',   label: 'Nominal battery voltage', unit: 'V', step: 1, min: 40,   max: 60   }\r\n        ]\r\n    },\r\n    {\r\n        key: 'solar',\r\n        label: 'Solar Forecast',\r\n        fields: [\r\n            { key: 'SOLAR_TO_BATTERY_EFFICIENCY',  label: 'Solar→battery efficiency', unit: '',   step: 0.01, min: 0.5, max: 1.0 },\r\n            { key: 'SOLAR_FORECAST_MAX_AGE_HOURS', label: 'Max forecast age',           unit: 'h', step: 1,    min: 1,   max: 48  }\r\n        ]\r\n    },\r\n    {\r\n        key: 'manual_discharge',\r\n        label: 'Manual Discharge',\r\n        fields: [\r\n            { key: 'MANUAL_DISCHARGE_MAX_CURRENT',  label: 'Max discharge current',  unit: 'A', step: 1,  min: 1,   max: 50   },\r\n            { key: 'MANUAL_DISCHARGE_STOP_VOLTAGE', label: 'Auto-stop voltage',       unit: 'V', step: 0.1, min: 40, max: 60   },\r\n            { key: 'MANUAL_DISCHARGE_MIN_GRID_W',   label: 'Min grid during discharge', unit: 'W', step: 10, min: 0, max: 1000 },\r\n            { key: 'MANUAL_DISCHARGE_MAX_AC_LOAD_W', label: 'Max AC load to allow discharge', unit: 'W', step: 100, min: 0, max: 10000 }\r\n        ]\r\n    },\r\n    {\r\n        key: 'heavy_load',\r\n        label: 'Heavy-Load Suppression',\r\n        fields: [\r\n            { key: 'HEAVY_LOAD_THRESHOLD_W',    label: 'Activation threshold', unit: 'W', step: 100, min: 1000, max: 10000 },\r\n            { key: 'HEAVY_LOAD_RELEASE_W',      label: 'Release threshold',    unit: 'W', step: 100, min: 500,  max: 9000  },\r\n            { key: 'HEAVY_LOAD_GRID_SETPOINT_W', label: 'Grid cap during heavy load', unit: 'W', step: 50, min: 200, max: 3000 }\r\n        ]\r\n    }\r\n];\r\n\r\n// Parse persisted overrides — exec stdout always has string payload\r\nlet overrides = {};\r\nif (typeof msg.payload === 'string') {\r\n    const raw = msg.payload.trim();\r\n    if (raw && raw !== '{}') {\r\n        try {\r\n            const parsed = JSON.parse(raw);\r\n            if (parsed && typeof parsed === 'object') {\r\n                overrides = parsed;\r\n            }\r\n        } catch (e) {\r\n            // malformed file - ignore, use defaults\r\n        }\r\n    }\r\n    flow.set('controllerConstantsOverrides', overrides);\r\n} else {\r\n    overrides = flow.get('controllerConstantsOverrides') || {};\r\n}\r\n\r\n// Build merged values\r\nconst merged = {};\r\nObject.keys(DEFAULTS).forEach(k => {\r\n    merged[k] = Object.prototype.hasOwnProperty.call(overrides, k)\r\n        ? overrides[k]\r\n        : DEFAULTS[k];\r\n});\r\n\r\n// Build UI payload\r\nconst groupPayloads = GROUPS.map(group => ({\r\n    key: group.key,\r\n    label: group.label,\r\n    fields: group.fields.map(f => ({\r\n        key: f.key,\r\n        label: f.label,\r\n        unit: f.unit,\r\n        step: f.step,\r\n        min: f.min,\r\n        max: f.max,\r\n        value: merged[f.key],\r\n        defaultValue: DEFAULTS[f.key],\r\n        isOverridden: Object.prototype.hasOwnProperty.call(overrides, f.key)\r\n    }))\r\n}));\r\n\r\nreturn {\r\n    topic: 'controller-constants-ui',\r\n    payload: {\r\n        groups: groupPayloads,\r\n        configPath: CONFIG_PATH,\r\n        overrideCount: Object.keys(overrides).length,\r\n        updatedAt: new Date().toISOString()\r\n    }\r\n};\r\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 720,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-template-01"
+      ]
+    ]
+  },
+  {
+    "id": "constants-save-fn-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Save controller constants",
+    "func": "// ==========================\r\n// LOGIC SUMMARY / CHANGE NOTES\r\n// ==========================\r\n// Sync rule:\r\n// - `25 Save controller constants.js` and the embedded `func` for \"Save controller constants\"\r\n//   in `flows.json` must always stay synchronized.\r\n// Purpose:\r\n// - Receives a 'save-controller-constants' message from the dashboard.\r\n// - Validates each field against its allowed range.\r\n// - Persists only values that differ from the hardcoded defaults.\r\n// - Returns a file-write message and a status message.\r\n// Config file:\r\n// - /data/home/nodered/grid-control-config/controller-constants.json\r\n// Input:\r\n// - msg.topic = 'save-controller-constants'\r\n// - msg.payload = { KEY: value, ... }  (only fields the user changed)\r\n// Outputs (2):\r\n// - output 1 -> file write msg (filename + payload JSON string)\r\n// - output 2 -> status msg for the dashboard\r\n// Change notes:\r\n// 1. Initial version.\r\n// ==========================\r\n\r\nconst CONFIG_PATH = '/data/home/nodered/grid-control-config/controller-constants.json';\r\n\r\nconst DEFAULTS = {\r\n    DAY_BASE_GRID_SETPOINT:     1950,\r\n    NIGHT_BASE_GRID_SETPOINT:   2850,\r\n    DAY_HOURLY_BUDGET_W:        1950,\r\n    NIGHT_HOURLY_BUDGET_W:      2850,\r\n    MAX_CHARGE_CURRENT:         25,\r\n    RESTORE_AH_DEADBAND:        0.5,\r\n    BATTERY_NOMINAL_VOLTAGE:    52,\r\n    SOLAR_TO_BATTERY_EFFICIENCY: 0.9,\r\n    SOLAR_FORECAST_MAX_AGE_HOURS: 18,\r\n    MIN_GRID_SETPOINT:          200,\r\n    MAX_GRID_STEP_W:            100,\r\n    MANUAL_DISCHARGE_MAX_CURRENT:  20,\r\n    MANUAL_DISCHARGE_STOP_VOLTAGE: 54,\r\n    MANUAL_DISCHARGE_MIN_GRID_W:   200,\r\n    MANUAL_DISCHARGE_MAX_AC_LOAD_W: 3000,\r\n    HV_START:    55.4,\r\n    HV_RELEASE:  55.2,\r\n    HV_FULL:     55.6,\r\n    HV_GRID_SUPPORT_MAX_W:  1000,\r\n    FORCE_CHARGE_MAX_W:     3000,\r\n    HEAVY_LOAD_THRESHOLD_W:    4000,\r\n    HEAVY_LOAD_RELEASE_W:      2500,\r\n    HEAVY_LOAD_GRID_SETPOINT_W: 1700\r\n};\r\n\r\nconst RANGES = {\r\n    DAY_BASE_GRID_SETPOINT:     { min: 500,  max: 5000 },\r\n    NIGHT_BASE_GRID_SETPOINT:   { min: 500,  max: 5000 },\r\n    DAY_HOURLY_BUDGET_W:        { min: 500,  max: 5000 },\r\n    NIGHT_HOURLY_BUDGET_W:      { min: 500,  max: 5000 },\r\n    MAX_CHARGE_CURRENT:         { min: 1,    max: 50   },\r\n    RESTORE_AH_DEADBAND:        { min: 0,    max: 10   },\r\n    BATTERY_NOMINAL_VOLTAGE:    { min: 40,   max: 60   },\r\n    SOLAR_TO_BATTERY_EFFICIENCY: { min: 0.5, max: 1.0  },\r\n    SOLAR_FORECAST_MAX_AGE_HOURS: { min: 1,  max: 48   },\r\n    MIN_GRID_SETPOINT:          { min: 50,   max: 1000 },\r\n    MAX_GRID_STEP_W:            { min: 10,   max: 500  },\r\n    MANUAL_DISCHARGE_MAX_CURRENT:  { min: 1, max: 50   },\r\n    MANUAL_DISCHARGE_STOP_VOLTAGE: { min: 40, max: 60  },\r\n    MANUAL_DISCHARGE_MIN_GRID_W:   { min: 0, max: 1000 },\r\n    MANUAL_DISCHARGE_MAX_AC_LOAD_W: { min: 0, max: 10000 },\r\n    HEAVY_LOAD_THRESHOLD_W:    { min: 1000, max: 10000 },\r\n    HEAVY_LOAD_RELEASE_W:      { min: 500,  max: 9000  },\r\n    HEAVY_LOAD_GRID_SETPOINT_W: { min: 200, max: 3000  }\r\n};\r\n\r\nif (msg.topic !== 'save-controller-constants' || !msg.payload || typeof msg.payload !== 'object') {\r\n    return null;\r\n}\r\n\r\nconst incoming = msg.payload;\r\nconst errors = [];\r\nconst overrides = {};\r\n\r\nObject.keys(incoming).forEach(key => {\r\n    if (!Object.prototype.hasOwnProperty.call(DEFAULTS, key)) {\r\n        return; // ignore unknown keys\r\n    }\r\n    const raw = Number(incoming[key]);\r\n    if (!Number.isFinite(raw)) {\r\n        errors.push(`${key}: not a number`);\r\n        return;\r\n    }\r\n    const range = RANGES[key];\r\n    if (range && (raw < range.min || raw > range.max)) {\r\n        errors.push(`${key}: ${raw} out of range [${range.min}–${range.max}]`);\r\n        return;\r\n    }\r\n    // Only persist if different from default\r\n    if (raw !== DEFAULTS[key]) {\r\n        overrides[key] = raw;\r\n    }\r\n});\r\n\r\n// Cross-field: HEAVY_LOAD_THRESHOLD > HEAVY_LOAD_RELEASE\r\nconst hlThresh = overrides.HEAVY_LOAD_THRESHOLD_W !== undefined\r\n    ? overrides.HEAVY_LOAD_THRESHOLD_W\r\n    : DEFAULTS.HEAVY_LOAD_THRESHOLD_W;\r\nconst hlRelease = overrides.HEAVY_LOAD_RELEASE_W !== undefined\r\n    ? overrides.HEAVY_LOAD_RELEASE_W\r\n    : DEFAULTS.HEAVY_LOAD_RELEASE_W;\r\nif (hlThresh <= hlRelease) {\r\n    errors.push(`HEAVY_LOAD_THRESHOLD_W (${hlThresh}) must be > HEAVY_LOAD_RELEASE_W (${hlRelease})`);\r\n}\r\n\r\nif (errors.length > 0) {\r\n    return [\r\n        null,\r\n        {\r\n            topic: 'controller-constants-save-status',\r\n            payload: { ok: false, message: 'Validation errors: ' + errors.join('; '), errors }\r\n        }\r\n    ];\r\n}\r\n\r\nflow.set('controllerConstantsOverrides', overrides);\r\n\r\nconst fileMsg = {\r\n    filename: CONFIG_PATH,\r\n    payload: JSON.stringify(overrides, null, 2),\r\n    encoding: 'utf8'\r\n};\r\n\r\nconst statusMsg = {\r\n    topic: 'controller-constants-save-status',\r\n    payload: {\r\n        ok: true,\r\n        message: `Saved ${Object.keys(overrides).length} override(s). Restart controller or reload settings to apply.`,\r\n        overrideCount: Object.keys(overrides).length,\r\n        savedAt: new Date().toISOString()\r\n    }\r\n};\r\n\r\nreturn [fileMsg, statusMsg];\r\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1150,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-file-write-01"
+      ],
+      [
+        "constants-template-01"
+      ]
+    ]
+  },
+  {
+    "id": "constants-file-write-01",
+    "type": "file",
+    "z": "995ac4ed6222a706",
+    "name": "Write controller constants file",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "true",
+    "encoding": "utf8",
+    "x": 1380,
+    "y": 1400,
+    "wires": [
+      [
+        "constants-reload-01"
+      ]
+    ]
+  },
+  {
+    "id": "constants-reload-01",
+    "type": "exec",
+    "z": "995ac4ed6222a706",
+    "command": "mkdir -p /data/home/nodered/grid-control-config; [ -s /data/home/nodered/grid-control-config/controller-constants.json ] || echo '{}' > /data/home/nodered/grid-control-config/controller-constants.json; cat /data/home/nodered/grid-control-config/controller-constants.json",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "10",
+    "oldrc": false,
+    "name": "Reload constants after save",
+    "x": 1200,
+    "y": 1460,
+    "wires": [
+      [
+        "constants-build-fn-01"
+      ],
+      [],
+      []
     ]
   }
 ]
