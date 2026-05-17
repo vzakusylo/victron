@@ -11,7 +11,7 @@ The project is designed to reduce hourly grid peaks in Norway while still allowi
 - high-voltage protection when an external charger or MPPT raises battery voltage
 - notification logging when the grid setpoint changes
 
-The repository keeps a readable controller source in `day-night.txt` and a live Node-RED export in `flows.json`.
+The repository keeps readable controller sources as numbered `.js` files (e.g. `01 Battery + Grid Controller.js`) and a live Node-RED export in `flows.json`.
 
 Flow versioning rule:
 
@@ -23,11 +23,15 @@ Flow versioning rule:
 
 ## Repository contents
 
-- `day-night.txt`  
-  Human-readable source-of-truth for the main Node-RED function.
+- `01 Battery + Grid Controller.js` … `23 Set error status.js`  
+  Numbered human-readable source files for every Node-RED function node.  
+  `sync-commands.ps1` provides `Sync-01` … `Sync-23` and `Sync-All` helpers.
 
 - `flows.json`  
   Exported Node-RED flow used on Cerbo GX.
+
+- `sync-commands.ps1`  
+  PowerShell helpers: `. .\sync-commands.ps1` then `Sync-All` (or individual `Sync-NN`).
 
 - `victron_elvenett_context.md`  
   Detailed design notes, tariff assumptions, and implementation history.
@@ -40,8 +44,8 @@ The main operational goal is to keep hourly raw grid import under practical limi
 
 The current design target is:
 
-- daytime raw import target around `1980 W`
-- night raw import target around `2850 W`
+- daytime raw import target `1950 W`
+- night raw import target `2850 W`
 - night is allowed to be higher because this project was tuned around an Elvenett-style reduced night weighting factor
 
 This logic is especially useful when:
@@ -56,7 +60,7 @@ This logic is especially useful when:
 
 ### Current Node-RED flow
 
-![Current Node-RED flow](image.png)
+![Node-RED flow canvas — d#63](flows.png)
 
 ```mermaid
 flowchart LR
@@ -101,10 +105,11 @@ The controller is not a single rule. It is a stack of limits.
 
 ```mermaid
 flowchart TD
-  A[Base schedule<br/>Day 1980 W / Night 2850 W] --> E[Final grid setpoint]
+  A[Base schedule<br/>Day 1950 W / Night 2850 W] --> E[Final grid setpoint]
     B[Battery deficit logic<br/>BMS Consumed Amphours] --> F[Final charge current]
   C[Solar forecast offset<br/>Predicted solar Ah] --> F
   D[High-voltage limiter<br/>55.4 V start, 55.2 V release] --> E
+  G[Heavy-load cap<br/>≥ 4000 W AC → 1700 W grid] --> E
     F --> H[DVCC charge current limit]
 ```
 
@@ -114,6 +119,7 @@ The final grid setpoint is the minimum of:
 
 1. base schedule
 2. high-voltage limiter
+3. heavy-load cap (active when AC loads ≥ 4000 W)
 
 Hourly imported energy is still tracked and shown in status text, but it is display-only and does not override the schedule.
 
@@ -127,18 +133,19 @@ The battery charging logic now uses the BMS `Consumed Amphours` value as the net
 
 ### Night window
 
-- active time: `22:00-05:59`
+- active time: `22:00–05:59`
 - charge current is `25 A` only when the remaining deficit is too large to be fully restored during the remaining MORNING window
 - if the remaining MORNING window alone can still restore the deficit, night charging stays off
 
 ### Morning window
 
-- active time: `06:00-11:59`
+- active time: `06:00–11:59`
 - charge current is `25 A` whenever any grid-restoration deficit still remains after subtracting predicted solar contribution
+- charging is suppressed when solar forecast is valid, `forecastRestoreAh > 0`, and battery voltage > `53.7 V`
 
 ### Evening window
 
-- active time: `17:00-23:59` with night taking priority from `22:00`
+- active time: `17:00–23:59` with night taking priority from `22:00`
 - no grid-restoration charging is scheduled in this window
 
 ### Outside windows
@@ -152,12 +159,13 @@ The battery charging logic now uses the BMS `Consumed Amphours` value as the net
 
 Base target:
 
-- day: `1980 W`
+- day: `1950 W`
 - night: `2850 W`
 
 This is only the starting point. The controller may lower it further if:
 
 - the battery voltage is already too high
+- AC loads exceed the heavy-load threshold
 
 ---
 
@@ -165,14 +173,29 @@ This is only the starting point. The controller may lower it further if:
 
 This layer exists because an external charger or MPPT may increase battery voltage even when the Victron charger is not the only charging source.
 
-Behavior:
+Default thresholds (configurable from the Protection dashboard):
 
 - limiter starts when battery voltage rises above `55.4 V`
 - limiter remains active until battery voltage falls back to `55.2 V` or below
 - the grid setpoint tapers down smoothly
 - by `55.6 V`, the voltage limiter can push the setpoint down toward `200 W`
+- voltage range accepted: `50–60 V`
+- maximum smoothing step per cycle: `100 W`
 
 Smoothing is used so the grid setpoint does not jump too aggressively.
+
+## 3a. Heavy-load setpoint suppression
+
+Protects the Norwegian hourly tariff threshold (~2 kWh/h) during high-demand events.
+
+Behavior:
+
+- activates when AC loads reach or exceed `4000 W`
+- while active: grid setpoint is capped to `1700 W` and charge current is forced to `0 A`
+- the battery covers the gap; the grid CT stays safely below 2 kW
+- releases with hysteresis when AC loads fall below `2500 W`
+- state persists across message cycles in context as `heavyLoadActive`
+- shown in node status as `HL:<load>W`
 
 ---
 
@@ -191,6 +214,7 @@ Current conversion constants:
 
 - nominal battery voltage fallback: `52 V`
 - solar-to-battery efficiency factor: `0.9`
+- forecast accepted only when same day and age ≤ `18 h`
 
 Practical correlation with charging:
 
@@ -235,15 +259,44 @@ Meaning:
 
 If tracking started exactly at the top of the hour, the status also shows the remaining average watts left in the hour. This is informational only and does not change any outputs.
 
+## 6. AC Force Charging with voltage limiter
+
+The controller supports direct AC-assisted battery charging (`FORCE-CHARGE` window).
+
+Default limiter thresholds (configurable from the Protection dashboard):
+
+- activate force charging when battery voltage drops to `53 V` or below
+- charge at maximum DVCC (`25 A`) when voltage is at or below `52 V`
+- deactivate when voltage rises back to `54 V`
+- taper from `forceChargeGridW` up to max DVCC power between `Full` and `Start` voltages
+- all limiter thresholds validated in range `50–60 V`; required: `release > start > full`
+
 ---
 
-## 6. Notifications and outputs
+## 7. Solar generation tracking
+
+Solar from MPPT is derived from negative DC System Power (`/Dc/System/Power`).
+
+- `solarBudget` integrates `max(0, −dcPowerW)` per clock hour using the same logic as grid and AC budgets
+- `solarWh` is included in every hourly rollover message alongside `gridWh` and `acWh`
+- visible in node status as `Sol <n>Wh`
+- shown in the Hourly Grid and AC Detail dashboard table and in analytics
+
+---
+
+## 8. Notifications and outputs
 
 ## Dashboard
 
 The live flow now includes several dashboard surfaces for operation and diagnostics, including a dedicated `Protection` tab for runtime control of the high-voltage limiter and AC-assisted charging.
 
+#### Analytics dashboard
+
+![Analytics dashboard — efficiency, hourly chart, solar forecast](data-analytics.png)
+
 ### Protection dashboard
+
+![High-Voltage Protection dashboard — Grid CT Support and AC Force Charging cards](protections.png)
 
 The `Protection` tab is meant for operational tuning without editing controller code.
 
@@ -319,10 +372,11 @@ That means:
 
 Validation currently enforces:
 
-- voltage values must stay in the `50-60 V` range
-- `full > start >= release`
-- GRID CT support must stay between `0` and `1000 W`
-- AC force-charge power must stay between `0` and `3000 W`
+- voltage values must stay in the `50–60 V` range
+- HV thresholds: `full > start >= release`
+- FC limiter thresholds: `release > start > full`
+- GRID CT support: `0–1000 W`
+- AC force-charge power: `0–3000 W`
 
 ### Dashboard data path
 
@@ -475,7 +529,7 @@ Example project math:
 
 This is why the repository uses:
 
-- day base setpoint: `1980 W`
+- day base setpoint: `1950 W`
 - night base setpoint: `2850 W`
 
 ---
@@ -555,15 +609,19 @@ If the installation is three-phase, the grid measurement source and budget logic
 
 Recommended workflow when editing the logic:
 
-1. edit `day-night.txt`
-2. synchronize the function content into `flows.json`
-3. increment the `d#<n>` tab version in `flows.json`
-4. import or deploy the updated flow to the Cerbo GX
+1. edit the relevant `NN FunctionName.js` file
+2. synchronize into `flows.json` using `sync-commands.ps1`:
+   ```powershell
+   . .\sync-commands.ps1
+   Sync-01   # or Sync-All to push every node at once
+   ```
+3. the `d#<n>` tab version is bumped automatically by the sync script
+4. import or deploy the updated `flows.json` to the Cerbo GX
 5. verify:
    - battery voltage input is updating
    - GRID CT import power is updating
    - status text shows correct hour range and `Wh`
-  - charge current limit and grid setpoint change no faster than every 10 seconds
+   - charge current limit and grid setpoint change no faster than every 10 seconds
 
 ---
 
