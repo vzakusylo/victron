@@ -2,6 +2,8 @@
 
 This repository contains a Node-RED based controller for a Victron ESS system running on Cerbo GX.
 
+![VRM system overview — Grid, Battery, AC Loads, DC Power and PV Charger](system-overview.png)
+
 The project is designed to reduce hourly grid peaks in Norway while still allowing useful battery charging during selected time windows. The control logic combines:
 
 - BMS consumed-Ah restoration planning for night and morning charging
@@ -23,9 +25,9 @@ Flow versioning rule:
 
 ## Repository contents
 
-- `01 Battery + Grid Controller.js` … `23 Set error status.js`  
+- `01 Battery + Grid Controller.js` … `25 Save controller constants.js`  
   Numbered human-readable source files for every Node-RED function node.  
-  `sync-commands.ps1` provides `Sync-01` … `Sync-23` and `Sync-All` helpers.
+  `sync-commands.ps1` provides `Sync-01` … `Sync-25` and `Sync-All` helpers.
 
 - `flows.json`  
   Exported Node-RED flow used on Cerbo GX.
@@ -275,16 +277,45 @@ Default limiter thresholds (configurable from the Protection dashboard):
 
 ## 7. Solar generation tracking
 
-Solar from MPPT is derived from negative DC System Power (`/Dc/System/Power`).
+Solar generation is the sum of two sources:
 
-- `solarBudget` integrates `max(0, −dcPowerW)` per clock hour using the same logic as grid and AC budgets
+- **DC System Power** (`/Dc/System/Power`): negative values indicate a DC source (e.g. AC-coupled solar) pushing power onto the DC bus. Solar contribution = `max(0, −dcPowerW)`.
+- **PV Charger Power** (`/Dc/Pv/Power`): direct output of the MPPT charger in watts (always positive).
+
+The combined formula: `solarGenerationW = max(0, −dcPowerW) + pvChargerPowerW`
+
+- `solarBudget` integrates `solarGenerationW` per clock hour using the same logic as grid and AC budgets
 - `solarWh` is included in every hourly rollover message alongside `gridWh` and `acWh`
-- visible in node status as `Sol <n>Wh`
+- visible in node status as `DC <n>W | PV <n>W | Sol <n>Wh`
 - shown in the Hourly Grid and AC Detail dashboard table and in analytics
 
 ---
 
-## 8. Notifications and outputs
+## 8. Controller Constants dashboard
+
+The `Constants` tab provides a runtime editor for all hardcoded controller constants without editing code.
+
+![Controller Constants dashboard — all constant groups, Save overrides, Reset to defaults](dashboard-constans.png)
+
+Groups shown:
+
+- **Grid Setpoint Schedule** — day/night base setpoints, min setpoint, max smoothing step
+- **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage
+- **Solar Forecast** — solar-to-battery efficiency, max forecast age
+- **Manual Discharge** — max discharge current, auto-stop voltage, min grid during discharge, max AC load
+- **Heavy-Load Suppression** — activation threshold, release threshold, grid cap during heavy load
+
+Behavior:
+
+- on startup the node reads `/data/home/nodered/grid-control-config/controller-constants.json` (created automatically if missing)
+- fields showing the default value have no override stored; only changed values are persisted
+- `Save overrides` validates each field against its allowed range and writes non-default values to the JSON file
+- `Reset all to defaults` clears the file and restores all defaults on the next cycle
+- the status line shows `Ready — N override(s) active`
+
+---
+
+## 9. Notifications and outputs
 
 ## Dashboard
 
