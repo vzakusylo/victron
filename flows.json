@@ -1684,8 +1684,8 @@
     "topic": "",
     "payload": "2000",
     "payloadType": "num",
-    "x": 160,
-    "y": 80,
+    "x": 180,
+    "y": 20,
     "wires": [
       [
         "e4766632305fb432"
@@ -1709,8 +1709,8 @@
     "topic": "",
     "payload": "2850",
     "payloadType": "num",
-    "x": 160,
-    "y": 160,
+    "x": 180,
+    "y": 100,
     "wires": [
       [
         "e4766632305fb432"
@@ -1734,8 +1734,8 @@
     "topic": "",
     "payload": "9.5",
     "payloadType": "num",
-    "x": 160,
-    "y": 260,
+    "x": 170,
+    "y": 60,
     "wires": [
       [
         "e4766632305fb432",
@@ -1760,8 +1760,8 @@
     "topic": "",
     "payload": "13.5",
     "payloadType": "num",
-    "x": 160,
-    "y": 340,
+    "x": 180,
+    "y": 140,
     "wires": [
       [
         "e4766632305fb432",
@@ -1788,8 +1788,8 @@
     "initial": 9.5,
     "name": "",
     "onlyChanges": false,
-    "x": 550,
-    "y": 260,
+    "x": 830,
+    "y": 120,
     "wires": []
   },
   {
@@ -1811,8 +1811,8 @@
     "initial": 1950,
     "name": "",
     "onlyChanges": false,
-    "x": 500,
-    "y": 200,
+    "x": 780,
+    "y": 60,
     "wires": []
   },
   {
@@ -1859,8 +1859,8 @@
     "initial": 0,
     "name": "DVCC Charge current Limit (A)",
     "onlyChanges": false,
-    "x": 510,
-    "y": 320,
+    "x": 770,
+    "y": 200,
     "wires": []
   },
   {
@@ -3545,10 +3545,10 @@
     "id": "dc7f2a1c3e8b09c4",
     "type": "victron-input-system",
     "z": "995ac4ed6222a706",
-    "service": "com.victronenergy.system",
+    "service": "com.victronenergy.system/0",
     "path": "/Dc/System/Power",
     "serviceObj": {
-      "service": "com.victronenergy.system",
+      "service": "com.victronenergy.system/0",
       "name": "Venus system"
     },
     "pathObj": {
@@ -3623,7 +3623,7 @@
     "id": "pv-charger-input-01",
     "type": "victron-input-system",
     "z": "995ac4ed6222a706",
-    "service": "com.victronenergy.system",
+    "service": "com.victronenergy.system/0",
     "path": "/Dc/Pv/Power",
     "serviceObj": {
       "service": "com.victronenergy.system",
@@ -3637,8 +3637,8 @@
     "name": "PV Charger Power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 120,
-    "y": 380,
+    "x": 110,
+    "y": 280,
     "wires": [
       [
         "pv-charger-tag-01"
