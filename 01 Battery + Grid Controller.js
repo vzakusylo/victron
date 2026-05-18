@@ -22,6 +22,8 @@
 //      (source: GX System `/Ac/Consumption/L1/Power`)
 //    - `topic = dc-power` -> updates measured DC bus power in W
 //      (source: GX System `/Dc/System/Power`; negative = DC source producing power onto the bus)
+//    - `topic = pv-charger-power` -> updates measured PV charger power in W
+//      (source: GX System `/Dc/Pv/Power`; always positive; MPPT charger output)
 //    - `topic = manual-discharge` -> starts/stops a manual discharge override
 //    - `topic = manual-discharge-stop-voltage` -> updates the manual discharge auto-stop voltage
 //    - any other topic / inject -> recalculates outputs using stored state
@@ -74,10 +76,14 @@
 //     - negative value means a DC source (e.g. MPPT solar charger) is producing onto the bus
 //     - stored in context as `dcPowerW`; shown in node status and included in controller trace
 //     - informational only: does not affect grid setpoint or charge current decisions
-// 22. Solar generation is derived from negative DC System Power (MPPT charging the battery).
-//     - `solarBudget` integrates `max(0, -dcPowerW)` per hour using the same `advanceHourBudget` logic
+// 22. Solar generation = negative DC System Power + PV charger power.
+//     - `solarGenerationW = max(0, -dcPowerW) + pvChargerPowerW`
+//     - covers AC-coupled solar (shows as negative DC) and DC-coupled MPPT output (pv-charger-power)
+//     - `solarBudget` integrates `solarGenerationW` per hour using the same `advanceHourBudget` logic
 //     - on hour rollover `solarWh` is included in the hourly-energy message alongside gridWh and acWh
 //     - live `solarUsedWh` is shown in node status as `Sol <n>Wh`
+// 24. PV charger power (`/Dc/Pv/Power`) is captured as topic `pv-charger-power`.
+//     - stored in context as `pvChargerPowerW`; added to solar generation each cycle
 // 23. AC Force Charging has optional voltage-based limiters (same concept as Grid CT Support).
 //     - `forceChargeLimiterEnabled` enables automatic voltage-based activation/deactivation
 //     - `forceChargeLimiterStart` (V): activate force charging when battery voltage drops to this
@@ -96,6 +102,7 @@ const AC_LOAD_TOPIC = "ac-load-power";
 const MANUAL_DISCHARGE_TOPIC = "manual-discharge";
 const MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC = "manual-discharge-stop-voltage";
 const DC_POWER_TOPIC = "dc-power";
+const PV_CHARGER_TOPIC = "pv-charger-power";
 
 // ==========================
 // CONSTANTS
@@ -164,6 +171,10 @@ const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoad
 const rawStoredDcPower = context.get("dcPowerW");
 const hasDcPowerReading = rawStoredDcPower !== undefined && rawStoredDcPower !== null && Number.isFinite(Number(rawStoredDcPower));
 const storedDcPowerW = hasDcPowerReading ? Number(rawStoredDcPower) : 0;
+const rawStoredPvChargerPower = context.get("pvChargerPowerW");
+const storedPvChargerPowerW = rawStoredPvChargerPower !== undefined && rawStoredPvChargerPower !== null && Number.isFinite(Number(rawStoredPvChargerPower))
+    ? Math.max(0, Number(rawStoredPvChargerPower))
+    : 0;
 const rawStoredManualDischargeStopVoltage = context.get("manualDischargeStopVoltage");
 let voltageLimitActive = context.get("voltageLimitActive") || false;
 const previousGridSetpoint = Number(context.get("gridSetpoint"));
@@ -542,6 +553,7 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             storedGridPowerW: Math.round(storedGridPowerW),
             storedAcLoadPowerW: Math.round(storedAcLoadPowerW),
             storedDcPowerW: Math.round(storedDcPowerW),
+            storedPvChargerPowerW: Math.round(storedPvChargerPowerW),
             hasDcPowerReading,
             hourBudget: {
                 hourKey: hourBudget.hourKey,
@@ -602,8 +614,8 @@ const prevHourKey = hourBudget.hourKey;
 const prevHourGridWh = Number(hourBudget.usedWh) || 0;
 const prevHourAcWh = Number(acLoadBudget.usedWh) || 0;
 const prevHourSolarWh = Number(solarBudget.usedWh) || 0;
-// Solar generation = MPPT charging onto DC bus; shows as negative DC System Power.
-const solarGenerationW = hasDcPowerReading ? Math.max(0, -storedDcPowerW) : 0;
+// Solar generation = max(0, -dcPowerW) [negative DC bus] + pvChargerPowerW [MPPT direct].
+const solarGenerationW = Math.max(0, -storedDcPowerW) + storedPvChargerPowerW;
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
 acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
 solarBudget = advanceHourBudget(solarBudget, now, solarGenerationW);
@@ -645,6 +657,13 @@ else if (msg.topic === DC_POWER_TOPIC) {
 
     if (Number.isFinite(incomingDcPower)) {
         context.set("dcPowerW", incomingDcPower);
+    }
+}
+else if (msg.topic === PV_CHARGER_TOPIC) {
+    const incomingPvChargerPower = Number(msg.payload);
+
+    if (Number.isFinite(incomingPvChargerPower)) {
+        context.set("pvChargerPowerW", Math.max(0, incomingPvChargerPower));
     }
 }
 else if (msg.topic === MANUAL_DISCHARGE_TOPIC) {
@@ -985,7 +1004,9 @@ else if (windowName === "MORNING" || windowName === "EVENING") {
 }
 
 const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
-const dcPowerText = hasDcPowerReading ? ` | DC ${Math.round(storedDcPowerW)}W | Sol ${Math.round(solarUsedWh)}Wh` : "";
+const dcPowerText = hasDcPowerReading || storedPvChargerPowerW > 0
+    ? ` | DC ${Math.round(storedDcPowerW)}W | PV ${Math.round(storedPvChargerPowerW)}W | Sol ${Math.round(solarUsedWh)}Wh`
+    : "";
 const forecastText = solarForecast.valid
     ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`
     : "";
