@@ -1,0 +1,26 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Sync controller to flows",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Sync controller to flows direct",
+			"type": "shell",
+			"command": ". .\\sync-commands.ps1; Sync-01",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
