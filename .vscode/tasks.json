@@ -47,6 +47,32 @@
 				". .\\sync-commands.ps1; Sync-01; Sync-02; Sync-05; Sync-06; Sync-07"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "sync-battery-default-tuning",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01; Sync-06; Sync-07"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "sync-capacity-300-defaults",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01; Sync-06; Sync-07"
+			],
+			"isBackground": false
 		}
 	]
 }
