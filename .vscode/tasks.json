@@ -73,6 +73,19 @@
 				". .\\sync-commands.ps1; Sync-01; Sync-06; Sync-07"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "sync-battery-longevity-profile",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01; Sync-06; Sync-07"
+			],
+			"isBackground": false
 		}
 	]
 }
