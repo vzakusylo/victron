@@ -144,6 +144,8 @@ const MANUAL_DISCHARGE_MIN_GRID_W = 200;
 const MANUAL_DISCHARGE_MAX_AC_LOAD_W = 3000;
 const MANUAL_DISCHARGE_STOP_VOLTAGE = 54;
 const MANUAL_DISCHARGE_MAX_CURRENT = 20;
+const DAY_HIGH_AC_LOAD_THRESHOLD_W = 4000;
+const DAY_HIGH_AC_LOAD_REDUCTION_W = 100;
 
 // ==========================
 // TIME
@@ -914,7 +916,15 @@ const supportCap = applyGridSupport
     ? Math.max(MIN_GRID_SETPOINT, Math.round(storedAcLoadPowerW - highVoltageGridSupportW))
     : Number.POSITIVE_INFINITY;
 
-const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap);
+const applyDayHighAcLoadReduction = !nightWindow
+    && storedAcLoadPowerW > DAY_HIGH_AC_LOAD_THRESHOLD_W
+    && !forceChargeAllowed
+    && !manualDischargeEnabled;
+const dayHighAcLoadCap = applyDayHighAcLoadReduction
+    ? Math.max(0, rawFinalGridSetpoint - DAY_HIGH_AC_LOAD_REDUCTION_W)
+    : Number.POSITIVE_INFINITY;
+
+const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap, dayHighAcLoadCap);
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
@@ -976,6 +986,10 @@ if (manualDischargeEnabled) {
 }
 else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
     limitFlags.push(`MD-HOLD>${MANUAL_DISCHARGE_MAX_AC_LOAD_W}W`);
+}
+
+if (applyDayHighAcLoadReduction) {
+    limitFlags.push(`AC-HIGH:-${DAY_HIGH_AC_LOAD_REDUCTION_W}W`);
 }
 
 if (forceChargeAllowed) {
