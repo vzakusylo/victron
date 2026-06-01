@@ -21,6 +21,32 @@
 			"command": ". .\\sync-commands.ps1; Sync-01",
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "sync-touched-flow-nodes",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01; Sync-02; Sync-05; Sync-06; Sync-07"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "sync-touched-flow-nodes-pwsh",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-01; Sync-02; Sync-05; Sync-06; Sync-07"
+			],
+			"isBackground": false
 		}
 	]
 }
