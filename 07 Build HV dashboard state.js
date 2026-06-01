@@ -23,6 +23,16 @@ const DEFAULT_SETTINGS = {
     release: 55.2,
     full: 55.6,
     gridSupportW: 0,
+    gridSupportMode: 'hv-only',
+    gridSupportBatteryCapacityAh: 0,
+    gridSupportReserveAh: 60,
+    gridSupportStartHour: 6,
+    gridSupportEndHour: 18,
+    gridSupportMaxDischargeA: 12,
+    gridSupportForecastConfidencePct: 70,
+    gridSupportSolarAssistGainPct: 25,
+    gridSupportWeakForecastBlockAh: 20,
+    gridSupportMinGridImportW: 200,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -44,6 +54,13 @@ const forceChargeGridW = Math.max(0, Math.round(Number(current.forceChargeGridW)
 const currentChargingPowerW = Math.max(0, Math.round(Number(trace && trace.currentChargingPowerW) || 0));
 const forceChargeRunning = forceChargeEnabled && currentChargingPowerW > 0;
 const forceChargeStatusLabel = forceChargeEnabled ? (forceChargeRunning ? 'Running' : 'Armed') : 'Disabled';
+const gridSupportMode = String(current.gridSupportMode || DEFAULT_SETTINGS.gridSupportMode);
+const adaptiveGridSupportW = Math.max(0, Math.round(Number(trace && trace.adaptiveGridSupportW) || 0));
+const plannedGridSupportW = Math.max(0, Math.round(Number(trace && trace.plannedGridSupportW) || 0));
+const remainingForecastAh = Number(trace && trace.remainingForecastAh);
+const batteryRemainingAh = trace && trace.batteryRemainingAh !== null && trace && trace.batteryRemainingAh !== undefined
+    ? Number(trace.batteryRemainingAh)
+    : null;
 
 return {
     topic: 'high-voltage-settings-ui',
@@ -53,6 +70,16 @@ return {
         release: Number(current.release) || DEFAULT_SETTINGS.release,
         full: Number(current.full) || DEFAULT_SETTINGS.full,
         gridSupportW: Math.max(0, Math.round(Number(current.gridSupportW) || 0)),
+        gridSupportMode,
+        gridSupportBatteryCapacityAh: Math.max(0, Math.round(Number(current.gridSupportBatteryCapacityAh) || 0)),
+        gridSupportReserveAh: Math.max(0, Math.round(Number(current.gridSupportReserveAh) || DEFAULT_SETTINGS.gridSupportReserveAh)),
+        gridSupportStartHour: Math.max(0, Math.round(Number(current.gridSupportStartHour) || DEFAULT_SETTINGS.gridSupportStartHour)),
+        gridSupportEndHour: Math.max(0, Math.round(Number(current.gridSupportEndHour) || DEFAULT_SETTINGS.gridSupportEndHour)),
+        gridSupportMaxDischargeA: Math.max(0, Math.round(Number(current.gridSupportMaxDischargeA) || DEFAULT_SETTINGS.gridSupportMaxDischargeA)),
+        gridSupportForecastConfidencePct: Math.max(0, Math.round(Number(current.gridSupportForecastConfidencePct) || DEFAULT_SETTINGS.gridSupportForecastConfidencePct)),
+        gridSupportSolarAssistGainPct: Math.max(0, Math.round(Number(current.gridSupportSolarAssistGainPct) || DEFAULT_SETTINGS.gridSupportSolarAssistGainPct)),
+        gridSupportWeakForecastBlockAh: Math.max(0, Math.round(Number(current.gridSupportWeakForecastBlockAh) || DEFAULT_SETTINGS.gridSupportWeakForecastBlockAh)),
+        gridSupportMinGridImportW: Math.max(200, Math.round(Number(current.gridSupportMinGridImportW) || DEFAULT_SETTINGS.gridSupportMinGridImportW)),
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled: current.forceChargeLimiterEnabled === true,
@@ -68,6 +95,11 @@ return {
         forceChargeStatus: forceChargeStatusLabel,
         currentChargingPowerW,
         gridSupportW: Math.max(0, Math.round(Number(current.gridSupportW) || 0)),
+        gridSupportMode,
+        adaptiveGridSupportW,
+        plannedGridSupportW,
+        remainingForecastAh: Number.isFinite(remainingForecastAh) ? remainingForecastAh.toFixed(1) : '0.0',
+        batteryRemainingAh: Number.isFinite(batteryRemainingAh) ? batteryRemainingAh.toFixed(1) : 'n/a',
         forceChargeGridW,
         message: status.message || 'Use Save to persist protection changes.'
     }

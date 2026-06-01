@@ -125,6 +125,16 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     release: 55.2,
     full: 55.6,
     gridSupportW: 0,
+    gridSupportMode: "hv-only",
+    gridSupportBatteryCapacityAh: 0,
+    gridSupportReserveAh: 60,
+    gridSupportStartHour: 6,
+    gridSupportEndHour: 18,
+    gridSupportMaxDischargeA: 12,
+    gridSupportForecastConfidencePct: 70,
+    gridSupportSolarAssistGainPct: 25,
+    gridSupportWeakForecastBlockAh: 20,
+    gridSupportMinGridImportW: 200,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -136,6 +146,25 @@ const HIGH_VOLTAGE_SETTINGS_MIN = 50;
 const HIGH_VOLTAGE_SETTINGS_MAX = 60;
 const HIGH_VOLTAGE_GRID_SUPPORT_MIN_W = 0;
 const HIGH_VOLTAGE_GRID_SUPPORT_MAX_W = 1000;
+const GRID_SUPPORT_MODE_HV_ONLY = "hv-only";
+const GRID_SUPPORT_MODE_ADAPTIVE_DAY = "adaptive-day";
+const GRID_SUPPORT_MODE_HYBRID = "hybrid";
+const GRID_SUPPORT_BATTERY_CAPACITY_MIN_AH = 0;
+const GRID_SUPPORT_BATTERY_CAPACITY_MAX_AH = 2000;
+const GRID_SUPPORT_RESERVE_MIN_AH = 0;
+const GRID_SUPPORT_RESERVE_MAX_AH = 1000;
+const GRID_SUPPORT_HOUR_MIN = 0;
+const GRID_SUPPORT_HOUR_MAX = 23;
+const GRID_SUPPORT_MAX_DISCHARGE_MIN_A = 0;
+const GRID_SUPPORT_MAX_DISCHARGE_MAX_A = 50;
+const GRID_SUPPORT_FORECAST_CONFIDENCE_MIN_PCT = 0;
+const GRID_SUPPORT_FORECAST_CONFIDENCE_MAX_PCT = 100;
+const GRID_SUPPORT_SOLAR_ASSIST_GAIN_MIN_PCT = 0;
+const GRID_SUPPORT_SOLAR_ASSIST_GAIN_MAX_PCT = 100;
+const GRID_SUPPORT_WEAK_FORECAST_BLOCK_MIN_AH = 0;
+const GRID_SUPPORT_WEAK_FORECAST_BLOCK_MAX_AH = 500;
+const GRID_SUPPORT_MIN_GRID_IMPORT_MIN_W = 200;
+const GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W = 1000;
 const FORCE_CHARGE_MIN_W = 0;
 const FORCE_CHARGE_MAX_W = 3000;
 const MIN_GRID_SETPOINT = 200;
@@ -222,6 +251,93 @@ function round1(value) {
     return Math.round(value * 10) / 10;
 }
 
+function normalizeGridSupportMode(value) {
+    const normalized = String(value || "").toLowerCase();
+
+    if (normalized === GRID_SUPPORT_MODE_ADAPTIVE_DAY || normalized === GRID_SUPPORT_MODE_HYBRID) {
+        return normalized;
+    }
+
+    return GRID_SUPPORT_MODE_HV_ONLY;
+}
+
+function sanitizeRoundedNumber(value, fallback, min, max) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return fallback;
+    }
+
+    return clamp(Math.round(numeric), min, max);
+}
+
+function isHourWithinWindow(hourValue, startHour, endHour) {
+    if (startHour === endHour) {
+        return true;
+    }
+
+    if (startHour < endHour) {
+        return hourValue >= startHour && hourValue < endHour;
+    }
+
+    return hourValue >= startHour || hourValue < endHour;
+}
+
+function getWindowRemainingHours(date, startHour, endHour) {
+    if (!isHourWithinWindow(date.getHours(), startHour, endHour)) {
+        return 0;
+    }
+
+    if (startHour === endHour) {
+        return 24;
+    }
+
+    const end = new Date(date);
+    end.setHours(endHour, 0, 0, 0);
+
+    if (startHour > endHour || end <= date) {
+        end.setDate(end.getDate() + 1);
+    }
+
+    return Math.max(0, (end.getTime() - date.getTime()) / 3600000);
+}
+
+function getRemainingForecastWh(date, startHour, endHour) {
+    const rawAdjustedForecast = flow.get("solarForecastAdjusted");
+    const adjustedResult = rawAdjustedForecast && typeof rawAdjustedForecast.adjustedResult === "object"
+        ? rawAdjustedForecast.adjustedResult
+        : null;
+
+    if (!adjustedResult) {
+        return 0;
+    }
+
+    const todayKey = getDayKey(date);
+    const currentHour = date.getHours();
+    const currentHourFractionLeft = Math.max(0, 1 - ((date.getMinutes() * 60 + date.getSeconds()) / 3600));
+
+    return Object.keys(adjustedResult).reduce((total, key) => {
+        if (!String(key).startsWith(todayKey)) {
+            return total;
+        }
+
+        const hourToken = String(key).substring(11, 13);
+        const forecastHour = Number(hourToken);
+        const hourlyForecastW = Math.max(0, Number(adjustedResult[key]) || 0);
+
+        if (!Number.isInteger(forecastHour) || hourlyForecastW <= 0) {
+            return total;
+        }
+
+        if (!isHourWithinWindow(forecastHour, startHour, endHour) || forecastHour < currentHour) {
+            return total;
+        }
+
+        const fraction = forecastHour === currentHour ? currentHourFractionLeft : 1;
+        return total + hourlyForecastW * fraction;
+    }, 0);
+}
+
 function sanitizeHighVoltageSettings(value) {
     if (!value || typeof value !== "object") {
         return null;
@@ -236,6 +352,83 @@ function sanitizeHighVoltageSettings(value) {
     const rawGridSupportW = value.gridSupportW === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportW
         : Number(value.gridSupportW);
+    const gridSupportMode = normalizeGridSupportMode(
+        value.gridSupportMode === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportMode
+            : value.gridSupportMode
+    );
+    const gridSupportBatteryCapacityAh = sanitizeRoundedNumber(
+        value.gridSupportBatteryCapacityAh === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportBatteryCapacityAh
+            : value.gridSupportBatteryCapacityAh,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportBatteryCapacityAh,
+        GRID_SUPPORT_BATTERY_CAPACITY_MIN_AH,
+        GRID_SUPPORT_BATTERY_CAPACITY_MAX_AH
+    );
+    const gridSupportReserveAh = sanitizeRoundedNumber(
+        value.gridSupportReserveAh === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportReserveAh
+            : value.gridSupportReserveAh,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportReserveAh,
+        GRID_SUPPORT_RESERVE_MIN_AH,
+        GRID_SUPPORT_RESERVE_MAX_AH
+    );
+    const gridSupportStartHour = sanitizeRoundedNumber(
+        value.gridSupportStartHour === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportStartHour
+            : value.gridSupportStartHour,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportStartHour,
+        GRID_SUPPORT_HOUR_MIN,
+        GRID_SUPPORT_HOUR_MAX
+    );
+    const gridSupportEndHour = sanitizeRoundedNumber(
+        value.gridSupportEndHour === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportEndHour
+            : value.gridSupportEndHour,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportEndHour,
+        GRID_SUPPORT_HOUR_MIN,
+        GRID_SUPPORT_HOUR_MAX
+    );
+    const gridSupportMaxDischargeA = sanitizeRoundedNumber(
+        value.gridSupportMaxDischargeA === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportMaxDischargeA
+            : value.gridSupportMaxDischargeA,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportMaxDischargeA,
+        GRID_SUPPORT_MAX_DISCHARGE_MIN_A,
+        GRID_SUPPORT_MAX_DISCHARGE_MAX_A
+    );
+    const gridSupportForecastConfidencePct = sanitizeRoundedNumber(
+        value.gridSupportForecastConfidencePct === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportForecastConfidencePct
+            : value.gridSupportForecastConfidencePct,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportForecastConfidencePct,
+        GRID_SUPPORT_FORECAST_CONFIDENCE_MIN_PCT,
+        GRID_SUPPORT_FORECAST_CONFIDENCE_MAX_PCT
+    );
+    const gridSupportSolarAssistGainPct = sanitizeRoundedNumber(
+        value.gridSupportSolarAssistGainPct === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportSolarAssistGainPct
+            : value.gridSupportSolarAssistGainPct,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportSolarAssistGainPct,
+        GRID_SUPPORT_SOLAR_ASSIST_GAIN_MIN_PCT,
+        GRID_SUPPORT_SOLAR_ASSIST_GAIN_MAX_PCT
+    );
+    const gridSupportWeakForecastBlockAh = sanitizeRoundedNumber(
+        value.gridSupportWeakForecastBlockAh === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportWeakForecastBlockAh
+            : value.gridSupportWeakForecastBlockAh,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportWeakForecastBlockAh,
+        GRID_SUPPORT_WEAK_FORECAST_BLOCK_MIN_AH,
+        GRID_SUPPORT_WEAK_FORECAST_BLOCK_MAX_AH
+    );
+    const gridSupportMinGridImportW = sanitizeRoundedNumber(
+        value.gridSupportMinGridImportW === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportMinGridImportW
+            : value.gridSupportMinGridImportW,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportMinGridImportW,
+        GRID_SUPPORT_MIN_GRID_IMPORT_MIN_W,
+        GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W
+    );
     const forceChargeEnabled = value.forceChargeEnabled === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeEnabled
         : Boolean(value.forceChargeEnabled);
@@ -283,6 +476,16 @@ function sanitizeHighVoltageSettings(value) {
         release,
         full,
         gridSupportW,
+        gridSupportMode,
+        gridSupportBatteryCapacityAh,
+        gridSupportReserveAh,
+        gridSupportStartHour,
+        gridSupportEndHour,
+        gridSupportMaxDischargeA,
+        gridSupportForecastConfidencePct,
+        gridSupportSolarAssistGainPct,
+        gridSupportWeakForecastBlockAh,
+        gridSupportMinGridImportW,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled,
@@ -532,6 +735,18 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
                 energyKWh: round1(solarForecast.energyKWh),
                 peakKW: round1(solarForecast.peakKW)
             },
+            gridSupportMode,
+            adaptiveGridSupportActive,
+            adaptiveGridSupportW: Math.round(adaptiveGridSupportW),
+            plannedGridSupportW: Math.round(plannedGridSupportW),
+            liveSolarAssistW: Math.round(liveSolarAssistW),
+            remainingForecastWh: Math.round(remainingForecastWh),
+            remainingForecastAh: round1(remainingForecastAh),
+            supportWindowRemainingHours: round1(supportWindowRemainingHours),
+            batteryRemainingAh: batteryRemainingAh === null ? null : round1(batteryRemainingAh),
+            usableStoredSupportAh: round1(usableStoredSupportAh),
+            predictedSupportAh: round1(predictedSupportAh),
+            supportMinGridImportW,
             forecastRestoreAh: round1(forecastRestoreAh),
             gridRestoreAhNeeded: round1(gridRestoreAhNeeded),
             remainingNightHours: round1(remainingNightHours),
@@ -728,6 +943,18 @@ const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGE
 const highVoltageSettings = getHighVoltageSettings();
 const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
+const gridSupportMode = normalizeGridSupportMode(highVoltageSettings.gridSupportMode);
+const adaptiveGridSupportEnabled = gridSupportMode === GRID_SUPPORT_MODE_ADAPTIVE_DAY || gridSupportMode === GRID_SUPPORT_MODE_HYBRID;
+const hybridGridSupportEnabled = gridSupportMode === GRID_SUPPORT_MODE_HYBRID;
+const gridSupportBatteryCapacityAh = Math.max(0, Math.round(Number(highVoltageSettings.gridSupportBatteryCapacityAh) || 0));
+const gridSupportReserveAh = Math.max(0, Math.round(Number(highVoltageSettings.gridSupportReserveAh) || 0));
+const gridSupportStartHour = sanitizeRoundedNumber(highVoltageSettings.gridSupportStartHour, DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportStartHour, GRID_SUPPORT_HOUR_MIN, GRID_SUPPORT_HOUR_MAX);
+const gridSupportEndHour = sanitizeRoundedNumber(highVoltageSettings.gridSupportEndHour, DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportEndHour, GRID_SUPPORT_HOUR_MIN, GRID_SUPPORT_HOUR_MAX);
+const gridSupportMaxDischargeA = Math.max(0, Math.round(Number(highVoltageSettings.gridSupportMaxDischargeA) || 0));
+const gridSupportForecastConfidencePct = clamp(Number(highVoltageSettings.gridSupportForecastConfidencePct) || 0, GRID_SUPPORT_FORECAST_CONFIDENCE_MIN_PCT, GRID_SUPPORT_FORECAST_CONFIDENCE_MAX_PCT);
+const gridSupportSolarAssistGainPct = clamp(Number(highVoltageSettings.gridSupportSolarAssistGainPct) || 0, GRID_SUPPORT_SOLAR_ASSIST_GAIN_MIN_PCT, GRID_SUPPORT_SOLAR_ASSIST_GAIN_MAX_PCT);
+const gridSupportWeakForecastBlockAh = Math.max(0, Math.round(Number(highVoltageSettings.gridSupportWeakForecastBlockAh) || 0));
+const supportMinGridImportW = clamp(Math.round(Number(highVoltageSettings.gridSupportMinGridImportW) || MIN_GRID_SETPOINT), MIN_GRID_SETPOINT, GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W);
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
 const forceChargeLimiterEnabled = Boolean(highVoltageSettings.forceChargeLimiterEnabled);
@@ -778,11 +1005,24 @@ const solarForecast = getSolarForecastSummary(now);
 const effectiveConsumedAhDeficit = Number.isFinite(consumedAhDeficit) ? consumedAhDeficit : 0;
 const forecastRestoreAh = getForecastRestoreAh(solarForecast, batteryVoltage);
 const gridRestoreAhNeeded = Math.max(0, effectiveConsumedAhDeficit - forecastRestoreAh);
+const batteryRemainingAh = gridSupportBatteryCapacityAh > 0
+    ? Math.max(0, gridSupportBatteryCapacityAh - effectiveConsumedAhDeficit)
+    : null;
+const usableStoredSupportAh = batteryRemainingAh === null
+    ? 0
+    : Math.max(0, batteryRemainingAh - gridSupportReserveAh);
 const remainingNightHours = getRemainingNightHours(now);
 const remainingMorningHours = getRemainingMorningHours(now);
 const remainingMorningCapacityAh = remainingMorningHours * MAX_CHARGE_CURRENT;
 const manualDischargeAllowedByLoad = Math.max(0, storedAcLoadPowerW) <= MANUAL_DISCHARGE_MAX_AC_LOAD_W;
 const morningSolarChargeHold = solarForecast.valid && forecastRestoreAh > 0 && batteryVoltage > 53.7;
+const supportWindowActive = adaptiveGridSupportEnabled && isHourWithinWindow(hour, gridSupportStartHour, gridSupportEndHour);
+const supportWindowRemainingHours = supportWindowActive ? getWindowRemainingHours(now, gridSupportStartHour, gridSupportEndHour) : 0;
+const remainingForecastWh = supportWindowActive ? getRemainingForecastWh(now, gridSupportStartHour, gridSupportEndHour) : 0;
+const remainingForecastAh = remainingForecastWh > 0
+    ? (remainingForecastWh * SOLAR_TO_BATTERY_EFFICIENCY) / Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)
+    : 0;
+const predictedSupportAh = Math.max(0, (remainingForecastAh * (gridSupportForecastConfidencePct / 100)) - gridSupportWeakForecastBlockAh);
 
 if (manualDischarge.active && batteryVoltage <= manualDischargeStopVoltage) {
     manualDischarge = {
@@ -916,6 +1156,40 @@ const supportCap = applyGridSupport
     ? Math.max(MIN_GRID_SETPOINT, Math.round(storedAcLoadPowerW - highVoltageGridSupportW))
     : Number.POSITIVE_INFINITY;
 
+const plannedGridSupportW = supportWindowActive && supportWindowRemainingHours > 0 && highVoltageGridSupportW > 0
+    ? Math.min(
+        highVoltageGridSupportW,
+        Math.max(
+            0,
+            Math.round(
+                ((usableStoredSupportAh + predictedSupportAh) * Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE)) /
+                supportWindowRemainingHours
+            )
+        )
+    )
+    : 0;
+const liveSolarAssistW = supportWindowActive
+    ? Math.round(Math.max(0, solarGenerationW) * (gridSupportSolarAssistGainPct / 100))
+    : 0;
+const adaptiveGridSupportW = supportWindowActive
+    ? Math.min(
+        highVoltageGridSupportW,
+        Math.round(Math.max(0, batteryVoltage) * gridSupportMaxDischargeA),
+        Math.max(0, plannedGridSupportW + liveSolarAssistW)
+    )
+    : 0;
+const adaptiveGridSupportActive = adaptiveGridSupportW > 0
+    && adaptiveGridSupportEnabled
+    && !boostActive
+    && !forceChargeAllowed
+    && !manualDischargeEnabled
+    && !nightWindow
+    && hasGridPowerReading
+    && (!highVoltageProtectionEnabled || !voltageLimitActive || hybridGridSupportEnabled);
+const adaptiveSupportCap = adaptiveGridSupportActive
+    ? Math.max(supportMinGridImportW, Math.round(storedAcLoadPowerW - adaptiveGridSupportW))
+    : Number.POSITIVE_INFINITY;
+
 const applyDayHighAcLoadReduction = !nightWindow
     && storedAcLoadPowerW > DAY_HIGH_AC_LOAD_THRESHOLD_W
     && !forceChargeAllowed
@@ -924,7 +1198,7 @@ const dayHighAcLoadCap = applyDayHighAcLoadReduction
     ? Math.max(0, rawFinalGridSetpoint - DAY_HIGH_AC_LOAD_REDUCTION_W)
     : Number.POSITIVE_INFINITY;
 
-const finalGridSetpoint = Math.min(rawFinalGridSetpoint, supportCap, dayHighAcLoadCap);
+const finalGridSetpoint = Math.min(rawFinalGridSetpoint, adaptiveSupportCap, supportCap, dayHighAcLoadCap);
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
@@ -990,6 +1264,10 @@ else if (manualDischarge.active && !manualDischargeAllowedByLoad) {
 
 if (applyDayHighAcLoadReduction) {
     limitFlags.push(`AC-HIGH:-${DAY_HIGH_AC_LOAD_REDUCTION_W}W`);
+}
+
+if (adaptiveGridSupportActive) {
+    limitFlags.push(`GS-A:${Math.round(adaptiveGridSupportW)}W`);
 }
 
 if (forceChargeAllowed) {

@@ -154,8 +154,19 @@ const diagnosticsPayload = {
     gridSetpointW: trace ? Math.round(Number(trace.finalGridSetpoint) || 0) : 0,
     chargeCurrentA: trace ? Number(trace.finalChargeCurrent || 0).toFixed(1) : '0.0',
     consumedAhDeficit: trace ? Number(trace.consumedAhDeficit || 0).toFixed(1) : '0.0',
+    batteryRemainingAh: trace && trace.batteryRemainingAh !== null && trace && trace.batteryRemainingAh !== undefined
+        ? Number(trace.batteryRemainingAh || 0).toFixed(1)
+        : 'n/a',
     forecastRestoreAh: trace ? Number(trace.forecastRestoreAh || 0).toFixed(1) : '0.0',
+    remainingForecastAh: trace ? Number(trace.remainingForecastAh || 0).toFixed(1) : '0.0',
     gridRestoreAhNeeded: trace ? Number(trace.gridRestoreAhNeeded || 0).toFixed(1) : '0.0',
+    gridSupportMode: trace ? String(trace.gridSupportMode || 'hv-only') : 'hv-only',
+    adaptiveGridSupportActive: trace ? String(Boolean(trace.adaptiveGridSupportActive)) : 'false',
+    adaptiveGridSupportW: trace ? Math.round(Number(trace.adaptiveGridSupportW) || 0) : 0,
+    plannedGridSupportW: trace ? Math.round(Number(trace.plannedGridSupportW) || 0) : 0,
+    supportWindowRemainingHours: trace ? Number(trace.supportWindowRemainingHours || 0).toFixed(1) : '0.0',
+    liveSolarAssistW: trace ? Math.round(Number(trace.liveSolarAssistW) || 0) : 0,
+    remainingForecastWh: trace ? Math.round(Number(trace.remainingForecastWh) || 0) : 0,
     voltageLimitActive: trace ? String(Boolean(trace.voltageLimitActive)) : 'false',
     batteryVoltage: trace ? Number(trace.batteryVoltage || 0).toFixed(2) : '0.00',
     updatedAt: trace && trace.timestamp ? trace.timestamp : new Date().toISOString()
@@ -168,7 +179,8 @@ const pendingPayload = {
         'hourly Grid Wh',
         'hourly AC Wh',
         'live current-hour Grid/AC Wh and W',
-        'controller diagnostics from trace'
+        'controller diagnostics from trace',
+        'adaptive grid support budget and live support metrics'
     ],
     missing: [
         'load forecast series',
