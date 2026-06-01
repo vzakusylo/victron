@@ -108,7 +108,7 @@ const PV_CHARGER_TOPIC = "pv-charger-power";
 // CONSTANTS
 // ==========================
 const MAX_CHARGE_CURRENT = 25;
-const BATTERY_NOMINAL_VOLTAGE = 52;
+const BATTERY_NOMINAL_VOLTAGE = 53;
 const SOLAR_TO_BATTERY_EFFICIENCY = 0.9;
 const RESTORE_AH_DEADBAND = 0.5;
 
@@ -125,12 +125,12 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     release: 55.2,
     full: 55.6,
     gridSupportW: 0,
-    gridSupportMode: "hv-only",
-    gridSupportBatteryCapacityAh: 0,
+    gridSupportMode: "hybrid",
+    gridSupportBatteryCapacityAh: 300,
     gridSupportReserveAh: 60,
     gridSupportStartHour: 6,
     gridSupportEndHour: 18,
-    gridSupportMaxDischargeA: 12,
+    gridSupportMaxDischargeA: 20,
     gridSupportForecastConfidencePct: 70,
     gridSupportSolarAssistGainPct: 25,
     gridSupportWeakForecastBlockAh: 20,
