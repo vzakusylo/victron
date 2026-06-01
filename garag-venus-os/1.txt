@@ -1,0 +1,174 @@
+ssh root@84.22.107.120 -p 21818
+
+
+# ═══════════════════════════════════════════════════════════
+#  dbus-serialbattery — FRESH INSTALL on Venus OS
+#  Completed: 2026-05-28
+#  Device:    BeagleBone (Venus OS v3.73)
+#  Driver:    mr-manuel dbus-serialbattery v2.0.20250729
+#  BMS:       JBD/LLT over USB-UART (ttyACM0)
+#  Pack:      14S NMC (Nissan Leaf modules), ~53 V, 50 Ah
+# ═══════════════════════════════════════════════════════════
+
+
+# ════════════════════════════════════════════════════════════
+#  CONFIRMED WORKING STATE (after session 2026-05-28)
+# ════════════════════════════════════════════════════════════
+#  Serial device:  /dev/ttyACM0
+#  Service:        /service/dbus-serialbattery.ttyACM0  → up
+#  Log:            /data/log/dbus-serialbattery.ttyACM0/current
+#  dbus name:      com.victronenergy.battery.ttyACM0
+#  Cells:          14 | Voltage: 53.27 V | SoC: 69%
+#  BMS unique ID:  32_50.0Ah
+#  FETs:           CHARGE True | DISCHARGE True | BALANCE True
+
+
+# ════════════════════════════════════════════════════════════
+#  INSTALL STEPS (for next fresh install)
+# ════════════════════════════════════════════════════════════
+
+# ── 1. Check USB serial device is present ───────────────────
+ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+# JBD USB-UART adapter shows as ttyACM0
+
+
+# ── 2. Install the driver ───────────────────────────────────
+# ⚠ CORRECT URL — path changed in recent repo restructure:
+#   dbus-serialbattery/install.sh   ← correct
+#   etc/dbus-serialbattery/...      ← OLD, returns 404, do not use
+wget -O /tmp/install.sh https://raw.githubusercontent.com/mr-manuel/venus-os_dbus-serialbattery/master/dbus-serialbattery/install.sh
+bash /tmp/install.sh
+# → interactive menu: press 1 (latest stable release) → Enter
+# → wait for download + install
+reboot
+
+
+# ── 3. After reboot: run enable.sh BEFORE anything else ─────
+# ⚠ If you skip this, the service run-script is never created and
+#   you get: sed: /var/volatile/services/dbus-serialbattery.ttyACM0/run: No such file or directory
+#   The service will appear "up" but restart every second.
+bash /data/apps/dbus-serialbattery/enable.sh
+reboot
+
+
+# ── 4. Write config ─────────────────────────────────────────
+nano /data/apps/dbus-serialbattery/config.ini
+# Delete all existing content and paste the block below exactly.
+# Config must start with [DEFAULT] on line 1.
+
+# ┌─ config.ini ──────────────────────────────────────────────
+[DEFAULT]
+MAX_BATTERY_CHARGE_CURRENT = 60.0
+MAX_BATTERY_DISCHARGE_CURRENT = 60.0
+
+; NMC cell voltages (14S Nissan Leaf modules)
+MAX_CELL_VOLTAGE = 4.10
+MIN_CELL_VOLTAGE = 3.25
+FLOAT_CELL_VOLTAGE = 4.07
+
+; Taper charge/discharge current as cells approach limits
+CCCM_CV_ENABLE = True
+DCCM_CV_ENABLE = True
+CELL_VOLTAGES_WHILE_CHARGING = 4.10, 4.05, 4.00, 3.90
+MAX_CHARGE_CURRENT_CV_FRACTION = 0, 0.05, 0.5, 1
+CELL_VOLTAGES_WHILE_DISCHARGING = 3.25, 3.30, 3.35, 3.45
+MAX_DISCHARGE_CURRENT_CV_FRACTION = 0, 0.1, 0.5, 1
+
+; Display
+BATTERY_CELL_DATA_FORMAT = 1
+GUI_PARAMETERS_SHOW_ADDITIONAL_INFO = True
+
+; SOC from JBD internal coulomb counter — driver does not recalculate
+SOC_CALCULATION = False
+SOC_RESET_CELL_VOLTAGE = 3.9
+# └───────────────────────────────────────────────────────────
+
+# Strip Windows CRLF if file was edited on Windows
+sed -i 's/\r$//' /data/apps/dbus-serialbattery/config.ini
+
+# Check for duplicate keys — output must be exactly 1 line
+grep -ni '^SOC_CALCULATION' /data/apps/dbus-serialbattery/config.ini
+
+# Apply config
+/data/apps/dbus-serialbattery/restart.sh
+
+
+# ════════════════════════════════════════════════════════════
+#  VERIFY / DAILY USE COMMANDS
+# ════════════════════════════════════════════════════════════
+
+# Service state (uptime should keep growing, not reset to 0)
+svstat /service/dbus-serialbattery.*
+
+# Log folders
+ls -la /data/log | grep -i serialbattery
+
+# Live log
+tail -F /data/log/dbus-serialbattery.ttyACM0/current | tai64nlocal
+
+# Run driver manually (useful for testing / seeing errors directly)
+python /data/apps/dbus-serialbattery/dbus-serialbattery.py /dev/ttyACM0
+
+# serial-starter log (shows which services are created for each port)
+tail -30 /data/log/serial-starter/current | tai64nlocal
+
+# Config files
+nano /data/apps/dbus-serialbattery/config.ini
+cat /data/apps/dbus-serialbattery/config.default.ini   # all available options
+
+
+# ════════════════════════════════════════════════════════════
+#  HEALTHY LOG OUTPUT (confirmed 2026-05-28)
+# ════════════════════════════════════════════════════════════
+#  INFO:SerialBattery:Starting dbus-serialbattery
+#  INFO:SerialBattery:Venus OS v3.73 (normal) running on Venus GX
+#  INFO:SerialBattery:dbus-serialbattery v2.0.20250729
+#  INFO:SerialBattery:-- Connection established to LltJbd
+#  INFO:SerialBattery:Use dbus ServiceName: com.victronenergy.battery.ttyACM0
+#  INFO:SerialBattery:Battery LLT/JBD connected to dbus from /dev/ttyACM0
+#  INFO:SerialBattery:> Connection voltage: 53.27 V | Current: 0.0 A | SoC: 69%
+#  INFO:SerialBattery:> Cell count: 14 | Cells populated: 14
+#  INFO:SerialBattery:> CHARGE MODE: Linear
+#  INFO:SerialBattery:> MIN CELL VOLTAGE: 3.250 V | MAX CELL VOLTAGE: 4.100 V | FLOAT CELL VOLTAGE: 4.070 V
+#  INFO:SerialBattery:> MAX BATTERY CHARGE CURRENT: 60.0 A | MAX BATTERY DISCHARGE CURRENT: 60.0 A
+#  INFO:SerialBattery:> MAX BATTERY CHARGE CURRENT: 70.0 A | MAX BATTERY DISCHARGE CURRENT: 70.0 A (read from BMS)
+#  INFO:SerialBattery:> CCCM CV: True  | DCCM CV: True
+#  INFO:SerialBattery:> CCCM SOC: False | DCCM SOC: False
+#  INFO:SerialBattery:> CHARGE FET: True | DISCHARGE FET: True | BALANCE FET: True
+#  INFO:SerialBattery:Serial Number/Unique Identifier: 32_50.0Ah
+#
+#  NOTE: "MAX ... 70.0 A (read from BMS)" means the JBD hardware limit is 70 A.
+#        The driver enforces the lower config.ini value (60 A). This is correct.
+
+
+# ════════════════════════════════════════════════════════════
+#  TROUBLESHOOTING NOTES FROM THIS SESSION
+# ════════════════════════════════════════════════════════════
+
+# PROBLEM 1: wget returned 404
+#   Cause:  Wrong URL used — old path etc/dbus-serialbattery/install.sh no longer exists
+#   Fix:    Use master/dbus-serialbattery/install.sh  (see step 2 above)
+
+# PROBLEM 2: tail: can't open '/data/log/dbus-serialbattery.ttyACM0/current'
+#   Cause:  Log dir not created because service never fully started
+#   How to diagnose:
+#     svstat /service/dbus-serialbattery.*          # shows uptime resetting to 0
+#     tail -20 /data/log/serial-starter/current | tai64nlocal
+#     # shows: sed: /var/volatile/services/dbus-serialbattery.ttyACM0/run: No such file or directory
+#   Cause:  enable.sh was not run after install — service run-script missing
+#   Fix:    bash /data/apps/dbus-serialbattery/enable.sh && reboot
+
+# PROBLEM 3: ttyACM0 grabbed by vedirect-interface first
+#   serial-starter tries vedirect-interface.ttyACM0 first, then falls back to dbus-serialbattery
+#   This is normal — after dbus-serialbattery.conf is loaded it wins the port
+#   No action needed if healthy log output appears
+
+# PROBLEM 4: multiline wget with \ pasted to ash shell
+#   ash treats each line as a separate command → "Resolving: command not found"
+#   Fix: always paste wget as a single line (no \ continuation)
+
+
+# ════════════════════════════════════════════════════════════
+#  UNINSTALL
+# ════════════════════════════════════════════════════════════
+bash /data/apps/dbus-serialbattery/uninstall.sh
