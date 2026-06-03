@@ -16,7 +16,7 @@
 // - output 1 -> msg with the updated daily summary payload
 // Change notes:
 // 1. Initial version.
-// 2. Added solarWh field: accumulated MPPT solar generation Wh per hour (from negative DC System Power).
+// 2. Added solarWh field: accumulated PV charger generation Wh per hour (from `/Dc/Pv/Power`).
 // ==========================
 if (!msg.payload || !msg.payload.hourKey) return null;
 const { hourKey, gridWh, acWh } = msg.payload;

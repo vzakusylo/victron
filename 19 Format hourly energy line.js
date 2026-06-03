@@ -15,7 +15,7 @@
 //     msg.filename = /data/home/nodered/grid-control-logs/energy-YYYY-MM-DD.log
 // Change notes:
 // 1. Initial version.
-// 2. Added Sol column: MPPT solar generation Wh derived from negative DC System Power.
+// 2. Added Sol column: PV charger generation Wh accumulated from `/Dc/Pv/Power`.
 // ==========================
 if (!msg.payload || !msg.payload.hourKey) return null;
 const { hourKey, gridWh, acWh } = msg.payload;
