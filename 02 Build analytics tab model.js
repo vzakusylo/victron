@@ -25,7 +25,7 @@
 //    Reads dailySummary + dashboardLiveHour for grid/AC Wh totals; reads solarForecastAdjusted for
 //    per-hour solar forecast; reads dashboardControllerTrace for diagnostics.
 // 2. Added actualSolarKWh to KPI: sums solarWh from completed dailySummary rows + live hour.
-//    solarWh is MPPT solar generation accumulated per hour from negative DC System Power.
+//    solarWh is hourly PV charger generation accumulated from `/Dc/Pv/Power`.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {

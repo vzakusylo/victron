@@ -76,14 +76,14 @@
 //     - negative value means a DC source (e.g. MPPT solar charger) is producing onto the bus
 //     - stored in context as `dcPowerW`; shown in node status and included in controller trace
 //     - informational only: does not affect grid setpoint or charge current decisions
-// 22. Solar generation = negative DC System Power + PV charger power.
-//     - `solarGenerationW = max(0, -dcPowerW) + pvChargerPowerW`
-//     - covers AC-coupled solar (shows as negative DC) and DC-coupled MPPT output (pv-charger-power)
+// 22. Solar generation = PV charger power only.
+//     - `solarGenerationW = pvChargerPowerW`
+//     - DC System Power remains informational only and is not used as a solar source
 //     - `solarBudget` integrates `solarGenerationW` per hour using the same `advanceHourBudget` logic
 //     - on hour rollover `solarWh` is included in the hourly-energy message alongside gridWh and acWh
 //     - live `solarUsedWh` is shown in node status as `Sol <n>Wh`
 // 24. PV charger power (`/Dc/Pv/Power`) is captured as topic `pv-charger-power`.
-//     - stored in context as `pvChargerPowerW`; added to solar generation each cycle
+//     - stored in context as `pvChargerPowerW`; this is the only live solar-generation input
 // 23. AC Force Charging has optional voltage-based limiters (same concept as Grid CT Support).
 //     - `forceChargeLimiterEnabled` enables automatic voltage-based activation/deactivation
 //     - `forceChargeLimiterStart` (V): activate force charging when battery voltage drops to this
@@ -831,8 +831,8 @@ const prevHourKey = hourBudget.hourKey;
 const prevHourGridWh = Number(hourBudget.usedWh) || 0;
 const prevHourAcWh = Number(acLoadBudget.usedWh) || 0;
 const prevHourSolarWh = Number(solarBudget.usedWh) || 0;
-// Solar generation = max(0, -dcPowerW) [negative DC bus] + pvChargerPowerW [MPPT direct].
-const solarGenerationW = Math.max(0, -storedDcPowerW) + storedPvChargerPowerW;
+// Solar generation comes only from PV charger power; DC bus power stays informational.
+const solarGenerationW = storedPvChargerPowerW;
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
 acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
 solarBudget = advanceHourBudget(solarBudget, now, solarGenerationW);
