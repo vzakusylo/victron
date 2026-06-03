@@ -1296,8 +1296,8 @@ else if (windowName === "MORNING" || windowName === "EVENING") {
 }
 
 const flagsText = limitFlags.length > 0 ? ` | ${limitFlags.join("+")}` : "";
-const dcPowerText = hasDcPowerReading || storedPvChargerPowerW > 0
-    ? ` | DC ${Math.round(storedDcPowerW)}W | PV ${Math.round(storedPvChargerPowerW)}W | Sol ${Math.round(solarUsedWh)}Wh`
+const dcPowerText = storedPvChargerPowerW > 0
+    ? ` | PV ${Math.round(storedPvChargerPowerW)}W | Sol ${Math.round(solarUsedWh)}Wh`
     : "";
 const forecastText = solarForecast.valid
     ? ` | SOL ${solarForecast.condition} ${forecastRestoreAh.toFixed(1)}Ah`
