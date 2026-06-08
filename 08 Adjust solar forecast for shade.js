@@ -15,6 +15,7 @@
 // - output 1 -> msg with adjusted forecast payload; flow context updated
 // Change notes:
 // 1. Initial version.
+// 2. Updated hourlyCapW and sunnyRangeKWh from observed sunny-day data (6 Jun 2026): 16.7 kWh total, 2.7 kW peak.
 // ==========================
 function localDayKey(date) {
     return [
@@ -51,27 +52,27 @@ const shadeByHour = {
 };
 
 const hourlyCapW = {
-    5: 20,
-    6: 40,
-    7: 80,
-    8: 150,
-    9: 300,
-    10: 550,
-    11: 1100,
-    12: 1500,
-    13: 1500,
-    14: 1200,
-    15: 800,
-    16: 700,
-    17: 500,
-    18: 320,
-    19: 220,
-    20: 140,
-    21: 40
+    5: 100,
+    6: 200,
+    7: 500,
+    8: 1000,
+    9: 1000,
+    10: 2100,
+    11: 2200,
+    12: 2800,
+    13: 2300,
+    14: 2100,
+    15: 1100,
+    16: 1000,
+    17: 600,
+    18: 200,
+    19: 150,
+    20: 80,
+    21: 20
 };
 
 const historicalReference = {
-    sunnyPeakKW: '1.4-1.5',
+    sunnyPeakKW: '2.5-2.8',
     cloudyPeakKW: '<1.0',
     dominantWindow: '11:00-17:00',
     extendedWindow: '05:00-21:00'
@@ -133,8 +134,8 @@ msg.payload = {
         condition
     },
     assumptions: {
-        sunnyRangeKWh: '3-5',
-        cloudyKWh: '2',
+        sunnyRangeKWh: '14-18',
+        cloudyKWh: '4-8',
         shadeByHour,
         hourlyCapW,
         historicalReference
