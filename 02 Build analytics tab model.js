@@ -26,6 +26,9 @@
 //    per-hour solar forecast; reads dashboardControllerTrace for diagnostics.
 // 2. Added actualSolarKWh to KPI: sums solarWh from completed dailySummary rows + live hour.
 //    solarWh is hourly PV charger generation accumulated from `/Dc/Pv/Power`.
+// 3. Added same-day load forecast series and KPI.
+//    Forecast uses observed AC hourly usage from completed hours plus the live partial hour,
+//    then projects future hours with time-of-day bucket averages.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
@@ -42,6 +45,102 @@ function dayKeyFromDate(date) {
 
 function hourLabelFromKey(hourKey) {
     return hourKey.substring(11, 13) + ':00';
+}
+
+function average(values) {
+    return values.length > 0
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : 0;
+}
+
+function bucketKeyForHour(hour) {
+    if (hour < 6 || hour >= 22) {
+        return 'night';
+    }
+    if (hour < 12) {
+        return 'morning';
+    }
+    if (hour < 17) {
+        return 'day';
+    }
+    return 'evening';
+}
+
+function buildLoadForecast(todayKey, rows, liveState, now) {
+    const buckets = {
+        night: [],
+        morning: [],
+        day: [],
+        evening: []
+    };
+    const observedHourlyWh = [];
+    const forecastMap = {};
+    const currentHour = now.getHours();
+    const secondsIntoHour = (now.getMinutes() * 60) + now.getSeconds();
+    const elapsedFraction = Math.min(1, Math.max(1 / 3600, secondsIntoHour / 3600));
+    const remainingFraction = Math.max(0, 1 - elapsedFraction);
+    let liveHourForecastW = null;
+
+    rows.forEach(row => {
+        const hour = Number(String(row.hour || '').substring(0, 2));
+        const acWh = Math.max(0, Number(row.acWh) || 0);
+
+        if (!Number.isInteger(hour)) {
+            return;
+        }
+
+        observedHourlyWh.push(acWh);
+        buckets[bucketKeyForHour(hour)].push(acWh);
+    });
+
+    if (liveState && liveState.hourKey && String(liveState.hourKey).startsWith(todayKey)) {
+        const liveHour = Number(String(liveState.hourKey).substring(11, 13));
+        const liveAcWh = Math.max(0, Number(liveState.acWh) || 0);
+        const liveAcW = Math.max(0, Math.round(Number(liveState.acPowerW) || 0));
+        const normalizedLiveHourWh = elapsedFraction > 0 ? liveAcWh / elapsedFraction : liveAcWh;
+
+        if (Number.isInteger(liveHour)) {
+            observedHourlyWh.push(normalizedLiveHourWh);
+            buckets[bucketKeyForHour(liveHour)].push(normalizedLiveHourWh);
+        }
+
+        if (liveAcW > 0) {
+            liveHourForecastW = liveAcW;
+        }
+    }
+
+    const globalAverageWh = average(observedHourlyWh);
+    const bucketAverages = {
+        night: average(buckets.night) || globalAverageWh,
+        morning: average(buckets.morning) || globalAverageWh,
+        day: average(buckets.day) || globalAverageWh,
+        evening: average(buckets.evening) || globalAverageWh
+    };
+
+    let remainingForecastWh = 0;
+
+    for (let hour = 0; hour < 24; hour += 1) {
+        const label = String(hour).padStart(2, '0') + ':00';
+        const bucketAverageWh = bucketAverages[bucketKeyForHour(hour)] || 0;
+        const forecastW = hour === currentHour && liveHourForecastW !== null
+            ? liveHourForecastW
+            : Math.max(0, Math.round(bucketAverageWh));
+
+        forecastMap[label] = forecastW;
+
+        if (hour > currentHour) {
+            remainingForecastWh += forecastW;
+        }
+        else if (hour === currentHour) {
+            remainingForecastWh += forecastW * remainingFraction;
+        }
+    }
+
+    return {
+        forecastMap,
+        remainingForecastWh,
+        hasObservedData: observedHourlyWh.length > 0
+    };
 }
 
 const todayKey = dayKeyFromDate(new Date());
@@ -63,6 +162,8 @@ const liveSolarWh = live && live.hourKey && live.hourKey.startsWith(todayKey) ? 
 const totalGridToday = totalGridCompleted + liveGridWh;
 const totalAcToday = totalAcCompleted + liveAcWh;
 const totalSolarToday = totalSolarCompleted + liveSolarWh;
+const loadForecast = buildLoadForecast(todayKey, summaryHours, live, new Date());
+const forecastLoadTodayWh = totalAcToday + loadForecast.remainingForecastWh;
 
 const hourlyRows = summaryHours.map(row => ({
     hour: row.hour,
@@ -70,6 +171,7 @@ const hourlyRows = summaryHours.map(row => ({
     acWh: Number(row.acWh) || 0,
     solarWh: Number(row.solarWh) || 0,
     forecastSolarW: null,
+    forecastLoadW: null,
     state: 'done'
 }));
 
@@ -80,6 +182,7 @@ if (live && live.hourKey && live.hourKey.startsWith(todayKey)) {
         acWh: liveAcWh,
         solarWh: liveSolarWh,
         forecastSolarW: null,
+        forecastLoadW: null,
         state: 'live'
     });
 }
@@ -102,13 +205,19 @@ hourlyRows.forEach(row => {
     row.forecastSolarW = Object.prototype.hasOwnProperty.call(forecastHourlyMap, normalizedHour)
         ? forecastHourlyMap[normalizedHour]
         : null;
+    row.forecastLoadW = Object.prototype.hasOwnProperty.call(loadForecast.forecastMap, normalizedHour)
+        ? loadForecast.forecastMap[normalizedHour]
+        : null;
 });
 
-const allForecastHours = Object.keys(forecastHourlyMap).sort();
+const allForecastHours = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0') + ':00');
 const forecastChart = {
     labels: allForecastHours,
-    series: ['Adjusted solar forecast W'],
-    data: [allForecastHours.map(hour => forecastHourlyMap[hour])]
+    series: ['Adjusted solar forecast W', 'Forecast load W'],
+    data: [
+        allForecastHours.map(hour => Object.prototype.hasOwnProperty.call(forecastHourlyMap, hour) ? forecastHourlyMap[hour] : 0),
+        allForecastHours.map(hour => loadForecast.forecastMap[hour] || 0)
+    ]
 };
 
 const actualChart = {
@@ -134,7 +243,7 @@ const kpiPayload = {
     dateKey: todayKey,
     forecastSolarKWh: forecastSolarKWh.toFixed(2),
     actualSolarKWh: (totalSolarToday / 1000).toFixed(2),
-    forecastLoadKWh: 'pending metric',
+    forecastLoadKWh: (forecastLoadTodayWh / 1000).toFixed(2),
     actualGridKWh: (totalGridToday / 1000).toFixed(2),
     actualAcKWh: (totalAcToday / 1000).toFixed(2),
     surplusKWh: 'pending metric',
@@ -175,6 +284,7 @@ const diagnosticsPayload = {
 const pendingPayload = {
     available: [
         'forecast solar total',
+        'load forecast series',
         'hourly adjusted solar forecast',
         'hourly Grid Wh',
         'hourly AC Wh',
@@ -183,7 +293,6 @@ const pendingPayload = {
         'adaptive grid support budget and live support metrics'
     ],
     missing: [
-        'load forecast series',
         'surplus forecast/actual series',
         'PV to load/battery/grid routing',
         'battery to load/grid routing',
