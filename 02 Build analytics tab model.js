@@ -29,6 +29,8 @@
 // 3. Added same-day load forecast series and KPI.
 //    Forecast uses observed AC hourly usage from completed hours plus the live partial hour,
 //    then projects future hours with time-of-day bucket averages.
+// 4. Added surplus forecast/actual series.
+//    Surplus is a non-negative proxy: max(0, solar - AC load), without routing breakdown.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
@@ -164,14 +166,20 @@ const totalAcToday = totalAcCompleted + liveAcWh;
 const totalSolarToday = totalSolarCompleted + liveSolarWh;
 const loadForecast = buildLoadForecast(todayKey, summaryHours, live, new Date());
 const forecastLoadTodayWh = totalAcToday + loadForecast.remainingForecastWh;
+const actualSurplusTodayWh = summaryHours.reduce(
+    (sum, row) => sum + Math.max(0, (Number(row.solarWh) || 0) - (Number(row.acWh) || 0)),
+    0
+) + Math.max(0, liveSolarWh - liveAcWh);
 
 const hourlyRows = summaryHours.map(row => ({
     hour: row.hour,
     gridWh: Number(row.gridWh) || 0,
     acWh: Number(row.acWh) || 0,
     solarWh: Number(row.solarWh) || 0,
+    surplusWh: Math.max(0, (Number(row.solarWh) || 0) - (Number(row.acWh) || 0)),
     forecastSolarW: null,
     forecastLoadW: null,
+    forecastSurplusW: null,
     state: 'done'
 }));
 
@@ -181,8 +189,10 @@ if (live && live.hourKey && live.hourKey.startsWith(todayKey)) {
         gridWh: liveGridWh,
         acWh: liveAcWh,
         solarWh: liveSolarWh,
+        surplusWh: Math.max(0, liveSolarWh - liveAcWh),
         forecastSolarW: null,
         forecastLoadW: null,
+        forecastSurplusW: null,
         state: 'live'
     });
 }
@@ -208,25 +218,42 @@ hourlyRows.forEach(row => {
     row.forecastLoadW = Object.prototype.hasOwnProperty.call(loadForecast.forecastMap, normalizedHour)
         ? loadForecast.forecastMap[normalizedHour]
         : null;
+    row.forecastSurplusW = row.forecastSolarW !== null && row.forecastLoadW !== null
+        ? Math.max(0, row.forecastSolarW - row.forecastLoadW)
+        : null;
 });
 
 const allForecastHours = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0') + ':00');
+const forecastSurplusTodayWh = allForecastHours.reduce((sum, hourLabel) => {
+    const solarW = Object.prototype.hasOwnProperty.call(forecastHourlyMap, hourLabel)
+        ? forecastHourlyMap[hourLabel]
+        : 0;
+    const loadW = loadForecast.forecastMap[hourLabel] || 0;
+
+    return sum + Math.max(0, solarW - loadW);
+}, 0);
 const forecastChart = {
     labels: allForecastHours,
-    series: ['Adjusted solar forecast W', 'Forecast load W'],
+    series: ['Adjusted solar forecast W', 'Forecast load W', 'Forecast surplus W'],
     data: [
         allForecastHours.map(hour => Object.prototype.hasOwnProperty.call(forecastHourlyMap, hour) ? forecastHourlyMap[hour] : 0),
-        allForecastHours.map(hour => loadForecast.forecastMap[hour] || 0)
+        allForecastHours.map(hour => loadForecast.forecastMap[hour] || 0),
+        allForecastHours.map(hour => {
+            const solarW = Object.prototype.hasOwnProperty.call(forecastHourlyMap, hour) ? forecastHourlyMap[hour] : 0;
+            const loadW = loadForecast.forecastMap[hour] || 0;
+            return Math.max(0, solarW - loadW);
+        })
     ]
 };
 
 const actualChart = {
     labels: hourlyRows.map(row => row.hour),
-    series: ['Grid Wh', 'AC Wh', 'Solar Wh'],
+    series: ['Grid Wh', 'AC Wh', 'Solar Wh', 'Surplus Wh'],
     data: [
         hourlyRows.map(row => row.gridWh),
         hourlyRows.map(row => row.acWh),
-        hourlyRows.map(row => row.solarWh)
+        hourlyRows.map(row => row.solarWh),
+        hourlyRows.map(row => row.surplusWh)
     ]
 };
 
@@ -246,7 +273,7 @@ const kpiPayload = {
     forecastLoadKWh: (forecastLoadTodayWh / 1000).toFixed(2),
     actualGridKWh: (totalGridToday / 1000).toFixed(2),
     actualAcKWh: (totalAcToday / 1000).toFixed(2),
-    surplusKWh: 'pending metric',
+    surplusKWh: `Act ${(actualSurplusTodayWh / 1000).toFixed(2)} | Fc ${(forecastSurplusTodayWh / 1000).toFixed(2)} kWh`,
     batteryGridChargeKWh: 'pending metric',
     batterySolarChargeKWh: 'pending metric',
     dailyCost: 'pending metric',
@@ -285,6 +312,7 @@ const pendingPayload = {
     available: [
         'forecast solar total',
         'load forecast series',
+        'surplus forecast/actual series',
         'hourly adjusted solar forecast',
         'hourly Grid Wh',
         'hourly AC Wh',
@@ -293,7 +321,6 @@ const pendingPayload = {
         'adaptive grid support budget and live support metrics'
     ],
     missing: [
-        'surplus forecast/actual series',
         'PV to load/battery/grid routing',
         'battery to load/grid routing',
         'daily tariff cost model'
