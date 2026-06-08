@@ -31,6 +31,9 @@
 //    then projects future hours with time-of-day bucket averages.
 // 4. Added surplus forecast/actual series.
 //    Surplus is a non-negative proxy: max(0, solar - AC load), without routing breakdown.
+// 5. Added PV routing totals.
+//    Routing uses a no-export proxy that matches the controller's non-negative grid-import behavior:
+//    PV->Load = min(PV, load), PV->Battery = max(0, PV - load), PV->Grid = 0.
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
@@ -170,6 +173,12 @@ const actualSurplusTodayWh = summaryHours.reduce(
     (sum, row) => sum + Math.max(0, (Number(row.solarWh) || 0) - (Number(row.acWh) || 0)),
     0
 ) + Math.max(0, liveSolarWh - liveAcWh);
+const actualPvToLoadTodayWh = summaryHours.reduce(
+    (sum, row) => sum + Math.min(Math.max(0, Number(row.solarWh) || 0), Math.max(0, Number(row.acWh) || 0)),
+    0
+) + Math.min(liveSolarWh, liveAcWh);
+const actualPvToBatteryTodayWh = actualSurplusTodayWh;
+const actualPvToGridTodayWh = 0;
 
 const hourlyRows = summaryHours.map(row => ({
     hour: row.hour,
@@ -232,6 +241,16 @@ const forecastSurplusTodayWh = allForecastHours.reduce((sum, hourLabel) => {
 
     return sum + Math.max(0, solarW - loadW);
 }, 0);
+const forecastPvToLoadTodayWh = allForecastHours.reduce((sum, hourLabel) => {
+    const solarW = Object.prototype.hasOwnProperty.call(forecastHourlyMap, hourLabel)
+        ? forecastHourlyMap[hourLabel]
+        : 0;
+    const loadW = loadForecast.forecastMap[hourLabel] || 0;
+
+    return sum + Math.min(solarW, loadW);
+}, 0);
+const forecastPvToBatteryTodayWh = forecastSurplusTodayWh;
+const forecastPvToGridTodayWh = 0;
 const forecastChart = {
     labels: allForecastHours,
     series: ['Adjusted solar forecast W', 'Forecast load W', 'Forecast surplus W'],
@@ -261,6 +280,9 @@ const forecastSolarKWh = Number(solarToday.energyKWh) || 0;
 const liveGridW = live ? Math.round(Number(live.gridPowerW) || 0) : 0;
 const liveAcW = live ? Math.round(Number(live.acPowerW) || 0) : 0;
 const liveSolarW = trace ? Math.round(Number(trace.solarGenerationW) || 0) : 0;
+const livePvToLoadW = Math.min(liveSolarW, liveAcW);
+const livePvToBatteryW = Math.max(0, liveSolarW - livePvToLoadW);
+const livePvToGridW = 0;
 const totalInputW = liveGridW + liveSolarW;
 const efficiencyPct = totalInputW > 50
     ? Math.round(Math.min(100, liveAcW / totalInputW * 100) * 10) / 10
@@ -274,12 +296,18 @@ const kpiPayload = {
     actualGridKWh: (totalGridToday / 1000).toFixed(2),
     actualAcKWh: (totalAcToday / 1000).toFixed(2),
     surplusKWh: `Act ${(actualSurplusTodayWh / 1000).toFixed(2)} | Fc ${(forecastSurplusTodayWh / 1000).toFixed(2)} kWh`,
+    pvToLoadKWh: `Act ${(actualPvToLoadTodayWh / 1000).toFixed(2)} | Fc ${(forecastPvToLoadTodayWh / 1000).toFixed(2)}`,
+    pvToBatteryKWh: `Act ${(actualPvToBatteryTodayWh / 1000).toFixed(2)} | Fc ${(forecastPvToBatteryTodayWh / 1000).toFixed(2)}`,
+    pvToGridKWh: `Act ${(actualPvToGridTodayWh / 1000).toFixed(2)} | Fc ${(forecastPvToGridTodayWh / 1000).toFixed(2)}`,
     batteryGridChargeKWh: 'pending metric',
-    batterySolarChargeKWh: 'pending metric',
+    batterySolarChargeKWh: `Act ${(actualPvToBatteryTodayWh / 1000).toFixed(2)} | Fc ${(forecastPvToBatteryTodayWh / 1000).toFixed(2)}`,
     dailyCost: 'pending metric',
     liveGridW,
     liveAcW,
     liveSolarW,
+    livePvToLoadW,
+    livePvToBatteryW,
+    livePvToGridW,
     totalInputW,
     efficiencyPct,
     lossesW
@@ -313,6 +341,7 @@ const pendingPayload = {
         'forecast solar total',
         'load forecast series',
         'surplus forecast/actual series',
+        'PV to load/battery/grid routing',
         'hourly adjusted solar forecast',
         'hourly Grid Wh',
         'hourly AC Wh',
@@ -321,7 +350,6 @@ const pendingPayload = {
         'adaptive grid support budget and live support metrics'
     ],
     missing: [
-        'PV to load/battery/grid routing',
         'battery to load/grid routing',
         'daily tariff cost model'
     ]

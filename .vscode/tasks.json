@@ -138,6 +138,19 @@
 				". .\\sync-commands.ps1; Sync-02"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "sync-pv-routing-analytics",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-02"
+			],
+			"isBackground": false
 		}
 	]
 }
