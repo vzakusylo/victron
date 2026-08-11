@@ -135,6 +135,8 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     gridSupportSolarAssistGainPct: 25,
     gridSupportWeakForecastBlockAh: 30,
     gridSupportMinGridImportW: 300,
+    gridSupportDisableNoSun: false,
+    gridSupportDisableNoSunBelowW: 200,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -165,6 +167,8 @@ const GRID_SUPPORT_WEAK_FORECAST_BLOCK_MIN_AH = 0;
 const GRID_SUPPORT_WEAK_FORECAST_BLOCK_MAX_AH = 500;
 const GRID_SUPPORT_MIN_GRID_IMPORT_MIN_W = 200;
 const GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W = 1000;
+const GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MIN_W = 0;
+const GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MAX_W = 5000;
 const FORCE_CHARGE_MIN_W = 0;
 const FORCE_CHARGE_MAX_W = 3000;
 const MIN_GRID_SETPOINT = 200;
@@ -429,6 +433,17 @@ function sanitizeHighVoltageSettings(value) {
         GRID_SUPPORT_MIN_GRID_IMPORT_MIN_W,
         GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W
     );
+    const gridSupportDisableNoSun = value.gridSupportDisableNoSun === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportDisableNoSun
+        : Boolean(value.gridSupportDisableNoSun);
+    const gridSupportDisableNoSunBelowW = sanitizeRoundedNumber(
+        value.gridSupportDisableNoSunBelowW === undefined
+            ? DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportDisableNoSunBelowW
+            : value.gridSupportDisableNoSunBelowW,
+        DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportDisableNoSunBelowW,
+        GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MIN_W,
+        GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MAX_W
+    );
     const forceChargeEnabled = value.forceChargeEnabled === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeEnabled
         : Boolean(value.forceChargeEnabled);
@@ -486,6 +501,8 @@ function sanitizeHighVoltageSettings(value) {
         gridSupportSolarAssistGainPct,
         gridSupportWeakForecastBlockAh,
         gridSupportMinGridImportW,
+        gridSupportDisableNoSun,
+        gridSupportDisableNoSunBelowW,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled,
@@ -736,6 +753,9 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
                 peakKW: round1(solarForecast.peakKW)
             },
             gridSupportMode,
+            gridSupportDisableNoSun,
+            gridSupportDisableNoSunBelowW,
+            gridSupportLowSunBlocked,
             adaptiveGridSupportActive,
             adaptiveGridSupportW: Math.round(adaptiveGridSupportW),
             plannedGridSupportW: Math.round(plannedGridSupportW),
@@ -955,6 +975,16 @@ const gridSupportForecastConfidencePct = clamp(Number(highVoltageSettings.gridSu
 const gridSupportSolarAssistGainPct = clamp(Number(highVoltageSettings.gridSupportSolarAssistGainPct) || 0, GRID_SUPPORT_SOLAR_ASSIST_GAIN_MIN_PCT, GRID_SUPPORT_SOLAR_ASSIST_GAIN_MAX_PCT);
 const gridSupportWeakForecastBlockAh = Math.max(0, Math.round(Number(highVoltageSettings.gridSupportWeakForecastBlockAh) || 0));
 const supportMinGridImportW = clamp(Math.round(Number(highVoltageSettings.gridSupportMinGridImportW) || MIN_GRID_SETPOINT), MIN_GRID_SETPOINT, GRID_SUPPORT_MIN_GRID_IMPORT_MAX_W);
+const gridSupportDisableNoSun = Boolean(highVoltageSettings.gridSupportDisableNoSun);
+const gridSupportDisableNoSunBelowW = sanitizeRoundedNumber(
+    highVoltageSettings.gridSupportDisableNoSunBelowW,
+    DEFAULT_HIGH_VOLTAGE_SETTINGS.gridSupportDisableNoSunBelowW,
+    GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MIN_W,
+    GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MAX_W
+);
+const gridSupportLowSunBlocked = gridSupportDisableNoSun
+    && highVoltageGridSupportW > 0
+    && solarGenerationW < gridSupportDisableNoSunBelowW;
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
 const forceChargeLimiterEnabled = Boolean(highVoltageSettings.forceChargeLimiterEnabled);
@@ -1150,6 +1180,7 @@ const applyGridSupport = highVoltageGridSupportW > 0
     && voltageLimitActive
     && hasGridPowerReading
     && !forceChargeAllowed
+    && !gridSupportLowSunBlocked
     && !manualDischargeEnabled;
 
 const supportCap = applyGridSupport
@@ -1182,6 +1213,7 @@ const adaptiveGridSupportActive = adaptiveGridSupportW > 0
     && adaptiveGridSupportEnabled
     && !boostActive
     && !forceChargeAllowed
+    && !gridSupportLowSunBlocked
     && !manualDischargeEnabled
     && !nightWindow
     && hasGridPowerReading
@@ -1266,6 +1298,10 @@ if (applyDayHighAcLoadReduction) {
     limitFlags.push(`AC-HIGH:-${DAY_HIGH_AC_LOAD_REDUCTION_W}W`);
 }
 
+if (gridSupportLowSunBlocked) {
+    limitFlags.push(`GS-SUN<${gridSupportDisableNoSunBelowW}W`);
+}
+
 if (adaptiveGridSupportActive) {
     limitFlags.push(`GS-A:${Math.round(adaptiveGridSupportW)}W`);
 }
@@ -1276,7 +1312,7 @@ if (forceChargeAllowed) {
     limitFlags.push(`FC-ARMED:${forceChargeGridW}W`);
 }
 
-if (applyGridSupport || (highVoltageGridSupportW > 0 && voltageLimitActive)) {
+if (applyGridSupport || (highVoltageGridSupportW > 0 && voltageLimitActive && !gridSupportLowSunBlocked)) {
     limitFlags.push(`GS:${highVoltageGridSupportW}W${voltageLimitActive ? '(HV)' : ''}`);
 }
 

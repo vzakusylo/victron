@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS = {
     gridSupportSolarAssistGainPct: 25,
     gridSupportWeakForecastBlockAh: 30,
     gridSupportMinGridImportW: 300,
+    gridSupportDisableNoSun: false,
+    gridSupportDisableNoSunBelowW: 200,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -62,6 +64,8 @@ const MIN_GRID_SUPPORT_WEAK_FORECAST_AH = 0;
 const MAX_GRID_SUPPORT_WEAK_FORECAST_AH = 500;
 const MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W = 200;
 const MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W = 1000;
+const MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W = 0;
+const MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W = 5000;
 const MIN_FORCE_CHARGE_W = 0;
 const MAX_FORCE_CHARGE_W = 3000;
 const MIN_FC_LIMITER = 40;
@@ -101,6 +105,8 @@ function normalizeSettings(value) {
     const gridSupportSolarAssistGainPct = clampRounded(value.gridSupportSolarAssistGainPct === undefined ? DEFAULT_SETTINGS.gridSupportSolarAssistGainPct : value.gridSupportSolarAssistGainPct, MIN_GRID_SUPPORT_PCT, MAX_GRID_SUPPORT_PCT);
     const gridSupportWeakForecastBlockAh = clampRounded(value.gridSupportWeakForecastBlockAh === undefined ? DEFAULT_SETTINGS.gridSupportWeakForecastBlockAh : value.gridSupportWeakForecastBlockAh, MIN_GRID_SUPPORT_WEAK_FORECAST_AH, MAX_GRID_SUPPORT_WEAK_FORECAST_AH);
     const gridSupportMinGridImportW = clampRounded(value.gridSupportMinGridImportW === undefined ? DEFAULT_SETTINGS.gridSupportMinGridImportW : value.gridSupportMinGridImportW, MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W, MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W);
+    const gridSupportDisableNoSun = value.gridSupportDisableNoSun === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSun : Boolean(value.gridSupportDisableNoSun);
+    const gridSupportDisableNoSunBelowW = clampRounded(value.gridSupportDisableNoSunBelowW === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSunBelowW : value.gridSupportDisableNoSunBelowW, MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W, MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W);
     const rawForceChargeGridW = value.forceChargeGridW === undefined ? DEFAULT_SETTINGS.forceChargeGridW : Number(value.forceChargeGridW);
     const forceChargeEnabled = value.forceChargeEnabled === undefined ? DEFAULT_SETTINGS.forceChargeEnabled : Boolean(value.forceChargeEnabled);
     const forceChargeLimiterEnabled = value.forceChargeLimiterEnabled === undefined ? DEFAULT_SETTINGS.forceChargeLimiterEnabled : Boolean(value.forceChargeLimiterEnabled);
@@ -145,6 +151,8 @@ function normalizeSettings(value) {
         gridSupportSolarAssistGainPct,
         gridSupportWeakForecastBlockAh,
         gridSupportMinGridImportW,
+        gridSupportDisableNoSun,
+        gridSupportDisableNoSunBelowW,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled,
@@ -180,6 +188,8 @@ const fileNeedsUpgrade = parsed && typeof parsed === 'object' && (
     || parsed.gridSupportSolarAssistGainPct === undefined
     || parsed.gridSupportWeakForecastBlockAh === undefined
     || parsed.gridSupportMinGridImportW === undefined
+    || parsed.gridSupportDisableNoSun === undefined
+    || parsed.gridSupportDisableNoSunBelowW === undefined
     || parsed.forceChargeEnabled === undefined
     || parsed.forceChargeGridW === undefined
     || parsed.forceChargeLimiterEnabled === undefined
@@ -205,6 +215,8 @@ const settings = normalized
         gridSupportSolarAssistGainPct: normalized.gridSupportSolarAssistGainPct,
         gridSupportWeakForecastBlockAh: normalized.gridSupportWeakForecastBlockAh,
         gridSupportMinGridImportW: normalized.gridSupportMinGridImportW,
+        gridSupportDisableNoSun: normalized.gridSupportDisableNoSun,
+        gridSupportDisableNoSunBelowW: normalized.gridSupportDisableNoSunBelowW,
         forceChargeEnabled: normalized.forceChargeEnabled,
         forceChargeGridW: normalized.forceChargeGridW,
         forceChargeLimiterEnabled: normalized.forceChargeLimiterEnabled,
