@@ -16,12 +16,14 @@
 //   gridSupportStartHour, gridSupportEndHour, gridSupportMaxDischargeA,
 //   gridSupportForecastConfidencePct, gridSupportSolarAssistGainPct,
 //   gridSupportWeakForecastBlockAh, gridSupportMinGridImportW,
+//   gridSupportDisableNoSun, gridSupportDisableNoSunBelowW,
 //   forceChargeLimiterEnabled, forceChargeLimiterStart (V), forceChargeLimiterRelease (V), forceChargeLimiterFull (V)
 // Validation limits:
 // - HV voltage: 50–60 V; required: full > start >= release
 // - gridSupportW: 0–1000 W;  forceChargeGridW: 0–3000 W
 // - adaptive support: battery capacity 0–2000 Ah, reserve 0–1000 Ah, hours 0–23,
-//   max discharge 0–50 A, confidence/gain 0–100 %, min grid import 200–1000 W
+//   max discharge 0–50 A, confidence/gain 0–100 %, min grid import 200–1000 W,
+//   low-sun threshold 0–5000 W
 // - FC limiter voltage: 40–60 V; required: release > start > full
 // Output (1):
 // - output 1 -> success confirmation payload after saving
@@ -51,6 +53,8 @@ const MIN_GRID_SUPPORT_WEAK_FORECAST_AH = 0;
 const MAX_GRID_SUPPORT_WEAK_FORECAST_AH = 500;
 const MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W = 200;
 const MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W = 1000;
+const MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W = 0;
+const MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W = 5000;
 const MIN_FORCE_CHARGE_W = 0;
 const MAX_FORCE_CHARGE_W = 3000;
 const MIN_FC_LIMITER = 40;
@@ -90,6 +94,8 @@ function normalizeSettings(value) {
     const gridSupportSolarAssistGainPct = clampRounded(value.gridSupportSolarAssistGainPct, MIN_GRID_SUPPORT_PCT, MAX_GRID_SUPPORT_PCT);
     const gridSupportWeakForecastBlockAh = clampRounded(value.gridSupportWeakForecastBlockAh, MIN_GRID_SUPPORT_WEAK_FORECAST_AH, MAX_GRID_SUPPORT_WEAK_FORECAST_AH);
     const gridSupportMinGridImportW = clampRounded(value.gridSupportMinGridImportW, MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W, MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W);
+    const gridSupportDisableNoSun = Boolean(value.gridSupportDisableNoSun);
+    const gridSupportDisableNoSunBelowW = clampRounded(value.gridSupportDisableNoSunBelowW, MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W, MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W);
     const rawForceChargeGridW = Number(value.forceChargeGridW);
     const forceChargeEnabled = Boolean(value.forceChargeEnabled);
     const forceChargeLimiterEnabled = Boolean(value.forceChargeLimiterEnabled);
@@ -123,6 +129,7 @@ function normalizeSettings(value) {
         gridSupportBatteryCapacityAh, gridSupportReserveAh, gridSupportStartHour, gridSupportEndHour,
         gridSupportMaxDischargeA, gridSupportForecastConfidencePct, gridSupportSolarAssistGainPct,
         gridSupportWeakForecastBlockAh, gridSupportMinGridImportW,
+        gridSupportDisableNoSun, gridSupportDisableNoSunBelowW,
         forceChargeEnabled, forceChargeGridW,
         forceChargeLimiterEnabled,
         forceChargeLimiterStart: rawFcLimiterStart,
@@ -136,7 +143,7 @@ const normalized = normalizeSettings(msg.payload);
 if (!normalized) {
     return [
         null,
-        { hvStatus: { level: 'error', message: 'Invalid values. HV: 50–60 V, full > start >= release. Grid support 0–1000 W. Adaptive support: capacity 0–2000 Ah, reserve 0–1000 Ah, hours 0–23, max discharge 0–50 A, confidence/gain 0–100 %, min grid import 200–1000 W. Force charge 0–3000 W. FC limiter: 40–60 V, release > start > full.' } },
+        { hvStatus: { level: 'error', message: 'Invalid values. HV: 50–60 V, full > start >= release. Grid support 0–1000 W. Adaptive support: capacity 0–2000 Ah, reserve 0–1000 Ah, hours 0–23, max discharge 0–50 A, confidence/gain 0–100 %, min grid import 200–1000 W, low-sun threshold 0–5000 W. Force charge 0–3000 W. FC limiter: 40–60 V, release > start > full.' } },
         null
     ];
 }
@@ -157,6 +164,8 @@ const settings = {
     gridSupportSolarAssistGainPct: normalized.gridSupportSolarAssistGainPct,
     gridSupportWeakForecastBlockAh: normalized.gridSupportWeakForecastBlockAh,
     gridSupportMinGridImportW: normalized.gridSupportMinGridImportW,
+    gridSupportDisableNoSun: normalized.gridSupportDisableNoSun,
+    gridSupportDisableNoSunBelowW: normalized.gridSupportDisableNoSunBelowW,
     forceChargeEnabled: normalized.forceChargeEnabled,
     forceChargeGridW: normalized.forceChargeGridW,
     forceChargeLimiterEnabled: normalized.forceChargeLimiterEnabled,
