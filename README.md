@@ -11,6 +11,7 @@ The project is designed to reduce hourly grid peaks in Norway while still allowi
 - DVCC charge current control based on remaining battery Ah deficit
 - hourly imported-energy tracking from the house GRID CT sensor
 - high-voltage protection when an external charger or MPPT raises battery voltage
+- grid export guard: a negative GRID CT reading is compensated by letting the battery absorb the surplus, holding the grid at a configurable minimum import
 - notification logging when the grid setpoint changes
 
 The repository keeps readable controller sources as numbered `.js` files (e.g. `01 Battery + Grid Controller.js`) and a live Node-RED export in `flows.json`.
@@ -352,6 +353,8 @@ Available controls:
 - `Limiter release (V)`
 - `Full taper (V)`
 - `Maximum grid CT battery support`
+- `Block grid export (battery absorbs surplus)`
+- `Minimum grid import (W)`
 
 Behavior:
 
@@ -359,6 +362,8 @@ Behavior:
 - when enabled, the limiter uses the configured `start`, `release`, and `full` voltages instead of fixed code constants
 - `gridSupportW = 0` means the battery should not offset GRID CT import during voltage limiting
 - `gridSupportW = 100` allows the controller to let the battery offset up to `100 W` dynamically on the GRID CT signal while the limiter is active
+- `Block grid export` (on by default) never lets the GRID CT go negative: when export is detected the DVCC charge limit is raised so the battery absorbs the external MPPT surplus and the ESS setpoint is floored at `Minimum grid import`; the compensation integrates until the CT sits at the minimum import and releases itself when no longer needed
+- `Minimum grid import (W)` is shared by the export guard and by adaptive CT support as the lowest grid import the controller will target (200–1000 W)
 
 Displayed status:
 

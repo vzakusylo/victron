@@ -16,7 +16,7 @@
 //   gridSupportStartHour, gridSupportEndHour, gridSupportMaxDischargeA,
 //   gridSupportForecastConfidencePct, gridSupportSolarAssistGainPct,
 //   gridSupportWeakForecastBlockAh, gridSupportMinGridImportW,
-//   gridSupportDisableNoSun, gridSupportDisableNoSunBelowW,
+//   gridSupportDisableNoSun, gridSupportDisableNoSunBelowW, exportGuardEnabled,
 //   forceChargeLimiterEnabled, forceChargeLimiterStart (V), forceChargeLimiterRelease (V), forceChargeLimiterFull (V)
 // Validation limits:
 // - HV voltage: 50–60 V; required: full > start >= release
@@ -30,6 +30,7 @@
 // Change notes:
 // 1. Initial version.
 // 2. Added forceChargeLimiterEnabled/Start/Release/Full: voltage-based activation for AC Force Charging.
+// 3. Added exportGuardEnabled: block grid export by letting the battery absorb the surplus.
 // ==========================
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/high-voltage-settings.json';
 const GRID_SUPPORT_MODE_HV_ONLY = 'hv-only';
@@ -96,6 +97,7 @@ function normalizeSettings(value) {
     const gridSupportMinGridImportW = clampRounded(value.gridSupportMinGridImportW, MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W, MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W);
     const gridSupportDisableNoSun = Boolean(value.gridSupportDisableNoSun);
     const gridSupportDisableNoSunBelowW = clampRounded(value.gridSupportDisableNoSunBelowW, MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W, MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W);
+    const exportGuardEnabled = Boolean(value.exportGuardEnabled);
     const rawForceChargeGridW = Number(value.forceChargeGridW);
     const forceChargeEnabled = Boolean(value.forceChargeEnabled);
     const forceChargeLimiterEnabled = Boolean(value.forceChargeLimiterEnabled);
@@ -130,6 +132,7 @@ function normalizeSettings(value) {
         gridSupportMaxDischargeA, gridSupportForecastConfidencePct, gridSupportSolarAssistGainPct,
         gridSupportWeakForecastBlockAh, gridSupportMinGridImportW,
         gridSupportDisableNoSun, gridSupportDisableNoSunBelowW,
+        exportGuardEnabled,
         forceChargeEnabled, forceChargeGridW,
         forceChargeLimiterEnabled,
         forceChargeLimiterStart: rawFcLimiterStart,
@@ -166,6 +169,7 @@ const settings = {
     gridSupportMinGridImportW: normalized.gridSupportMinGridImportW,
     gridSupportDisableNoSun: normalized.gridSupportDisableNoSun,
     gridSupportDisableNoSunBelowW: normalized.gridSupportDisableNoSunBelowW,
+    exportGuardEnabled: normalized.exportGuardEnabled,
     forceChargeEnabled: normalized.forceChargeEnabled,
     forceChargeGridW: normalized.forceChargeGridW,
     forceChargeLimiterEnabled: normalized.forceChargeLimiterEnabled,

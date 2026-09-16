@@ -140,6 +140,19 @@
 			"isBackground": false
 		},
 		{
+			"label": "sync-export-guard",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". .\\sync-commands.ps1; Sync-Node 'Save HV settings from dashboard' '05 Save HV settings from dashboard.js'; Sync-Node 'Apply HV settings' '06 Apply HV settings.js'; Sync-Node 'Build HV dashboard state' '07 Build HV dashboard state.js'; Sync-01"
+			],
+			"isBackground": false
+		},
+		{
 			"label": "sync-pv-routing-analytics",
 			"type": "shell",
 			"command": "pwsh",
