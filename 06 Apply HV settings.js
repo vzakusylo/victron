@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
     gridSupportMinGridImportW: 300,
     gridSupportDisableNoSun: false,
     gridSupportDisableNoSunBelowW: 200,
+    exportGuardEnabled: true,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -107,6 +108,7 @@ function normalizeSettings(value) {
     const gridSupportMinGridImportW = clampRounded(value.gridSupportMinGridImportW === undefined ? DEFAULT_SETTINGS.gridSupportMinGridImportW : value.gridSupportMinGridImportW, MIN_GRID_SUPPORT_MIN_GRID_IMPORT_W, MAX_GRID_SUPPORT_MIN_GRID_IMPORT_W);
     const gridSupportDisableNoSun = value.gridSupportDisableNoSun === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSun : Boolean(value.gridSupportDisableNoSun);
     const gridSupportDisableNoSunBelowW = clampRounded(value.gridSupportDisableNoSunBelowW === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSunBelowW : value.gridSupportDisableNoSunBelowW, MIN_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W, MAX_GRID_SUPPORT_DISABLE_NO_SUN_BELOW_W);
+    const exportGuardEnabled = value.exportGuardEnabled === undefined ? DEFAULT_SETTINGS.exportGuardEnabled : Boolean(value.exportGuardEnabled);
     const rawForceChargeGridW = value.forceChargeGridW === undefined ? DEFAULT_SETTINGS.forceChargeGridW : Number(value.forceChargeGridW);
     const forceChargeEnabled = value.forceChargeEnabled === undefined ? DEFAULT_SETTINGS.forceChargeEnabled : Boolean(value.forceChargeEnabled);
     const forceChargeLimiterEnabled = value.forceChargeLimiterEnabled === undefined ? DEFAULT_SETTINGS.forceChargeLimiterEnabled : Boolean(value.forceChargeLimiterEnabled);
@@ -153,6 +155,7 @@ function normalizeSettings(value) {
         gridSupportMinGridImportW,
         gridSupportDisableNoSun,
         gridSupportDisableNoSunBelowW,
+        exportGuardEnabled,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled,
@@ -190,6 +193,7 @@ const fileNeedsUpgrade = parsed && typeof parsed === 'object' && (
     || parsed.gridSupportMinGridImportW === undefined
     || parsed.gridSupportDisableNoSun === undefined
     || parsed.gridSupportDisableNoSunBelowW === undefined
+    || parsed.exportGuardEnabled === undefined
     || parsed.forceChargeEnabled === undefined
     || parsed.forceChargeGridW === undefined
     || parsed.forceChargeLimiterEnabled === undefined
@@ -217,6 +221,7 @@ const settings = normalized
         gridSupportMinGridImportW: normalized.gridSupportMinGridImportW,
         gridSupportDisableNoSun: normalized.gridSupportDisableNoSun,
         gridSupportDisableNoSunBelowW: normalized.gridSupportDisableNoSunBelowW,
+        exportGuardEnabled: normalized.exportGuardEnabled,
         forceChargeEnabled: normalized.forceChargeEnabled,
         forceChargeGridW: normalized.forceChargeGridW,
         forceChargeLimiterEnabled: normalized.forceChargeLimiterEnabled,

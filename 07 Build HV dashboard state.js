@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
     gridSupportMinGridImportW: 300,
     gridSupportDisableNoSun: false,
     gridSupportDisableNoSunBelowW: 200,
+    exportGuardEnabled: true,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -63,6 +64,14 @@ const remainingForecastAh = Number(trace && trace.remainingForecastAh);
 const batteryRemainingAh = trace && trace.batteryRemainingAh !== null && trace && trace.batteryRemainingAh !== undefined
     ? Number(trace.batteryRemainingAh)
     : null;
+const exportGuardEnabled = current.exportGuardEnabled === undefined
+    ? DEFAULT_SETTINGS.exportGuardEnabled
+    : current.exportGuardEnabled === true;
+const exportGuardTrace = trace && trace.exportGuard && typeof trace.exportGuard === 'object' ? trace.exportGuard : {};
+const exportGuardActive = Boolean(exportGuardTrace.active);
+const exportGuardBoostW = Math.max(0, Math.round(Number(exportGuardTrace.boostW) || 0));
+const gridPowerSignedW = Math.round(Number(trace && trace.gridPowerSignedW) || 0);
+const exportGuardStatusLabel = exportGuardEnabled ? (exportGuardActive ? 'Compensating' : 'Watching') : 'Disabled';
 
 return {
     topic: 'high-voltage-settings-ui',
@@ -84,6 +93,7 @@ return {
         gridSupportMinGridImportW: Math.max(200, Math.round(Number(current.gridSupportMinGridImportW) || DEFAULT_SETTINGS.gridSupportMinGridImportW)),
         gridSupportDisableNoSun: current.gridSupportDisableNoSun === true,
         gridSupportDisableNoSunBelowW: Math.max(0, Math.round(current.gridSupportDisableNoSunBelowW === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSunBelowW : Number(current.gridSupportDisableNoSunBelowW) || 0)),
+        exportGuardEnabled,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled: current.forceChargeLimiterEnabled === true,
@@ -103,6 +113,10 @@ return {
         adaptiveGridSupportW,
         plannedGridSupportW,
         gridSupportLowSunBlocked: Boolean(trace && trace.gridSupportLowSunBlocked),
+        exportGuardStatus: exportGuardStatusLabel,
+        exportGuardActive,
+        exportGuardBoostW,
+        gridPowerSignedW,
         solarGenerationW: Math.max(0, Math.round(Number(trace && trace.solarGenerationW) || 0)),
         remainingForecastAh: Number.isFinite(remainingForecastAh) ? remainingForecastAh.toFixed(1) : '0.0',
         batteryRemainingAh: Number.isFinite(batteryRemainingAh) ? batteryRemainingAh.toFixed(1) : 'n/a',

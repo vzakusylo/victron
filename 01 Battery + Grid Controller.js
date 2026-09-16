@@ -91,6 +91,17 @@
 //     - `forceChargeLimiterFull` (V): charge at maximum DVCC (25A) when voltage is at or below this
 //     - between Full and Start, effective charge power tapers from max down to forceChargeGridW
 //     - when limiter is disabled, force charge behaves as before (always on when enabled flag is set)
+// 25. Grid export guard (`exportGuardEnabled`, default on): power must never be pushed to the grid.
+//     - `grid-power` is now stored signed; a negative GRID CT reading means export
+//     - when export is detected the battery becomes the compensating load:
+//       the DVCC charge limit is raised to (PV charger power + boost) / V so the Multi stops
+//       inverting the external MPPT surplus, and the ESS setpoint is floored at
+//       `gridSupportMinGridImportW` (the "Minimum grid import" setting)
+//     - `boost` starts at (minimum import - CT reading) and is then integrated every
+//       EXPORT_GUARD_UPDATE_INTERVAL_MS until the CT sits at the minimum import
+//     - the guard releases itself once the boost decays to 0 (grid import stays above the minimum
+//       without help); it overrides every other window including HV taper and manual discharge
+//     - shown as `EXP:+<boost>W` in status/notifications and as `exportGuard` in the trace
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -137,6 +148,7 @@ const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     gridSupportMinGridImportW: 300,
     gridSupportDisableNoSun: false,
     gridSupportDisableNoSunBelowW: 200,
+    exportGuardEnabled: true,
     forceChargeEnabled: false,
     forceChargeGridW: 0,
     forceChargeLimiterEnabled: false,
@@ -179,6 +191,12 @@ const MANUAL_DISCHARGE_STOP_VOLTAGE = 54;
 const MANUAL_DISCHARGE_MAX_CURRENT = 20;
 const DAY_HIGH_AC_LOAD_THRESHOLD_W = 4000;
 const DAY_HIGH_AC_LOAD_REDUCTION_W = 100;
+// Grid export guard tuning
+const EXPORT_GUARD_GAIN = 0.5;
+const EXPORT_GUARD_MAX_STEP_W = 200;
+const EXPORT_GUARD_MAX_BOOST_W = 2000;
+const EXPORT_GUARD_RELEASE_DEADBAND_W = 50;
+const EXPORT_GUARD_UPDATE_INTERVAL_MS = 15000;
 
 // ==========================
 // TIME
@@ -197,9 +215,18 @@ let batteryVoltage = Number(context.get("batteryVoltage"));
 const rawStoredConsumedAh = context.get("batteryConsumedAh");
 let consumedAhDeficit = Number.isFinite(Number(rawStoredConsumedAh)) ? Math.max(0, Number(rawStoredConsumedAh)) : Number.NaN;
 const rawStoredGridPower = context.get("gridPowerW");
-const hasGridPowerReading = rawStoredGridPower !== undefined && rawStoredGridPower !== null && Number.isFinite(Number(rawStoredGridPower));
-const storedGridPowerW = hasGridPowerReading ? Math.max(0, Number(rawStoredGridPower)) : 0;
+let hasGridPowerReading = rawStoredGridPower !== undefined && rawStoredGridPower !== null && Number.isFinite(Number(rawStoredGridPower));
+// Signed CT reading (negative = export); the clamped value feeds import-Wh tracking and floors.
+const storedGridPowerSignedW = hasGridPowerReading ? Number(rawStoredGridPower) : 0;
+const storedGridPowerW = Math.max(0, storedGridPowerSignedW);
 let gridPowerW = storedGridPowerW;
+let gridPowerSignedW = storedGridPowerSignedW;
+let exportGuard = context.get("exportGuard") || {
+    active: false,
+    boostW: 0,
+    since: "",
+    lastAdjustTs: 0
+};
 const rawStoredAcLoadPower = context.get("acLoadPowerW");
 const hasAcLoadReading = rawStoredAcLoadPower !== undefined && rawStoredAcLoadPower !== null && Number.isFinite(Number(rawStoredAcLoadPower));
 const storedAcLoadPowerW = hasAcLoadReading ? Math.max(0, Number(rawStoredAcLoadPower)) : 0;
@@ -444,6 +471,9 @@ function sanitizeHighVoltageSettings(value) {
         GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MIN_W,
         GRID_SUPPORT_DISABLE_NO_SUN_BELOW_MAX_W
     );
+    const exportGuardEnabled = value.exportGuardEnabled === undefined
+        ? DEFAULT_HIGH_VOLTAGE_SETTINGS.exportGuardEnabled
+        : Boolean(value.exportGuardEnabled);
     const forceChargeEnabled = value.forceChargeEnabled === undefined
         ? DEFAULT_HIGH_VOLTAGE_SETTINGS.forceChargeEnabled
         : Boolean(value.forceChargeEnabled);
@@ -503,6 +533,7 @@ function sanitizeHighVoltageSettings(value) {
         gridSupportMinGridImportW,
         gridSupportDisableNoSun,
         gridSupportDisableNoSunBelowW,
+        exportGuardEnabled,
         forceChargeEnabled,
         forceChargeGridW,
         forceChargeLimiterEnabled,
@@ -767,6 +798,16 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             usableStoredSupportAh: round1(usableStoredSupportAh),
             predictedSupportAh: round1(predictedSupportAh),
             supportMinGridImportW,
+            gridPowerSignedW: Math.round(gridPowerSignedW),
+            exportGuardEnabled,
+            exportGuard: {
+                active: exportGuardActive,
+                boostW: Math.round(exportGuardBoostW),
+                targetW: exportGuardTargetW,
+                setpointFloorW: exportGuardSetpointFloorW,
+                chargeCurrentA: exportGuardChargeCurrent,
+                since: exportGuard.since || ""
+            },
             forecastRestoreAh: round1(forecastRestoreAh),
             gridRestoreAhNeeded: round1(gridRestoreAhNeeded),
             remainingNightHours: round1(remainingNightHours),
@@ -878,8 +919,10 @@ else if (msg.topic === GRID_TOPIC) {
     const incomingGridPower = Number(msg.payload);
 
     if (Number.isFinite(incomingGridPower)) {
+        gridPowerSignedW = incomingGridPower;
         gridPowerW = Math.max(0, incomingGridPower);
-        context.set("gridPowerW", gridPowerW);
+        hasGridPowerReading = true;
+        context.set("gridPowerW", gridPowerSignedW);
     }
 }
 else if (msg.topic === AC_LOAD_TOPIC) {
@@ -985,6 +1028,9 @@ const gridSupportDisableNoSunBelowW = sanitizeRoundedNumber(
 const gridSupportLowSunBlocked = gridSupportDisableNoSun
     && highVoltageGridSupportW > 0
     && solarGenerationW < gridSupportDisableNoSunBelowW;
+const exportGuardEnabled = highVoltageSettings.exportGuardEnabled === undefined
+    ? DEFAULT_HIGH_VOLTAGE_SETTINGS.exportGuardEnabled
+    : Boolean(highVoltageSettings.exportGuardEnabled);
 const forceChargeEnabled = Boolean(highVoltageSettings.forceChargeEnabled);
 const forceChargeGridW = Math.round(highVoltageSettings.forceChargeGridW || 0);
 const forceChargeLimiterEnabled = Boolean(highVoltageSettings.forceChargeLimiterEnabled);
@@ -1230,7 +1276,71 @@ const dayHighAcLoadCap = applyDayHighAcLoadReduction
     ? Math.max(0, rawFinalGridSetpoint - DAY_HIGH_AC_LOAD_REDUCTION_W)
     : Number.POSITIVE_INFINITY;
 
-const finalGridSetpoint = Math.min(rawFinalGridSetpoint, adaptiveSupportCap, supportCap, dayHighAcLoadCap);
+const cappedGridSetpoint = Math.min(rawFinalGridSetpoint, adaptiveSupportCap, supportCap, dayHighAcLoadCap);
+
+// ==========================
+// GRID EXPORT GUARD
+// ==========================
+// Power must never be pushed to the grid. A negative GRID CT reading means the Multi is
+// inverting surplus from the external MPPT because DVCC does not let the battery absorb it.
+// The battery becomes the compensating load: the DVCC limit is raised to cover PV + boost and
+// the ESS setpoint is floored at the minimum grid import. The boost integrates the CT error
+// (slowly, respecting the output delay) until the CT sits at the minimum import, and the guard
+// releases itself once the boost decays to 0.
+const exportGuardTargetW = supportMinGridImportW;
+const exportGuardVoltage = Math.max(1, Number.isFinite(batteryVoltage) && batteryVoltage > 0 ? batteryVoltage : BATTERY_NOMINAL_VOLTAGE);
+let exportGuardActive = Boolean(exportGuard.active);
+let exportGuardBoostW = Math.max(0, Number(exportGuard.boostW) || 0);
+let exportGuardSince = String(exportGuard.since || "");
+let exportGuardLastAdjustTs = Number(exportGuard.lastAdjustTs) || 0;
+
+if (!exportGuardEnabled || !hasGridPowerReading) {
+    exportGuardActive = false;
+    exportGuardBoostW = 0;
+    exportGuardSince = "";
+    exportGuardLastAdjustTs = 0;
+}
+else {
+    const exportGuardErrorW = exportGuardTargetW - gridPowerSignedW;
+
+    if (!exportGuardActive && gridPowerSignedW < 0) {
+        exportGuardActive = true;
+        exportGuardSince = now.toISOString();
+        exportGuardLastAdjustTs = now.getTime();
+        exportGuardBoostW = clamp(Math.round(exportGuardErrorW), 0, EXPORT_GUARD_MAX_BOOST_W);
+    }
+    else if (exportGuardActive && now.getTime() - exportGuardLastAdjustTs >= EXPORT_GUARD_UPDATE_INTERVAL_MS) {
+        const belowTarget = exportGuardErrorW > 0;
+        const aboveTarget = gridPowerSignedW > exportGuardTargetW + EXPORT_GUARD_RELEASE_DEADBAND_W;
+
+        if (belowTarget || aboveTarget) {
+            const stepW = clamp(exportGuardErrorW * EXPORT_GUARD_GAIN, -EXPORT_GUARD_MAX_STEP_W, EXPORT_GUARD_MAX_STEP_W);
+            exportGuardBoostW = clamp(Math.round(exportGuardBoostW + stepW), 0, EXPORT_GUARD_MAX_BOOST_W);
+        }
+
+        exportGuardLastAdjustTs = now.getTime();
+
+        if (exportGuardBoostW <= 0) {
+            exportGuardActive = false;
+            exportGuardSince = "";
+            exportGuardLastAdjustTs = 0;
+        }
+    }
+}
+
+exportGuard = {
+    active: exportGuardActive,
+    boostW: exportGuardBoostW,
+    since: exportGuardSince,
+    lastAdjustTs: exportGuardLastAdjustTs
+};
+
+const exportGuardSetpointFloorW = exportGuardActive ? exportGuardTargetW : 0;
+const exportGuardChargeCurrent = exportGuardActive
+    ? round1(clamp((Math.max(0, storedPvChargerPowerW) + exportGuardBoostW) / exportGuardVoltage, 0, MAX_CHARGE_CURRENT))
+    : 0;
+
+const finalGridSetpoint = Math.max(cappedGridSetpoint, exportGuardSetpointFloorW);
 
 const currentRatio = baseScheduleSetpoint > 0
     ? clamp(finalGridSetpoint / baseScheduleSetpoint, 0, 1)
@@ -1240,13 +1350,15 @@ const forceChargeRatio = effectiveForceChargeGridW > 0
     ? clamp(forceChargeAvailableW / effectiveForceChargeGridW, 0, 1)
     : 0;
 
-const finalChargeCurrent = manualDischargeEnabled
+const scheduledChargeCurrent = manualDischargeEnabled
     ? 0
     : (forceChargeAllowed
         ? round1(baseChargeCurrent * forceChargeRatio)
         : (baseChargeCurrent > 0
             ? round1(baseChargeCurrent * currentRatio)
             : 0));
+// The export guard may only raise the DVCC limit, never lower a scheduled charge.
+const finalChargeCurrent = Math.max(scheduledChargeCurrent, exportGuardChargeCurrent);
 const usedWh = hourBudget.usedWh || 0;
 const acUsedWh = acLoadBudget.usedWh || 0;
 const solarUsedWh = solarBudget.usedWh || 0;
@@ -1273,6 +1385,7 @@ context.set("activeWindow", windowName);
 context.set("voltageLimitActive", voltageLimitActive);
 context.set("gridSetpoint", finalGridSetpoint);
 context.set("manualDischarge", manualDischarge);
+context.set("exportGuard", exportGuard);
 
 // ==========================
 // STATUS
@@ -1300,6 +1413,10 @@ if (applyDayHighAcLoadReduction) {
 
 if (gridSupportLowSunBlocked) {
     limitFlags.push(`GS-SUN<${gridSupportDisableNoSunBelowW}W`);
+}
+
+if (exportGuardActive) {
+    limitFlags.push(`EXP:+${Math.round(exportGuardBoostW)}W@${Math.round(gridPowerSignedW)}W`);
 }
 
 if (adaptiveGridSupportActive) {
