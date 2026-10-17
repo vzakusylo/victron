@@ -6,13 +6,14 @@
 // - increment that marker every time `flows.json` changes so the active Node-RED flow version is visible
 // - keep this file, the embedded controller function, and the tab version rule synchronized
 // Current behavior implemented after iterative tuning:
-// 1. This function now has 6 outputs:
+// 1. This function now has 7 outputs:
 //    - output 1 -> DVCC charge current limit (A)
 //    - output 2 -> ESS grid setpoint (W)
 //    - output 3 -> VE.Bus AC input current limit (A)
 //    - output 4 -> notification/log message when the grid setpoint changes
 //    - output 5 -> hourly energy rollover message for log/summary writers
 //    - output 6 -> structured controller trace payload for debugging
+//    - output 7 -> `tariff-history` shell command for the exec node that reads the month's energy files
 // 2. The function accepts multiple message types:
 //    - `topic = battery-voltage` -> updates battery voltage state
 //    - `topic = battery-consumed-ah` -> updates the BMS net consumed Ah deficit
@@ -64,7 +65,7 @@
 // 17. Increment the `d#<n>` tab version in `flows.json` every time the flow file changes.
 // 18. AC loads hourly Wh is tracked for display only (same integration logic as grid import Wh).
 // 19. Notifications are written to a daily file at `/data/grid-control-logs/grid-control-YYYY-MM-DD.log`.
-//     Old log files are pruned automatically; files older than 45 days are deleted at midnight.
+//     Log files are kept forever (the 45-day cleanup is disabled, full history is required).
 // 20. Manual discharge can be started/stopped with inject nodes:
 //     - while active it overrides the normal schedule
 //     - ESS grid setpoint is raised/lowered dynamically but never below 200W import
@@ -114,6 +115,13 @@
 //     - daily grid import, today's billable peak hour, energy left today at the season plan and the
 //       month's top-3-day average (= tier the month is heading for) are tracked in context
 //       `tariffDay` / `tariffMonth`, shown in status and exported as `tariff` in the trace
+// 27. Monthly energy CSV + history restore.
+//     - the hourly-energy message (output 5) also carries billWh (night x billing %), peakW (max grid W
+//       in the hour), setpointW (season plan for that hour), season (S/W) and coverageMin (integrated
+//       minutes, 60 = full hour); "Format hourly energy line" appends it to `energy-YYYY-MM.csv`
+//     - once per month (and after every redeploy) output 7 asks the exec node for the month's
+//       `energy-YYYY-MM.csv` + legacy `energy-YYYY-MM-DD.log`; the reply (`topic = tariff-history`)
+//       restores today's grid Wh / peak and the month's per-day billable peaks
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -126,6 +134,10 @@ const MANUAL_DISCHARGE_TOPIC = "manual-discharge";
 const MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC = "manual-discharge-stop-voltage";
 const DC_POWER_TOPIC = "dc-power";
 const PV_CHARGER_TOPIC = "pv-charger-power";
+// Output 7 request and input reply (exec stdout) for the month energy history.
+const TARIFF_HISTORY_TOPIC = "tariff-history";
+const TARIFF_HISTORY_RETRY_MS = 60000;
+const ENERGY_LOG_DIR = "/data/home/nodered/grid-control-logs";
 
 // ==========================
 // CONSTANTS
@@ -836,6 +848,39 @@ function buildSeasonProfile(winter, tariffConstants) {
     };
 }
 
+// Shell script (run by the exec node as `sh -c <payload>`) that prints the month's legacy
+// daily logs and the monthly CSV.
+function buildEnergyHistoryCommand(monthKey) {
+    const script = 'cd "' + ENERGY_LOG_DIR + '" 2>/dev/null && cat energy-' + monthKey + '-*.log energy-' + monthKey + '.csv 2>/dev/null; true';
+    return "'" + script.replace(/'/g, "'\\''") + "'";
+}
+
+// Accepts both formats; later lines win for the same hour.
+//   CSV:    2026-10-17 22,2450,2432,0,1715,2610,6440,W,60  (bill_wh = 5th column)
+//   legacy: 2026-10-17 22:00 | Grid 2450Wh | AC 2432Wh | Sol 0Wh
+function parseEnergyHistory(rawText, monthKey, tariffConstants) {
+    const history = {};
+
+    String(rawText || "").split(/\r?\n/).forEach(line => {
+        const csv = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),(-?\d+),-?\d+,-?\d+(?:,(-?\d+))?/);
+        const legacy = csv ? null : line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):00 \| Grid (-?\d+)Wh/);
+        const match = csv || legacy;
+
+        if (!match || match[1].substring(0, 7) !== monthKey) {
+            return;
+        }
+
+        const gridWh = Math.max(0, Number(match[3]) || 0);
+        const billWh = csv && csv[4] !== undefined
+            ? Math.max(0, Number(csv[4]) || 0)
+            : Math.round(gridWh * getBillingFactor(Number(match[2]), tariffConstants));
+
+        history[match[1] + " " + match[2]] = { gridWh, billWh };
+    });
+
+    return history;
+}
+
 function getTierForAverageW(averageW) {
     const index = TARIFF_TIER_LIMITS_W.findIndex(limitW => averageW <= limitW);
     return index === -1 ? TARIFF_TIER_LIMITS_W.length + 1 : index + 1;
@@ -915,7 +960,7 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
         payload: {
             timestamp: now.toISOString(),
             inputTopic: msg.topic || "",
-            inputPayload: msg.payload,
+            inputPayload: msg.topic === TARIFF_HISTORY_TOPIC ? `(${String(msg.payload || "").length} chars of energy history)` : msg.payload,
             window: windowName,
             previousWindow,
             batteryVoltage: round1(batteryVoltage),
@@ -1030,7 +1075,8 @@ function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             : null,
         notifyMsg,
         hourlyLogMsg || null,
-        traceMsg
+        traceMsg,
+        tariffHistoryRequestMsg
     ];
 }
 
@@ -1041,6 +1087,10 @@ const prevHourKey = hourBudget.hourKey;
 const prevHourGridWh = Number(hourBudget.usedWh) || 0;
 const prevHourAcWh = Number(acLoadBudget.usedWh) || 0;
 const prevHourSolarWh = Number(solarBudget.usedWh) || 0;
+// Minutes of the closed hour that were actually integrated (60 = full hour, less after a restart).
+const prevHourCoverageMin = Math.round(clamp(((Number(hourBudget.lastTs) || 0) - (Number(hourBudget.startTs) || 0)) / 60000, 0, 60));
+let hourPeak = context.get("hourPeak") || { hourKey: "", peakW: 0 };
+const prevHourPeakW = hourPeak.hourKey === prevHourKey ? Math.round(Number(hourPeak.peakW) || 0) : 0;
 // Solar generation comes only from PV charger power; DC bus power stays informational.
 const solarGenerationW = storedPvChargerPowerW;
 hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
@@ -1058,10 +1108,28 @@ const todayKey = hourBudget.hourKey.substring(0, 10);
 const emptyTariffDay = dayKey => ({ dayKey, gridWh: 0, peakBillableWh: 0, peakHourKey: "" });
 let tariffDay = context.get("tariffDay") || emptyTariffDay("");
 let tariffMonth = context.get("tariffMonth") || { monthKey: "", dayPeaks: {} };
+// Extra columns of the closed hour for the monthly energy CSV.
+let closedHourRecord = null;
 
 if (hourRolledOver) {
     const closedDayKey = prevHourKey.substring(0, 10);
-    const closedBillableWh = prevHourGridWh * getBillingFactor(Number(prevHourKey.substring(11, 13)), tariffConstants);
+    const closedHourOfDay = Number(prevHourKey.substring(11, 13));
+    const closedBillableWh = prevHourGridWh * getBillingFactor(closedHourOfDay, tariffConstants);
+    const closedHourDate = new Date(
+        Number(prevHourKey.substring(0, 4)),
+        Number(prevHourKey.substring(5, 7)) - 1,
+        Number(prevHourKey.substring(8, 10)),
+        closedHourOfDay
+    );
+    const closedProfile = buildSeasonProfile(getTariffSeason(closedHourDate, tariffConstants).winter, tariffConstants);
+
+    closedHourRecord = {
+        billWh: Math.round(closedBillableWh),
+        peakW: prevHourPeakW,
+        setpointW: isNightHour(closedHourOfDay) ? closedProfile.nightSetpointW : closedProfile.daySetpointW,
+        season: closedProfile.season === "WINTER" ? "W" : "S",
+        coverageMin: prevHourCoverageMin
+    };
 
     if (tariffDay.dayKey !== closedDayKey) {
         tariffDay = emptyTariffDay(closedDayKey);
@@ -1087,6 +1155,46 @@ if (tariffDay.dayKey !== todayKey) {
 
 if (tariffMonth.monthKey !== todayKey.substring(0, 7)) {
     tariffMonth = { monthKey: todayKey.substring(0, 7), dayPeaks: {} };
+}
+
+// History restore: the closed hours of this month are read back from the energy files
+// (monthly CSV + legacy daily energy-*.log) so Day / Month survive a restart or redeploy.
+if (msg.topic === TARIFF_HISTORY_TOPIC && typeof msg.payload === "string") {
+    const history = parseEnergyHistory(msg.payload, tariffMonth.monthKey, tariffConstants);
+    let historyDayWh = 0;
+    let historyDayPeakWh = 0;
+    let historyDayPeakHourKey = "";
+
+    Object.keys(history).forEach(historyHourKey => {
+        // The live hour is still being integrated and is not in the file yet.
+        if (historyHourKey === hourBudget.hourKey) {
+            return;
+        }
+
+        const record = history[historyHourKey];
+        const historyDayKey = historyHourKey.substring(0, 10);
+        tariffMonth.dayPeaks[historyDayKey] = Math.max(Number(tariffMonth.dayPeaks[historyDayKey]) || 0, record.billWh);
+
+        if (historyDayKey === todayKey) {
+            historyDayWh += record.gridWh;
+
+            if (record.billWh > historyDayPeakWh) {
+                historyDayPeakWh = record.billWh;
+                historyDayPeakHourKey = historyHourKey;
+            }
+        }
+    });
+
+    if (historyDayWh > (Number(tariffDay.gridWh) || 0)) {
+        tariffDay.gridWh = Math.round(historyDayWh);
+    }
+
+    if (historyDayPeakWh > (Number(tariffDay.peakBillableWh) || 0)) {
+        tariffDay.peakBillableWh = historyDayPeakWh;
+        tariffDay.peakHourKey = historyDayPeakHourKey;
+    }
+
+    context.set("tariffHistoryState", { monthKey: tariffMonth.monthKey, loadedAt: now.getTime(), hours: Object.keys(history).length });
 }
 
 context.set("tariffDay", tariffDay);
@@ -1160,6 +1268,12 @@ else if (msg.topic === MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC) {
     }
 }
 
+if (hourPeak.hourKey !== hourBudget.hourKey) {
+    hourPeak = { hourKey: hourBudget.hourKey, peakW: 0 };
+}
+
+hourPeak.peakW = Math.round(Math.max(Number(hourPeak.peakW) || 0, storedGridPowerW, gridPowerW));
+context.set("hourPeak", hourPeak);
 context.set("hourBudget", hourBudget);
 context.set("acLoadBudget", acLoadBudget);
 context.set("solarBudget", solarBudget);
@@ -1724,8 +1838,28 @@ node.status({
 });
 
 const hourlyLogMsg = hourRolledOver
-    ? { topic: "hourly-energy", payload: { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh), solarWh: Math.round(prevHourSolarWh) } }
+    ? {
+        topic: "hourly-energy",
+        payload: Object.assign(
+            { hourKey: prevHourKey, gridWh: Math.round(prevHourGridWh), acWh: Math.round(prevHourAcWh), solarWh: Math.round(prevHourSolarWh) },
+            closedHourRecord
+        )
+    }
     : null;
+
+// Ask for the month history once per month (and again after a redeploy resets the context).
+// Decided here, after the early returns, so the request is never dropped.
+const tariffHistoryState = context.get("tariffHistoryState") || { monthKey: "", requestedAt: 0 };
+let tariffHistoryRequestMsg = null;
+
+if (tariffHistoryState.monthKey !== tariffMonth.monthKey
+    && now.getTime() - (Number(tariffHistoryState.requestedAt) || 0) >= TARIFF_HISTORY_RETRY_MS) {
+    tariffHistoryRequestMsg = {
+        topic: TARIFF_HISTORY_TOPIC,
+        payload: buildEnergyHistoryCommand(tariffMonth.monthKey)
+    };
+    context.set("tariffHistoryState", { monthKey: "", requestedAt: now.getTime() });
+}
 
 return buildOutputs(
     finalChargeCurrent,

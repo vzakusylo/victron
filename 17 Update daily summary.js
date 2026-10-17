@@ -8,6 +8,7 @@
 // - Receives a completed hourly energy record and appends or updates it in the
 //   flow context `dailySummary` for today's date.
 // - Automatically resets the summary when the date rolls over to a new day.
+// - Output 1 (file write) is kept in the signature but no longer used.
 // Input:
 // - msg.payload : { hourKey: 'YYYY-MM-DD HH', gridWh: number, acWh: number, solarWh: number }
 // Flow context write:
@@ -17,6 +18,8 @@
 // Change notes:
 // 1. Initial version.
 // 2. Added solarWh field: accumulated PV charger generation Wh per hour (from `/Dc/Pv/Power`).
+// 3. No longer writes `summary-YYYY-MM-DD.log`: the monthly `energy-YYYY-MM.csv` holds the same
+//    hourly rows (output 1 is always null). Existing summary files are kept and still readable.
 // ==========================
 if (!msg.payload || !msg.payload.hourKey) return null;
 const { hourKey, gridWh, acWh } = msg.payload;
@@ -35,17 +38,6 @@ flow.set('dailySummary', summary);
 
 const totalGrid = summary.hours.reduce((s, h) => s + h.gridWh, 0);
 const totalAc = summary.hours.reduce((s, h) => s + h.acWh, 0);
-const totalSolar = summary.hours.reduce((s, h) => s + (h.solarWh || 0), 0);
-const lines = summary.hours.map(h => dateKey + ' ' + h.hour + ' | Grid ' + h.gridWh + 'Wh | AC ' + h.acWh + 'Wh | Sol ' + (h.solarWh || 0) + 'Wh');
-lines.push('');
-lines.push('TOTAL | Grid ' + totalGrid + 'Wh | AC ' + totalAc + 'Wh | Sol ' + totalSolar + 'Wh');
-
-const fileMsg = {
-    payload: lines.join('\n') + '\n',
-    filename: '/data/home/nodered/grid-control-logs/summary-' + dateKey + '.log',
-    encoding: 'utf8'
-};
-
 const chart = {
     labels: summary.hours.map(h => h.hour),
     series: ['Grid Wh', 'AC Wh', 'Solar Wh'],
@@ -67,4 +59,4 @@ const dashboardMsg = {
     }
 };
 
-return [fileMsg, dashboardMsg];
+return [null, dashboardMsg];
