@@ -128,6 +128,15 @@ function Sync-24 { Sync-Node 'Build controller constants state' '24 Build contro
 # 25 — Save controller constants
 function Sync-25 { Sync-Node 'Save controller constants'        '25 Save controller constants.js'               -BumpVersion }
 
+# 26 — Backup / restore dashboard handler
+function Sync-26 { Sync-Node 'Manage backup dashboard'          '26 Manage backup dashboard.js'                 -BumpVersion }
+
+# 27 — HTTP backup download
+function Sync-27 { Sync-Node 'Serve backup download'            '27 Serve backup download.js'                   -BumpVersion }
+
+# 28 — HTTP backup upload
+function Sync-28 { Sync-Node 'Store uploaded backup'            '28 Store uploaded backup.js'                   -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -160,6 +169,9 @@ function Sync-All {
         @{ Name = 'Set error status';                   File = '23 Set error status.js' }
         @{ Name = 'Build controller constants state';    File = '24 Build controller constants state.js' }
         @{ Name = 'Save controller constants';           File = '25 Save controller constants.js' }
+        @{ Name = 'Manage backup dashboard';             File = '26 Manage backup dashboard.js' }
+        @{ Name = 'Serve backup download';               File = '27 Serve backup download.js' }
+        @{ Name = 'Store uploaded backup';               File = '28 Store uploaded backup.js' }
     )
 
     $totalSynced = 0
