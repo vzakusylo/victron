@@ -15,12 +15,20 @@
 // - output 2 -> http response (validation error / caught error)
 // Change notes:
 // 1. Initial version.
+// 2. Node status shows every request / error, to see whether a download reaches Node-RED
+//    (e.g. through the VRM proxy).
 // ==========================
 
 const BACKUP_DIR = '/data/home/nodered/grid-control-backups';
 const NAME_PATTERN = /^[A-Za-z0-9._-]+\.tar\.gz$/;
 
+function timeLabel() {
+    const now = new Date();
+    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+}
+
 function textResponse(statusCode, text) {
+    node.status({ fill: 'red', shape: 'dot', text: timeLabel() + ' ' + statusCode + ' ' + text });
     msg.statusCode = statusCode;
     msg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };
     msg.payload = text;
@@ -41,6 +49,7 @@ if (!NAME_PATTERN.test(name)) {
     return textResponse(400, 'Invalid backup name');
 }
 
+node.status({ fill: 'blue', shape: 'dot', text: timeLabel() + ' sending ' + name });
 msg.filename = BACKUP_DIR + '/' + name;
 msg.statusCode = 200;
 msg.headers = {

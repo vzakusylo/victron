@@ -43,6 +43,7 @@
 // 3. Added `delete` action (dashboard button with a browser confirmation; never automatic).
 //    /data/apps/overlay-fs (Venus OS root-filesystem overlay with unreadable kernel work dirs) is
 //    excluded like node_modules; drivers recreate their overlays with enable.sh.
+// 4. GNU tar also skips `supervise` folders (daemontools runtime state, root-only) at any depth.
 // ==========================
 
 const BACKUP_DIR = '/data/home/nodered/grid-control-backups';
@@ -140,7 +141,10 @@ function scriptPrelude() {
         ...expandLines,
         '  { echo "type=grid-control-backup"; echo "format=1"; echo "created=$(date "+%Y-%m-%d %H:%M:%S %z")"; echo "host=$(hostname)"; echo "venus=$(head -n 1 /opt/victronenergy/version 2>/dev/null)"; echo "user=$(id -un 2>/dev/null)"; for p in $L; do echo "path=$p"; done; } > "$R/' + MANIFEST_PATH + '" || fail "Cannot write manifest"',
         '  case " $L " in *" data/home/nodered/grid-control-config "*) ;; *) L="$L ' + MANIFEST_PATH + '";; esac',
-        '  tar -czf "$B/$NAME.part" -C "$R/" $L 2>"$B/.tar-errors"',
+        // GNU tar (Venus OS): skip daemontools runtime folders (`supervise`, root-only) at any depth.
+        // BusyBox tar has no --exclude, so the option is only passed to GNU tar.
+        '  EX=""; tar --version 2>/dev/null | grep -q GNU && EX="--exclude=supervise --exclude=lost+found"',
+        '  tar -czf "$B/$NAME.part" $EX -C "$R/" $L 2>"$B/.tar-errors"',
         '  if tar -tzf "$B/$NAME.part" >/dev/null 2>&1; then mv "$B/$NAME.part" "$B/$NAME"; else rm -f "$B/$NAME.part"; sed "s/^/@@LOG /" "$B/.tar-errors"; fail "Archive could not be created"; fi',
         '  sed "s/^/@@LOG /" "$B/.tar-errors"; rm -f "$B/.tar-errors"',
         '  for p in $L; do echo "@@INCLUDED $p"; done',

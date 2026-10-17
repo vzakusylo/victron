@@ -381,6 +381,12 @@ How it works:
 
 New-device procedure: install Venus OS (Large) and the same extra Node-RED palette nodes (the dbus-serialbattery driver comes back from the backup), import this flow (or any flow with the Backup tab), upload the backup, restore with `Restart Node-RED` ticked, then check the Victron output nodes (VE.Bus / battery service instances can differ on new hardware).
 
+GNU tar also skips `supervise` folders (daemontools runtime state, root-only) at any depth. On Venus OS Node-RED runs as user `nodered`, so the dashboard restore can only write the Node-RED and grid-control folders; root-owned paths (`/data/apps`, `/data/etc`, `rc.local`, `settings.xml`) and `enable.sh` need root. The Restore card then shows a ready-made SSH command for a full restore as root:
+
+```
+tar -xzf /data/home/nodered/grid-control-backups/<backup>.tar.gz -C / --exclude=data/conf/settings.xml && { [ ! -f /data/apps/dbus-serialbattery/enable.sh ] || bash /data/apps/dbus-serialbattery/enable.sh; } && reboot
+```
+
 Security note: the download and upload endpoints use Node-RED's HTTP-node security. If `httpNodeAuth` is not enabled, anyone on the LAN who can reach the Node-RED port can download a backup, and the backup contains the flow credentials.
 
 ---
