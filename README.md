@@ -360,7 +360,7 @@ Behavior:
 
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
 
-Included when present (`node_modules`, `.npm`, `.cache` are excluded):
+Included when present (`node_modules`, `.npm`, `.cache` and `/data/apps/overlay-fs` are excluded — the latter is Venus OS's own root-filesystem overlay; drivers recreate their overlays with `enable.sh`):
 
 - `/data/home/nodered/grid-control-logs` — energy history (monthly CSV + legacy daily logs) and notification logs
 - `/data/home/nodered/grid-control-config` — HV settings, controller constants, dashboard state, backup manifest
@@ -377,7 +377,7 @@ How it works:
 - restore requires typing `RESTORE`, checks the archive (manifest present, only the paths above, no `..`), creates a `pre-restore-…` safety backup, extracts to a staging folder and copies over the live paths (files with the same name are overwritten, others are kept)
 - Node-RED is restarted 5 s after a restore that included Node-RED files (option); Venus OS settings need a reboot
 - `Re-enable restored drivers` (default on) runs `enable.sh` of every restored driver in `/data/apps` (e.g. `/data/apps/dbus-serialbattery/enable.sh`); reboot the GX device afterwards so the drivers start
-- backups are never deleted automatically
+- backups are never deleted automatically; `Delete` next to each backup removes it after a browser confirmation
 
 New-device procedure: install Venus OS (Large) and the same extra Node-RED palette nodes (the dbus-serialbattery driver comes back from the backup), import this flow (or any flow with the Backup tab), upload the backup, restore with `Restart Node-RED` ticked, then check the Victron output nodes (VE.Bus / battery service instances can differ on new hardware).
 
