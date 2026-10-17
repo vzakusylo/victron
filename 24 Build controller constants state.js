@@ -15,17 +15,28 @@
 // - output 1 -> msg with topic 'controller-constants-ui' and payload for the dashboard template
 // Change notes:
 // 1. Initial version.
+// 2. Replaced the fixed day/night setpoints with the capacity tariff season group
+//    (winter/summer start dates, tier per season, night extra %, safe grid current inputs).
+//    The controller reads these keys live from flow `controllerConstantsOverrides`.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/controller-constants.json';
 
 // Hardcoded defaults — mirrors 01 Battery + Grid Controller.js constants
 const DEFAULTS = {
-    // Schedule
-    DAY_BASE_GRID_SETPOINT:     1950,
-    NIGHT_BASE_GRID_SETPOINT:   2850,
-    DAY_HOURLY_BUDGET_W:        1950,
-    NIGHT_HOURLY_BUDGET_W:      2850,
+    // Capacity tariff season (day/night setpoints and grid current are derived from these)
+    WINTER_START_MMDD:          1017,
+    SUMMER_START_MMDD:          415,
+    SUMMER_TARIFF_TIER:         1,
+    WINTER_TARIFF_TIER:         2,
+    SUMMER_NIGHT_BONUS_PCT:     46,
+    WINTER_NIGHT_BONUS_PCT:     30,
+    TARIFF_TIER_MARGIN_W:       50,
+    TARIFF_NIGHT_BILLING_PCT:   70,
+    TARIFF_SEASON_FORCE:        0,
+    GRID_NOMINAL_VOLTAGE:       230,
+    GRID_CURRENT_HEADROOM_PCT:  10,
+    GRID_CURRENT_MAX_A:         32,
     // Charge
     MAX_CHARGE_CURRENT:         25,
     RESTORE_AH_DEADBAND:        0.5,
@@ -56,11 +67,27 @@ const DEFAULTS = {
 // Groups for the UI
 const GROUPS = [
     {
-        key: 'schedule',
-        label: 'Grid Setpoint Schedule',
+        key: 'tariff_season',
+        label: 'Capacity Tariff Season (summer / winter)',
         fields: [
-            { key: 'DAY_BASE_GRID_SETPOINT',   label: 'Day base setpoint',   unit: 'W',   step: 10,  min: 500,  max: 5000 },
-            { key: 'NIGHT_BASE_GRID_SETPOINT',  label: 'Night base setpoint', unit: 'W',   step: 10,  min: 500,  max: 5000 },
+            { key: 'WINTER_START_MMDD',         label: 'Winter starts (MMDD, 1017 = 17 Oct)', unit: '',  step: 1,   min: 101, max: 1231 },
+            { key: 'SUMMER_START_MMDD',         label: 'Summer starts (MMDD, 415 = 15 Apr)',  unit: '',  step: 1,   min: 101, max: 1231 },
+            { key: 'SUMMER_TARIFF_TIER',        label: 'Summer tier (1 = 0-2 kW)',            unit: '',  step: 1,   min: 1,   max: 6    },
+            { key: 'WINTER_TARIFF_TIER',        label: 'Winter tier (2 = 2-5 kW)',            unit: '',  step: 1,   min: 1,   max: 6    },
+            { key: 'SUMMER_NIGHT_BONUS_PCT',    label: 'Summer night extra (22-06)',          unit: '%', step: 1,   min: 0,   max: 60   },
+            { key: 'WINTER_NIGHT_BONUS_PCT',    label: 'Winter night extra (22-06)',          unit: '%', step: 1,   min: 0,   max: 60   },
+            { key: 'TARIFF_TIER_MARGIN_W',      label: 'Day setpoint margin below tier',      unit: 'W', step: 10,  min: 0,   max: 1000 },
+            { key: 'TARIFF_NIGHT_BILLING_PCT',  label: 'Night billing weight',                unit: '%', step: 1,   min: 10,  max: 100  },
+            { key: 'TARIFF_SEASON_FORCE',       label: 'Season mode (0 auto, 1 summer, 2 winter)', unit: '', step: 1, min: 0, max: 2    },
+            { key: 'GRID_NOMINAL_VOLTAGE',      label: 'Grid voltage for current calc',       unit: 'V', step: 1,   min: 200, max: 250  },
+            { key: 'GRID_CURRENT_HEADROOM_PCT', label: 'Grid current headroom over setpoint', unit: '%', step: 1,   min: 0,   max: 30   },
+            { key: 'GRID_CURRENT_MAX_A',        label: 'Max grid input current (fuse)',       unit: 'A', step: 0.5, min: 5,   max: 50   }
+        ]
+    },
+    {
+        key: 'schedule',
+        label: 'Grid Setpoint Limits',
+        fields: [
             { key: 'MIN_GRID_SETPOINT',         label: 'Minimum grid setpoint', unit: 'W', step: 10,  min: 50,   max: 1000 },
             { key: 'MAX_GRID_STEP_W',           label: 'Max smoothing step',  unit: 'W',   step: 10,  min: 10,   max: 500  }
         ]
