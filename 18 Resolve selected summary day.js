@@ -18,6 +18,7 @@
 // 2. The command is single-quoted for the exec node, which now runs `sh -c <payload>`
 //    (before, `-c` was appended after the payload, so `sh` tried to open a script named `cat`
 //    and only the energy-*.log fallback ran).
+// 3. Also prints the selected day's rows from the monthly `energy-YYYY-MM.csv`.
 // ==========================
 function todayKeyFromDate(date) {
     return [
@@ -63,7 +64,9 @@ flow.set('dashboardSelectedDate', selectedDate);
 
 const summaryFileName = '/data/home/nodered/grid-control-logs/summary-' + selectedDate + '.log';
 const energyFileName = '/data/home/nodered/grid-control-logs/energy-' + selectedDate + '.log';
-const shellCommand = 'cat "' + summaryFileName + '" 2>/dev/null || cat "' + energyFileName + '" 2>/dev/null || printf ""';
+const monthCsvFileName = '/data/home/nodered/grid-control-logs/energy-' + selectedDate.substring(0, 7) + '.csv';
+// Legacy daily file first, then the day's rows from the monthly CSV (later rows win per hour).
+const shellCommand = '{ cat "' + summaryFileName + '" 2>/dev/null || cat "' + energyFileName + '" 2>/dev/null; }; grep "^' + selectedDate + ' " "' + monthCsvFileName + '" 2>/dev/null; true';
 
 return [
     {

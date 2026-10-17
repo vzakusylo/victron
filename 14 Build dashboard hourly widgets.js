@@ -18,6 +18,7 @@
 // 1. Initial version.
 // 2. Added Sol Wh column: parses optional '| Sol NWh' from energy/summary log files;
 //    carries solarWh per row; adds Solar Wh chart series; shows solar in summary and live text.
+// 3. Also parses rows of the monthly `energy-YYYY-MM.csv` (`YYYY-MM-DD HH,grid,ac,sol,...`).
 // ==========================
 function todayKeyFromDate(date) {
     return [
@@ -57,7 +58,9 @@ function parseSummaryText(rawText, dateKey) {
     if (typeof rawText === 'string' && rawText.trim()) {
         rawText.split(/\r?\n/).forEach(line => {
             const trimmed = line.trim();
-            const match = trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \| Grid ([-]?\d+)Wh \| AC ([-]?\d+)Wh(?:\s*\|\s*Sol\s*([-]?\d+)Wh)?/);
+            const legacyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \| Grid ([-]?\d+)Wh \| AC ([-]?\d+)Wh(?:\s*\|\s*Sol\s*([-]?\d+)Wh)?/);
+            const csvMatch = legacyMatch ? null : trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),([-]?\d+),([-]?\d+),([-]?\d+)/);
+            const match = legacyMatch || (csvMatch ? [csvMatch[0], csvMatch[1], csvMatch[2] + ':00', csvMatch[3], csvMatch[4], csvMatch[5]] : null);
 
             if (!match || match[1] !== dateKey) {
                 return;
@@ -107,7 +110,7 @@ const todayKey = todayKeyFromDate(new Date());
 const selectedDate = flow.get('dashboardSelectedDate') || todayKey;
 const summaryFileName = '/data/home/nodered/grid-control-logs/summary-' + selectedDate + '.log';
 const energyFileName = '/data/home/nodered/grid-control-logs/energy-' + selectedDate + '.log';
-const selectedFileName = summaryFileName + ' | fallback ' + energyFileName;
+const selectedFileName = summaryFileName + ' | fallback ' + energyFileName + ' | energy-' + selectedDate.substring(0, 7) + '.csv';
 
 if (msg.topic === 'selected-day-summary-loading') {
     flow.set('dashboardSelectedRawFile', {

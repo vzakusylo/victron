@@ -283,6 +283,26 @@ Meaning:
 
 If tracking started exactly at the top of the hour, the status also shows the remaining average watts left in the hour. This is informational only and does not change any outputs.
 
+### Energy history files
+
+Every closed hour is appended to one CSV per month, `/data/home/nodered/grid-control-logs/energy-YYYY-MM.csv`:
+
+```
+hour,grid_wh,ac_wh,sol_wh,bill_wh,peak_w,setpoint_w,season,min
+2026-10-17 22,2450,2432,0,1715,2610,6440,W,60
+```
+
+- `bill_wh` = grid Wh as counted for the capacity tier (night hours × night billing %)
+- `peak_w` = highest grid import W in the hour
+- `setpoint_w` / `season` (`S`/`W`) = the season plan for that hour
+- `min` = minutes actually integrated (60 = full hour, less after a restart or redeploy)
+
+Notes:
+
+- nothing is deleted any more: the 45-day cleanup (`Daily cleanup midnight` → `Delete logs older than 45 days`) is disabled so the full history is kept
+- legacy daily files (`energy-YYYY-MM-DD.log`, `summary-YYYY-MM-DD.log`) stay on disk and are still read by the Energy tab and by the controller; new hours are only written to the CSV
+- after every start/redeploy the controller reads the month's CSV + legacy logs (output 7 → `Read month energy history`) and restores today's grid kWh and the month's top-3 day peaks
+
 ## 6. AC Force Charging with voltage limiter
 
 The controller supports direct AC-assisted battery charging (`FORCE-CHARGE` window).
