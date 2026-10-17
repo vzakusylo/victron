@@ -31,9 +31,9 @@
 // 4. Grid charging happens only in NIGHT and MORNING windows and runs at 25A when needed.
 // 5. Night charging starts only when the remaining deficit can no longer be covered by
 //    the remaining MORNING window alone; MORNING charges any remaining grid deficit.
-// 6. Base grid setpoint schedule:
-//    - 2850W at night
-//    - 1950W during the rest of the day
+// 6. Base grid setpoint schedule (see item 26, now derived from the tariff season):
+//    - summer (tier 1): 2850W at night, 1950W during the rest of the day
+//    - winter (tier 2): 6440W at night, 4950W during the rest of the day
 // 7. High-voltage protection for unknown external MPPT charging:
 //    - start limiting when battery voltage rises above 55.4V
 //    - release only after voltage drops back to 55.2V or lower
@@ -56,7 +56,7 @@
 //    - high-voltage limit
 // 12. Grid setpoint reduction due to battery over-voltage is smoothed so the battery does not
 //     see large sudden load changes.
-// 13. VE.Bus Input 1 current limit is no longer controlled by this function.
+// 13. VE.Bus Input 1 current limit is controlled again by this function (output 3), see item 26.
 // 14. A VRM notification is emitted when the grid setpoint changes.
 // 15. `boostActive`, `activeWindow`, battery voltage, grid power, and display-only hourly Wh are
 //     all stored in context.
@@ -102,6 +102,18 @@
 //     - the guard releases itself once the boost decays to 0 (grid import stays above the minimum
 //       without help); it overrides every other window including HV taper and manual discharge
 //     - shown as `EXP:+<boost>W` in status/notifications and as `exportGuard` in the trace
+// 26. Capacity tariff seasons (summer / winter) with automatic switch dates.
+//     - winter from WINTER_START_MMDD (default 1017 = 17 Oct), summer from SUMMER_START_MMDD (default 415)
+//     - each season targets a tier (summer 1 = <=2 kW, winter 2 = <=5 kW); `TARIFF_SEASON_FORCE` 1/2 pins it
+//     - day setpoint = tier limit - TARIFF_TIER_MARGIN_W; night setpoint = day + season night extra %
+//       (night hours are billed at TARIFF_NIGHT_BILLING_PCT, so +30 % still bills below the tier)
+//     - hourly budget = the season setpoint; the VE.Bus input current limit (output 3) is the setpoint
+//       + GRID_CURRENT_HEADROOM_PCT at GRID_NOMINAL_VOLTAGE, rounded to 0.5 A, capped at GRID_CURRENT_MAX_A;
+//       it is sent when it changes and re-asserted on every hour rollover
+//     - constants are read live from flow `controllerConstantsOverrides` (Constants dashboard page)
+//     - daily grid import, today's billable peak hour, energy left today at the season plan and the
+//       month's top-3-day average (= tier the month is heading for) are tracked in context
+//       `tariffDay` / `tariffMonth`, shown in status and exported as `tariff` in the trace
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -125,10 +137,27 @@ const RESTORE_AH_DEADBAND = 0.5;
 
 const SOLAR_FORECAST_MAX_AGE_HOURS = 18;
 
-const DAY_BASE_GRID_SETPOINT = 1950;
-const NIGHT_BASE_GRID_SETPOINT = 2850;
-const DAY_HOURLY_BUDGET_W = 1950;
-const NIGHT_HOURLY_BUDGET_W = 2850;
+// Elvenett kapasitetsledd tiers: upper bound of the monthly average (W) for tier 1..6.
+// Tier = average of the 3 highest hourly imports on 3 different days of the month.
+const TARIFF_TIER_LIMITS_W = [2000, 5000, 10000, 15000, 20000, 25000];
+// Season / tier constants. Every key can be overridden on the dashboard Constants page
+// (flow `controllerConstantsOverrides`, written by "Build/Save controller constants").
+// Day setpoint = tier limit - margin; night setpoint = day setpoint + night extra %.
+// Summer defaults reproduce the old fixed schedule: 1950 W day / 2850 W night (tier 1).
+const DEFAULT_TARIFF_CONSTANTS = Object.freeze({
+    WINTER_START_MMDD: 1017,
+    SUMMER_START_MMDD: 415,
+    SUMMER_TARIFF_TIER: 1,
+    WINTER_TARIFF_TIER: 2,
+    SUMMER_NIGHT_BONUS_PCT: 46,
+    WINTER_NIGHT_BONUS_PCT: 30,
+    TARIFF_TIER_MARGIN_W: 50,
+    TARIFF_NIGHT_BILLING_PCT: 70,
+    TARIFF_SEASON_FORCE: 0,
+    GRID_NOMINAL_VOLTAGE: 230,
+    GRID_CURRENT_HEADROOM_PCT: 10,
+    GRID_CURRENT_MAX_A: 32
+});
 
 const DEFAULT_HIGH_VOLTAGE_SETTINGS = Object.freeze({
     enabled: true,
@@ -697,6 +726,121 @@ function advanceHourBudget(state, date, importPowerW) {
     return nextState;
 }
 
+function isValidMmdd(value) {
+    if (!Number.isInteger(value)) {
+        return false;
+    }
+
+    const month = Math.floor(value / 100);
+    const day = value % 100;
+    // 2024 is a leap year, so 29 Feb is accepted.
+    return month >= 1 && month <= 12 && day >= 1 && day <= new Date(2024, month, 0).getDate();
+}
+
+function getTariffConstants() {
+    const overrides = flow.get("controllerConstantsOverrides") || {};
+    const read = key => {
+        const value = Number(overrides[key]);
+        return Object.prototype.hasOwnProperty.call(overrides, key) && Number.isFinite(value)
+            ? value
+            : DEFAULT_TARIFF_CONSTANTS[key];
+    };
+    const readInt = (key, min, max) => {
+        const value = Math.round(read(key));
+        return value >= min && value <= max ? value : DEFAULT_TARIFF_CONSTANTS[key];
+    };
+    const readMmdd = key => {
+        const value = Math.round(read(key));
+        return isValidMmdd(value) ? value : DEFAULT_TARIFF_CONSTANTS[key];
+    };
+
+    return {
+        WINTER_START_MMDD: readMmdd("WINTER_START_MMDD"),
+        SUMMER_START_MMDD: readMmdd("SUMMER_START_MMDD"),
+        SUMMER_TARIFF_TIER: readInt("SUMMER_TARIFF_TIER", 1, TARIFF_TIER_LIMITS_W.length),
+        WINTER_TARIFF_TIER: readInt("WINTER_TARIFF_TIER", 1, TARIFF_TIER_LIMITS_W.length),
+        SUMMER_NIGHT_BONUS_PCT: clamp(read("SUMMER_NIGHT_BONUS_PCT"), 0, 100),
+        WINTER_NIGHT_BONUS_PCT: clamp(read("WINTER_NIGHT_BONUS_PCT"), 0, 100),
+        TARIFF_TIER_MARGIN_W: clamp(read("TARIFF_TIER_MARGIN_W"), 0, 1000),
+        TARIFF_NIGHT_BILLING_PCT: clamp(read("TARIFF_NIGHT_BILLING_PCT"), 10, 100),
+        TARIFF_SEASON_FORCE: readInt("TARIFF_SEASON_FORCE", 0, 2),
+        GRID_NOMINAL_VOLTAGE: clamp(read("GRID_NOMINAL_VOLTAGE"), 200, 250),
+        GRID_CURRENT_HEADROOM_PCT: clamp(read("GRID_CURRENT_HEADROOM_PCT"), 0, 30),
+        GRID_CURRENT_MAX_A: clamp(read("GRID_CURRENT_MAX_A"), 5, 50)
+    };
+}
+
+function isNightHour(hourOfDay) {
+    return hourOfDay >= 22 || hourOfDay < 6;
+}
+
+function getBillingFactor(hourOfDay, tariffConstants) {
+    return isNightHour(hourOfDay) ? tariffConstants.TARIFF_NIGHT_BILLING_PCT / 100 : 1;
+}
+
+function formatMmdd(value) {
+    return String(value % 100).padStart(2, "0") + "." + String(Math.floor(value / 100)).padStart(2, "0");
+}
+
+function getTariffSeason(date, tariffConstants) {
+    const mmdd = (date.getMonth() + 1) * 100 + date.getDate();
+    const winterStart = tariffConstants.WINTER_START_MMDD;
+    const summerStart = tariffConstants.SUMMER_START_MMDD;
+    const autoWinter = winterStart > summerStart
+        ? (mmdd >= winterStart || mmdd < summerStart)
+        : (mmdd >= winterStart && mmdd < summerStart);
+    const forced = tariffConstants.TARIFF_SEASON_FORCE;
+    const winter = forced === 2 ? true : (forced === 1 ? false : autoWinter);
+    const nextMmdd = autoWinter ? summerStart : winterStart;
+    const nextSwitch = new Date(date.getFullYear(), Math.floor(nextMmdd / 100) - 1, nextMmdd % 100);
+
+    if (nextSwitch.getTime() <= date.getTime()) {
+        nextSwitch.setFullYear(nextSwitch.getFullYear() + 1);
+    }
+
+    return {
+        winter,
+        mode: forced === 0 ? "auto" : "forced",
+        nextSwitchKey: winterStart === summerStart ? "" : getDayKey(nextSwitch),
+        nextSeason: autoWinter ? "SUMMER" : "WINTER"
+    };
+}
+
+// Safe VE.Bus input current: setpoint + headroom at nominal grid voltage, rounded to 0.5 A.
+// The ESS loop holds the setpoint; the current limit is only the hard backstop for spikes.
+function getGridCurrentForSetpoint(setpointW, tariffConstants) {
+    const rawA = setpointW * (1 + tariffConstants.GRID_CURRENT_HEADROOM_PCT / 100) / tariffConstants.GRID_NOMINAL_VOLTAGE;
+    return clamp(Math.round(rawA * 2) / 2, 1, tariffConstants.GRID_CURRENT_MAX_A);
+}
+
+function buildSeasonProfile(winter, tariffConstants) {
+    const tier = winter ? tariffConstants.WINTER_TARIFF_TIER : tariffConstants.SUMMER_TARIFF_TIER;
+    const tierLimitW = TARIFF_TIER_LIMITS_W[tier - 1];
+    const nightBonusPct = winter ? tariffConstants.WINTER_NIGHT_BONUS_PCT : tariffConstants.SUMMER_NIGHT_BONUS_PCT;
+    const daySetpointW = Math.max(MIN_GRID_SETPOINT, Math.round(tierLimitW - tariffConstants.TARIFF_TIER_MARGIN_W));
+    const nightSetpointW = Math.round(daySetpointW * (1 + nightBonusPct / 100) / 10) * 10;
+    const nightBillableW = Math.round(nightSetpointW * tariffConstants.TARIFF_NIGHT_BILLING_PCT / 100);
+
+    return {
+        season: winter ? "WINTER" : "SUMMER",
+        startMmdd: winter ? tariffConstants.WINTER_START_MMDD : tariffConstants.SUMMER_START_MMDD,
+        tier,
+        tierLimitW,
+        nightBonusPct,
+        daySetpointW,
+        nightSetpointW,
+        nightBillableW,
+        nightOverTier: nightBillableW > tierLimitW,
+        dayCurrentA: getGridCurrentForSetpoint(daySetpointW, tariffConstants),
+        nightCurrentA: getGridCurrentForSetpoint(nightSetpointW, tariffConstants)
+    };
+}
+
+function getTierForAverageW(averageW) {
+    const index = TARIFF_TIER_LIMITS_W.findIndex(limitW => averageW <= limitW);
+    return index === -1 ? TARIFF_TIER_LIMITS_W.length + 1 : index + 1;
+}
+
 function smoothReduction(previousValue, targetValue, maxStep) {
     if (!Number.isFinite(previousValue)) {
         return targetValue;
@@ -818,6 +962,9 @@ function buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             manualDischarge,
             voltageLimitActive,
             baseScheduleSetpoint,
+            gridCurrentLimitA,
+            gridCurrentLimitSent: sendGridCurrentLimit,
+            tariff: tariffView,
             requestedGridSetpoint,
             voltageLimitedSetpoint,
             finalGridSetpoint: gridSetpoint,
@@ -875,10 +1022,12 @@ function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
             topic: "grid-setpoint",
             payload: gridSetpoint
         },
-        {
-            topic: "ac-input-current-limit",
-            payload: null
-        },
+        sendGridCurrentLimit
+            ? {
+                topic: "ac-input-current-limit",
+                payload: gridCurrentLimitA
+            }
+            : null,
         notifyMsg,
         hourlyLogMsg || null,
         traceMsg
@@ -898,6 +1047,50 @@ hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
 acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
 solarBudget = advanceHourBudget(solarBudget, now, solarGenerationW);
 const hourRolledOver = prevHourKey && prevHourKey !== hourBudget.hourKey;
+
+// ==========================
+// DAILY GRID ENERGY / CAPACITY TIER TRACKING
+// ==========================
+// Closed hours are folded into the day total and the month's per-day billable peak.
+// Night hours count at TARIFF_NIGHT_BILLING_PCT, like Elvenett does for kapasitetsledd.
+const tariffConstants = getTariffConstants();
+const todayKey = hourBudget.hourKey.substring(0, 10);
+const emptyTariffDay = dayKey => ({ dayKey, gridWh: 0, peakBillableWh: 0, peakHourKey: "" });
+let tariffDay = context.get("tariffDay") || emptyTariffDay("");
+let tariffMonth = context.get("tariffMonth") || { monthKey: "", dayPeaks: {} };
+
+if (hourRolledOver) {
+    const closedDayKey = prevHourKey.substring(0, 10);
+    const closedBillableWh = prevHourGridWh * getBillingFactor(Number(prevHourKey.substring(11, 13)), tariffConstants);
+
+    if (tariffDay.dayKey !== closedDayKey) {
+        tariffDay = emptyTariffDay(closedDayKey);
+    }
+
+    tariffDay.gridWh = Math.round((Number(tariffDay.gridWh) || 0) + prevHourGridWh);
+
+    if (closedBillableWh > (Number(tariffDay.peakBillableWh) || 0)) {
+        tariffDay.peakBillableWh = Math.round(closedBillableWh);
+        tariffDay.peakHourKey = prevHourKey;
+    }
+
+    if (tariffMonth.monthKey !== closedDayKey.substring(0, 7)) {
+        tariffMonth = { monthKey: closedDayKey.substring(0, 7), dayPeaks: {} };
+    }
+
+    tariffMonth.dayPeaks[closedDayKey] = Math.max(Number(tariffMonth.dayPeaks[closedDayKey]) || 0, Math.round(closedBillableWh));
+}
+
+if (tariffDay.dayKey !== todayKey) {
+    tariffDay = emptyTariffDay(todayKey);
+}
+
+if (tariffMonth.monthKey !== todayKey.substring(0, 7)) {
+    tariffMonth = { monthKey: todayKey.substring(0, 7), dayPeaks: {} };
+}
+
+context.set("tariffDay", tariffDay);
+context.set("tariffMonth", tariffMonth);
 
 if (msg.topic === BATTERY_TOPIC) {
     const incomingVoltage = Number(msg.payload);
@@ -1001,8 +1194,17 @@ const morningWindow =
 
 const eveningWindow = hour >= 17;
 
-const baseScheduleSetpoint = nightWindow ? NIGHT_BASE_GRID_SETPOINT : DAY_BASE_GRID_SETPOINT;
-const hourlyBudgetLimit = nightWindow ? NIGHT_HOURLY_BUDGET_W : DAY_HOURLY_BUDGET_W;
+const tariffSeason = getTariffSeason(now, tariffConstants);
+const summerProfile = buildSeasonProfile(false, tariffConstants);
+const winterProfile = buildSeasonProfile(true, tariffConstants);
+const seasonProfile = tariffSeason.winter ? winterProfile : summerProfile;
+const baseScheduleSetpoint = nightWindow ? seasonProfile.nightSetpointW : seasonProfile.daySetpointW;
+const hourlyBudgetLimit = baseScheduleSetpoint;
+const gridCurrentLimitA = nightWindow ? seasonProfile.nightCurrentA : seasonProfile.dayCurrentA;
+const previousGridCurrentLimitA = Number(context.get("gridCurrentLimitA"));
+// Sent on change and re-asserted every hour so a Multi restart or manual edit is corrected.
+const sendGridCurrentLimit = previousGridCurrentLimitA !== gridCurrentLimitA || Boolean(hourRolledOver);
+context.set("gridCurrentLimitA", gridCurrentLimitA);
 const highVoltageSettings = getHighVoltageSettings();
 const highVoltageProtectionEnabled = Boolean(highVoltageSettings.enabled);
 const highVoltageGridSupportW = Math.round(highVoltageSettings.gridSupportW || 0);
@@ -1372,6 +1574,59 @@ const remainingAverageW = Math.round(remainingWh / hoursLeftInHour);
 const remainingAverageText = hourBudget.fullHourCoverage
     ? ` | ${remainingAverageW}W left`
     : "";
+
+// Live tariff view: today's import, energy still allowed today at the season plan, billable peaks.
+const liveHourBillableWh = usedWh * getBillingFactor(hour, tariffConstants);
+const todayGridWh = (Number(tariffDay.gridWh) || 0) + usedWh;
+const todayPeakBillableWh = Math.max(Number(tariffDay.peakBillableWh) || 0, liveHourBillableWh);
+let todayRemainingWh = remainingWh;
+
+for (let futureHour = hour + 1; futureHour < 24; futureHour += 1) {
+    todayRemainingWh += isNightHour(futureHour) ? seasonProfile.nightSetpointW : seasonProfile.daySetpointW;
+}
+
+const monthDayPeaks = Object.assign({}, tariffMonth.dayPeaks);
+monthDayPeaks[todayKey] = Math.max(Number(monthDayPeaks[todayKey]) || 0, Math.round(todayPeakBillableWh));
+const monthTopPeaksWh = Object.keys(monthDayPeaks)
+    .map(dayKey => Number(monthDayPeaks[dayKey]) || 0)
+    // A day without import yet (e.g. just after midnight) must not dilute the average.
+    .filter(value => value > 0)
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+const monthTop3AverageW = monthTopPeaksWh.length > 0
+    ? Math.round(monthTopPeaksWh.reduce((sum, value) => sum + value, 0) / monthTopPeaksWh.length)
+    : 0;
+const monthTier = getTierForAverageW(monthTop3AverageW);
+const tariffView = {
+    season: seasonProfile.season,
+    seasonMode: tariffSeason.mode,
+    nextSeason: tariffSeason.nextSeason,
+    nextSwitchKey: tariffSeason.nextSwitchKey,
+    winterStart: formatMmdd(tariffConstants.WINTER_START_MMDD),
+    summerStart: formatMmdd(tariffConstants.SUMMER_START_MMDD),
+    nightBillingPct: tariffConstants.TARIFF_NIGHT_BILLING_PCT,
+    tier: seasonProfile.tier,
+    tierLimitW: seasonProfile.tierLimitW,
+    gridCurrentLimitA,
+    summer: summerProfile,
+    winter: winterProfile,
+    todayKey,
+    todayGridWh: Math.round(todayGridWh),
+    todayRemainingWh: Math.round(todayRemainingWh),
+    hourRemainingWh: Math.round(remainingWh),
+    todayPeakBillableWh: Math.round(todayPeakBillableWh),
+    todayPeakHourKey: liveHourBillableWh >= (Number(tariffDay.peakBillableWh) || 0) ? hourBudget.hourKey : tariffDay.peakHourKey,
+    todayPeakHeadroomWh: Math.round(seasonProfile.tierLimitW - todayPeakBillableWh),
+    monthKey: tariffMonth.monthKey,
+    monthTrackedDays: Object.keys(monthDayPeaks).length,
+    monthTopPeaksWh,
+    monthTop3AverageW,
+    monthTier,
+    monthFitsTier: monthTier <= seasonProfile.tier
+};
+const tariffText = ` | ${seasonProfile.season === "WINTER" ? "WIN" : "SUM"} T${seasonProfile.tier} ${gridCurrentLimitA}A`
+    + ` | Day ${(todayGridWh / 1000).toFixed(1)}kWh left ${(todayRemainingWh / 1000).toFixed(1)}kWh`
+    + ` | Month T${monthTier}`;
 const estimatedDischargeW = manualDischargeEnabled
     ? Math.max(0, Math.round(Math.max(0, storedAcLoadPowerW) - finalGridSetpoint))
     : 0;
@@ -1465,7 +1720,7 @@ const manualText = manualDischarge.active
 node.status({
     fill,
     shape: finalChargeCurrent > 0 || finalGridSetpoint !== 0 ? "dot" : "ring",
-    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText}${manualText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${dcPowerText}${forecastText}${flagsText}`
+    text: `${windowName} | V=${batteryVoltage.toFixed(2)}V | ${finalChargeCurrent}A | ${finalGridSetpoint}W${restoreText}${manualText} | Grid ${usedEnergyStartLabel}-${usedEnergyEndLabel} ${Math.round(usedWh)}Wh | AC ${Math.round(acUsedWh)}Wh${remainingAverageText}${tariffText}${dcPowerText}${forecastText}${flagsText}`
 });
 
 const hourlyLogMsg = hourRolledOver

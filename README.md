@@ -45,11 +45,11 @@ Flow versioning rule:
 
 The main operational goal is to keep hourly raw grid import under practical limits that fit Norwegian capacity-based network tariffs, while still charging the battery when needed.
 
-The current design target is:
+The current design target depends on the tariff season (switched automatically by date):
 
-- daytime raw import target `1950 W`
-- night raw import target `2850 W`
-- night is allowed to be higher because this project was tuned around an Elvenett-style reduced night weighting factor
+- summer (from 15 Apr, tier 1 ≤ 2 kW): day `1950 W` / `9.5 A`, night `2850 W` / `13.5 A`
+- winter (from 17 Oct, tier 2 ≤ 5 kW): day `4950 W` / `23.5 A`, night `6440 W` / `31 A` (+30 %)
+- night is allowed to be higher because this project was tuned around an Elvenett-style reduced night weighting factor (`0.7`)
 
 This logic is especially useful when:
 
@@ -160,10 +160,31 @@ The battery charging logic now uses the BMS `Consumed Amphours` value as the net
 
 ## 2. Grid setpoint schedule
 
-Base target:
+Base target (derived from the active tariff season, see below):
 
-- day: `1950 W`
-- night: `2850 W`
+- summer: day `1950 W`, night `2850 W`
+- winter: day `4950 W`, night `6440 W`
+
+### Tariff seasons (summer / winter)
+
+In winter the house load is too high to stay in tier 1 (≤ 2 kW), so the controller switches to a winter profile that targets tier 2 (≤ 5 kW).
+
+- winter starts on `WINTER_START_MMDD` (default `1017` = 17 Oct), summer on `SUMMER_START_MMDD` (default `415` = 15 Apr)
+- each season has its own tier (`SUMMER_TARIFF_TIER` = 1, `WINTER_TARIFF_TIER` = 2); `TARIFF_SEASON_FORCE` = 1/2 pins summer/winter
+- day setpoint = tier limit − `TARIFF_TIER_MARGIN_W` (50 W); night setpoint = day setpoint + season night extra (summer 46 %, winter 30 %)
+- night hours are billed at `TARIFF_NIGHT_BILLING_PCT` (70 %), so the winter night `6440 W` bills as `4508 W`, under the 5 kW limit
+- the hourly budget equals the season setpoint
+- VE.Bus input current limit (controller output 3, replaces the fixed 06:00/22:00 inject values) = setpoint × (1 + `GRID_CURRENT_HEADROOM_PCT` 10 %) / `GRID_NOMINAL_VOLTAGE` 230 V, rounded to 0.5 A and capped at `GRID_CURRENT_MAX_A` (32 A, set this to your main fuse)
+  - summer: `9.5 A` day / `13.5 A` night (same as before); winter: `23.5 A` day / `31 A` night
+  - sent when the value changes and re-asserted every hour
+- all of these are editable on the Constants page and apply live, without redeploy
+
+Daily and monthly tracking (node status, trace `tariff`, Analytics "Capacity tariff" card):
+
+- grid import today (kWh) and how much is still left today if every remaining hour stays at the season plan
+- today's highest billable hour (night × 0.7) and the headroom to the tier limit
+- the month's top-3 day peaks and their average = the tier the month is heading for (green = fits the season tier)
+- `tariffDay` / `tariffMonth` live in the controller context, so the month history restarts after a Node-RED restart unless a persistent context store is configured
 
 This is only the starting point. The controller may lower it further if:
 
@@ -300,7 +321,8 @@ The `Constants` tab provides a runtime editor for all hardcoded controller const
 
 Groups shown:
 
-- **Grid Setpoint Schedule** — day/night base setpoints, min setpoint, max smoothing step
+- **Capacity Tariff Season** — winter/summer start dates (MMDD), tier per season, night extra %, day margin, night billing weight, season mode, grid voltage / current headroom / max input current (read live by the controller)
+- **Grid Setpoint Limits** — min setpoint, max smoothing step
 - **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage
 - **Solar Forecast** — solar-to-battery efficiency, max forecast age
 - **Manual Discharge** — max discharge current, auto-stop voltage, min grid during discharge, max AC load
@@ -563,10 +585,15 @@ Example project math:
 
 - `2.85 kW raw * 0.7 = 1.995 kW effective`
 
-This is why the repository uses:
+This is why the repository uses in summer (tier 1):
 
 - day base setpoint: `1950 W`
 - night base setpoint: `2850 W`
+
+and in winter (tier 2, `6.44 kW raw * 0.7 = 4.51 kW effective`):
+
+- day base setpoint: `4950 W`
+- night base setpoint: `6440 W`
 
 ---
 

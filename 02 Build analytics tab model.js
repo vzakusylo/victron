@@ -34,6 +34,9 @@
 // 5. Added PV routing totals.
 //    Routing uses a no-export proxy that matches the controller's non-negative grid-import behavior:
 //    PV->Load = min(PV, load), PV->Battery = max(0, PV - load), PV->Grid = 0.
+// 6. Added capacity tariff card data (`kpiPayload.tariff`) from the controller trace `tariff` block:
+//    active season/tier, today's grid import, energy left today at the season plan, today's billable
+//    peak hour, the month's top-3-day average tier, and both season profiles (setpoints + grid current).
 // ==========================
 
 if (msg.topic === 'controller-trace' && msg.payload) {
@@ -288,8 +291,58 @@ const efficiencyPct = totalInputW > 50
     ? Math.round(Math.min(100, liveAcW / totalInputW * 100) * 10) / 10
     : null;
 const lossesW = totalInputW > 50 ? Math.max(0, totalInputW - liveAcW) : null;
+function kwText(watts) {
+    return (Math.max(0, Number(watts) || 0) / 1000).toFixed(2);
+}
+
+function formatProfile(profile) {
+    if (!profile) {
+        return '';
+    }
+
+    return `tier ${profile.tier} (≤${kwText(profile.tierLimitW).replace(/\.?0+$/, '')} kW) | day ${profile.daySetpointW} W / ${profile.dayCurrentA} A`
+        + ` | night +${profile.nightBonusPct}% ${profile.nightSetpointW} W / ${profile.nightCurrentA} A (billed ${profile.nightBillableW} W)`;
+}
+
+function buildTariffView(tariff) {
+    if (!tariff || !tariff.summer || !tariff.winter) {
+        return null;
+    }
+
+    const headroomWh = Number(tariff.todayPeakHeadroomWh) || 0;
+    const peakHour = String(tariff.todayPeakHourKey || '').substring(11, 13);
+
+    return {
+        season: tariff.season,
+        isWinter: tariff.season === 'WINTER',
+        tier: tariff.tier,
+        tierLimitKW: kwText(tariff.tierLimitW).replace(/\.?0+$/, ''),
+        gridCurrentLimitA: tariff.gridCurrentLimitA,
+        todayGridKWh: kwText(tariff.todayGridWh),
+        todayRemainingKWh: kwText(tariff.todayRemainingWh),
+        hourRemainingWh: Math.round(Number(tariff.hourRemainingWh) || 0),
+        todayPeakKW: kwText(tariff.todayPeakBillableWh),
+        todayPeakHour: peakHour ? peakHour + ':00' : '—',
+        todayPeakHeadroomKW: (headroomWh / 1000).toFixed(2),
+        todayPeakOk: headroomWh >= 0,
+        monthKey: tariff.monthKey,
+        monthTrackedDays: tariff.monthTrackedDays,
+        monthTop3KW: (tariff.monthTopPeaksWh || []).map(kwText).join(' / ') || '—',
+        monthTop3AverageKW: kwText(tariff.monthTop3AverageW),
+        monthTier: tariff.monthTier,
+        monthFitsTier: Boolean(tariff.monthFitsTier),
+        summerText: `Summer from ${tariff.summerStart}: ${formatProfile(tariff.summer)}`,
+        winterText: `Winter from ${tariff.winterStart}: ${formatProfile(tariff.winter)}`,
+        nightOverTier: Boolean(tariff.summer.nightOverTier || tariff.winter.nightOverTier),
+        switchText: tariff.seasonMode === 'forced'
+            ? 'Season forced on the Constants page (TARIFF_SEASON_FORCE)'
+            : (tariff.nextSwitchKey ? `Auto: ${tariff.nextSeason} from ${tariff.nextSwitchKey}` : 'Auto: summer all year (same start dates)')
+    };
+}
+
 const kpiPayload = {
     dateKey: todayKey,
+    tariff: buildTariffView(trace && trace.tariff),
     forecastSolarKWh: forecastSolarKWh.toFixed(2),
     actualSolarKWh: (totalSolarToday / 1000).toFixed(2),
     forecastLoadKWh: (forecastLoadTodayWh / 1000).toFixed(2),
@@ -347,7 +400,8 @@ const pendingPayload = {
         'hourly AC Wh',
         'live current-hour Grid/AC Wh and W',
         'controller diagnostics from trace',
-        'adaptive grid support budget and live support metrics'
+        'adaptive grid support budget and live support metrics',
+        'capacity tariff season, daily import and month tier'
     ],
     missing: [
         'battery to load/grid routing',

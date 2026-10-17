@@ -19,15 +19,25 @@
 // - output 2 -> status msg for the dashboard
 // Change notes:
 // 1. Initial version.
+// 2. Replaced the fixed day/night setpoint keys with the capacity tariff season keys.
+//    MMDD dates are validated as real calendar days; tiers and season mode must be integers.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/controller-constants.json';
 
 const DEFAULTS = {
-    DAY_BASE_GRID_SETPOINT:     1950,
-    NIGHT_BASE_GRID_SETPOINT:   2850,
-    DAY_HOURLY_BUDGET_W:        1950,
-    NIGHT_HOURLY_BUDGET_W:      2850,
+    WINTER_START_MMDD:          1017,
+    SUMMER_START_MMDD:          415,
+    SUMMER_TARIFF_TIER:         1,
+    WINTER_TARIFF_TIER:         2,
+    SUMMER_NIGHT_BONUS_PCT:     46,
+    WINTER_NIGHT_BONUS_PCT:     30,
+    TARIFF_TIER_MARGIN_W:       50,
+    TARIFF_NIGHT_BILLING_PCT:   70,
+    TARIFF_SEASON_FORCE:        0,
+    GRID_NOMINAL_VOLTAGE:       230,
+    GRID_CURRENT_HEADROOM_PCT:  10,
+    GRID_CURRENT_MAX_A:         32,
     MAX_CHARGE_CURRENT:         25,
     RESTORE_AH_DEADBAND:        0.5,
     BATTERY_NOMINAL_VOLTAGE:    52,
@@ -50,10 +60,18 @@ const DEFAULTS = {
 };
 
 const RANGES = {
-    DAY_BASE_GRID_SETPOINT:     { min: 500,  max: 5000 },
-    NIGHT_BASE_GRID_SETPOINT:   { min: 500,  max: 5000 },
-    DAY_HOURLY_BUDGET_W:        { min: 500,  max: 5000 },
-    NIGHT_HOURLY_BUDGET_W:      { min: 500,  max: 5000 },
+    WINTER_START_MMDD:          { min: 101,  max: 1231 },
+    SUMMER_START_MMDD:          { min: 101,  max: 1231 },
+    SUMMER_TARIFF_TIER:         { min: 1,    max: 6    },
+    WINTER_TARIFF_TIER:         { min: 1,    max: 6    },
+    SUMMER_NIGHT_BONUS_PCT:     { min: 0,    max: 60   },
+    WINTER_NIGHT_BONUS_PCT:     { min: 0,    max: 60   },
+    TARIFF_TIER_MARGIN_W:       { min: 0,    max: 1000 },
+    TARIFF_NIGHT_BILLING_PCT:   { min: 10,   max: 100  },
+    TARIFF_SEASON_FORCE:        { min: 0,    max: 2    },
+    GRID_NOMINAL_VOLTAGE:       { min: 200,  max: 250  },
+    GRID_CURRENT_HEADROOM_PCT:  { min: 0,    max: 30   },
+    GRID_CURRENT_MAX_A:         { min: 5,    max: 50   },
     MAX_CHARGE_CURRENT:         { min: 1,    max: 50   },
     RESTORE_AH_DEADBAND:        { min: 0,    max: 10   },
     BATTERY_NOMINAL_VOLTAGE:    { min: 40,   max: 60   },
@@ -69,6 +87,16 @@ const RANGES = {
     HEAVY_LOAD_RELEASE_W:      { min: 500,  max: 9000  },
     HEAVY_LOAD_GRID_SETPOINT_W: { min: 200, max: 3000  }
 };
+
+const MMDD_KEYS = ['WINTER_START_MMDD', 'SUMMER_START_MMDD'];
+const INTEGER_KEYS = MMDD_KEYS.concat(['SUMMER_TARIFF_TIER', 'WINTER_TARIFF_TIER', 'TARIFF_SEASON_FORCE']);
+
+function isValidMmdd(value) {
+    const month = Math.floor(value / 100);
+    const day = value % 100;
+    // 2024 is a leap year, so 29 Feb is accepted.
+    return month >= 1 && month <= 12 && day >= 1 && day <= new Date(2024, month, 0).getDate();
+}
 
 if (msg.topic !== 'save-controller-constants' || !msg.payload || typeof msg.payload !== 'object') {
     return null;
@@ -90,6 +118,14 @@ Object.keys(incoming).forEach(key => {
     const range = RANGES[key];
     if (range && (raw < range.min || raw > range.max)) {
         errors.push(`${key}: ${raw} out of range [${range.min}–${range.max}]`);
+        return;
+    }
+    if (INTEGER_KEYS.includes(key) && !Number.isInteger(raw)) {
+        errors.push(`${key}: ${raw} must be a whole number`);
+        return;
+    }
+    if (MMDD_KEYS.includes(key) && !isValidMmdd(raw)) {
+        errors.push(`${key}: ${raw} is not a valid MMDD date (e.g. 1017 = 17 Oct)`);
         return;
     }
     // Only persist if different from default
