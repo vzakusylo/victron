@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#97 Day / Night Grid Control",
+    "label": "d#100 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -2940,7 +2940,8 @@
       [
         "137dd306ca7275e6",
         "d649c2e4d8ca5f12",
-        "2a4cce0a3d3c4f11"
+        "2a4cce0a3d3c4f11",
+        "backup-fn-manage-01"
       ]
     ]
   },
@@ -3847,6 +3848,244 @@
       ],
       [],
       []
+    ]
+  },
+  {
+    "id": "ui-tab-backup-01",
+    "type": "ui_tab",
+    "name": "Backup",
+    "icon": "backup",
+    "order": 6,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "ui-group-backup-main-01",
+    "type": "ui_group",
+    "name": "Backup and Restore",
+    "tab": "ui-tab-backup-01",
+    "order": 1,
+    "disp": true,
+    "width": "24",
+    "collapse": false,
+    "className": ""
+  },
+  {
+    "id": "backup-template-01",
+    "type": "ui_template",
+    "z": "995ac4ed6222a706",
+    "group": "ui-group-backup-main-01",
+    "name": "Backup manager",
+    "order": 1,
+    "width": "24",
+    "height": "24",
+    "format": "<style>\n.bk-wrap { padding: 8px 4px; }\n.bk-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }\n.bk-sub { font-size: 12px; opacity: 0.7; margin-bottom: 12px; }\n.bk-card { border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 12px; margin-bottom: 12px; }\n.bk-card h3 { margin: 0 0 8px 0; font-size: 15px; }\n.bk-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }\n.bk-btn { border: 0; border-radius: 999px; padding: 7px 14px; background: #0094ce; color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }\n.bk-btn[disabled] { opacity: 0.45; cursor: default; }\n.bk-btn.danger { background: #d9534f; }\n.bk-btn.small { padding: 4px 10px; font-size: 12px; text-decoration: none; display: inline-block; }\n.bk-status { padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 12px; background: rgba(0,148,206,0.12); color: #005f86; }\n.bk-status.ok { background: rgba(91,184,93,0.15); color: #2b8a3e; }\n.bk-status.error { background: rgba(217,83,79,0.15); color: #b52b27; }\n.bk-table { width: 100%; border-collapse: collapse; font-size: 13px; }\n.bk-table th, .bk-table td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,0.08); text-align: left; }\n.bk-table tr.selected { background: rgba(0,148,206,0.12); font-weight: 600; }\n.bk-tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: rgba(0,0,0,0.08); margin-left: 4px; }\n.bk-tag.safety { background: #fff3cd; color: #8a6d1d; }\n.bk-tag.uploaded { background: #d8e8fb; color: #0f5ca8; }\n.bk-list { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }\n.bk-list code { font-size: 11px; opacity: 0.75; }\n.bk-input { padding: 6px 8px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; font-size: 13px; }\n.bk-warn { font-size: 12px; color: #b52b27; margin: 6px 0; }\n.bk-log { font-family: monospace; font-size: 11px; white-space: pre-wrap; max-height: 160px; overflow: auto; background: rgba(0,0,0,0.04); padding: 6px; border-radius: 8px; }\n.bk-bar { height: 8px; border-radius: 999px; background: rgba(0,0,0,0.08); overflow: hidden; margin: 6px 0; }\n.bk-fill { height: 100%; background: #5cb85c; }\n</style>\n<div class=\"bk-wrap\">\n  <div class=\"bk-title\">Backup &amp; Restore</div>\n  <div class=\"bk-sub\">One file with the full history and all setup of this device. Restore it on this or a new GX device.</div>\n\n  <div class=\"bk-status\" ng-class=\"{'ok': st.result && st.result.ok && !st.busy, 'error': st.result && !st.result.ok}\" ng-if=\"st.result || st.busy || uploadMessage\">\n    <span ng-if=\"st.busy\">⏳ {{st.result.message || ('Running ' + st.busy + '...')}}</span>\n    <span ng-if=\"!st.busy && st.result\">{{st.result.message}}</span>\n    <div ng-if=\"uploadMessage\" style=\"margin-top:4px;\">{{uploadMessage}}</div>\n  </div>\n\n  <div class=\"bk-card\">\n    <h3>1. Create backup</h3>\n    <div class=\"bk-row\">\n      <button class=\"bk-btn\" ng-click=\"create()\" ng-disabled=\"st.busy\">Create backup now</button>\n      <button class=\"bk-btn small\" ng-click=\"refresh()\" ng-disabled=\"st.busy\">Refresh list</button>\n    </div>\n    <div ng-if=\"st.disk\">\n      <div class=\"bk-bar\"><div class=\"bk-fill\" ng-style=\"{width: st.disk.usePct + '%'}\"></div></div>\n      <div style=\"font-size:12px;\">Disk: used {{st.disk.usedText}} of {{st.disk.totalText}} ({{st.disk.usePct}}%), free {{st.disk.availableText}} &nbsp;|&nbsp; running as <b>{{st.user || '?'}}</b></div>\n    </div>\n    <div style=\"font-size:12px; margin-top:6px;\">Included when present on the device:</div>\n    <ul class=\"bk-list\">\n      <li ng-repeat=\"item in st.contents track by item.path\">{{item.label}} <code>{{item.path}}</code></li>\n    </ul>\n  </div>\n\n  <div class=\"bk-card\">\n    <h3>2. Backups on this device</h3>\n    <div ng-if=\"!st.backups || !st.backups.length\" style=\"font-size:13px; opacity:0.7;\">No backups yet.</div>\n    <table class=\"bk-table\" ng-if=\"st.backups && st.backups.length\">\n      <thead><tr><th></th><th>Name</th><th>Date</th><th>Size</th><th></th></tr></thead>\n      <tbody>\n        <tr ng-repeat=\"b in st.backups track by b.name\" ng-class=\"{'selected': b.name === form.name}\">\n          <td><input type=\"radio\" name=\"bk-select\" ng-checked=\"b.name === form.name\" ng-click=\"select(b.name)\"></td>\n          <td>{{b.name}} <span class=\"bk-tag\" ng-class=\"b.kind\" ng-if=\"b.kind !== 'backup'\">{{b.kind === 'safety' ? 'auto before restore' : 'uploaded'}}</span></td>\n          <td>{{b.date}}</td>\n          <td>{{b.sizeText}}</td>\n          <td style=\"white-space:nowrap;\"><a class=\"bk-btn small\" ng-href=\"{{downloadUrl(b.name)}}\" target=\"_blank\" download>Download</a> <button class=\"bk-btn small danger\" ng-click=\"remove(b.name)\" ng-disabled=\"st.busy\">Delete</button></td>\n        </tr>\n      </tbody>\n    </table>\n  </div>\n\n  <div class=\"bk-card\">\n    <h3>3. Upload a backup file</h3>\n    <div class=\"bk-row\">\n      <input type=\"file\" accept=\".gz,.tar.gz,application/gzip\" class=\"bk-input\" id=\"bk-upload-file\">\n      <button class=\"bk-btn\" ng-click=\"upload()\" ng-disabled=\"uploading || st.busy\">{{uploading ? 'Uploading...' : 'Upload'}}</button>\n    </div>\n    <div style=\"font-size:12px; opacity:0.7;\">Uploading only stores the file. Restore it in step 4.</div>\n  </div>\n\n  <div class=\"bk-card\">\n    <h3>4. Restore</h3>\n    <div style=\"font-size:13px;\">Selected: <b>{{form.name || 'none, select a backup in step 2'}}</b></div>\n    <div class=\"bk-row\">\n      <label><input type=\"checkbox\" ng-model=\"form.restartNodeRed\"> Restart Node-RED after restore (loads restored flows)</label>\n    </div>\n    <div class=\"bk-row\">\n      <label><input type=\"checkbox\" ng-model=\"form.enableDrivers\"> Re-enable restored drivers (runs <code>enable.sh</code> of e.g. dbus-serialbattery, then reboot the GX device)</label>\n    </div>\n    <div class=\"bk-row\">\n      <label><input type=\"checkbox\" ng-model=\"form.restoreVenusSettings\"> Also restore Venus OS settings (<code>/data/conf/settings.xml</code>, needs reboot)</label>\n    </div>\n    <div class=\"bk-warn\" ng-if=\"form.restoreVenusSettings\">Venus OS settings include ESS, DVCC, device instances and network setup. On a different GX device check every setting after the reboot.</div>\n    <div class=\"bk-warn\">Files from the backup overwrite files with the same name. A <b>pre-restore</b> backup of the current state is created first.</div>\n    <div class=\"bk-row\">\n      <input class=\"bk-input\" ng-model=\"form.confirm\" placeholder=\"Type RESTORE to confirm\">\n      <button class=\"bk-btn danger\" ng-click=\"restore()\" ng-disabled=\"st.busy || !form.name || form.confirm !== 'RESTORE'\">Restore selected backup</button>\n    </div>\n  </div>\n\n  <div class=\"bk-card\" ng-if=\"st.result && (st.result.included.length || st.result.restored.length || st.result.failed.length || st.result.skipped.length || st.result.log.length)\">\n    <h3>Last operation details</h3>\n    <div ng-if=\"st.result.included.length\" style=\"font-size:12px;\">Included: {{st.result.included.length}} item(s)</div>\n    <div ng-if=\"st.result.restored.length\" style=\"font-size:12px;\">Restored: <span ng-repeat=\"p in st.result.restored\">/{{p}}{{$last ? '' : ', '}}</span></div>\n    <div ng-if=\"st.result.failed.length\" style=\"font-size:12px; color:#b52b27;\">Failed: <span ng-repeat=\"p in st.result.failed\">/{{p}}{{$last ? '' : ', '}}</span></div>\n    <div ng-if=\"st.result.skipped.length\" style=\"font-size:12px;\">Skipped: <span ng-repeat=\"p in st.result.skipped\">{{p}}{{$last ? '' : ', '}}</span></div>\n    <div ng-if=\"st.result.log.length\" class=\"bk-log\">{{st.result.log.join('\\n')}}</div>\n  </div>\n</div>\n<script>\n(function(scope) {\n    scope.st = scope.st || { backups: [], contents: [] };\n    scope.form = scope.form || { name: '', confirm: '', restartNodeRed: true, enableDrivers: true, restoreVenusSettings: false };\n    scope.uploading = false;\n    scope.uploadMessage = '';\n\n    // Node-RED http endpoints live next to the dashboard (`/ui`), also behind a proxy prefix.\n    function basePath() {\n        var path = window.location.pathname || '/';\n        var index = path.indexOf('/ui');\n        return (index >= 0 ? path.substring(0, index) : '') + '/';\n    }\n\n    scope.downloadUrl = function(name) {\n        return basePath() + 'grid-backup/download?name=' + encodeURIComponent(name);\n    };\n    scope.refresh = function() {\n        scope.send({ topic: 'backup-command', payload: { action: 'refresh' } });\n    };\n    scope.create = function() {\n        scope.send({ topic: 'backup-command', payload: { action: 'create' } });\n    };\n    scope.select = function(name) {\n        scope.form.name = name;\n        scope.form.confirm = '';\n    };\n    scope.remove = function(name) {\n        if (!window.confirm('Delete backup ' + name + ' from the device?\\nThis cannot be undone. Download it first if you still need it.')) {\n            return;\n        }\n        if (scope.form.name === name) {\n            scope.form.name = '';\n        }\n        scope.send({ topic: 'backup-command', payload: { action: 'delete', name: name } });\n    };\n    scope.restore = function() {\n        scope.send({ topic: 'backup-command', payload: {\n            action: 'restore',\n            name: scope.form.name,\n            confirm: scope.form.confirm,\n            restartNodeRed: Boolean(scope.form.restartNodeRed),\n            enableDrivers: Boolean(scope.form.enableDrivers),\n            restoreVenusSettings: Boolean(scope.form.restoreVenusSettings)\n        } });\n        scope.form.confirm = '';\n    };\n    scope.upload = function() {\n        var input = document.getElementById('bk-upload-file');\n        var file = input && input.files && input.files[0];\n        if (!file) {\n            scope.uploadMessage = 'Choose a .tar.gz backup file first.';\n            return;\n        }\n        var data = new FormData();\n        data.append('backup', file, file.name);\n        scope.uploading = true;\n        scope.uploadMessage = 'Uploading ' + file.name + '...';\n        fetch(basePath() + 'grid-backup/upload', { method: 'POST', body: data, credentials: 'same-origin' })\n            .then(function(response) { return response.json().catch(function() { return { ok: false, error: 'HTTP ' + response.status }; }); })\n            .then(function(result) {\n                scope.$evalAsync(function() {\n                    scope.uploading = false;\n                    scope.uploadMessage = result.ok ? ('Uploaded as ' + result.name) : ('Upload failed: ' + result.error);\n                    if (result.ok) {\n                        scope.form.name = result.name;\n                        input.value = '';\n                    }\n                });\n            })\n            .catch(function(error) {\n                scope.$evalAsync(function() {\n                    scope.uploading = false;\n                    scope.uploadMessage = 'Upload failed: ' + error;\n                });\n            });\n    };\n\n    scope.$watch('msg', function(msg) {\n        if (msg && msg.topic === 'backup-state' && msg.payload) {\n            // The selection is validated on the server, so a list that is still refreshing\n            // (e.g. right after an upload) must not clear it.\n            scope.st = msg.payload;\n        }\n    });\n})(scope);\n</script>\n",
+    "storeOutMessages": true,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 160,
+    "y": 1560,
+    "wires": [
+      [
+        "backup-fn-manage-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-fn-manage-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Manage backup dashboard",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `26 Manage backup dashboard.js` and the embedded `func` for \"Manage backup dashboard\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - Backup / restore of everything that is unique to this device, so a new GX device can be\n//   brought to the same state (full history + all setup) from one `.tar.gz` file.\n// Backup contents (each path only when it exists; paths are relative to `/`):\n// - data/home/nodered/grid-control-logs     energy history (monthly CSV + legacy daily logs), notification logs\n// - data/home/nodered/grid-control-config   dashboard settings (HV settings, controller constants, ...)\n// - data/home/nodered/.node-red/*           Node-RED flows, credentials, settings, context, library\n//                                           (node_modules / .npm / .cache are excluded)\n// - data/apps                               installed drivers/apps incl. dbus-serialbattery (code + config.ini)\n// - data/etc/dbus-serialbattery             legacy dbus-serialbattery install location\n// - data/grid-control-logs, data/node-red   legacy log folders\n// - data/etc/services, data/rc.local, data/rcS.local   custom services / boot scripts\n// - data/conf/settings.xml                  Venus OS settings (restored only when explicitly selected)\n// - a manifest `grid-control-config/backup-manifest.txt` marks the archive as a grid-control backup\n// Backups are stored in /data/home/nodered/grid-control-backups (never deleted automatically).\n// Inputs:\n// - topic `backup-command` (dashboard): payload { action: 'refresh' | 'create' | 'restore',\n//   name, restoreVenusSettings, restartNodeRed, enableDrivers, confirm }\n// - topic `backup-exec` (exec stdout): script output with `@@` markers\n// - topic `backup-uploaded` (from \"Store uploaded backup\"): payload { name }\n// - anything else (dashboard connect) -> refresh\n// Outputs (2):\n// - output 1 -> dashboard template state\n// - output 2 -> exec \"Run backup script\" (`sh -c <payload>`)\n// Restore safety:\n// - the backup name must match a file in the backup folder\n// - the archive must contain the manifest and only the allowed paths (no `..`)\n// - the user must type RESTORE; a `pre-restore-*` backup is created first\n// - files are extracted to a staging folder, then copied over the live paths (merge, same names overwritten)\n// - Node-RED is restarted afterwards when Node-RED files were restored and the option is set\n// Change notes:\n// 1. Initial version.\n// 2. Backs up the whole /data/apps folder (driver code + config, e.g. dbus-serialbattery) and the legacy\n//    /data/etc/dbus-serialbattery folder instead of only config.ini. Restore can run each restored\n//    driver's enable.sh (option `enableDrivers`, default on); a reboot then starts the drivers.\n//    Older backups that only contain config.ini still restore (it lives under data/apps).\n// 3. Added `delete` action (dashboard button with a browser confirmation; never automatic).\n//    /data/apps/overlay-fs (Venus OS root-filesystem overlay with unreadable kernel work dirs) is\n//    excluded like node_modules; drivers recreate their overlays with enable.sh.\n// ==========================\n\nconst BACKUP_DIR = '/data/home/nodered/grid-control-backups';\nconst MANIFEST_PATH = 'data/home/nodered/grid-control-config/backup-manifest.txt';\nconst NODE_RED_DIR = 'data/home/nodered/.node-red';\nconst VENUS_SETTINGS_PATH = 'data/conf/settings.xml';\n// Venus OS keeps only /data across firmware updates, so drivers live in /data/apps/<name> and are\n// (re)registered by their own enable.sh (dbus-serialbattery: /data/apps/dbus-serialbattery/enable.sh).\nconst DRIVERS_DIR = 'data/apps';\n// Folders backed up child by child, skipping the listed children:\n// - node_modules / .npm / .cache are reinstallable Node-RED packages and caches\n// - overlay-fs is Venus OS's own overlay of the root filesystem (GUI/system mods, kernel work dirs);\n//   drivers recreate their overlays with enable.sh, and restoring it on other firmware is unsafe\nconst EXPANDED_DIRS = {\n    'data/home/nodered/.node-red': ['node_modules', '.npm', '.cache'],\n    'data/apps': ['overlay-fs']\n};\nconst BACKUP_PATHS = [\n    'data/home/nodered/grid-control-logs',\n    'data/home/nodered/grid-control-config',\n    NODE_RED_DIR,\n    DRIVERS_DIR,\n    'data/etc/dbus-serialbattery',\n    'data/grid-control-logs',\n    'data/node-red',\n    'data/etc/services',\n    'data/rc.local',\n    'data/rcS.local',\n    VENUS_SETTINGS_PATH\n];\nconst BACKUP_LABELS = {\n    'data/home/nodered/grid-control-logs': 'Energy history and logs',\n    'data/home/nodered/grid-control-config': 'Dashboard settings (HV, constants)',\n    'data/home/nodered/.node-red': 'Node-RED flows, credentials, settings, context',\n    'data/apps': 'Drivers and apps incl. dbus-serialbattery (code + config.ini)',\n    'data/etc/dbus-serialbattery': 'dbus-serialbattery (legacy install path)',\n    'data/grid-control-logs': 'Legacy logs',\n    'data/node-red': 'Legacy Node-RED logs',\n    'data/etc/services': 'Custom services',\n    'data/rc.local': 'Boot script rc.local',\n    'data/rcS.local': 'Boot script rcS.local',\n    'data/conf/settings.xml': 'Venus OS settings (optional on restore)'\n};\nconst NAME_PATTERN = /^[A-Za-z0-9._-]+\\.tar\\.gz$/;\nconst BUSY_TIMEOUT_MS = 15 * 60 * 1000;\nconst STATE_KEY = 'backupDashboardState';\n\nfunction shellQuote(script) {\n    return \"'\" + String(script).replace(/'/g, \"'\\\\''\") + \"'\";\n}\n\nfunction escapeRegex(text) {\n    return text.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n}\n\nfunction formatBytes(bytes) {\n    const value = Math.max(0, Number(bytes) || 0);\n    if (value >= 1024 * 1024 * 1024) {\n        return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';\n    }\n    if (value >= 1024 * 1024) {\n        return (value / (1024 * 1024)).toFixed(1) + ' MB';\n    }\n    if (value >= 1024) {\n        return (value / 1024).toFixed(1) + ' KB';\n    }\n    return value + ' B';\n}\n\n// Shell helpers shared by every script: list backups + disk, and create an archive.\nfunction scriptPrelude() {\n    const plainPaths = BACKUP_PATHS.filter(path => !EXPANDED_DIRS[path]).join(' ');\n    // Expanded folders are added child by child so excluded children never reach tar.\n    const expandLines = Object.keys(EXPANDED_DIRS).map(dirPath =>\n        '  if [ -d \"$R/' + dirPath + '\" ]; then for f in \"$R/' + dirPath + '\"/* \"$R/' + dirPath + '\"/.[!.]*; do [ -e \"$f\" ] || continue; '\n        + 'case \"${f##*/}\" in ' + EXPANDED_DIRS[dirPath].join('|') + ') continue;; esac; add \"' + dirPath + '/${f##*/}\"; done; fi'\n    );\n\n    return [\n        // R is the filesystem root (empty on the device; a temp folder in tests).\n        'R=\"\"',\n        'B=\"$R' + BACKUP_DIR + '\"',\n        'list_backups() {',\n        '  echo \"@@USER $(id -un 2>/dev/null)\"',\n        '  echo \"@@DF $(df -Pk \"$B\" 2>/dev/null | tail -n 1)\"',\n        '  for f in \"$B\"/*.tar.gz; do [ -f \"$f\" ] || continue; printf \"@@B\\\\t%s\\\\t%s\\\\t%s\\\\n\" \"$(wc -c < \"$f\")\" \"$(date -r \"$f\" \"+%Y-%m-%d %H:%M\" 2>/dev/null)\" \"${f##*/}\"; done',\n        '}',\n        'fail() { echo \"@@ERROR $*\"; list_backups; exit 0; }',\n        'create_backup() {',\n        '  NAME=\"$1-$(date +%Y%m%d-%H%M%S).tar.gz\"',\n        '  mkdir -p \"$B\" \"$R/' + MANIFEST_PATH.replace(/\\/[^/]+$/, '') + '\" || fail \"Cannot create $B\"',\n        '  L=\"\"',\n        '  add() { if [ -e \"$R/$1\" ]; then if [ -r \"$R/$1\" ]; then L=\"$L $1\"; else echo \"@@SKIPPED $1 (not readable)\"; fi; fi; }',\n        '  for p in ' + plainPaths + '; do add \"$p\"; done',\n        ...expandLines,\n        '  { echo \"type=grid-control-backup\"; echo \"format=1\"; echo \"created=$(date \"+%Y-%m-%d %H:%M:%S %z\")\"; echo \"host=$(hostname)\"; echo \"venus=$(head -n 1 /opt/victronenergy/version 2>/dev/null)\"; echo \"user=$(id -un 2>/dev/null)\"; for p in $L; do echo \"path=$p\"; done; } > \"$R/' + MANIFEST_PATH + '\" || fail \"Cannot write manifest\"',\n        '  case \" $L \" in *\" data/home/nodered/grid-control-config \"*) ;; *) L=\"$L ' + MANIFEST_PATH + '\";; esac',\n        '  tar -czf \"$B/$NAME.part\" -C \"$R/\" $L 2>\"$B/.tar-errors\"',\n        '  if tar -tzf \"$B/$NAME.part\" >/dev/null 2>&1; then mv \"$B/$NAME.part\" \"$B/$NAME\"; else rm -f \"$B/$NAME.part\"; sed \"s/^/@@LOG /\" \"$B/.tar-errors\"; fail \"Archive could not be created\"; fi',\n        '  sed \"s/^/@@LOG /\" \"$B/.tar-errors\"; rm -f \"$B/.tar-errors\"',\n        '  for p in $L; do echo \"@@INCLUDED $p\"; done',\n        '  CREATED=\"$NAME\"',\n        '}'\n    ].join('\\n');\n}\n\nfunction buildRefreshScript() {\n    return scriptPrelude() + '\\nlist_backups';\n}\n\nfunction buildCreateScript() {\n    return scriptPrelude() + '\\ncreate_backup grid-backup\\necho \"@@CREATED $CREATED\"\\nlist_backups';\n}\n\n// `name` is validated against NAME_PATTERN and the current list before this is called.\nfunction buildDeleteScript(name) {\n    return scriptPrelude() + '\\n' + [\n        '[ -f \"$B/' + name + '\" ] || fail \"Backup not found: ' + name + '\"',\n        'rm -f \"$B/' + name + '\" && [ ! -e \"$B/' + name + '\" ] || fail \"Cannot delete ' + name + '\"',\n        'echo \"@@DELETED ' + name + '\"',\n        'list_backups'\n    ].join('\\n');\n}\n\nfunction buildRestoreScript(name, restoreVenusSettings, restartNodeRed, enableDrivers) {\n    const allowed = BACKUP_PATHS.map(escapeRegex).join('|');\n    // Parent folder entries (`data/`, `data/home/`, ...) appear when an archive is repacked by another tool.\n    const parents = Array.from(new Set(BACKUP_PATHS.reduce((list, path) => {\n        const parts = path.split('/');\n        for (let index = 1; index < parts.length; index += 1) {\n            list.push(parts.slice(0, index).join('/') + '/');\n        }\n        return list;\n    }, []))).map(escapeRegex).join('|');\n\n    return scriptPrelude() + '\\n' + [\n        'F=\"$B/' + name + '\"',\n        'ST=\"$B/.restore-staging\"',\n        '[ -f \"$F\" ] || fail \"Backup not found: ' + name + '\"',\n        'tar -tzf \"$F\" > \"$B/.restore-list\" 2>/dev/null || fail \"Not a valid .tar.gz archive\"',\n        'grep -q \"^' + escapeRegex(MANIFEST_PATH) + '$\" \"$B/.restore-list\" || fail \"Not a grid-control backup (manifest missing)\"',\n        'BAD=$(grep -v -E \"^(' + allowed + ')(/|$)\" \"$B/.restore-list\" | grep -v -E \"^(' + parents + ')$\" | head -n 3 | tr \"\\\\n\" \" \")',\n        '[ -z \"$BAD\" ] || fail \"Archive contains unexpected paths: $BAD\"',\n        'grep -q \"\\\\.\\\\./\" \"$B/.restore-list\" && fail \"Archive contains .. paths\"',\n        'create_backup pre-restore',\n        'echo \"@@SAFETY $CREATED\"',\n        'rm -rf \"$ST\"; mkdir -p \"$ST\" || fail \"Cannot create staging folder\"',\n        'tar -xzf \"$F\" -C \"$ST\" 2>/dev/null || { rm -rf \"$ST\"; fail \"Extract failed\"; }',\n        'NR=0',\n        'for p in ' + BACKUP_PATHS.join(' ') + '; do',\n        '  [ -e \"$ST/$p\" ] || continue',\n        '  if [ \"$p\" = \"' + VENUS_SETTINGS_PATH + '\" ] && [ \"' + (restoreVenusSettings ? '1' : '0') + '\" != \"1\" ]; then echo \"@@SKIP $p (Venus OS settings not selected)\"; continue; fi',\n        '  D=\"$R/${p%/*}\"',\n        '  if mkdir -p \"$D\" && cp -a \"$ST/$p\" \"$D/\"; then echo \"@@RESTORED $p\"; [ \"$p\" = \"' + NODE_RED_DIR + '\" ] && NR=1; else echo \"@@FAILED $p\"; fi',\n        'done',\n        // Re-register every restored driver that ships an enable.sh (creates its services / rc.local hooks).\n        'if [ \"' + (enableDrivers ? '1' : '0') + '\" = \"1\" ]; then',\n        '  for e in \"$ST/' + DRIVERS_DIR + '\"/*/enable.sh; do',\n        '    [ -f \"$e\" ] || continue',\n        '    DRV=\"${e%/enable.sh}\"; DRV=\"${DRV##*/}\"',\n        '    if [ -f \"$R/' + DRIVERS_DIR + '/$DRV/enable.sh\" ] && bash \"$R/' + DRIVERS_DIR + '/$DRV/enable.sh\" > \"$B/.enable-$DRV.log\" 2>&1; then echo \"@@DRIVER $DRV\"; else echo \"@@FAILED ' + DRIVERS_DIR + '/$DRV/enable.sh\"; fi',\n        '    tail -n 5 \"$B/.enable-$DRV.log\" 2>/dev/null | sed \"s/^/@@LOG [$DRV] /\"; rm -f \"$B/.enable-$DRV.log\"',\n        '  done',\n        'fi',\n        'rm -rf \"$ST\" \"$B/.restore-list\"',\n        'if [ \"$NR\" = \"1\" ] && [ \"' + (restartNodeRed ? '1' : '0') + '\" = \"1\" ]; then ( sleep 5; for s in /service/node-red*; do svc -t \"$s\"; done ) >/dev/null 2>&1 & echo \"@@RESTART Node-RED restarts in 5 s\"; fi',\n        'echo \"@@DONE ' + name + '\"',\n        'list_backups'\n    ].join('\\n');\n}\n\nfunction parseScriptOutput(rawText) {\n    const result = {\n        user: '',\n        disk: null,\n        backups: [],\n        created: '',\n        safety: '',\n        error: '',\n        done: '',\n        deleted: '',\n        restart: '',\n        drivers: [],\n        included: [],\n        restored: [],\n        failed: [],\n        skipped: [],\n        log: []\n    };\n\n    String(rawText || '').split(/\\r?\\n/).forEach(line => {\n        if (!line.trim()) {\n            return;\n        }\n        if (line.startsWith('@@B\\t')) {\n            const parts = line.split('\\t');\n            const name = parts[3] || '';\n            result.backups.push({\n                name,\n                size: Number(parts[1]) || 0,\n                date: parts[2] || '',\n                kind: name.startsWith('pre-restore-') ? 'safety' : (name.startsWith('uploaded-') ? 'uploaded' : 'backup')\n            });\n            return;\n        }\n\n        const match = line.match(/^@@([A-Z]+) ?(.*)$/);\n        if (!match) {\n            result.log.push(line);\n            return;\n        }\n\n        const value = match[2].trim();\n        switch (match[1]) {\n            case 'USER': result.user = value; break;\n            case 'DF': {\n                const parts = value.split(/\\s+/);\n                if (parts.length >= 6 && Number(parts[1]) > 0) {\n                    result.disk = {\n                        totalText: formatBytes(Number(parts[1]) * 1024),\n                        usedText: formatBytes(Number(parts[2]) * 1024),\n                        availableText: formatBytes(Number(parts[3]) * 1024),\n                        usePct: parseInt(parts[4], 10) || 0\n                    };\n                }\n                break;\n            }\n            case 'CREATED': result.created = value; break;\n            case 'SAFETY': result.safety = value; break;\n            case 'ERROR': result.error = value; break;\n            case 'DONE': result.done = value; break;\n            case 'DELETED': result.deleted = value; break;\n            case 'RESTART': result.restart = value; break;\n            case 'DRIVER': result.drivers.push(value); break;\n            case 'INCLUDED': result.included.push(value); break;\n            case 'RESTORED': result.restored.push(value); break;\n            case 'FAILED': result.failed.push(value); break;\n            case 'SKIP':\n            case 'SKIPPED': result.skipped.push(value); break;\n            case 'LOG': result.log.push(value); break;\n            default: result.log.push(line);\n        }\n    });\n\n    result.backups.sort((a, b) => (b.date + b.name).localeCompare(a.date + a.name));\n    return result;\n}\n\nfunction getState() {\n    return flow.get(STATE_KEY) || {\n        backups: [],\n        disk: null,\n        user: '',\n        busy: '',\n        busySince: 0,\n        result: null,\n        updatedAt: ''\n    };\n}\n\nfunction emit(state, execPayload, action) {\n    state.updatedAt = new Date().toISOString();\n    flow.set(STATE_KEY, state);\n\n    const view = Object.assign({}, state, {\n        backups: state.backups.map(backup => Object.assign({}, backup, { sizeText: formatBytes(backup.size) })),\n        contents: BACKUP_PATHS.map(path => ({ path: '/' + path, label: BACKUP_LABELS[path] || path }))\n    });\n\n    return [\n        { topic: 'backup-state', payload: view },\n        execPayload ? { topic: 'backup-exec', backupAction: action, payload: shellQuote(execPayload) } : null\n    ];\n}\n\nlet state = getState();\nconst nowTs = Date.now();\n\nif (state.busy && nowTs - (Number(state.busySince) || 0) > BUSY_TIMEOUT_MS) {\n    state.busy = '';\n}\n\nif (msg.topic === 'backup-exec') {\n    const parsed = parseScriptOutput(msg.payload);\n    const action = msg.backupAction || 'refresh';\n\n    state.backups = parsed.backups;\n    state.disk = parsed.disk || state.disk;\n    state.user = parsed.user || state.user;\n    state.busy = '';\n\n    if (action !== 'refresh' || parsed.error) {\n        let message;\n        if (parsed.error) {\n            message = ({ restore: 'Restore failed: ', create: 'Backup failed: ', delete: 'Delete failed: ' }[action] || 'Error: ') + parsed.error;\n        }\n        else if (action === 'create') {\n            message = 'Backup created: ' + parsed.created + ' (' + parsed.included.length + ' item(s)). Download it and keep it off the device.';\n        }\n        else if (action === 'delete') {\n            message = 'Deleted ' + parsed.deleted + '.';\n        }\n        else {\n            message = 'Restored ' + parsed.restored.length + ' item(s) from ' + parsed.done\n                + (parsed.failed.length ? ', FAILED: ' + parsed.failed.length : '')\n                + '. Safety backup: ' + parsed.safety + '.'\n                + (parsed.restart ? ' ' + parsed.restart + '.' : '')\n                + (parsed.drivers.length ? ' Drivers enabled: ' + parsed.drivers.join(', ') + ' - reboot the GX device to start them.' : '')\n                + (parsed.restored.indexOf(VENUS_SETTINGS_PATH) >= 0 ? ' Reboot the GX device to apply Venus OS settings.' : '');\n        }\n\n        state.result = {\n            ok: !parsed.error && parsed.failed.length === 0,\n            action,\n            message,\n            at: new Date().toISOString(),\n            included: parsed.included,\n            restored: parsed.restored,\n            failed: parsed.failed,\n            skipped: parsed.skipped,\n            log: parsed.log.slice(0, 40)\n        };\n    }\n\n    return emit(state, null, action);\n}\n\nif (msg.topic === 'backup-uploaded') {\n    const name = msg.payload && msg.payload.name ? String(msg.payload.name) : '';\n    state.result = {\n        ok: true,\n        action: 'upload',\n        message: 'Uploaded ' + name + '. Select it below to restore.',\n        at: new Date().toISOString(),\n        included: [], restored: [], failed: [], skipped: [], log: []\n    };\n    return emit(state, buildRefreshScript(), 'refresh');\n}\n\nif (msg.topic === 'backup-command' && msg.payload && typeof msg.payload === 'object') {\n    const action = String(msg.payload.action || 'refresh');\n\n    if (action === 'refresh') {\n        return emit(state, buildRefreshScript(), 'refresh');\n    }\n\n    if (state.busy) {\n        state.result = { ok: false, action, message: 'Busy: ' + state.busy + ' is still running.', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n        return emit(state, null, action);\n    }\n\n    if (action === 'create') {\n        state.busy = 'backup';\n        state.busySince = nowTs;\n        state.result = { ok: true, action, message: 'Creating backup...', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n        return emit(state, buildCreateScript(), 'create');\n    }\n\n    if (action === 'delete') {\n        const name = String(msg.payload.name || '');\n\n        if (!NAME_PATTERN.test(name) || !state.backups.some(backup => backup.name === name)) {\n            state.result = { ok: false, action, message: 'Backup not in the list: ' + name, at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n            return emit(state, null, action);\n        }\n\n        state.busy = 'delete';\n        state.busySince = nowTs;\n        state.result = { ok: true, action, message: 'Deleting ' + name + '...', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n        return emit(state, buildDeleteScript(name), 'delete');\n    }\n\n    if (action === 'restore') {\n        const name = String(msg.payload.name || '');\n        const reject = message => {\n            state.result = { ok: false, action, message, at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n            return emit(state, null, action);\n        };\n\n        if (!NAME_PATTERN.test(name) || !state.backups.some(backup => backup.name === name)) {\n            return reject('Select a backup from the list first.');\n        }\n        if (String(msg.payload.confirm || '').trim() !== 'RESTORE') {\n            return reject('Type RESTORE in the confirmation field to start the restore.');\n        }\n\n        state.busy = 'restore';\n        state.busySince = nowTs;\n        state.result = { ok: true, action, message: 'Restoring ' + name + ' (safety backup first)...', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };\n        return emit(state, buildRestoreScript(\n            name,\n            Boolean(msg.payload.restoreVenusSettings),\n            msg.payload.restartNodeRed !== false,\n            msg.payload.enableDrivers !== false\n        ), 'restore');\n    }\n}\n\n// Dashboard connect or any other trigger: refresh the list.\nreturn emit(state, buildRefreshScript(), 'refresh');\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 1560,
+    "wires": [
+      [
+        "backup-template-01"
+      ],
+      [
+        "backup-exec-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-exec-01",
+    "type": "exec",
+    "z": "995ac4ed6222a706",
+    "command": "sh -c",
+    "addpay": "payload",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "600",
+    "oldrc": false,
+    "name": "Run backup script",
+    "x": 680,
+    "y": 1560,
+    "wires": [
+      [
+        "backup-fn-manage-01"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "backup-http-download-01",
+    "type": "http in",
+    "z": "995ac4ed6222a706",
+    "name": "GET /grid-backup/download",
+    "url": "/grid-backup/download",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 170,
+    "y": 1640,
+    "wires": [
+      [
+        "backup-fn-download-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-fn-download-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Serve backup download",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `27 Serve backup download.js` and the embedded `func` for \"Serve backup download\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - HTTP GET /grid-backup/download?name=<backup>.tar.gz -> streams the backup file to the browser.\n// - Also answers HTTP errors caught from the backup file nodes (msg.error from the catch node).\n// Input:\n// - msg.req.query.name (from \"GET /grid-backup/download\")\n// - msg.error + msg.res (from \"Catch backup HTTP errors\")\n// Outputs (2):\n// - output 1 -> file in \"Read backup file\" (msg.filename set, download headers set) -> http response\n// - output 2 -> http response (validation error / caught error)\n// Change notes:\n// 1. Initial version.\n// ==========================\n\nconst BACKUP_DIR = '/data/home/nodered/grid-control-backups';\nconst NAME_PATTERN = /^[A-Za-z0-9._-]+\\.tar\\.gz$/;\n\nfunction textResponse(statusCode, text) {\n    msg.statusCode = statusCode;\n    msg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\n    msg.payload = text;\n    return [null, msg];\n}\n\nif (!msg.res) {\n    return null;\n}\n\nif (msg.error) {\n    return textResponse(500, 'Backup request failed: ' + (msg.error.message || 'unknown error'));\n}\n\nconst name = String((msg.req && msg.req.query && msg.req.query.name) || '');\n\nif (!NAME_PATTERN.test(name)) {\n    return textResponse(400, 'Invalid backup name');\n}\n\nmsg.filename = BACKUP_DIR + '/' + name;\nmsg.statusCode = 200;\nmsg.headers = {\n    'Content-Type': 'application/gzip',\n    'Content-Disposition': 'attachment; filename=\"' + name + '\"',\n    'Cache-Control': 'no-store'\n};\nreturn [msg, null];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 430,
+    "y": 1640,
+    "wires": [
+      [
+        "backup-file-read-01"
+      ],
+      [
+        "backup-http-response-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-file-read-01",
+    "type": "file in",
+    "z": "995ac4ed6222a706",
+    "name": "Read backup file",
+    "filename": "filename",
+    "filenameType": "msg",
+    "format": "",
+    "chunk": false,
+    "sendError": false,
+    "encoding": "none",
+    "allProps": false,
+    "x": 670,
+    "y": 1640,
+    "wires": [
+      [
+        "backup-http-response-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-http-response-01",
+    "type": "http response",
+    "z": "995ac4ed6222a706",
+    "name": "Backup HTTP response",
+    "statusCode": "",
+    "headers": {},
+    "x": 920,
+    "y": 1680,
+    "wires": []
+  },
+  {
+    "id": "backup-http-upload-01",
+    "type": "http in",
+    "z": "995ac4ed6222a706",
+    "name": "POST /grid-backup/upload",
+    "url": "/grid-backup/upload",
+    "method": "post",
+    "upload": true,
+    "swaggerDoc": "",
+    "x": 170,
+    "y": 1720,
+    "wires": [
+      [
+        "backup-fn-upload-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-fn-upload-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Store uploaded backup",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `28 Store uploaded backup.js` and the embedded `func` for \"Store uploaded backup\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - HTTP POST /grid-backup/upload (multipart, field `backup`) stores an uploaded backup in the\n//   backup folder as `uploaded-<timestamp>-<name>.tar.gz`. Restoring is a separate, confirmed step.\n// Flow:\n// - stage 1 (from \"POST /grid-backup/upload\"): validate, set msg.filename -> output 1 (file write)\n// - stage 2 (back from the file write node, msg.backupUploadName set): answer the browser on\n//   output 2 and tell \"Manage backup dashboard\" on output 3\n// Outputs (3):\n// - output 1 -> file \"Write uploaded backup\"\n// - output 2 -> http response\n// - output 3 -> \"Manage backup dashboard\" (topic backup-uploaded)\n// Change notes:\n// 1. Initial version.\n// ==========================\n\nconst BACKUP_DIR = '/data/home/nodered/grid-control-backups';\nconst MAX_UPLOAD_BYTES = 500 * 1024 * 1024;\n\nfunction jsonResponse(statusCode, body) {\n    msg.statusCode = statusCode;\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.payload = body;\n    return msg;\n}\n\nif (msg.backupUploadName) {\n    const name = msg.backupUploadName;\n    jsonResponse(200, { ok: true, name });\n    return [null, msg, { topic: 'backup-uploaded', payload: { name } }];\n}\n\nconst files = msg.req && Array.isArray(msg.req.files) ? msg.req.files : [];\nconst file = files.find(item => item && item.fieldname === 'backup') || files[0];\n\nif (!file || !file.buffer || !file.buffer.length) {\n    return [null, jsonResponse(400, { ok: false, error: 'No file received' }), null];\n}\n\nif (file.buffer.length > MAX_UPLOAD_BYTES) {\n    return [null, jsonResponse(413, { ok: false, error: 'File is larger than 500 MB' }), null];\n}\n\n// gzip magic bytes\nif (file.buffer[0] !== 0x1f || file.buffer[1] !== 0x8b) {\n    return [null, jsonResponse(400, { ok: false, error: 'Not a .tar.gz file' }), null];\n}\n\nconst now = new Date();\nconst stamp = now.getFullYear()\n    + String(now.getMonth() + 1).padStart(2, '0')\n    + String(now.getDate()).padStart(2, '0') + '-'\n    + String(now.getHours()).padStart(2, '0')\n    + String(now.getMinutes()).padStart(2, '0')\n    + String(now.getSeconds()).padStart(2, '0');\nconst baseName = String(file.originalname || 'backup.tar.gz')\n    .replace(/\\.tar\\.gz$/i, '')\n    .replace(/[^A-Za-z0-9._-]/g, '_')\n    .substring(0, 80);\nconst name = 'uploaded-' + stamp + '-' + (baseName || 'backup') + '.tar.gz';\n\nmsg.filename = BACKUP_DIR + '/' + name;\nmsg.payload = file.buffer;\nmsg.backupUploadName = name;\nreturn [msg, null, null];\n",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 430,
+    "y": 1720,
+    "wires": [
+      [
+        "backup-file-write-01"
+      ],
+      [
+        "backup-http-response-01"
+      ],
+      [
+        "backup-fn-manage-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-file-write-01",
+    "type": "file",
+    "z": "995ac4ed6222a706",
+    "name": "Write uploaded backup",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": false,
+    "createDir": true,
+    "overwriteFile": "true",
+    "encoding": "none",
+    "x": 680,
+    "y": 1720,
+    "wires": [
+      [
+        "backup-fn-upload-01"
+      ]
+    ]
+  },
+  {
+    "id": "backup-catch-01",
+    "type": "catch",
+    "z": "995ac4ed6222a706",
+    "name": "Catch backup HTTP errors",
+    "scope": [
+      "backup-file-read-01",
+      "backup-file-write-01"
+    ],
+    "uncaught": false,
+    "x": 180,
+    "y": 1780,
+    "wires": [
+      [
+        "backup-fn-download-01"
+      ]
     ]
   }
 ]
