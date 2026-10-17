@@ -12,7 +12,21 @@ The project is designed to reduce hourly grid peaks in Norway while still allowi
 - hourly imported-energy tracking from the house GRID CT sensor
 - high-voltage protection when an external charger or MPPT raises battery voltage
 - grid export guard: a negative GRID CT reading is compensated by letting the battery absorb the surplus, holding the grid at a configurable minimum import
+- capacity-tariff seasons: summer tier 1 (≤ 2 kW) / winter tier 2 (≤ 5 kW) with automatic switch dates, safe VE.Bus input current, daily kWh and month-tier tracking
 - notification logging when the grid setpoint changes
+
+Dashboard pages (details in [Dashboard pages](#dashboard-pages)):
+
+| Page | What it is for |
+|---|---|
+| Energy / Energy Detail | hourly grid / AC / solar energy, daily files |
+| Analytics | efficiency, PV routing, forecasts, capacity-tariff card |
+| Protection | high-voltage limiter, Grid CT support, force charging, export guard |
+| Files | log files with sizes, disk used / free, file viewer |
+| Constants | controller constants incl. tariff seasons, tiers and grid current |
+| Backup | one-file backup / restore of history and the whole device setup |
+| Device | CPU, load, memory, disks, temperature, network, ports, processes, key services |
+| Driver | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 
 The repository keeps readable controller sources as numbered `.js` files (e.g. `01 Battery + Grid Controller.js`) and a live Node-RED export in `flows.json`.
 
@@ -26,9 +40,12 @@ Flow versioning rule:
 
 ## Repository contents
 
-- `01 Battery + Grid Controller.js` … `25 Save controller constants.js`  
+- `01 Battery + Grid Controller.js` … `31 Driver checks dashboard.js`  
   Numbered human-readable source files for every Node-RED function node.  
-  `sync-commands.ps1` provides `Sync-01` … `Sync-25` and `Sync-All` helpers.
+  `sync-commands.ps1` provides `Sync-01` … `Sync-31` and `Sync-All` helpers.
+
+- `garag-venus-os/1.txt`  
+  dbus-serialbattery install, config and troubleshooting notes for the GX device.
 
 - `flows.json`  
   Exported Node-RED flow used on Cerbo GX.
@@ -356,7 +373,7 @@ Behavior:
 - `Reset all to defaults` clears the file and restores all defaults on the next cycle
 - the status line shows `Ready — N override(s) active`
 
-## 8b. Device status dashboard
+## 8a. Device status dashboard
 
 The `Device` tab shows the health of the GX device itself (read-only, works as the `nodered` user):
 
@@ -371,7 +388,7 @@ It refreshes when the tab is opened and every 15 s while it stays open (toggle),
 
 Node-RED load: the Victron input nodes send every update, so the controller runs several times per second. Its trace output (output 6, which feeds the Analytics / Energy dashboards and the `DBG controller trace` debug node) is therefore throttled to one message per 5 s for sensor updates; control outputs are not throttled. The debug node is off by default — enable it only while debugging.
 
-## 8c. BMS watchdog
+## 8b. BMS watchdog
 
 After a reboot the DVCC "Controlling BMS" setting was once found empty (`com.victronenergy.system /ActiveBmsService = []`). The MultiPlus then raised `BMS connection lost` + `Low battery` and stayed in Passthru (no charging, no inverting) until the BMS was selected again by hand.
 
@@ -385,7 +402,17 @@ The `BMS watchdog` function (inject every 30 s → exec `dbus` CLI, works as use
 
 Related device setting: `BMS_TYPE = LltJbd` in `/data/apps/dbus-serialbattery/config.ini` makes the driver connect within ~1 s after boot instead of scanning every BMS type for about a minute, so the BMS is present before the MultiPlus looks for it.
 
-## 8a. Backup and Restore dashboard
+## 8c. Driver dashboard
+
+The `Driver` tab collects every check used to diagnose the battery driver (read-only, as user `nodered`; all D-Bus values come from one Python call):
+
+- health checklist (✓ / ⚠ / ✗): serial port, driver service (`svstat`, if permitted) and process uptime, BMS on D-Bus and connected, `BMS_TYPE` set, duplicate `config.ini` keys, DVCC on, Controlling BMS / active BMS, watchdog remembered setting, MultiPlus state (8 = Passthru is an error), MultiPlus BMS alarms, battery alarms, cell balance, active alarms of all devices
+- live values: SerialBattery (SoC, V, A, CCL/DCL/CVL, cells, allow flags), MultiPlus (state, mode, error, BMS alarms), system and DVCC settings, every non-zero `/Alarms` entry
+- driver process command line, serial ports, effective `config.ini`
+- controls: run checks / auto-refresh 10 s, `Run watchdog check now`, `Restore Controlling BMS now` (forces an immediate watchdog repair), repair-test timeline (active BMS, setting, MultiPlus state, BMS-lost alarm per refresh), log viewer for the discovered `/var/log/...` driver and serial-starter logs (50–1000 lines)
+- root-only actions (restart driver, `enable.sh`, live log, set `BMS_TYPE`) are listed as SSH commands with copy buttons
+
+## 8d. Backup and Restore dashboard
 
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
 
@@ -425,6 +452,38 @@ Security note: the download and upload endpoints use Node-RED's HTTP-node securi
 ## Dashboard
 
 The live flow now includes several dashboard surfaces for operation and diagnostics, including a dedicated `Protection` tab for runtime control of the high-voltage limiter and AC-assisted charging.
+
+### Dashboard pages
+
+#### Driver — battery driver, BMS and MultiPlus health
+
+![Driver dashboard — health checklist, BMS watchdog controls, SerialBattery and MultiPlus values, DVCC settings](dashboard-driver.png)
+
+One page with every check used to diagnose the battery chain: serial port, driver process, BMS on D-Bus, `BMS_TYPE`, DVCC, Controlling BMS / active BMS, MultiPlus state and BMS alarms, cell balance and all active alarms — each marked ✓ / ⚠ / ✗. Below: live SerialBattery / MultiPlus / DVCC values, the BMS watchdog with `Run watchdog check now` and `Restore Controlling BMS now`, a repair-test timeline, the driver log viewer and copyable root-only SSH commands. See [8c](#8c-driver-dashboard) and [8b](#8b-bms-watchdog).
+
+#### Device — GX device health
+
+![Device status dashboard — CPU, load, memory, disks, temperature, key services and top processes](dashboard-device.png)
+
+CPU (sampled over 1 s), load, memory, disks, temperature, uptime, Venus OS version, key Venus services with CPU / memory, top processes by CPU and memory, network rates, listening ports and external connections. Auto-refresh 15 s while the page is open. See [8a](#8a-device-status-dashboard).
+
+#### Backup — backup and restore of the whole setup
+
+![Backup and Restore dashboard — create, download, delete, upload and restore with safety backup](dashboard-backup.png)
+
+Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). See [8d](#8d-backup-and-restore-dashboard).
+
+#### Files — logs and disk usage
+
+![Files dashboard — log files with sizes, disk used and free, selected file contents](dashboard-files.png)
+
+Lists every file under `grid-control-logs` with its size, shows disk used / free for `/data` and the logs folder size, and previews the selected file. Nothing is deleted automatically — the full history is kept.
+
+#### Constants — controller constants and tariff seasons
+
+![Controller Constants dashboard — tariff season, grid setpoint limits, charging, solar, manual discharge](dashboard-constans.png)
+
+Runtime editor for controller constants, including the capacity-tariff season (winter / summer start dates, tier per season, night extra %, grid current headroom and fuse limit). See [8](#8-controller-constants-dashboard).
 
 #### Analytics dashboard
 

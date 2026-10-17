@@ -143,6 +143,9 @@ function Sync-29 { Sync-Node 'Build device status'              '29 Build device
 # 30 — BMS watchdog (restores DVCC "Controlling BMS" when it is lost)
 function Sync-30 { Sync-Node 'BMS watchdog'                     '30 BMS watchdog.js'                            -BumpVersion }
 
+# 31 — Driver page (dbus-serialbattery / BMS / VE.Bus checks, logs, controls)
+function Sync-31 { Sync-Node 'Driver checks dashboard'          '31 Driver checks dashboard.js'                 -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -180,6 +183,7 @@ function Sync-All {
         @{ Name = 'Store uploaded backup';               File = '28 Store uploaded backup.js' }
         @{ Name = 'Build device status';                 File = '29 Build device status.js' }
         @{ Name = 'BMS watchdog';                        File = '30 BMS watchdog.js' }
+        @{ Name = 'Driver checks dashboard';             File = '31 Driver checks dashboard.js' }
     )
 
     $totalSynced = 0

@@ -28,6 +28,8 @@
 // - `bmsWatchdogState` (also shown on the Device page)
 // Change notes:
 // 1. Initial version.
+// 2. Topic `bms-watchdog-force` (Driver page button) checks immediately and repairs on that check,
+//    skipping the 2-check wait and the cooldown. Any other non-exec topic starts a normal check.
 // ==========================
 
 const GOOD_FILE = '/data/home/nodered/grid-control-config/bms-watchdog-good.txt';
@@ -105,7 +107,13 @@ const nowTs = Date.now();
 let state = flow.get(STATE_KEY) || { missingCount: 0, busySince: 0, lastRepairAt: 0, passthruSince: 0 };
 
 if (msg.topic !== 'bms-watchdog-exec') {
+    // `bms-watchdog-force` (Driver page "Restore Controlling BMS now"): repair on this check,
+    // without waiting for the second missing check or the cooldown.
+    if (msg.topic === 'bms-watchdog-force') {
+        state.forceRepair = true;
+    }
     if (state.busySince && nowTs - state.busySince < BUSY_TIMEOUT_MS) {
+        flow.set(STATE_KEY, state);
         return null;
     }
     state.busySince = nowTs;
@@ -156,11 +164,13 @@ Object.assign(state, {
 });
 
 const outputs = [null, null];
+const forced = Boolean(state.forceRepair);
+state.forceRepair = false;
 
 if (activeOk) {
     state.missingCount = 0;
     state.status = 'ok';
-    state.statusText = 'Active BMS ' + active;
+    state.statusText = 'Active BMS ' + active + (forced ? ' - nothing to restore' : '');
 
     // Remember the working setting so it can be restored exactly.
     if (setting && setting !== good) {
@@ -201,7 +211,7 @@ else {
             outputs[1] = notify(state, 'stuck', 'alarm', 'No active BMS although Controlling BMS is set. Re-select it in Settings > System setup > Charge control.', nowTs);
         }
     }
-    else if (state.missingCount >= MISSING_CHECKS_BEFORE_REPAIR && nowTs - (Number(state.lastRepairAt) || 0) >= REPAIR_COOLDOWN_MS) {
+    else if (forced || (state.missingCount >= MISSING_CHECKS_BEFORE_REPAIR && nowTs - (Number(state.lastRepairAt) || 0) >= REPAIR_COOLDOWN_MS)) {
         state.lastRepairAt = nowTs;
         state.lastRepairFrom = setting;
         state.statusText = 'Restoring Controlling BMS ' + (setting || '(empty)') + ' -> ' + good;
