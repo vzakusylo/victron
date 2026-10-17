@@ -21,13 +21,112 @@
 // - output 1 -> dashboard UI payload for the root-files panel
 // Change notes:
 // 1. Initial version.
+// 2. Fixed the folder regex (`//+$/` was parsed as a comment, so the node never compiled).
+//    Exec commands are now single-quoted for `sh -c` (the exec nodes run `sh -c <payload>`).
+//    The list command also reports disk usage (`df -Pk`), the logs folder size (`du -sk`) and
+//    each file's size; the panel shows used / free space. Output that lacks the `@@FILES`
+//    marker (e.g. stray stderr) is ignored. Opening the dashboard always rescans the folder
+//    and keeps the selected file. Removed the duplicate folder section.
 // ==========================
 const ROOT_PATH = '/data/home/nodered/grid-control-logs';
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/files-dashboard-state.json';
 const FOLDER_SECTIONS = [
-    '/data/home/nodered/grid-control-logs',
-    '/data/home/nodered/grid-control-logs/'
+    '/data/home/nodered/grid-control-logs'
 ];
+const LIST_SCRIPT = [
+    'echo "@@DF"',
+    'df -Pk "' + ROOT_PATH + '" 2>/dev/null | tail -n 1',
+    'echo "@@DU"',
+    'du -sk "' + ROOT_PATH + '" 2>/dev/null',
+    'echo "@@FILES"',
+    'find "' + ROOT_PATH + '" -type f 2>/dev/null | sort | while IFS= read -r f; do printf "%s\\t%s\\n" "$(wc -c < "$f")" "$f"; done'
+].join('; ');
+
+// The exec nodes run `sh -c <payload>`, so the whole script must be one shell word.
+function shellQuote(script) {
+    return "'" + String(script).replace(/'/g, "'\\''") + "'";
+}
+
+function formatBytes(bytes) {
+    const value = Math.max(0, Number(bytes) || 0);
+    if (value >= 1024 * 1024 * 1024) {
+        return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+    if (value >= 1024 * 1024) {
+        return (value / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    if (value >= 1024) {
+        return (value / 1024).toFixed(1) + ' KB';
+    }
+    return value + ' B';
+}
+
+function parseListOutput(rawText) {
+    const disk = { totalKb: 0, usedKb: 0, availableKb: 0, usePct: 0, mount: '', logsKb: 0, valid: false };
+    const files = [];
+    let section = '';
+
+    String(rawText || '').split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            return;
+        }
+        if (trimmed === '@@DF' || trimmed === '@@DU' || trimmed === '@@FILES') {
+            section = trimmed;
+            return;
+        }
+        if (section === '@@DF') {
+            // Filesystem 1024-blocks Used Available Capacity Mounted-on
+            const parts = trimmed.split(/\s+/);
+            if (parts.length >= 6 && Number.isFinite(Number(parts[1]))) {
+                disk.totalKb = Number(parts[1]) || 0;
+                disk.usedKb = Number(parts[2]) || 0;
+                disk.availableKb = Number(parts[3]) || 0;
+                disk.usePct = parseInt(parts[4], 10) || 0;
+                disk.mount = parts.slice(5).join(' ');
+                disk.valid = disk.totalKb > 0;
+            }
+        }
+        else if (section === '@@DU') {
+            disk.logsKb = Number(trimmed.split(/\s+/)[0]) || 0;
+        }
+        else if (section === '@@FILES') {
+            const tabIndex = line.indexOf('\t');
+            const path = (tabIndex >= 0 ? line.substring(tabIndex + 1) : line).trim();
+            if (path) {
+                files.push({
+                    path,
+                    name: path.split('/').pop() || path,
+                    size: tabIndex >= 0 ? Number(line.substring(0, tabIndex).trim()) || 0 : 0
+                });
+            }
+        }
+    });
+
+    return { disk, files };
+}
+
+function buildDiskView(disk, files) {
+    const logsBytes = disk && disk.logsKb
+        ? disk.logsKb * 1024
+        : files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+
+    if (!disk || !disk.valid) {
+        return { valid: false, logsText: formatBytes(logsBytes), fileCount: files.length };
+    }
+
+    return {
+        valid: true,
+        mount: disk.mount,
+        usePct: disk.usePct,
+        totalText: formatBytes(disk.totalKb * 1024),
+        usedText: formatBytes(disk.usedKb * 1024),
+        availableText: formatBytes(disk.availableKb * 1024),
+        logsText: formatBytes(logsBytes),
+        fileCount: files.length,
+        level: disk.usePct >= 90 ? 'critical' : (disk.usePct >= 75 ? 'warning' : 'ok')
+    };
+}
 
 function byteSize(rawText) {
     if (typeof rawText !== 'string' || !rawText.length) {
@@ -40,7 +139,7 @@ function byteSize(rawText) {
 }
 
 function normalizeFolder(path) {
-    return String(path || '').replace(//+$/, '');
+    return String(path || '').replace(/\/+$/, '');
 }
 
 function sanitizeFile(file) {
@@ -55,7 +154,8 @@ function sanitizeFile(file) {
 
     return {
         path,
-        name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : (path.split('/').pop() || path)
+        name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : (path.split('/').pop() || path),
+        size: Number(file.size) || 0
     };
 }
 
@@ -112,14 +212,16 @@ function getState() {
         fileSize: 0,
         rawText: ''
     };
+    const disk = flow.get('dashboardRootDisk') || null;
 
-    return { files, selectedIndex, content };
+    return { files, selectedIndex, content, disk };
 }
 
 function saveState(state) {
     flow.set('dashboardRootFiles', state.files);
     flow.set('dashboardRootFileIndex', state.selectedIndex);
     flow.set('dashboardRootFileContent', state.content);
+    flow.set('dashboardRootDisk', state.disk || null);
 }
 
 function buildPersistMsg(state) {
@@ -140,7 +242,11 @@ function buildPersistMsg(state) {
 function buildOutputs(state, listMsg, readMsg, persistMsg) {
     const selectedFile = state.files[state.selectedIndex] || null;
     const status = state.content.status || 'idle';
-    const summary = 'Files ' + state.files.length + ' | Selected ' + (selectedFile ? selectedFile.name : 'none') + ' | Status ' + status + ' | Size ' + (state.content.fileSize || 0) + ' bytes';
+    const diskView = buildDiskView(state.disk, state.files);
+    const diskText = diskView.valid
+        ? ' | Disk ' + diskView.mount + ' used ' + diskView.usedText + ' of ' + diskView.totalText + ' (' + diskView.usePct + '%), free ' + diskView.availableText
+        : '';
+    const summary = 'Files ' + state.files.length + ' (' + diskView.logsText + ') | Selected ' + (selectedFile ? selectedFile.name : 'none') + ' | Status ' + status + ' | Size ' + formatBytes(state.content.fileSize || 0) + diskText;
 
     const folderSections = FOLDER_SECTIONS.map((folderPath, sectionIndex) => {
         const normalized = normalizeFolder(folderPath);
@@ -167,10 +273,12 @@ function buildOutputs(state, listMsg, readMsg, persistMsg) {
         canNext: status !== 'loading-list' && state.selectedIndex >= 0 && state.selectedIndex < state.files.length - 1,
         isLoading: status === 'loading-list' || status === 'loading',
         folderSections,
+        disk: diskView,
         files: state.files.map((file, index) => ({
             index,
             name: file.name,
             path: file.path,
+            sizeText: formatBytes(file.size),
             selected: index === state.selectedIndex
         }))
     };
@@ -193,10 +301,14 @@ function buildOutputs(state, listMsg, readMsg, persistMsg) {
 }
 
 function startListReload(state) {
+    // Remember the selected file so the rescan re-selects it.
+    const selectedFile = state.files[state.selectedIndex] || null;
+    const keepPath = selectedFile ? selectedFile.path : (state.content && state.content.path) || ROOT_PATH;
+
     state.files = [];
     state.selectedIndex = 0;
     state.content = {
-        path: ROOT_PATH,
+        path: keepPath,
         name: '',
         status: 'loading-list',
         fileSize: 0,
@@ -206,14 +318,24 @@ function startListReload(state) {
 
     return buildOutputs(state, {
         topic: 'root-files-list',
-        payload: 'find "' + ROOT_PATH + '" -type f 2>/dev/null | sort || printf ""'
+        payload: shellQuote(LIST_SCRIPT)
     }, null, buildPersistMsg(state));
+}
+
+function buildReadMsg(selectedFile) {
+    return selectedFile ? {
+        topic: 'root-file-content',
+        payload: shellQuote('cat "' + selectedFile.path + '" 2>/dev/null || printf ""'),
+        filePath: selectedFile.path,
+        fileName: selectedFile.name
+    } : null;
 }
 
 let state = getState();
 
 if (msg.topic === 'load-root-files-ui-state-request') {
-    return buildOutputs(state, null, null, null);
+    // Dashboard opened: always rescan so the list and disk usage are current.
+    return startListReload(state);
 }
 
 if (msg.topic === 'load-root-files-ui-state' || msg.execNode === 'Read root files UI state file') {
@@ -227,9 +349,9 @@ if (msg.topic === 'load-root-files-ui-state' || msg.execNode === 'Read root file
         const parsed = JSON.parse(rawText);
         const loadedState = normalizeLoadedState(parsed);
         if (loadedState) {
-            state = loadedState;
-            saveState(state);
-            return buildOutputs(state, null, null, null);
+            // Keep the persisted selection, but rescan: the stored list may be stale.
+            loadedState.disk = state.disk;
+            return startListReload(loadedState);
         }
     }
     catch (error) {
@@ -281,25 +403,22 @@ if (msg.topic === 'root-files-nav') {
     };
     saveState(state);
 
-    return buildOutputs(state, null, selectedFile ? {
-        topic: 'root-file-content',
-        payload: 'cat "' + selectedFile.path + '" 2>/dev/null || printf ""',
-        filePath: selectedFile.path,
-        fileName: selectedFile.name
-    } : null, buildPersistMsg(state));
+    return buildOutputs(state, null, buildReadMsg(selectedFile), buildPersistMsg(state));
 }
 
 if (msg.topic === 'root-files-list') {
-    const files = String(msg.payload || '')
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean)
-        .map(path => ({
-            path,
-            name: path.split('/').pop() || path
-        }));
+    const rawText = String(msg.payload || '');
+
+    // stdout always carries the markers; anything else (e.g. stderr) must not wipe the list.
+    if (rawText.indexOf('@@FILES') < 0) {
+        return null;
+    }
+
+    const parsed = parseListOutput(rawText);
+    const files = parsed.files;
 
     state.files = files;
+    state.disk = parsed.disk;
 
     const currentPath = state.content && typeof state.content.path === 'string' ? state.content.path : '';
     const matchedIndex = currentPath ? state.files.findIndex(file => file.path === currentPath) : -1;
@@ -315,12 +434,7 @@ if (msg.topic === 'root-files-list') {
     };
     saveState(state);
 
-    return buildOutputs(state, null, selectedFile ? {
-        topic: 'root-file-content',
-        payload: 'cat "' + selectedFile.path + '" 2>/dev/null || printf ""',
-        filePath: selectedFile.path,
-        fileName: selectedFile.name
-    } : null, buildPersistMsg(state));
+    return buildOutputs(state, null, buildReadMsg(selectedFile), buildPersistMsg(state));
 }
 
 if (msg.topic === 'root-file-content') {

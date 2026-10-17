@@ -15,6 +15,9 @@
 // - output 1 -> resolved summary payload { dateKey, hours } for the dashboard table
 // Change notes:
 // 1. Initial version.
+// 2. The command is single-quoted for the exec node, which now runs `sh -c <payload>`
+//    (before, `-c` was appended after the payload, so `sh` tried to open a script named `cat`
+//    and only the energy-*.log fallback ran).
 // ==========================
 function todayKeyFromDate(date) {
     return [
@@ -66,7 +69,7 @@ return [
     {
         topic: 'selected-day-summary-file',
         dateKey: selectedDate,
-        payload: shellCommand,
+        payload: "'" + shellCommand.replace(/'/g, "'\\''") + "'",
         summaryFileName,
         energyFileName
     },
