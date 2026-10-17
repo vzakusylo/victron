@@ -137,6 +137,12 @@ function Sync-27 { Sync-Node 'Serve backup download'            '27 Serve backup
 # 28 — HTTP backup upload
 function Sync-28 { Sync-Node 'Store uploaded backup'            '28 Store uploaded backup.js'                   -BumpVersion }
 
+# 29 — Device status dashboard (CPU, memory, disks, network, processes, services)
+function Sync-29 { Sync-Node 'Build device status'              '29 Build device status.js'                     -BumpVersion }
+
+# 30 — BMS watchdog (restores DVCC "Controlling BMS" when it is lost)
+function Sync-30 { Sync-Node 'BMS watchdog'                     '30 BMS watchdog.js'                            -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -172,6 +178,8 @@ function Sync-All {
         @{ Name = 'Manage backup dashboard';             File = '26 Manage backup dashboard.js' }
         @{ Name = 'Serve backup download';               File = '27 Serve backup download.js' }
         @{ Name = 'Store uploaded backup';               File = '28 Store uploaded backup.js' }
+        @{ Name = 'Build device status';                 File = '29 Build device status.js' }
+        @{ Name = 'BMS watchdog';                        File = '30 BMS watchdog.js' }
     )
 
     $totalSynced = 0

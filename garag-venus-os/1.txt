@@ -78,6 +78,10 @@ MAX_DISCHARGE_CURRENT_CV_FRACTION = 0, 0.1, 0.5, 1
 BATTERY_CELL_DATA_FORMAT = 1
 GUI_PARAMETERS_SHOW_ADDITIONAL_INFO = True
 
+; Skip the BMS auto-detect scan (~1 min after boot) -> BMS on D-Bus in ~1 s.
+; Without it the MultiPlus can raise "BMS connection lost" + "Low battery" after a reboot.
+BMS_TYPE = LltJbd
+
 ; SOC from JBD internal coulomb counter — driver does not recalculate
 SOC_CALCULATION = False
 SOC_RESET_CELL_VOLTAGE = 3.9
@@ -162,6 +166,15 @@ cat /data/apps/dbus-serialbattery/config.default.ini   # all available options
 #   serial-starter tries vedirect-interface.ttyACM0 first, then falls back to dbus-serialbattery
 #   This is normal — after dbus-serialbattery.conf is loaded it wins the port
 #   No action needed if healthy log output appears
+
+# PROBLEM 5 (Cerbo "einstein", Venus v3.67, 2026-10-17): after reboot MultiPlus in Passthru
+#   Alarms on VE.Bus: "BMS connection lost" + "Low battery voltage"; battery itself fine
+#   Cause:  DVCC "Controlling BMS" was empty (dbus system /ActiveBmsService = [])
+#   Fix:    Settings > System setup > Charge control > Controlling BMS = SerialBattery(LLT/JBD)
+#           + BMS_TYPE = LltJbd in config.ini; Node-RED "BMS watchdog" now restores it automatically
+#   Note:   on v3.67 the driver log is /var/log/dbus-serialbattery.ttyACM0/current (not /data/log)
+#   Check:  V=$(dbus -y | grep com.victronenergy.vebus); dbus -y $V /State GetValue   (8 = Passthru)
+#           dbus -y com.victronenergy.system /ActiveBmsService GetValue
 
 # PROBLEM 4: multiline wget with \ pasted to ash shell
 #   ash treats each line as a separate command → "Resolving: command not found"
