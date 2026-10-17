@@ -122,6 +122,11 @@
 //     - once per month (and after every redeploy) output 7 asks the exec node for the month's
 //       `energy-YYYY-MM.csv` + legacy `energy-YYYY-MM-DD.log`; the reply (`topic = tariff-history`)
 //       restores today's grid Wh / peak and the month's per-day billable peaks
+// 28. Output 6 (trace) is throttled: sensor updates arrive several times per second and every trace
+//     rebuilt the Analytics / Energy dashboards (charts, tables, raw file text) and the debug sidebar,
+//     which kept Node-RED busy. Now at most one trace per TRACE_MIN_INTERVAL_MS (5 s) for sensor
+//     topics; hour rollovers and any other topic (inject, manual, history) still trace immediately.
+//     Control outputs 1-5 and 7 are not throttled.
 
 // ==========================
 // INPUT / OUTPUT TOPICS
@@ -137,6 +142,9 @@ const PV_CHARGER_TOPIC = "pv-charger-power";
 // Output 7 request and input reply (exec stdout) for the month energy history.
 const TARIFF_HISTORY_TOPIC = "tariff-history";
 const TARIFF_HISTORY_RETRY_MS = 60000;
+// Output 6 (trace) throttle for the high-rate sensor topics.
+const SENSOR_TOPICS = [BATTERY_TOPIC, BATTERY_CONSUMED_AH_TOPIC, GRID_TOPIC, AC_LOAD_TOPIC, DC_POWER_TOPIC, PV_CHARGER_TOPIC];
+const TRACE_MIN_INTERVAL_MS = 5000;
 const ENERGY_LOG_DIR = "/data/home/nodered/grid-control-logs";
 
 // ==========================
@@ -1056,7 +1064,17 @@ function buildOutputs(chargeCurrent, gridSetpoint, hourlyLogMsg) {
         gridSetpoint !== previousGridSetpoint
             ? buildNotification(windowName, gridSetpoint)
             : null;
-    const traceMsg = buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg);
+    // The trace only feeds dashboards/debug: at most one every TRACE_MIN_INTERVAL_MS for sensor
+    // updates (they arrive several times per second), immediately for everything else.
+    const lastTraceTs = Number(context.get("lastTraceTs")) || 0;
+    const sendTrace = Boolean(hourRolledOver)
+        || !SENSOR_TOPICS.includes(msg.topic)
+        || now.getTime() - lastTraceTs >= TRACE_MIN_INTERVAL_MS
+        || now.getTime() < lastTraceTs;
+    if (sendTrace) {
+        context.set("lastTraceTs", now.getTime());
+    }
+    const traceMsg = sendTrace ? buildTraceOutput(chargeCurrent, gridSetpoint, hourlyLogMsg) : null;
 
     return [
         {

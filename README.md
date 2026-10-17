@@ -356,6 +356,35 @@ Behavior:
 - `Reset all to defaults` clears the file and restores all defaults on the next cycle
 - the status line shows `Ready — N override(s) active`
 
+## 8b. Device status dashboard
+
+The `Device` tab shows the health of the GX device itself (read-only, works as the `nodered` user):
+
+- host, model, Venus OS version, kernel, uptime
+- CPU usage (sampled over 1 s from `/proc/stat`), load average, memory (used / available / cache / swap), temperatures (`/sys/class/thermal`)
+- disks (`df`), network interfaces with addresses and live RX/TX rates (`/proc/net/dev`)
+- TCP: listening ports with known service names, external connections (in/out), counts of established / time-wait / internal loopback connections (`/proc/net/tcp`, `tcp6`)
+- top processes by CPU and by memory (`/proc/<pid>/stat` + `ps`), key Venus services (Node-RED, dbus-serialbattery, VE.Bus, system calc, GUI, MQTT, VRM logger, …) with running state, CPU and memory
+- warnings for high CPU / load / memory / disk / temperature and for core services that are not running
+
+It refreshes when the tab is opened and every 15 s while it stays open (toggle), one sampling run at a time.
+
+Node-RED load: the Victron input nodes send every update, so the controller runs several times per second. Its trace output (output 6, which feeds the Analytics / Energy dashboards and the `DBG controller trace` debug node) is therefore throttled to one message per 5 s for sensor updates; control outputs are not throttled. The debug node is off by default — enable it only while debugging.
+
+## 8c. BMS watchdog
+
+After a reboot the DVCC "Controlling BMS" setting was once found empty (`com.victronenergy.system /ActiveBmsService = []`). The MultiPlus then raised `BMS connection lost` + `Low battery` and stayed in Passthru (no charging, no inverting) until the BMS was selected again by hand.
+
+The `BMS watchdog` function (inject every 30 s → exec `dbus` CLI, works as user `nodered`):
+
+- reads `/ActiveBmsService`, `/Settings/SystemSetup/BmsInstance`, the SerialBattery `/Connected` and the VE.Bus `/State` + BMS alarms
+- while a BMS is active it remembers the exact `BmsInstance` value in `/data/home/nodered/grid-control-config/bms-watchdog-good.txt`
+- if no BMS is active for 2 checks while the SerialBattery is connected, it writes the remembered value back (max once per 5 min) and raises a GX notification
+- a MultiPlus still in Passthru with `BMS connection lost` while the BMS is active is only reported (restart the VE.Bus system by hand)
+- its status is shown on the `Device` page
+
+Related device setting: `BMS_TYPE = LltJbd` in `/data/apps/dbus-serialbattery/config.ini` makes the driver connect within ~1 s after boot instead of scanning every BMS type for about a minute, so the BMS is present before the MultiPlus looks for it.
+
 ## 8a. Backup and Restore dashboard
 
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
