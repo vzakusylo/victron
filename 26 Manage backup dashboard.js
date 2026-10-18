@@ -44,6 +44,7 @@
 //    /data/apps/overlay-fs (Venus OS root-filesystem overlay with unreadable kernel work dirs) is
 //    excluded like node_modules; drivers recreate their overlays with enable.sh.
 // 4. GNU tar also skips `supervise` folders (daemontools runtime state, root-only) at any depth.
+// 5. Also backs up /data/grid-control-logperm.sh (makes driver logs readable for the Driver page).
 // ==========================
 
 const BACKUP_DIR = '/data/home/nodered/grid-control-backups';
@@ -72,6 +73,7 @@ const BACKUP_PATHS = [
     'data/etc/services',
     'data/rc.local',
     'data/rcS.local',
+    'data/grid-control-logperm.sh',
     VENUS_SETTINGS_PATH
 ];
 const BACKUP_LABELS = {
@@ -85,6 +87,7 @@ const BACKUP_LABELS = {
     'data/etc/services': 'Custom services',
     'data/rc.local': 'Boot script rc.local',
     'data/rcS.local': 'Boot script rcS.local',
+    'data/grid-control-logperm.sh': 'Driver-log read permission helper (started from rc.local)',
     'data/conf/settings.xml': 'Venus OS settings (optional on restore)'
 };
 const NAME_PATTERN = /^[A-Za-z0-9._-]+\.tar\.gz$/;

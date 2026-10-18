@@ -27,6 +27,7 @@ Dashboard pages (details in [Dashboard pages](#dashboard-pages)):
 | Backup | one-file backup / restore of history and the whole device setup |
 | Device | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | Driver | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
+| Agent (MCP) | MCP server for AI agents (e.g. Claude Code): endpoint URL, token, ready-to-paste client config |
 
 The repository keeps readable controller sources as numbered `.js` files (e.g. `01 Battery + Grid Controller.js`) and a live Node-RED export in `flows.json`.
 
@@ -40,9 +41,9 @@ Flow versioning rule:
 
 ## Repository contents
 
-- `01 Battery + Grid Controller.js` … `31 Driver checks dashboard.js`  
+- `01 Battery + Grid Controller.js` … `33 MCP page.js`  
   Numbered human-readable source files for every Node-RED function node.  
-  `sync-commands.ps1` provides `Sync-01` … `Sync-31` and `Sync-All` helpers.
+  `sync-commands.ps1` provides `Sync-01` … `Sync-33` and `Sync-All` helpers.
 
 - `garag-venus-os/1.txt`  
   dbus-serialbattery install, config and troubleshooting notes for the GX device.
@@ -411,7 +412,26 @@ The `Driver` tab collects every check used to diagnose the battery driver (read-
 - driver process command line, serial ports, effective `config.ini`
 - controls: run checks / auto-refresh 10 s, `Run watchdog check now`, `Restore Controlling BMS now` (forces an immediate watchdog repair), repair-test timeline (active BMS, setting, MultiPlus state, BMS-lost alarm per refresh), log viewer for the discovered `/var/log/...` driver and serial-starter logs (50–1000 lines)
 - root-only actions (restart driver, `enable.sh`, live log, set `BMS_TYPE`) are listed as SSH commands with copy buttons
+- driver logs under `/var/log` are root-only on Venus OS; the page then lists them with their permissions and offers two root commands: make them readable now, or permanently via `/data/grid-control-logperm.sh` started from `/data/rc.local` (re-applies the read permission every 5 min, because logs are recreated on reboot and rotation; the helper is included in the backup)
 
+## 8e. Agent access (MCP server)
+
+Node-RED also serves a [Model Context Protocol](https://modelcontextprotocol.io) server so an AI agent can read the live system state.
+
+- endpoint: `POST <node-red base URL>/mcp` (MCP Streamable HTTP, JSON responses; `GET` → 405). The base URL is the address the dashboard is opened with, without `/ui`, for example the VRM remote link `https://<id>-nodered.proxyrelayN.victronenergy.com/mcp` or the LAN address `https://<GX IP>:1881/mcp`
+- access: a 48-hex-character token from `/dev/urandom`, stored in `/data/home/nodered/grid-control-config/mcp-token.txt` (created on first start, kept across restarts, included in the backup). Send `Authorization: Bearer <token>`, or `X-MCP-Token: <token>` if Node-RED HTTP basic auth already uses the `Authorization` header. Wrong / missing token → 401, disabled → 503, a foreign browser `Origin` → 403
+- tools (all read-only): `get_system_overview`, `get_capacity_tariff`, `get_energy_today`, `get_solar_forecast`, `get_battery_driver_status` (also triggers a fresh check), `get_device_status` (also triggers a fresh sample), `get_bms_watchdog`, `get_settings`, `list_backups`
+- the `Agent (MCP)` page shows the endpoint (VRM link first when opened through VRM), the token (show / copy / regenerate / disable), copy-ready `claude mcp add …`, `.mcp.json` and `curl` test commands, the tool list and the latest agent calls
+
+Example (Claude Code):
+
+```
+claude mcp add --transport http victron-gx https://<id>-nodered.proxyrelayN.victronenergy.com/mcp --header "Authorization: Bearer <token>"
+```
+
+Claude Code skill: `.claude/skills/victron-status/` (`SKILL.md` + `mcp-call.mjs`) reads the status through this server without registering it — it asks for the token every time, passes it only via `MCP_TOKEN`, and trusts the GX certificate from `~/.claude/victron-gx.pem` (issued to `venus.local`, so the URL is `https://venus.local:1881/mcp`).
+
+Notes: the VRM relay link can change (e.g. `proxyrelay10` → `proxyrelay15`) — copy the current one from the page. Check it once with the page's curl test from the agent's computer: a JSON tool list means the relay passes the request; an HTML page or redirect means it wants a VRM browser login, then use the LAN address. The LAN HTTPS port uses the GX self-signed certificate (Node clients need `NODE_EXTRA_CA_CERTS`).
 ## 8d. Backup and Restore dashboard
 
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
