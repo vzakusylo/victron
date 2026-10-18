@@ -431,6 +431,36 @@ claude mcp add --transport http victron-gx https://<id>-nodered.proxyrelayN.vict
 
 Claude Code skill: `.claude/skills/victron-status/` (`SKILL.md` + `mcp-call.mjs`) reads the status through this server without registering it — it asks for the token every time, passes it only via `MCP_TOKEN`, and trusts the GX certificate from `~/.claude/victron-gx.pem` (issued to `venus.local`, so the URL is `https://venus.local:1881/mcp`).
 
+#### Example: `/victron-status` answer
+
+Real answer from Claude Code on 2026-10-18 (tools used: `get_system_overview`, `get_capacity_tariff`, `get_bms_watchdog`, `get_battery_driver_status`):
+
+> Everything is working. No faults or alarms. The only `warn` is cosmetic: the driver log folders are root-only, so the check can’t read them.
+>
+> **System** (data is current, 0–51 s old)
+>
+> - Time window: OUTSIDE. No charge or discharge window is active right now.
+> - Battery: 56.07 V, BMS SoC 77 %, 22 °C, current 0 A
+> - Grid import 1107 W, AC load 1106 W, PV only 90 W (it’s cloudy: `SOL:CLOUDY`)
+> - Grid setpoint 4950 W, charge current 0 A, input current limit 23.5 A
+> - Force-charge is armed at 1350 W but not limiting. Export guard and manual discharge are off.
+>
+> **Capacity tariff**
+>
+> - Winter season (started 17 Oct), tier 2 (5 kW)
+> - Today: 32.4 kWh imported, 62.1 kWh left before today’s limit
+> - Today’s billable peak is 3.74 kWh (06:00 hour), so 1.26 kWh of headroom remains
+> - October’s three highest peaks are 3736 / 2477 / 2005 Wh, averaging 2739 W. The month stays within tier 2 (`monthFitsTier` is true).
+>
+> **BMS / driver**
+>
+> - The BMS (LLT/JBD, 14S, 350 Ah) is connected and is the active controlling BMS (DVCC on). The watchdog status is `ok` and it hasn’t needed to repair anything.
+> - MultiPlus-II is in state 3 (Bulk), mode On, with no VE.Bus error, BMS-lost or low-battery alarms
+> - Cell spread is 8 mV (4.000–4.008 V), which is good
+> - The driver process has been running for 11 h 54 m. No alarms on any device.
+>
+> Worth a look: the GX system SoC shows 100 %, but the BMS reports 77 %. The system’s active battery service is `com.victronenergy.battery/289`, not the BMS at `ttyACM0`. That may be the aggregate-batteries service or a battery monitor. If the VRM and dashboard SoC should match the BMS, check Settings → System setup → Battery monitor.
+
 Connecting Claude Code with verified TLS (tested): the GX self-signed certificate has `CN=venus.local` and no IP in it, so use the name, export the certificate once (for example to `~/.claude/victron-gx.pem`) and start Claude Code with `NODE_EXTRA_CA_CERTS` pointing to it:
 
 ```
