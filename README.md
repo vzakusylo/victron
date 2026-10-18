@@ -431,6 +431,12 @@ claude mcp add --transport http victron-gx https://<id>-nodered.proxyrelayN.vict
 
 Claude Code skill: `.claude/skills/victron-status/` (`SKILL.md` + `mcp-call.mjs`) reads the status through this server without registering it — it asks for the token every time, passes it only via `MCP_TOKEN`, and trusts the GX certificate from `~/.claude/victron-gx.pem` (issued to `venus.local`, so the URL is `https://venus.local:1881/mcp`).
 
+Connecting Claude Code with verified TLS (tested): the GX self-signed certificate has `CN=venus.local` and no IP in it, so use the name, export the certificate once (for example to `~/.claude/victron-gx.pem`) and start Claude Code with `NODE_EXTRA_CA_CERTS` pointing to it:
+
+```
+claude mcp add --transport http -s local victron-gx https://venus.local:1881/mcp --header "Authorization: Bearer <token>"
+```
+
 Notes: the VRM relay link can change (e.g. `proxyrelay10` → `proxyrelay15`) — copy the current one from the page. Check it once with the page's curl test from the agent's computer: a JSON tool list means the relay passes the request; an HTML page or redirect means it wants a VRM browser login, then use the LAN address. The LAN HTTPS port uses the GX self-signed certificate (Node clients need `NODE_EXTRA_CA_CERTS`).
 ## 8d. Backup and Restore dashboard
 
@@ -474,6 +480,16 @@ Security note: the download and upload endpoints use Node-RED's HTTP-node securi
 The live flow now includes several dashboard surfaces for operation and diagnostics, including a dedicated `Protection` tab for runtime control of the high-voltage limiter and AC-assisted charging.
 
 ### Dashboard pages
+
+![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP)](dashboard-menu.png)
+
+#### Agent (MCP) — connect an AI agent
+
+![Agent (MCP) page — server status, endpoint, token (hidden in this screenshot), ready-to-paste Claude Code / .mcp.json / curl commands](dashboard-mcp.png)
+
+![Agent (MCP) page — read-only tool list and the latest agent calls (initialize, tools/list, tools/call)](dashboard-mcp-calls.png)
+
+Enables the built-in MCP server (`POST /mcp`) and shows everything needed to connect an agent: endpoint, token (show / copy / regenerate / disable), copy-ready `claude mcp add …`, `.mcp.json` and curl commands, the nine read-only tools and a log of the latest agent calls (the screenshot shows Claude Code 2.1.228 and the `victron-status` skill connecting). Use `https://venus.local:1881/mcp` from the home network — the GX certificate is issued to `venus.local`; the VRM remote link answers 403 "No session" to anything but a logged-in browser. In the screenshots the token is blacked out. See [8e](#8e-agent-access-mcp-server).
 
 #### Driver — battery driver, BMS and MultiPlus health
 
