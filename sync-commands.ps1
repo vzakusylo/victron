@@ -146,6 +146,12 @@ function Sync-30 { Sync-Node 'BMS watchdog'                     '30 BMS watchdog
 # 31 — Driver page (dbus-serialbattery / BMS / VE.Bus checks, logs, controls)
 function Sync-31 { Sync-Node 'Driver checks dashboard'          '31 Driver checks dashboard.js'                 -BumpVersion }
 
+# 32 — MCP server (POST /mcp, read-only tools for AI agents)
+function Sync-32 { Sync-Node 'MCP server'                       '32 MCP server.js'                              -BumpVersion }
+
+# 33 — Agent (MCP) page: token management, endpoint URLs, client config
+function Sync-33 { Sync-Node 'MCP page'                         '33 MCP page.js'                                -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -184,6 +190,8 @@ function Sync-All {
         @{ Name = 'Build device status';                 File = '29 Build device status.js' }
         @{ Name = 'BMS watchdog';                        File = '30 BMS watchdog.js' }
         @{ Name = 'Driver checks dashboard';             File = '31 Driver checks dashboard.js' }
+        @{ Name = 'MCP server';                          File = '32 MCP server.js' }
+        @{ Name = 'MCP page';                            File = '33 MCP page.js' }
     )
 
     $totalSynced = 0

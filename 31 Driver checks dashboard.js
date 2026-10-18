@@ -31,6 +31,8 @@
 // 1. Initial version.
 // 2. Display fixes: lists of objects (e.g. /AvailableBmsServices) are shown as JSON instead of
 //    "[object Object]", D-Bus floats are rounded to 3 decimals.
+// 3. Log folders that exist but are root-only (the default on Venus) are reported as `logDenied`
+//    with their permissions, plus a health check; the page shows the root command to make them readable.
 // ==========================
 
 const STATE_KEY = 'driverDashboardState';
@@ -109,7 +111,8 @@ const CHECK_SCRIPT = [
     'for s in /service/dbus-serialbattery.*; do [ -e "$s" ] && echo "@@SVC ${s##*/}|$(svstat "$s" 2>&1)"; done',
     // `[.]` keeps this script itself (whose command line contains the text) from matching.
     'for f in $(grep -la "dbus-serialbattery[.]py" /proc/[0-9]*/cmdline 2>/dev/null); do d=${f%/cmdline}; read -r st 2>/dev/null < "$d/stat" && echo "@@PROC $st"; printf "@@ARGS %s " "${d#/proc/}"; tr "\\000" " " 2>/dev/null < "$f"; echo; done',
-    'for d in /var/log/dbus-serialbattery.* /var/log/serial-starter /var/log/dbus-aggregate-batteries* /data/log/dbus-serialbattery.*; do [ -f "$d/current" ] && echo "@@LOGDIR $d"; done',
+    // Log folders are root-only by default: report "exists but not readable" separately.
+    'for d in /var/log/dbus-serialbattery.* /var/log/serial-starter /var/log/dbus-aggregate-batteries* /data/log/dbus-serialbattery.*; do [ -e "$d" ] || continue; if [ -r "$d/current" ]; then echo "@@LOGDIR $d"; else echo "@@LOGDENIED $d|$(ls -ld "$d" 2>&1 | tr -s " ")"; fi; done',
     'if [ -r "' + CONFIG_PATH + '" ]; then grep -v -E "^[[:space:]]*([;#]|$)" "' + CONFIG_PATH + '" | sed "s/^/@@CFG /"; else echo "@@CFGERR not readable"; fi',
     'echo "@@GOOD $(head -n 1 "' + GOOD_FILE + '" 2>/dev/null)"',
     'PY=$(command -v python3 || command -v python)',
@@ -160,7 +163,7 @@ function formatDuration(seconds) {
 }
 
 function parseChecks(rawText) {
-    const result = { ttys: [], services: [], processes: [], args: {}, logDirs: [], config: [], configError: '', good: '', dbus: null };
+    const result = { ttys: [], services: [], processes: [], args: {}, logDirs: [], logDenied: [], config: [], configError: '', good: '', dbus: null };
     String(rawText || '').split(/\r?\n/).forEach(line => {
         const match = line.match(/^@@([A-Z]+) ?(.*)$/);
         if (!match) {
@@ -191,6 +194,11 @@ function parseChecks(rawText) {
                 break;
             }
             case 'LOGDIR': result.logDirs.push(value.trim()); break;
+            case 'LOGDENIED': {
+                const parts = value.split('|');
+                result.logDenied.push({ path: parts[0].trim(), detail: parts.slice(1).join('|').trim() });
+                break;
+            }
             case 'CFG': result.config.push(value.trim()); break;
             case 'CFGERR': result.configError = value.trim(); break;
             case 'GOOD': result.good = value.trim(); break;
@@ -307,7 +315,11 @@ function buildView(parsed, state) {
         check('Battery alarms', batteryAlarms.length ? 'bad' : 'ok', batteryAlarms.length ? batteryAlarms.join(', ') : 'none'),
         check('Cell balance', cellSpreadMv === null ? 'warn' : (cellSpreadMv > 100 ? 'bad' : (cellSpreadMv > 40 ? 'warn' : 'ok')),
             cellSpreadMv === null ? 'no cell data' : cellSpreadMv + ' mV (min ' + minCell + ' V / max ' + maxCell + ' V)'),
-        check('Active alarms (all devices)', alarmList.length ? 'bad' : 'ok', alarmList.length ? alarmList.length + ' active' : 'none')
+        check('Active alarms (all devices)', alarmList.length ? 'bad' : 'ok', alarmList.length ? alarmList.length + ' active' : 'none'),
+        check('Driver logs readable', parsed.logDenied.length ? 'warn' : (parsed.logDirs.length ? 'ok' : 'warn'),
+            parsed.logDenied.length
+                ? parsed.logDenied.map(item => item.path).join(', ') + ' exist but are root-only - see "Driver logs" below'
+                : (parsed.logDirs.length ? parsed.logDirs.join(', ') : 'no driver log folders found'))
     ];
     const worst = checks.some(item => item.level === 'bad') ? 'bad' : (checks.some(item => item.level === 'warn') ? 'warn' : 'ok');
 
@@ -364,6 +376,7 @@ function buildView(parsed, state) {
         good: parsed.good,
         timeline: state.timeline.slice().reverse(),
         logDirs: parsed.logDirs,
+        logDenied: parsed.logDenied,
         log: state.log || null,
         dbusError: dbusData.error || '',
         logLineChoices: LOG_LINE_CHOICES
