@@ -950,3 +950,11 @@ It combines:
 - Norway-oriented tariff thinking
 
 The result is a controller that is intended to be understandable, editable, and directly useful on a Cerbo GX based ESS installation.
+
+---
+
+## License
+
+[MIT](LICENSE) — free to use, change and share, also commercially. Just keep the credit: **Vadym Zakusylo** and a link to this repository, https://github.com/vzakusylo/victron 🙂
+
+The software is provided as is, without warranty. It controls an inverter, grid import and battery charging — check every setting against your own equipment and local electrical rules, and use it at your own risk.
