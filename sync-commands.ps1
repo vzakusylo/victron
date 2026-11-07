@@ -237,6 +237,21 @@ function Sync-All {
         }
     }
 
+    # ui_template HTML sources (not function nodes) — synced into .format
+    $templates = @(
+        @{ Name = 'Heat pump page';                      File = '35 Heat pump page.html' }
+    )
+    foreach ($entry in $templates) {
+        $src = [System.IO.File]::ReadAllText((Join-Path $Root $entry.File))
+        foreach ($n in $j) {
+            if ($n.type -eq 'ui_template' -and $n.name -eq $entry.Name) {
+                $n.format = $src
+                $totalSynced++
+                Write-Host "  SYNCED  $($entry.Name) (template)"
+            }
+        }
+    }
+
     # Bump tab version once
     foreach ($n in $j) {
         if ($n.type -eq 'tab' -and $n.label -match 'd#(\d+)') {
