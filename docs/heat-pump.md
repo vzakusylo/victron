@@ -47,13 +47,28 @@ Note: many Tuya devices accept only **one local connection**. Do not run tinytuy
 
 Stage 1 is read-only. Flow nodes:
 
-- `Poll heat pump (GET, read only)` — every 60 s sends `{"operation":"GET","schema":true}` to the three Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
+- `Poll heat pump (GET, read only)` — every 30 s (was 60 s before d#114) sends `{"operation":"GET","schema":true}` to the three Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
 - three `tuya-smart-device` nodes → `topic = hp | valve | bypass` → `Heat pump state` (`34 Heat pump state.js`)
 - `Heat pump page` (ui_template, source `35 Heat pump page.html`) and `Heat pump temperatures` (24 h chart: supply, return, tank, outdoor; one point per minute)
 
 The page shows connection state of each device, supply / return / tank / outdoor, compressor Hz, fan, set points, mode, curve P22–P24, valve and bypass state, a defrost sign (fan 0 while compressor > 30 Hz), decoded faults (`Er03`…`Er70`) and a table of every DP received (unknown DPs listed separately).
 
 State is kept in `flow.heatPump` (raw DPs per device) and `flow.heatPumpModel` (page model).
+
+**Compressor load card (d#114, maxima d#116):**
+- rated maxima: 91 Hz and 8 A (constants `COMPRESSOR_MAX_HZ` / `COMPRESSOR_MAX_A` in `34`);
+- frequency % = DP 115 / 91, current % = DP 112 / 8, each clamped to 0–100;
+- load % = the higher of the two. Example: 69 Hz, 3 A → 76 % / 38 % → **76 %**;
+- power ≈ DP 112 (compressor current) × DP 114 (DC bus voltage; 230 V until received).
+
+This is an estimate: power factor and drive losses are ignored, and there is no power DP.
+
+**History log (d#114):**
+- Nodes: `Heat pump log tick (30 s)` → `Format heat pump log line` (`36 Format heat pump log line.js`) → `Append heat pump log`.
+- Every 30 s one line is appended to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log` (local date of the GX).
+- Format: `time | Sup | Ret | Tank | Out | Cmp Hz A % ~W | Fan | HeatSet | DhwSet | work mode + mode | Valve | Bypass | Defrost | Faults | Age`.
+- No line is written while the data is older than 180 s.
+- Size: about 2880 lines and ~0.4 MB per day. Log cleanup is disabled, so watch disk space on the Files page.
 
 ## Data points
 

@@ -13,6 +13,11 @@
 .hpw-card .k { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .04em; }
 .hpw-card .v { font-size: 22px; font-weight: 700; }
 .hpw-card .u { font-size: 12px; opacity: .7; margin-left: 2px; }
+.hpw-card .s { font-size: 11px; opacity: .7; margin-top: 2px; }
+.hpw-bar { height: 4px; border-radius: 2px; background: rgba(127,127,127,.25); margin-top: 4px; overflow: hidden; }
+.hpw-bar > div { height: 100%; background: #2ea043; }
+.hpw-bar > div.mid { background: #d29922; }
+.hpw-bar > div.high { background: #da3633; }
 .hpw-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .hpw-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; background: rgba(127,127,127,.18); }
 .hpw-ok { background: rgba(46,160,67,.25); }
@@ -42,10 +47,14 @@
     <div class="hpw-card"><div class="k">DHW tank</div><div class="v">{{msg.payload.summary.tank}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
+    <div class="hpw-card" title="Load = higher of frequency / {{msg.payload.summary.compressorMaxHz}} Hz ({{msg.payload.summary.compressorFreqPct}} %) and current / {{msg.payload.summary.compressorMaxA}} A ({{msg.payload.summary.compressorCurrentPct}} %). Power ≈ current × {{msg.payload.summary.compressorPowerBasis}} — estimate.">
+      <div class="k">Compressor load</div>
+      <div class="v">{{msg.payload.summary.compressorLoadPct === null ? '—' : msg.payload.summary.compressorLoadPct}}<span class="u">%</span></div>
+      <div class="hpw-bar" ng-if="msg.payload.summary.compressorLoadPct !== null"><div ng-style="{width: msg.payload.summary.compressorLoadPct + '%'}" ng-class="{mid: msg.payload.summary.compressorLoadPct >= 60, high: msg.payload.summary.compressorLoadPct >= 85}"></div></div>
+      <div class="s">{{msg.payload.summary.compressorHz === null ? '—' : msg.payload.summary.compressorHz}}/{{msg.payload.summary.compressorMaxHz}} Hz · {{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}/{{msg.payload.summary.compressorMaxA}} A<span ng-if="msg.payload.summary.compressorPowerW !== null"> · ≈{{(msg.payload.summary.compressorPowerW / 1000) | number:2}} kW</span></div>
+    </div>
     <div class="hpw-card"><div class="k">Fan</div><div class="v">{{msg.payload.summary.fanRpm}}</div></div>
-    <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
-    <div class="hpw-card"><div class="k">DHW set</div><div class="v">{{msg.payload.summary.dhwSetpoint}}<span class="u">°C</span></div></div>
-  </div>
+    <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>  </div>
 
   <div class="hpw-chips" ng-if="msg.payload.summary">
     <span class="hpw-chip">Mode: {{msg.payload.summary.mode || '—'}}</span>
