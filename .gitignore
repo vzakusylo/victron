@@ -1,0 +1,5 @@
+# Agent-to-agent message channel (local only)
+.claude/bridge/
+
+# Local session handoff notes (may contain addresses / private details)
+HANDOFF.md

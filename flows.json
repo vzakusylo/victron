@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#111 Day / Night Grid Control",
+    "label": "d#112 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -4514,5 +4514,309 @@
     "x": 640,
     "y": 2200,
     "wires": []
+  },
+  {
+    "id": "ui-tab-heatpump-01",
+    "type": "ui_tab",
+    "name": "Heat Pump",
+    "icon": "whatshot",
+    "order": 10,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "ui-group-heatpump-main-01",
+    "type": "ui_group",
+    "name": "Heat pump (read only)",
+    "tab": "ui-tab-heatpump-01",
+    "order": 1,
+    "disp": true,
+    "width": "24",
+    "collapse": false,
+    "className": ""
+  },
+  {
+    "id": "hp-comment-01",
+    "type": "comment",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump (Tuya local) — stage 1, READ ONLY. Enter Device ID + Local Key in each Tuya node (stored as credentials, never exported).",
+    "info": "Requires palette node node-red-contrib-tuya-smart-device. See docs/heat-pump.md.",
+    "x": 440,
+    "y": 2300,
+    "wires": []
+  },
+  {
+    "id": "hp-poll-inject-01",
+    "type": "inject",
+    "z": "995ac4ed6222a706",
+    "name": "Poll heat pump (GET, read only)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "60",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "20",
+    "topic": "",
+    "payload": "{\"operation\":\"GET\",\"schema\":true}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 2380,
+    "wires": [
+      [
+        "hp-tuya-pump-01",
+        "hp-tuya-valve-01",
+        "hp-tuya-bypass-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-tuya-pump-01",
+    "type": "tuya-smart-device",
+    "z": "995ac4ed6222a706",
+    "deviceName": "Heating pump",
+    "disableAutoStart": false,
+    "deviceId": "",
+    "deviceKey": "",
+    "storeAsCreds": true,
+    "deviceIp": "",
+    "retryTimeout": "5000",
+    "findTimeout": "10000",
+    "tuyaVersion": "3.3",
+    "eventMode": "event-both",
+    "logLevel": "log-level-error",
+    "x": 420,
+    "y": 2340,
+    "wires": [
+      [
+        "hp-topic-hp-01"
+      ],
+      [
+        "hp-topic-hp-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-tuya-valve-01",
+    "type": "tuya-smart-device",
+    "z": "995ac4ed6222a706",
+    "deviceName": "Boiler valve relay",
+    "disableAutoStart": false,
+    "deviceId": "",
+    "deviceKey": "",
+    "storeAsCreds": true,
+    "deviceIp": "",
+    "retryTimeout": "5000",
+    "findTimeout": "10000",
+    "tuyaVersion": "3.3",
+    "eventMode": "event-both",
+    "logLevel": "log-level-error",
+    "x": 420,
+    "y": 2380,
+    "wires": [
+      [
+        "hp-topic-valve-01"
+      ],
+      [
+        "hp-topic-valve-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-tuya-bypass-01",
+    "type": "tuya-smart-device",
+    "z": "995ac4ed6222a706",
+    "deviceName": "Off Heating exchange",
+    "disableAutoStart": false,
+    "deviceId": "",
+    "deviceKey": "",
+    "storeAsCreds": true,
+    "deviceIp": "",
+    "retryTimeout": "5000",
+    "findTimeout": "10000",
+    "tuyaVersion": "3.3",
+    "eventMode": "event-both",
+    "logLevel": "log-level-error",
+    "x": 420,
+    "y": 2420,
+    "wires": [
+      [
+        "hp-topic-bypass-01"
+      ],
+      [
+        "hp-topic-bypass-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-topic-hp-01",
+    "type": "change",
+    "z": "995ac4ed6222a706",
+    "name": "topic = hp",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "hp",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 660,
+    "y": 2340,
+    "wires": [
+      [
+        "hp-state-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-topic-valve-01",
+    "type": "change",
+    "z": "995ac4ed6222a706",
+    "name": "topic = valve",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "valve",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 660,
+    "y": 2380,
+    "wires": [
+      [
+        "hp-state-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-topic-bypass-01",
+    "type": "change",
+    "z": "995ac4ed6222a706",
+    "name": "topic = bypass",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "bypass",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 660,
+    "y": 2420,
+    "wires": [
+      [
+        "hp-state-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-state-fn-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump state",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `34 Heat pump state.js` and the embedded `func` for \"Heat pump state\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - READ-ONLY collector for the Tuya heat pump and its two helper relays\n//   (stage 1 of moving the heat pump control from the Tuya cloud to the GX).\n// - Merges partial DP updates from the local Tuya connection into one state\n//   object, decodes the known heat pump DPs and feeds the \"Heat Pump\" page.\n// - Never sends anything to the devices. The only command used on the Tuya\n//   nodes is the periodic GET from the poll inject (read).\n// Input:\n// - msg.topic = 'hp' | 'valve' | 'bypass' (set by the change node in front)\n// - data msg  : msg.payload = { data: { dps: { ... } }, deviceId, deviceName }\n// - status msg: msg.payload = { state: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR' }\n// Output (2):\n// - output 1 -> msg.payload = page model for the \"Heat pump page\" ui_template\n// - output 2 -> chart points for \"Heat pump temperatures\" (max once per minute)\n// State:\n// - flow.heatPump = { hp: {...}, valve: {...}, bypass: {...} }\n// Change notes:\n// 1. Initial version (d#112): read-only page, DP map from the Tuya cloud model\n//    of product 5oc9wmac3bbidekc (controller PW58280, Powerworld/Michl).\n// ==========================\n\nconst ROLES = ['hp', 'valve', 'bypass'];\n\nconst ROLE_LABELS = {\n    hp: 'Heat pump',\n    valve: 'Boiler valve relay (ON = DHW)',\n    bypass: 'Heating exchange bypass (ON = bypass)'\n};\n\n// Heat pump DP map (code, label, unit)\nconst HP_DPS = {\n    '1': ['switch', 'Power', ''],\n    '2': ['mode', 'Mode', ''],\n    '5': ['work_mode', 'Work mode', ''],\n    '15': ['fault', 'Faults', ''],\n    '101': ['intemp', 'Water in (return)', '°C'],\n    '102': ['outtemp', 'Water out (supply)', '°C'],\n    '103': ['whjtemp', 'Outdoor', '°C'],\n    '104': ['cmptemp', 'Discharge', '°C'],\n    '105': ['hqtemp', 'Suction', '°C'],\n    '106': ['ptemp', 'Outdoor coil', '°C'],\n    '107': ['cptemp', 'Cooling coil', '°C'],\n    '108': ['wttemp', 'DHW tank', '°C'],\n    '109': ['step_run', 'Main EEV', 'P'],\n    '111': ['stepb_run', 'EVI EEV', 'P'],\n    '112': ['cmp_cur', 'Compressor current', 'A'],\n    '113': ['sink_temp', 'Heatsink', '°C'],\n    '114': ['dc_bus_voltage', 'DC bus', 'V'],\n    '115': ['cmp_act_frep', 'Compressor', 'Hz'],\n    '116': ['dc_fan_speed', 'Fan 1', 'rpm'],\n    '117': ['dc_fan2_speed', 'Fan 2', 'rpm'],\n    '121': ['aircond_temp_diff', 'Heating hysteresis', '°C'],\n    '122': ['wth_temp_diff', 'DHW hysteresis', '°C'],\n    '123': ['wth_stemp', 'DHW setpoint', '°C'],\n    '124': ['acc_stemp', 'Cooling setpoint', '°C'],\n    '125': ['ach_stemp', 'Heating setpoint', '°C'],\n    '126': ['water_temp_compenst', 'Water temp compensation', '°C'],\n    '132': ['heat_target_temp_auto_adj', 'Curve P22 enabled', ''],\n    '133': ['heat_compst_temp_point_hj', 'Curve P23 ambient point', '°C'],\n    '134': ['target_temp_compst_xs', 'Curve P24 coefficient', ''],\n    '135': ['hwh_freq_run_mode', 'Freq mode after setpoint', ''],\n    '136': ['eheat_start_hj_temp', 'E-heater start ambient', '°C'],\n    '137': ['wt_eheat_enter_tm', 'Tank e-heater delay', 'min'],\n    '138': ['hw_waterp_mode', 'Water pump mode', ''],\n    '139': ['defr_enter_temp', 'Defrost enter', '°C'],\n    '140': ['defr_exit_temp', 'Defrost exit', '°C'],\n    '141': ['defr_hj_coil_temp_diff1', 'Defrost ambient-coil diff', '°C'],\n    '142': ['hw_run_freq_min', 'Freq min', 'Hz'],\n    '143': ['hw_run_freq_max', 'Freq max', 'Hz'],\n    '144': ['wth_compenst_freq', 'DHW freq compensation', 'Hz']\n};\n\nconst FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'Er14', 'Er15', 'Er16',\n    'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',\n    'Er63', 'Er64', 'Er66', 'Er67', 'Er68', 'Er69', 'Er70'];\n\nconst MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };\nconst WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };\n\nconst CHART_INTERVAL_MS = 60 * 1000;\nconst STALE_MS = 5 * 60 * 1000;\n\nfunction emptyDevice() {\n    return { state: 'UNKNOWN', dps: {}, lastData: 0, lastState: 0 };\n}\n\nfunction decodeFaults(value) {\n    const n = Number(value);\n    if (!Number.isFinite(n) || n === 0) return [];\n    const out = [];\n    for (let i = 0; i < FAULT_LABELS.length; i++) {\n        if (n & (1 << i)) out.push(FAULT_LABELS[i]);\n    }\n    return out;\n}\n\nfunction num(v) {\n    const n = Number(v);\n    return Number.isFinite(n) ? n : null;\n}\n\nfunction switchValue(dev) {\n    // Smart plugs / relays: DP 1 is the main switch on nearly every Tuya plug\n    const v = dev.dps['1'];\n    return typeof v === 'boolean' ? v : null;\n}\n\nfunction buildModel(st, now) {\n    const hp = st.hp;\n    const d = hp.dps;\n    const items = [];\n    Object.keys(HP_DPS).forEach((dp) => {\n        if (d[dp] === undefined) return;\n        const [code, label, unit] = HP_DPS[dp];\n        let value = d[dp];\n        if (code === 'fault') value = decodeFaults(value).join(', ') || 'none';\n        else if (code === 'mode') value = MODE_LABELS[value] || value;\n        else if (code === 'work_mode') value = WORK_MODE_LABELS[value] || value;\n        else if (typeof value === 'boolean') value = value ? 'ON' : 'OFF';\n        items.push({ dp, code, label, unit, value });\n    });\n    const unknown = Object.keys(d).filter((dp) => !HP_DPS[dp]).map((dp) => ({ dp, value: d[dp] }));\n\n    const fan = num(d['116']);\n    const freq = num(d['115']);\n    const defrostSign = fan === 0 && freq !== null && freq > 30;\n\n    const devices = ROLES.map((role) => {\n        const dev = st[role];\n        const age = dev.lastData ? Math.round((now - dev.lastData) / 1000) : null;\n        return {\n            role,\n            label: ROLE_LABELS[role],\n            state: dev.state,\n            ageSeconds: age,\n            stale: !dev.lastData || now - dev.lastData > STALE_MS,\n            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : switchValue(dev)\n        };\n    });\n\n    return {\n        updated: new Date(now).toISOString(),\n        readOnly: true,\n        devices,\n        summary: {\n            supply: num(d['102']),\n            ret: num(d['101']),\n            tank: num(d['108']),\n            outdoor: num(d['103']),\n            compressorHz: freq,\n            fanRpm: fan,\n            compressorA: num(d['112']),\n            heatingSetpoint: num(d['125']),\n            dhwSetpoint: num(d['123']),\n            mode: MODE_LABELS[d['2']] || d['2'] || null,\n            workMode: WORK_MODE_LABELS[d['5']] || d['5'] || null,\n            curve: d['132'] === undefined ? null : { enabled: String(d['132']) === '1', p23: num(d['133']), p24: num(d['134']) },\n            faults: decodeFaults(d['15']),\n            valveToDhw: switchValue(st.valve),\n            bypassOn: switchValue(st.bypass),\n            defrostSign\n        },\n        items,\n        unknown\n    };\n}\n\n// ---------------------------------------------------------------------------\nconst now = Date.now();\nconst role = msg.topic;\nif (!ROLES.includes(role)) {\n    node.warn('Heat pump state: unknown msg.topic ' + role);\n    return null;\n}\n\nconst st = flow.get('heatPump') || {};\nROLES.forEach((r) => { if (!st[r]) st[r] = emptyDevice(); });\nconst dev = st[role];\nconst p = msg.payload || {};\n\nif (typeof p.state === 'string' && !p.data) {\n    dev.state = p.state;\n    dev.lastState = now;\n} else if (p.data && typeof p.data === 'object') {\n    const dps = p.data.dps || {};\n    Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });\n    dev.lastData = now;\n    dev.state = 'CONNECTED';\n} else {\n    return null;\n}\n\nflow.set('heatPump', st);\nconst model = buildModel(st, now);\nflow.set('heatPumpModel', model);\n\nconst statusText = model.summary.supply !== null\n    ? `out ${model.summary.supply}° tank ${model.summary.tank}° ${model.summary.compressorHz} Hz`\n    : `${role}: ${dev.state}`;\nnode.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });\n\nlet chartMsgs = null;\nconst lastChart = context.get('lastChart') || 0;\nif (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_MS) {\n    context.set('lastChart', now);\n    const s = model.summary;\n    chartMsgs = [\n        ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor]\n    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));\n}\n\nreturn [{ payload: model }, chartMsgs];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 890,
+    "y": 2380,
+    "wires": [
+      [
+        "hp-page-template-01"
+      ],
+      [
+        "hp-chart-01"
+      ]
+    ]
+  },
+  {
+    "id": "hp-page-template-01",
+    "type": "ui_template",
+    "z": "995ac4ed6222a706",
+    "group": "ui-group-heatpump-main-01",
+    "name": "Heat pump page",
+    "order": 1,
+    "width": "24",
+    "height": "24",
+    "format": "<!--\n  35 Heat pump page.html\n  Source of the ui_template \"Heat pump page\" (Heat Pump dashboard tab).\n  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-35).\n  Read-only page (stage 1): shows the state built by \"Heat pump state\" (34). No buttons send commands.\n-->\n<style>\n.hpw { padding: 6px 4px; font-size: 14px; }\n.hpw-title { font-size: 20px; font-weight: 700; }\n.hpw-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }\n.hpw-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }\n.hpw-card { flex: 1 1 120px; border-radius: 10px; padding: 8px 10px; background: rgba(127,127,127,.12); }\n.hpw-card .k { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .04em; }\n.hpw-card .v { font-size: 22px; font-weight: 700; }\n.hpw-card .u { font-size: 12px; opacity: .7; margin-left: 2px; }\n.hpw-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }\n.hpw-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; background: rgba(127,127,127,.18); }\n.hpw-ok { background: rgba(46,160,67,.25); }\n.hpw-warn { background: rgba(210,153,34,.30); }\n.hpw-bad { background: rgba(218,54,51,.30); }\n.hpw table { width: 100%; border-collapse: collapse; font-size: 13px; }\n.hpw th, .hpw td { text-align: left; padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.2); }\n.hpw th { font-weight: 600; opacity: .8; }\n.hpw .num { text-align: right; font-variant-numeric: tabular-nums; }\n.hpw h4 { margin: 14px 0 6px; font-size: 14px; }\n</style>\n\n<div class=\"hpw\" ng-init=\"m = msg.payload\">\n  <div class=\"hpw-title\">Heat pump</div>\n  <div class=\"hpw-sub\">Local Tuya connection · read only · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>\n\n  <div class=\"hpw-chips\">\n    <span ng-repeat=\"d in msg.payload.devices\" class=\"hpw-chip\"\n          ng-class=\"{'hpw-ok': d.state=='CONNECTED' && !d.stale, 'hpw-warn': d.state=='CONNECTING' || (d.state=='CONNECTED' && d.stale), 'hpw-bad': d.state=='DISCONNECTED' || d.state=='ERROR'}\">\n      {{d.label}}: {{d.state}}<span ng-if=\"d.switchOn !== null\"> · {{d.switchOn ? 'ON' : 'OFF'}}</span><span ng-if=\"d.ageSeconds !== null\"> · {{d.ageSeconds}} s</span>\n    </span>\n  </div>\n\n  <div class=\"hpw-cards\" ng-if=\"msg.payload.summary\">\n    <div class=\"hpw-card\"><div class=\"k\">Supply</div><div class=\"v\">{{msg.payload.summary.supply}}<span class=\"u\">°C</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">Return</div><div class=\"v\">{{msg.payload.summary.ret}}<span class=\"u\">°C</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">DHW tank</div><div class=\"v\">{{msg.payload.summary.tank}}<span class=\"u\">°C</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">Outdoor</div><div class=\"v\">{{msg.payload.summary.outdoor}}<span class=\"u\">°C</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">Compressor</div><div class=\"v\">{{msg.payload.summary.compressorHz}}<span class=\"u\">Hz</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">Fan</div><div class=\"v\">{{msg.payload.summary.fanRpm}}</div></div>\n    <div class=\"hpw-card\"><div class=\"k\">Heating set</div><div class=\"v\">{{msg.payload.summary.heatingSetpoint}}<span class=\"u\">°C</span></div></div>\n    <div class=\"hpw-card\"><div class=\"k\">DHW set</div><div class=\"v\">{{msg.payload.summary.dhwSetpoint}}<span class=\"u\">°C</span></div></div>\n  </div>\n\n  <div class=\"hpw-chips\" ng-if=\"msg.payload.summary\">\n    <span class=\"hpw-chip\">Mode: {{msg.payload.summary.mode || '—'}}</span>\n    <span class=\"hpw-chip\">Work mode: {{msg.payload.summary.workMode || '—'}}</span>\n    <span class=\"hpw-chip\" ng-if=\"msg.payload.summary.curve\">Curve P22: {{msg.payload.summary.curve.enabled ? 'ON' : 'OFF'}} (P23 {{msg.payload.summary.curve.p23}}, P24 {{msg.payload.summary.curve.p24}})</span>\n    <span class=\"hpw-chip\" ng-class=\"{'hpw-warn': msg.payload.summary.valveToDhw}\">Valve: {{msg.payload.summary.valveToDhw === null ? '—' : (msg.payload.summary.valveToDhw ? 'DHW (boiler)' : 'Heating')}}</span>\n    <span class=\"hpw-chip\" ng-class=\"{'hpw-warn': msg.payload.summary.bypassOn}\">Bypass: {{msg.payload.summary.bypassOn === null ? '—' : (msg.payload.summary.bypassOn ? 'ON' : 'OFF')}}</span>\n    <span class=\"hpw-chip\" ng-class=\"{'hpw-warn': msg.payload.summary.defrostSign}\" ng-if=\"msg.payload.summary.defrostSign\">Defrost sign (fan 0, compressor &gt; 30 Hz)</span>\n    <span class=\"hpw-chip\" ng-class=\"msg.payload.summary.faults.length ? 'hpw-bad' : 'hpw-ok'\">Faults: {{msg.payload.summary.faults.length ? msg.payload.summary.faults.join(', ') : 'none'}}</span>\n  </div>\n\n  <h4>All data points</h4>\n  <table>\n    <tr><th>DP</th><th>Parameter</th><th class=\"num\">Value</th><th>Unit</th></tr>\n    <tr ng-repeat=\"it in msg.payload.items\">\n      <td>{{it.dp}}</td><td>{{it.label}}</td><td class=\"num\">{{it.value}}</td><td>{{it.unit}}</td>\n    </tr>\n    <tr ng-repeat=\"u in msg.payload.unknown\">\n      <td>{{u.dp}}</td><td><i>unknown</i></td><td class=\"num\">{{u.value}}</td><td></td>\n    </tr>\n  </table>\n  <div class=\"hpw-sub\" ng-if=\"!msg.payload.items.length\">Waiting for data from the heat pump…</div>\n</div>\n",
+    "storeOutMessages": true,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 1120,
+    "y": 2360,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "hp-chart-01",
+    "type": "ui_chart",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump temperatures",
+    "group": "ui-group-heatpump-main-01",
+    "order": 2,
+    "width": "24",
+    "height": "8",
+    "label": "Temperatures (24 h)",
+    "chartType": "line",
+    "legend": "true",
+    "xformat": "HH:mm",
+    "interpolate": "linear",
+    "nodata": "Waiting for heat pump data",
+    "dot": false,
+    "ymin": "",
+    "ymax": "",
+    "removeOlder": "24",
+    "removeOlderPoints": "",
+    "removeOlderUnit": "3600",
+    "cutout": 0,
+    "useOneColor": false,
+    "useUTC": false,
+    "colors": [
+      "#d62728",
+      "#1f77b4",
+      "#ff7f0e",
+      "#2ca02c",
+      "#9467bd",
+      "#8c564b",
+      "#e377c2",
+      "#7f7f7f",
+      "#bcbd22"
+    ],
+    "outputs": 1,
+    "useDifferentColor": false,
+    "className": "",
+    "x": 1130,
+    "y": 2400,
+    "wires": [
+      []
+    ]
   }
 ]

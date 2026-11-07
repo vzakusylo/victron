@@ -152,6 +152,36 @@ function Sync-32 { Sync-Node 'MCP server'                       '32 MCP server.j
 # 33 — Agent (MCP) page: token management, endpoint URLs, client config
 function Sync-33 { Sync-Node 'MCP page'                         '33 MCP page.js'                                -BumpVersion }
 
+# 34 — Heat pump state (read-only Tuya collector for the Heat Pump page)
+function Sync-34 { Sync-Node 'Heat pump state'                  '34 Heat pump state.js'                         -BumpVersion }
+
+# 35 — Heat pump page (ui_template HTML, not a function node)
+function Sync-Template {
+    param(
+        [string]$NodeName,
+        [string]$HtmlFile,
+        [switch]$BumpVersion
+    )
+    $j   = [System.IO.File]::ReadAllText($FlowsJson) | ConvertFrom-Json
+    $src = [System.IO.File]::ReadAllText((Join-Path $Root $HtmlFile))
+    $c   = 0
+    foreach ($n in $j) {
+        if ($n.type -eq 'ui_template' -and $n.name -eq $NodeName) { $n.format = $src; $c++ }
+    }
+    if ($BumpVersion) {
+        foreach ($n in $j) {
+            if ($n.type -eq 'tab' -and $n.label -match 'd#(\d+)') {
+                $x      = [int]$Matches[1] + 1
+                $n.label = $n.label -replace "d#$($Matches[1])", "d#$x"
+                Write-Host "Tab -> $($n.label)"
+            }
+        }
+    }
+    [System.IO.File]::WriteAllText($FlowsJson, ($j | ConvertTo-Json -Depth 20), $Utf8NoBom)
+    Write-Host "SYNCED $c template(s)  [$NodeName <- $HtmlFile]"
+}
+function Sync-35 { Sync-Template 'Heat pump page'               '35 Heat pump page.html'                        -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -192,6 +222,7 @@ function Sync-All {
         @{ Name = 'Driver checks dashboard';             File = '31 Driver checks dashboard.js' }
         @{ Name = 'MCP server';                          File = '32 MCP server.js' }
         @{ Name = 'MCP page';                            File = '33 MCP page.js' }
+        @{ Name = 'Heat pump state';                     File = '34 Heat pump state.js' }
     )
 
     $totalSynced = 0
