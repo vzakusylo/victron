@@ -1,0 +1,97 @@
+name: Claude Code Review
+
+# Agentic PR review: Claude reads the diff and the repository, then posts
+# inline comments plus one summary comment on the pull request.
+#
+# Setup (once, by the repo owner):
+#   claude setup-token                                  # Claude Pro/Max subscription token
+#   gh secret set CLAUDE_CODE_OAUTH_TOKEN -R vzakusylo/victron
+# (or use an API key: secret ANTHROPIC_API_KEY and `anthropic_api_key:` below)
+#
+# Runs on `pull_request` (not `pull_request_target`): PRs from forks get no
+# secrets, so the review simply skips there. The repo owner can re-run it on
+# demand by commenting "@claude review" on the PR.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude review') &&
+       github.event.comment.author_association == 'OWNER')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+
+            You are reviewing a pull request for a Node-RED controller that runs on a
+            Victron Cerbo GX (Venus OS) and controls a real inverter, grid import and
+            battery charging. Mistakes can overload a fuse, overcharge a battery or
+            raise the monthly grid tariff. Review for correctness and safety first.
+
+            Read README.md and docs/development.md before reviewing. Then review the
+            diff (`gh pr diff`) against these repository rules:
+
+            1. Source sync: every numbered `NN *.js` file is the source of an embedded
+               function node in `flows.json` (`35 Heat pump page.html` -> ui_template
+               `.format`). If a source changed, the matching node in `flows.json` must
+               contain exactly the same code, and vice versa. Flag any mismatch.
+            2. Flow version: any change to `flows.json` must bump the tab label
+               `d#<n> Day / Night Grid Control` by exactly one.
+            3. `flows.json` must stay valid JSON; node ids and wires must not break.
+            4. Secrets: Tuya nodes must keep empty `deviceId` / `deviceKey` with
+               `storeAsCreds: true`. No Local Key, MCP token, password, private key,
+               VRM link with token, public IP:port or tailnet (100.x) address may appear
+               in any changed file.
+            5. Control safety: grid setpoint, DVCC charge current, VE.Bus input current
+               limit, high-voltage protection, tariff tiers / season dates, BMS watchdog.
+               Check units (W vs A vs kWh), clamps / limits, NaN / undefined handling,
+               behaviour when a sensor topic is missing or stale, and night/day window
+               edges (midnight, DST, month change).
+            6. Node-RED function nodes: correct number of outputs vs `return [...]`,
+               context keys spelled consistently between nodes, no blocking loops, no
+               unthrottled high-frequency outputs.
+            7. Dashboard templates (AngularJS 1.x / node-red-dashboard): no XSS via
+               `ng-bind-html` of untrusted data, no broken bindings.
+            8. Docs: README / docs/*.md stay consistent with the change; no private data.
+
+            Output:
+            - Inline comments (mcp__github_inline_comment__create_inline_comment) only
+              for concrete, verified problems, with the failure scenario and a fix.
+            - One summary comment (`gh pr comment`) that starts with a verdict
+              (safe to merge / needs changes), then checks done, then findings ranked
+              by severity. Be concise. Do not repeat inline comments in full.
+            - Do not push commits, approve, or request changes.
+
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 40
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(node -e:*),Bash(jq:*),Read,Grep,Glob"
