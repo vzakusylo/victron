@@ -1,0 +1,71 @@
+<!--
+  35 Heat pump page.html
+  Source of the ui_template "Heat pump page" (Heat Pump dashboard tab).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-35).
+  Read-only page (stage 1): shows the state built by "Heat pump state" (34). No buttons send commands.
+-->
+<style>
+.hpw { padding: 6px 4px; font-size: 14px; }
+.hpw-title { font-size: 20px; font-weight: 700; }
+.hpw-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.hpw-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.hpw-card { flex: 1 1 120px; border-radius: 10px; padding: 8px 10px; background: rgba(127,127,127,.12); }
+.hpw-card .k { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .04em; }
+.hpw-card .v { font-size: 22px; font-weight: 700; }
+.hpw-card .u { font-size: 12px; opacity: .7; margin-left: 2px; }
+.hpw-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.hpw-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; background: rgba(127,127,127,.18); }
+.hpw-ok { background: rgba(46,160,67,.25); }
+.hpw-warn { background: rgba(210,153,34,.30); }
+.hpw-bad { background: rgba(218,54,51,.30); }
+.hpw table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hpw th, .hpw td { text-align: left; padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.2); }
+.hpw th { font-weight: 600; opacity: .8; }
+.hpw .num { text-align: right; font-variant-numeric: tabular-nums; }
+.hpw h4 { margin: 14px 0 6px; font-size: 14px; }
+</style>
+
+<div class="hpw" ng-init="m = msg.payload">
+  <div class="hpw-title">Heat pump</div>
+  <div class="hpw-sub">Local Tuya connection · read only · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>
+
+  <div class="hpw-chips">
+    <span ng-repeat="d in msg.payload.devices" class="hpw-chip"
+          ng-class="{'hpw-ok': d.state=='CONNECTED' && !d.stale, 'hpw-warn': d.state=='CONNECTING' || (d.state=='CONNECTED' && d.stale), 'hpw-bad': d.state=='DISCONNECTED' || d.state=='ERROR'}">
+      {{d.label}}: {{d.state}}<span ng-if="d.switchOn !== null"> · {{d.switchOn ? 'ON' : 'OFF'}}</span><span ng-if="d.ageSeconds !== null"> · {{d.ageSeconds}} s</span>
+    </span>
+  </div>
+
+  <div class="hpw-cards" ng-if="msg.payload.summary">
+    <div class="hpw-card"><div class="k">Supply</div><div class="v">{{msg.payload.summary.supply}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">Return</div><div class="v">{{msg.payload.summary.ret}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">DHW tank</div><div class="v">{{msg.payload.summary.tank}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
+    <div class="hpw-card"><div class="k">Fan</div><div class="v">{{msg.payload.summary.fanRpm}}</div></div>
+    <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">DHW set</div><div class="v">{{msg.payload.summary.dhwSetpoint}}<span class="u">°C</span></div></div>
+  </div>
+
+  <div class="hpw-chips" ng-if="msg.payload.summary">
+    <span class="hpw-chip">Mode: {{msg.payload.summary.mode || '—'}}</span>
+    <span class="hpw-chip">Work mode: {{msg.payload.summary.workMode || '—'}}</span>
+    <span class="hpw-chip" ng-if="msg.payload.summary.curve">Curve P22: {{msg.payload.summary.curve.enabled ? 'ON' : 'OFF'}} (P23 {{msg.payload.summary.curve.p23}}, P24 {{msg.payload.summary.curve.p24}})</span>
+    <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.valveToDhw}">Valve: {{msg.payload.summary.valveToDhw === null ? '—' : (msg.payload.summary.valveToDhw ? 'DHW (boiler)' : 'Heating')}}</span>
+    <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.bypassOn}">Bypass: {{msg.payload.summary.bypassOn === null ? '—' : (msg.payload.summary.bypassOn ? 'ON' : 'OFF')}}</span>
+    <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.defrostSign}" ng-if="msg.payload.summary.defrostSign">Defrost sign (fan 0, compressor &gt; 30 Hz)</span>
+    <span class="hpw-chip" ng-class="msg.payload.summary.faults.length ? 'hpw-bad' : 'hpw-ok'">Faults: {{msg.payload.summary.faults.length ? msg.payload.summary.faults.join(', ') : 'none'}}</span>
+  </div>
+
+  <h4>All data points</h4>
+  <table>
+    <tr><th>DP</th><th>Parameter</th><th class="num">Value</th><th>Unit</th></tr>
+    <tr ng-repeat="it in msg.payload.items">
+      <td>{{it.dp}}</td><td>{{it.label}}</td><td class="num">{{it.value}}</td><td>{{it.unit}}</td>
+    </tr>
+    <tr ng-repeat="u in msg.payload.unknown">
+      <td>{{u.dp}}</td><td><i>unknown</i></td><td class="num">{{u.value}}</td><td></td>
+    </tr>
+  </table>
+  <div class="hpw-sub" ng-if="!msg.payload.items.length">Waiting for data from the heat pump…</div>
+</div>
