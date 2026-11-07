@@ -23,6 +23,19 @@
 // Change notes:
 // 1. Initial version (d#112): read-only page, DP map from the Tuya cloud model
 //    of product 5oc9wmac3bbidekc (controller PW58280, Powerworld/Michl).
+// 2. Compressor load (d#114): summary.compressorPowerW ≈ compressor current (DP 112)
+//    × DC bus voltage (DP 114, fallback 230 V). The power is an ESTIMATE (no power DP
+//    in the model; power factor and drive losses are ignored) — trends only.
+// 3. Compressor load from frequency AND current (d#116): rated maxima of this
+//    compressor are 91 Hz and 8 A. freqPct = Hz / 91, currentPct = A / 8,
+//    compressorLoadPct = the higher of the two (the limit the compressor is closest to),
+//    each clamped to 0–100. DP 143 (Freq max setting) is no longer used for the load.
+// 4. Heating curve (d#118): model.curveChart = built-in weather curve (P22 on):
+//    heating set point = 20 + (P24 / 10) × (P23 − outdoor), clamped 20–60 °C
+//    (P23 = DP 133 ambient point, P24 = DP 134 coefficient; formula from the PW58280
+//    manual notes in docs/heat-pump.md — compare `target` with the reported DP 125).
+//    Includes ready-to-draw SVG coordinates for the page (outdoor −25…+25 °C) and
+//    the current point (outdoor, curve target, supply).
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass'];
@@ -84,6 +97,9 @@ const MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };
 const WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };
 
 const CHART_INTERVAL_MS = 60 * 1000;
+const COMPRESSOR_MAX_HZ = 91;     // rated max compressor frequency
+const COMPRESSOR_MAX_A = 8;       // rated max compressor current
+const FALLBACK_VOLTAGE_V = 230;   // used only while DP 114 (DC bus) has not been received
 const STALE_MS = 5 * 60 * 1000;
 
 function emptyDevice() {
@@ -111,6 +127,74 @@ function switchValue(dev) {
     return typeof v === 'boolean' ? v : null;
 }
 
+// Built-in weather curve of the controller (P22 on)
+const CURVE_BASE_C = 20;
+const CURVE_MIN_C = 20;
+const CURVE_MAX_C = 60;
+const CURVE_OUT_MIN = -25;
+const CURVE_OUT_MAX = 25;
+
+function curveTarget(p23, p24, outdoor) {
+    const t = CURVE_BASE_C + (p24 / 10) * (p23 - outdoor);
+    return Math.max(CURVE_MIN_C, Math.min(CURVE_MAX_C, Math.round(t * 10) / 10));
+}
+
+function buildCurveChart(d) {
+    const p23 = num(d['133']);
+    const p24 = num(d['134']);
+    if (p23 === null || p24 === null) return null;
+    const enabled = d['132'] === undefined ? null : String(d['132']) === '1' || d['132'] === true;
+    const outdoor = num(d['103']);
+    const supply = num(d['102']);
+    const reported = num(d['125']);
+
+    const pts = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t++) pts.push({ out: t, set: curveTarget(p23, p24, t) });
+
+    // SVG frame: viewBox 0 0 600 240, plot area x 44…590, y 12…204
+    const W = 600, H = 240, L = 44, R = 10, T = 12, B = 36;
+    const values = pts.map((p) => p.set).concat([supply, reported].filter((v) => v !== null));
+    const yMin = Math.floor(Math.min(CURVE_MIN_C, ...values) / 5) * 5;
+    const yMax = Math.ceil((Math.max(...values) + 1) / 5) * 5;   // at least 1 °C headroom
+    const x = (t) => +(L + (t - CURVE_OUT_MIN) / (CURVE_OUT_MAX - CURVE_OUT_MIN) * (W - L - R)).toFixed(1);
+    const y = (v) => +(T + (yMax - v) / (yMax - yMin) * (H - T - B)).toFixed(1);
+    const inRange = (t) => t !== null && t >= CURVE_OUT_MIN && t <= CURVE_OUT_MAX;
+
+    const xTicks = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t += 5) xTicks.push({ label: t, x: x(t) });
+    const yTicks = [];
+    for (let v = yMin; v <= yMax; v += 5) yTicks.push({ label: v, y: y(v) });
+
+    const target = outdoor === null ? null : curveTarget(p23, p24, outdoor);
+    return {
+        enabled,
+        p23,
+        p24,
+        formula: `${CURVE_BASE_C} + ${p24 / 10} × (${p23} − outdoor)`,
+        table: [-20, -15, -10, -5, 0, 5, 10, 15].map((t) => ({ out: t, set: curveTarget(p23, p24, t) })),
+        outdoor,
+        target,
+        reported,
+        supply,
+        svg: {
+            viewBox: `0 0 ${W} ${H}`,
+            line: pts.map((p) => `${x(p.out)},${y(p.set)}`).join(' '),
+            xTicks,
+            yTicks,
+            left: L,
+            right: W - R,
+            top: T,
+            bottom: H - B,
+            now: inRange(outdoor) ? {
+                x: x(outdoor),
+                yTarget: y(target),
+                ySupply: supply === null ? null : y(supply),
+                yReported: reported === null ? null : y(reported)
+            } : null
+        }
+    };
+}
+
 function buildModel(st, now) {
     const hp = st.hp;
     const d = hp.dps;
@@ -130,6 +214,16 @@ function buildModel(st, now) {
     const fan = num(d['116']);
     const freq = num(d['115']);
     const defrostSign = fan === 0 && freq !== null && freq > 30;
+
+    // Compressor load: frequency and current vs rated maxima, and an estimated electrical power
+    const current = num(d['112']);
+    const dcBus = num(d['114']);
+    const pct = (value, max) => (value === null ? null : Math.max(0, Math.min(100, Math.round(value / max * 100))));
+    const freqPct = pct(freq, COMPRESSOR_MAX_HZ);
+    const currentPct = pct(current, COMPRESSOR_MAX_A);
+    const loadPct = freqPct === null && currentPct === null ? null : Math.max(freqPct || 0, currentPct || 0);
+    const voltage = dcBus !== null && dcBus > 0 ? dcBus : FALLBACK_VOLTAGE_V;
+    const powerW = current === null ? null : Math.round(Math.max(0, current) * voltage);
 
     const devices = ROLES.map((role) => {
         const dev = st[role];
@@ -155,7 +249,14 @@ function buildModel(st, now) {
             outdoor: num(d['103']),
             compressorHz: freq,
             fanRpm: fan,
-            compressorA: num(d['112']),
+            compressorA: current,
+            compressorLoadPct: loadPct,
+            compressorFreqPct: freqPct,
+            compressorCurrentPct: currentPct,
+            compressorMaxHz: COMPRESSOR_MAX_HZ,
+            compressorMaxA: COMPRESSOR_MAX_A,
+            compressorPowerW: powerW,
+            compressorPowerBasis: dcBus !== null && dcBus > 0 ? 'DC bus' : '230 V',
             heatingSetpoint: num(d['125']),
             dhwSetpoint: num(d['123']),
             mode: MODE_LABELS[d['2']] || d['2'] || null,
@@ -166,6 +267,7 @@ function buildModel(st, now) {
             bypassOn: switchValue(st.bypass),
             defrostSign
         },
+        curveChart: buildCurveChart(d),
         items,
         unknown
     };
