@@ -3,3 +3,6 @@
 
 # Local session handoff notes (may contain addresses / private details)
 HANDOFF.md
+
+# Local secrets (Tuya local keys etc.)
+.secrets/
