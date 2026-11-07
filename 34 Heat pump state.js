@@ -23,6 +23,13 @@
 // Change notes:
 // 1. Initial version (d#112): read-only page, DP map from the Tuya cloud model
 //    of product 5oc9wmac3bbidekc (controller PW58280, Powerworld/Michl).
+// 2. Compressor load (d#114): summary.compressorPowerW ≈ compressor current (DP 112)
+//    × DC bus voltage (DP 114, fallback 230 V). The power is an ESTIMATE (no power DP
+//    in the model; power factor and drive losses are ignored) — trends only.
+// 3. Compressor load from frequency AND current (d#116): rated maxima of this
+//    compressor are 91 Hz and 8 A. freqPct = Hz / 91, currentPct = A / 8,
+//    compressorLoadPct = the higher of the two (the limit the compressor is closest to),
+//    each clamped to 0–100. DP 143 (Freq max setting) is no longer used for the load.
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass'];
@@ -84,6 +91,9 @@ const MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };
 const WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };
 
 const CHART_INTERVAL_MS = 60 * 1000;
+const COMPRESSOR_MAX_HZ = 91;     // rated max compressor frequency
+const COMPRESSOR_MAX_A = 8;       // rated max compressor current
+const FALLBACK_VOLTAGE_V = 230;   // used only while DP 114 (DC bus) has not been received
 const STALE_MS = 5 * 60 * 1000;
 
 function emptyDevice() {
@@ -131,6 +141,16 @@ function buildModel(st, now) {
     const freq = num(d['115']);
     const defrostSign = fan === 0 && freq !== null && freq > 30;
 
+    // Compressor load: frequency and current vs rated maxima, and an estimated electrical power
+    const current = num(d['112']);
+    const dcBus = num(d['114']);
+    const pct = (value, max) => (value === null ? null : Math.max(0, Math.min(100, Math.round(value / max * 100))));
+    const freqPct = pct(freq, COMPRESSOR_MAX_HZ);
+    const currentPct = pct(current, COMPRESSOR_MAX_A);
+    const loadPct = freqPct === null && currentPct === null ? null : Math.max(freqPct || 0, currentPct || 0);
+    const voltage = dcBus !== null && dcBus > 0 ? dcBus : FALLBACK_VOLTAGE_V;
+    const powerW = current === null ? null : Math.round(Math.max(0, current) * voltage);
+
     const devices = ROLES.map((role) => {
         const dev = st[role];
         const age = dev.lastData ? Math.round((now - dev.lastData) / 1000) : null;
@@ -155,7 +175,14 @@ function buildModel(st, now) {
             outdoor: num(d['103']),
             compressorHz: freq,
             fanRpm: fan,
-            compressorA: num(d['112']),
+            compressorA: current,
+            compressorLoadPct: loadPct,
+            compressorFreqPct: freqPct,
+            compressorCurrentPct: currentPct,
+            compressorMaxHz: COMPRESSOR_MAX_HZ,
+            compressorMaxA: COMPRESSOR_MAX_A,
+            compressorPowerW: powerW,
+            compressorPowerBasis: dcBus !== null && dcBus > 0 ? 'DC bus' : '230 V',
             heatingSetpoint: num(d['125']),
             dhwSetpoint: num(d['123']),
             mode: MODE_LABELS[d['2']] || d['2'] || null,

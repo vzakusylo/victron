@@ -63,7 +63,13 @@ What the page shows:
 - **Key values:** supply, return, DHW tank and outdoor temperature; compressor frequency (Hz); fan speed; heating and DHW set points.
 - **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), heating curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign is shown when the fan is at 0 while the compressor runs above 30 Hz.
 - **All data points:** a table of every DP the heat pump reports, with name, value and unit. For example: power, mode, work mode, faults, water in / out, outdoor, discharge, suction, outdoor and cooling coil, DHW tank, main and EVI EEV steps, compressor current, heatsink and DC bus voltage. Unknown DPs are listed separately.
+- **Compressor load:** uses both frequency and current against the compressor's rated maxima of **91 Hz** and **8 A**. Load % is the higher of Hz / 91 (DP 115) and A / 8 (DP 112), i.e. the limit the compressor is closest to. The card shows a colour bar, `Hz/91 · A/8`, and an **estimated** electrical power ≈ compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP, so the power is for trends only.
 - **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
+- **History on the GX:** every 30 s one line goes to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log`, in the same style as the daily energy log (about 0.4 MB per day). No line is written while the heat pump data is older than 3 min:
+
+  ```
+  2026-11-08 00:18:30 | Sup 34C | Ret 29C | Tank 45C | Out -3C | Cmp 69Hz 3A 77% ~1128W | Fan 591 | HeatSet 35C | DhwSet 28C | Heating Silent | Valve - | Bypass OFF | Defrost no | Faults none | Age 12s
+  ```
 
 ![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
 
@@ -71,9 +77,10 @@ In the chart, the short dips in supply and return about once an hour are most li
 
 How it works:
 
-1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 60 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
+1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
 2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model).
 3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` chart render it.
+4. `Heat pump log tick (30 s)` → `Format heat pump log line` ([`36 Format heat pump log line.js`](36%20Format%20heat%20pump%20log%20line.js)) → `Append heat pump log` (file node) writes the daily history file.
 
 Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
 

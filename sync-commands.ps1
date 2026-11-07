@@ -182,6 +182,9 @@ function Sync-Template {
 }
 function Sync-35 { Sync-Template 'Heat pump page'               '35 Heat pump page.html'                        -BumpVersion }
 
+# 36 — Heat pump log line (every 30 s → /data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log)
+function Sync-36 { Sync-Node 'Format heat pump log line'        '36 Format heat pump log line.js'               -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -223,6 +226,7 @@ function Sync-All {
         @{ Name = 'MCP server';                          File = '32 MCP server.js' }
         @{ Name = 'MCP page';                            File = '33 MCP page.js' }
         @{ Name = 'Heat pump state';                     File = '34 Heat pump state.js' }
+        @{ Name = 'Format heat pump log line';           File = '36 Format heat pump log line.js' }
     )
 
     $totalSynced = 0
