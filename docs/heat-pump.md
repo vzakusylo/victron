@@ -110,7 +110,15 @@ From the Tuya cloud thing model of the heat pump (product `5oc9wmac3bbidekc`):
 | 142 / 143 | hw_run_freq_min / hw_run_freq_max | frequency limits | rw | 30–120 Hz |
 | 144 | wth_compenst_freq | DHW frequency compensation | rw | −50–20 Hz |
 
-Built-in curve (P22 on): heating set point = 20 + 0.4 × (P23 − outdoor), 20…60 °C.
+Built-in curve (P22 on): heating set point = 20 + (P24 / 10) × (P23 − outdoor), 20…60 °C (P24 = 4 → 0.4).
+
+The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It marks the current point: the curve target at the current outdoor temperature, the reported heating set point (DP 125) and the supply temperature. A table lists −20…+15 °C. With P23 = 32 and P24 = 4:
+
+| Outdoor °C | −20 | −15 | −10 | −5 | 0 | 5 | 10 | 15 |
+|---|---|---|---|---|---|---|---|---|
+| Set point °C | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 | 26.8 |
+
+Check of the formula: at −3 °C outdoor the curve gives 34 °C and the pump reported 35 °C (DP 125), so the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
 
 ## Roadmap
 

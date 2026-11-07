@@ -30,6 +30,12 @@
 //    compressor are 91 Hz and 8 A. freqPct = Hz / 91, currentPct = A / 8,
 //    compressorLoadPct = the higher of the two (the limit the compressor is closest to),
 //    each clamped to 0–100. DP 143 (Freq max setting) is no longer used for the load.
+// 4. Heating curve (d#118): model.curveChart = built-in weather curve (P22 on):
+//    heating set point = 20 + (P24 / 10) × (P23 − outdoor), clamped 20–60 °C
+//    (P23 = DP 133 ambient point, P24 = DP 134 coefficient; formula from the PW58280
+//    manual notes in docs/heat-pump.md — compare `target` with the reported DP 125).
+//    Includes ready-to-draw SVG coordinates for the page (outdoor −25…+25 °C) and
+//    the current point (outdoor, curve target, supply).
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass'];
@@ -121,6 +127,74 @@ function switchValue(dev) {
     return typeof v === 'boolean' ? v : null;
 }
 
+// Built-in weather curve of the controller (P22 on)
+const CURVE_BASE_C = 20;
+const CURVE_MIN_C = 20;
+const CURVE_MAX_C = 60;
+const CURVE_OUT_MIN = -25;
+const CURVE_OUT_MAX = 25;
+
+function curveTarget(p23, p24, outdoor) {
+    const t = CURVE_BASE_C + (p24 / 10) * (p23 - outdoor);
+    return Math.max(CURVE_MIN_C, Math.min(CURVE_MAX_C, Math.round(t * 10) / 10));
+}
+
+function buildCurveChart(d) {
+    const p23 = num(d['133']);
+    const p24 = num(d['134']);
+    if (p23 === null || p24 === null) return null;
+    const enabled = d['132'] === undefined ? null : String(d['132']) === '1' || d['132'] === true;
+    const outdoor = num(d['103']);
+    const supply = num(d['102']);
+    const reported = num(d['125']);
+
+    const pts = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t++) pts.push({ out: t, set: curveTarget(p23, p24, t) });
+
+    // SVG frame: viewBox 0 0 600 240, plot area x 44…590, y 12…204
+    const W = 600, H = 240, L = 44, R = 10, T = 12, B = 36;
+    const values = pts.map((p) => p.set).concat([supply, reported].filter((v) => v !== null));
+    const yMin = Math.floor(Math.min(CURVE_MIN_C, ...values) / 5) * 5;
+    const yMax = Math.ceil((Math.max(...values) + 1) / 5) * 5;   // at least 1 °C headroom
+    const x = (t) => +(L + (t - CURVE_OUT_MIN) / (CURVE_OUT_MAX - CURVE_OUT_MIN) * (W - L - R)).toFixed(1);
+    const y = (v) => +(T + (yMax - v) / (yMax - yMin) * (H - T - B)).toFixed(1);
+    const inRange = (t) => t !== null && t >= CURVE_OUT_MIN && t <= CURVE_OUT_MAX;
+
+    const xTicks = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t += 5) xTicks.push({ label: t, x: x(t) });
+    const yTicks = [];
+    for (let v = yMin; v <= yMax; v += 5) yTicks.push({ label: v, y: y(v) });
+
+    const target = outdoor === null ? null : curveTarget(p23, p24, outdoor);
+    return {
+        enabled,
+        p23,
+        p24,
+        formula: `${CURVE_BASE_C} + ${p24 / 10} × (${p23} − outdoor)`,
+        table: [-20, -15, -10, -5, 0, 5, 10, 15].map((t) => ({ out: t, set: curveTarget(p23, p24, t) })),
+        outdoor,
+        target,
+        reported,
+        supply,
+        svg: {
+            viewBox: `0 0 ${W} ${H}`,
+            line: pts.map((p) => `${x(p.out)},${y(p.set)}`).join(' '),
+            xTicks,
+            yTicks,
+            left: L,
+            right: W - R,
+            top: T,
+            bottom: H - B,
+            now: inRange(outdoor) ? {
+                x: x(outdoor),
+                yTarget: y(target),
+                ySupply: supply === null ? null : y(supply),
+                yReported: reported === null ? null : y(reported)
+            } : null
+        }
+    };
+}
+
 function buildModel(st, now) {
     const hp = st.hp;
     const d = hp.dps;
@@ -193,6 +267,7 @@ function buildModel(st, now) {
             bypassOn: switchValue(st.bypass),
             defrostSign
         },
+        curveChart: buildCurveChart(d),
         items,
         unknown
     };
