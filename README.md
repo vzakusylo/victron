@@ -17,7 +17,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 - BMS watchdog that restores DVCC "Controlling BMS" after it is lost
 - an MCP server so an AI agent (e.g. Claude Code) can read the live state — at home or remotely over Tailscale
 - notification logging when the grid setpoint changes
-- Heat Pump page: local read-only view of the Tuya air-to-water heat pump (no cloud, no Home Assistant)
+- [Heat Pump page](#heat-pump-page-tuya-wi-fi-heat-pump-read-only): local read-only view of the Tuya Wi-Fi air-to-water heat pump, its DHW valve and bypass relays, with a 24 h temperature chart (no cloud, no Home Assistant)
 
 ## Documentation
 
@@ -49,7 +49,33 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
-| [Heat Pump](docs/heat-pump.md#heat-pump-page) | Tuya heat pump, valve and bypass: temperatures, compressor, faults, all DPs (read only) |
+| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump-read-only) | Tuya heat pump, valve and bypass: temperatures, compressor, faults, all DPs, 24 h chart (read only, local) |
+
+## Heat Pump page (Tuya Wi-Fi heat pump, read only)
+
+A dashboard tab for the Tuya-based air-to-water heat pump and its two Tuya relays: the boiler (DHW) valve and the heating-exchange bypass. Node-RED talks to the devices **locally over the LAN** with the Tuya local protocol ([`node-red-contrib-tuya-smart-device`](https://flows.nodered.org/node/node-red-contrib-tuya-smart-device)). There is no Tuya cloud at runtime and no Home Assistant. Stage 1 is **read only**: the flow only sends `GET`, never `SET`.
+
+![Heat Pump page — connection state, key temperatures, compressor, fan, set points and every Tuya data point](docs/images/heat-pump-page.png)
+
+What the page shows:
+
+- **Connection state** of each device: heat pump, boiler valve relay (ON = DHW) and heating-exchange bypass (ON = bypass), with power state and data age.
+- **Key values:** supply, return, DHW tank and outdoor temperature; compressor frequency (Hz); fan speed; heating and DHW set points.
+- **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), heating curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign is shown when the fan is at 0 while the compressor runs above 30 Hz.
+- **All data points:** a table of every DP the heat pump reports, with name, value and unit. For example: power, mode, work mode, faults, water in / out, outdoor, discharge, suction, outdoor and cooling coil, DHW tank, main and EVI EEV steps, compressor current, heatsink and DC bus voltage. Unknown DPs are listed separately.
+- **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
+
+![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
+
+In the chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
+
+How it works:
+
+1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 60 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
+2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model).
+3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` chart render it.
+
+Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
 
 ## Quick start
 
