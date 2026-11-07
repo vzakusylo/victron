@@ -17,7 +17,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 - BMS watchdog that restores DVCC "Controlling BMS" after it is lost
 - an MCP server so an AI agent (e.g. Claude Code) can read the live state — at home or remotely over Tailscale
 - notification logging when the grid setpoint changes
-- [Heat Pump page](#heat-pump-page-tuya-wi-fi-heat-pump-read-only): local read-only view of the Tuya Wi-Fi air-to-water heat pump, its DHW valve and bypass relays, with a 24 h temperature chart (no cloud, no Home Assistant)
+- [Heat Pump page](#heat-pump-page-tuya-wi-fi-heat-pump-read-only): local read-only view of the Tuya Wi-Fi air-to-water heat pump, its DHW valve and bypass relays, with compressor load, heating curve, a 24 h temperature chart and a 30 s history log on the GX (no cloud, no Home Assistant)
 
 ## Documentation
 
@@ -49,7 +49,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
-| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump-read-only) | Tuya heat pump, valve and bypass: temperatures, compressor, faults, all DPs, 24 h chart (read only, local) |
+| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump-read-only) | Tuya heat pump, valve and bypass: temperatures, compressor load, heating curve, faults, all DPs, 24 h chart, 30 s log (read only, local) |
 
 ## Heat Pump page (Tuya Wi-Fi heat pump, read only)
 
@@ -60,15 +60,16 @@ A dashboard tab for the Tuya-based air-to-water heat pump and its two Tuya relay
 What the page shows:
 
 - **Connection state** of each device: heat pump, boiler valve relay (ON = DHW) and heating-exchange bypass (ON = bypass), with power state and data age.
-- **Key values:** supply, return, DHW tank and outdoor temperature; compressor frequency (Hz); fan speed; heating and DHW set points.
+- **Key values:** supply, return, DHW tank and outdoor temperature; compressor frequency (Hz); compressor load; fan speed; heating set point. The DHW set point is only in the table and the log.
 - **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), heating curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign is shown when the fan is at 0 while the compressor runs above 30 Hz.
 - **All data points:** a table of every DP the heat pump reports, with name, value and unit. For example: power, mode, work mode, faults, water in / out, outdoor, discharge, suction, outdoor and cooling coil, DHW tank, main and EVI EEV steps, compressor current, heatsink and DC bus voltage. Unknown DPs are listed separately.
 - **Compressor load:** uses both frequency and current against the compressor's rated maxima of **91 Hz** and **8 A**. Load % is the higher of Hz / 91 (DP 115) and A / 8 (DP 112), i.e. the limit the compressor is closest to. The card shows a colour bar, `Hz/91 · A/8`, and an **estimated** electrical power ≈ compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP, so the power is for trends only.
+- **Heating curve:** the controller's built-in weather curve (P22 on), drawn for outdoor −25…+25 °C. Heating set point = 20 + (P24 / 10) × (P23 − outdoor), limited to 20–60 °C. A dashed line marks the current outdoor temperature, with three points on it: the curve target, the reported heating set point (DP 125) and the actual supply. A table lists the set point for −20…+15 °C. With P23 = 32 and P24 = 4: −20 °C → 40.8 °C, −10 °C → 36.8 °C, 0 °C → 32.8 °C, 10 °C → 28.8 °C. The formula is close to what the pump reports (34 vs 35 °C at −3 °C) but not confirmed by the manual.
 - **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
 - **History on the GX:** every 30 s one line goes to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log`, in the same style as the daily energy log (about 0.4 MB per day). No line is written while the heat pump data is older than 3 min:
 
   ```
-  2026-11-08 00:18:30 | Sup 34C | Ret 29C | Tank 45C | Out -3C | Cmp 69Hz 3A 77% ~1128W | Fan 591 | HeatSet 35C | DhwSet 28C | Heating Silent | Valve - | Bypass OFF | Defrost no | Faults none | Age 12s
+  2026-11-08 00:18:30 | Sup 34C | Ret 29C | Tank 45C | Out -3C | Cmp 69Hz 3A 76% ~1128W | Fan 591 | HeatSet 35C | DhwSet 28C | Heating Silent | Valve - | Bypass OFF | Defrost no | Faults none | Age 12s
   ```
 
 ![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
@@ -78,16 +79,18 @@ In the chart, the short dips in supply and return about once an hour are most li
 How it works:
 
 1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
-2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model).
+2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model). It also computes the compressor load and the heating-curve chart.
 3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` chart render it.
 4. `Heat pump log tick (30 s)` → `Format heat pump log line` ([`36 Format heat pump log line.js`](36%20Format%20heat%20pump%20log%20line.js)) → `Append heat pump log` (file node) writes the daily history file.
 
-Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
+Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
+
+> **Keep the Tuya keys when you update the flow.** The keys are stored as Node-RED credentials, not in `flows.json`. *Import → Replace* swaps in Tuya nodes without keys, and the next Deploy overwrites the stored keys with empty values. The same happens if you open such a node and press *Done*. When importing, use **View nodes…** in the import dialog and untick the three Tuya nodes (*Heating pump*, *Boiler valve relay*, *Off Heating exchange*) so the deployed ones are kept.
 
 ## Quick start
 
 1. Cerbo GX with Venus OS Large, Node-RED enabled, ESS configured, GRID CT and the battery visible on D-Bus ([assumptions](docs/limitations.md)).
-2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key in the three Tuya nodes yourself ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
+2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key / IP in the three Tuya nodes yourself. On later updates do not replace the Tuya nodes ([why](#heat-pump-page-tuya-wi-fi-heat-pump-read-only)) ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
 3. Set the tariff season, tiers and limits on the dashboard **Constants** page ([control logic](docs/control-logic.md#tariff-seasons-summer--winter)).
 4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `sync-commands.ps1`. `Sync-NN` syncs one node; `Sync-All` syncs all function nodes and the Heat Pump `ui_template`. Every sync bumps the tab label `d#<n>` ([development](docs/development.md)).
 5. Optional: set up remote access over [Tailscale](#remote-access-tailscale) for the dashboard, SSH and the MCP server away from home.
