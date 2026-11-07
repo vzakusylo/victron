@@ -13,9 +13,12 @@
 
 ## Repository contents
 
-- `01 Battery + Grid Controller.js` … `33 MCP page.js`  
+- `01 Battery + Grid Controller.js` … `34 Heat pump state.js`  
   Numbered human-readable source files for every Node-RED function node.  
-  `sync-commands.ps1` provides `Sync-01` … `Sync-33` and `Sync-All` helpers.
+  `sync-commands.ps1` provides `Sync-01` … `Sync-34` and `Sync-All` helpers.
+
+- `35 Heat pump page.html`  
+  Source of the `Heat pump page` ui_template (`Sync-35`, uses `Sync-Template`).
 
 - `garag-venus-os/1.txt`  
   dbus-serialbattery install, config and troubleshooting notes for the GX device.

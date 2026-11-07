@@ -17,6 +17,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 - BMS watchdog that restores DVCC "Controlling BMS" after it is lost
 - an MCP server so an AI agent (e.g. Claude Code) can read the live state
 - notification logging when the grid setpoint changes
+- Heat Pump page: local read-only view of the Tuya air-to-water heat pump (no cloud, no Home Assistant)
 
 ## Documentation
 
@@ -31,6 +32,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Agent access (MCP)](docs/agent-mcp.md) | MCP server, Claude Code setup, `victron-status` skill, example answer |
 | [Development & deployment](docs/development.md) | repository layout, flow versioning, sync and deploy workflow |
 | [Assumptions, limitations & roadmap](docs/limitations.md) | what the setup assumes, known limits, planned improvements |
+| [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
 
 ## Dashboard pages
 
@@ -47,11 +49,12 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
+| [Heat Pump](docs/heat-pump.md#heat-pump-page) | Tuya heat pump, valve and bypass: temperatures, compressor, faults, all DPs (read only) |
 
 ## Quick start
 
 1. Cerbo GX with Venus OS Large, Node-RED enabled, ESS configured, GRID CT and the battery visible on D-Bus ([assumptions](docs/limitations.md)).
-2. Import `flows.json` into Node-RED and deploy; adjust the Victron nodes to your devices.
+2. Install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED and deploy; adjust the Victron nodes to your devices and enter the Tuya Device ID / Local Key in the three Tuya nodes ([heat pump](docs/heat-pump.md#setup)).
 3. Set the tariff season, tiers and limits on the dashboard **Constants** page ([control logic](docs/control-logic.md#tariff-seasons-summer--winter)).
 4. When editing logic: change the numbered `NN *.js` source, then sync it into `flows.json` with `sync-commands.ps1` ([development](docs/development.md)).
 
