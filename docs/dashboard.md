@@ -25,7 +25,9 @@ The live flow now includes several dashboard surfaces for operation and diagnost
 
 ## Dashboard pages
 
-![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP)](images/dashboard-menu.png)
+![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP), Heat Pump](images/dashboard-menu.png)
+
+The **Heat Pump** page is described in the [README](../README.md#heat-pump-page-tuya-wi-fi-heat-pump) and in [Heat pump (Tuya, local)](heat-pump.md). Screenshots on this page: 8 Nov 2026, d#122.
 
 ### Agent (MCP) — connect an AI agent
 
@@ -33,7 +35,7 @@ The live flow now includes several dashboard surfaces for operation and diagnost
 
 ![Agent (MCP) page — read-only tool list and the latest agent calls (initialize, tools/list, tools/call)](images/dashboard-mcp-calls.png)
 
-Enables the built-in MCP server (`POST /mcp`) and shows everything needed to connect an agent: endpoint, token (show / copy / regenerate / disable), copy-ready `claude mcp add …`, `.mcp.json` and curl commands, the nine read-only tools and a log of the latest agent calls (the screenshot shows Claude Code 2.1.228 and the `victron-status` skill connecting). Use `https://venus.local:1881/mcp` from the home network — the GX certificate is issued to `venus.local`; the VRM remote link answers 403 "No session" to anything but a logged-in browser. In the screenshots the token is blacked out. See [Agent access (MCP)](agent-mcp.md).
+Enables the built-in MCP server (`POST /mcp`) and shows everything needed to connect an agent: endpoint, token (show / copy / regenerate / disable), copy-ready `claude mcp add …`, `.mcp.json` and curl commands, the nine read-only tools and a log of the latest agent calls (the screenshot shows Claude Code 2.1.317 connecting). Use `https://venus.local:1881/mcp` from the home network — the GX certificate is issued to `venus.local`; the VRM remote link answers 403 "No session" to anything but a logged-in browser. In the screenshots the token is replaced by `‹token hidden›`. See [Agent access (MCP)](agent-mcp.md).
 
 ### Driver — battery driver, BMS and MultiPlus health
 
