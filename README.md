@@ -93,11 +93,24 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 | Settings | heating set 35 °C, DHW set 28 °C, cooling set 20 °C, heating / DHW hysteresis 2 / 2 °C, water temp compensation 2 °C, curve P22 on, P23 32 °C, P24 4 |
 
 - **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
-- **History on the GX:** every 30 s one line goes to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log`, in the same style as the daily energy log (about 0.4 MB per day). No line is written while the heat pump data is older than 3 min:
+- **History on the GX (all data points, every 30 s).** One file per hour: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`. When the hour changes, finished hours are gzipped to `HH.csv.gz`. The format "hp1" is a delta CSV:
 
   ```
-  2026-11-08 00:18:30 | Sup 34C | Ret 29C | Tank 45C | Out -3C | Cmp 69Hz 3A 76% ~1128W | Fan 591 | HeatSet 35C | DhwSet 28C | Heating Silent | Valve - | Bypass OFF | Defrost no | Faults none | Age 12s
+  #hp1 2026-11-08 00 cols=t,st,1,2,5,15,101,102,103,...,144,b1
+  5,CEC,1,mute,heat,0,29,33,-3,32,-6,-6,29,45,190,0,3,55,376,68,582,...   ← keyframe: every column
+  35,,,,,,,,,,,,,,,,,,,70,595                                              ← only what changed
+  65,,,,,,30,,,,,,,,181,,,,,71
   ```
+
+  - `t` = second of the hour.
+  - `st` = state of the heat pump / valve / bypass: **C**onnected, co**N**necting, **D**isconnected, **E**rror, **U**nknown, **S**tale.
+  - Columns are DP ids; `v…` / `b…` are the valve and bypass DPs.
+  - An empty field means unchanged, and trailing empty fields are dropped.
+  - A new header plus keyframe is written each hour, after a restart and when a new DP appears.
+
+  Size: about **4 KB per hour plain and 1 KB gzipped**, roughly 25–50 KB per day and 10–20 MB per year.
+
+  To get full rows back: `node tools/heatpump-decode.js [--names] 00.csv.gz 01.csv.gz > day.csv`.
 
 ![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
 
@@ -108,7 +121,7 @@ How it works:
 1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
 2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model). It also computes the compressor load and the heating-curve chart.
 3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` chart render it.
-4. `Heat pump log tick (30 s)` → `Format heat pump log line` ([`36 Format heat pump log line.js`](36%20Format%20heat%20pump%20log%20line.js)) → `Append heat pump log` (file node) writes the daily history file.
+4. `Heat pump log tick (30 s)` → `Record heat pump data` ([`36 Record heat pump data.js`](36%20Record%20heat%20pump%20data.js)) → `Append heat pump data` (file node) writes the hourly file, and `Compress heat pump hours` (exec, `gzip`) packs the finished hours. The decoder is [`tools/heatpump-decode.js`](tools/heatpump-decode.js).
 
 Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
 
