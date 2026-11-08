@@ -18,9 +18,13 @@ on:
   issue_comment:
     types: [created]
 
+# The event name is part of the group: every PR comment (including Claude's own
+# "Claude Code is working…" progress comment) starts an issue_comment run, and the
+# concurrency group is applied before the job `if:` is evaluated. With one shared
+# group, that comment run cancelled the PR review that had just started.
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
+  group: claude-review-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   review:
