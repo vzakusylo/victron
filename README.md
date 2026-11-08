@@ -55,16 +55,43 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 A dashboard tab for the Tuya-based air-to-water heat pump and its two Tuya relays: the boiler (DHW) valve and the heating-exchange bypass. Node-RED talks to the devices **locally over the LAN** with the Tuya local protocol ([`node-red-contrib-tuya-smart-device`](https://flows.nodered.org/node/node-red-contrib-tuya-smart-device)). There is no Tuya cloud at runtime and no Home Assistant. Stage 1 is **read only**: the flow only sends `GET`, never `SET`.
 
-![Heat Pump page — connection state, key temperatures, compressor, fan, set points and every Tuya data point](docs/images/heat-pump-page.png)
+![Heat Pump page — connection chips, key values with compressor load, status chips and the heating curve](docs/images/heat-pump-page.png)
 
-What the page shows:
+What the page shows, top to bottom:
 
-- **Connection state** of each device: heat pump, boiler valve relay (ON = DHW) and heating-exchange bypass (ON = bypass), with power state and data age.
-- **Key values:** supply, return, DHW tank and outdoor temperature; compressor frequency (Hz); compressor load; fan speed; heating set point. The DHW set point is only in the table and the log.
-- **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), heating curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign is shown when the fan is at 0 while the compressor runs above 30 Hz.
-- **All data points:** a table of every DP the heat pump reports, with name, value and unit. For example: power, mode, work mode, faults, water in / out, outdoor, discharge, suction, outdoor and cooling coil, DHW tank, main and EVI EEV steps, compressor current, heatsink and DC bus voltage. Unknown DPs are listed separately.
-- **Compressor load:** uses both frequency and current against the compressor's rated maxima of **91 Hz** and **8 A**. Load % is the higher of Hz / 91 (DP 115) and A / 8 (DP 112), i.e. the limit the compressor is closest to. The card shows a colour bar, `Hz/91 · A/8`, and an **estimated** electrical power ≈ compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP, so the power is for trends only.
-- **Heating curve:** the controller's built-in weather curve (P22 on), drawn for outdoor −25…+25 °C. Heating set point = 20 + (P24 / 10) × (P23 − outdoor), limited to 20–60 °C. A dashed line marks the current outdoor temperature, with three points on it: the curve target, the reported heating set point (DP 125) and the actual supply. A table lists the set point for −20…+15 °C. With P23 = 32 and P24 = 4: −20 °C → 40.8 °C, −10 °C → 36.8 °C, 0 °C → 32.8 °C, 10 °C → 28.8 °C. The formula is close to what the pump reports (34 vs 35 °C at −3 °C) but not confirmed by the manual.
+- **Connection chips.** One per device: heat pump, boiler valve relay (ON = DHW) and heating-exchange bypass (ON = bypass), with power state and data age. Green = connected, yellow = connecting or stale, red = disconnected / error.
+- **Key values:** supply, return, DHW tank, outdoor, compressor frequency, **compressor load**, fan speed and heating set point. The DHW set point is only in the table and the log.
+- **Compressor load.** It uses both frequency and current against the compressor's rated maxima, **91 Hz** and **8 A**:
+  - load % is the higher of Hz / 91 (DP 115) and A / 8 (DP 112), i.e. the limit the compressor is closest to;
+  - the bar turns yellow from 60 % and red from 85 %;
+  - the line below shows `Hz/91 · A/8 · ≈kW`, where power ≈ compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP, so the power is an estimate for trends only.
+
+  Example from the screenshot: 69/91 Hz and 3/8 A give **76 %** and ≈ 1.13 kW.
+- **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign appears when the fan is at 0 while the compressor runs above 30 Hz.
+- **Heating curve.** This is the controller's built-in weather curve (P22 on), drawn for outdoor −25…+25 °C:
+
+  **heating set point = 20 + (P24 / 10) × (P23 − outdoor)**, limited to 20–60 °C.
+
+  A dashed line marks the current outdoor temperature. On it: the curve target (red), the set point the pump reports, DP 125 (yellow), and the actual supply (blue). Below the chart is a table for −20…+15 °C. With P23 = 32 and P24 = 4:
+
+  | Outdoor °C | −20 | −15 | −10 | −5 | 0 | 5 | 10 | 15 |
+  |---|---|---|---|---|---|---|---|---|
+  | Set point °C | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 | 26.8 |
+
+  At −3 °C the curve gives 34 °C, while the pump reports 35 °C and supplies 33 °C. So the formula is close, but the manual does not confirm it.
+- **All data points:** every DP the heat pump reports, with name, value and unit. Unknown DPs are listed separately.
+
+![All data points — live values of every Tuya DP of the heat pump](docs/images/heat-pump-datapoints.png)
+
+Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
+
+| Group | Values |
+|---|---|
+| Water | supply 33 °C, return 29 °C, DHW tank 45 °C |
+| Refrigerant | discharge 32 °C, suction −6 °C, outdoor coil −6 °C, cooling coil 29 °C, main EEV 190 P, EVI EEV 0 P |
+| Compressor / drive | 69 Hz, 3 A, DC bus 376 V, heatsink 55 °C, fan 1 608 rpm, fan 2 0 rpm |
+| Settings | heating set 35 °C, DHW set 28 °C, cooling set 20 °C, heating / DHW hysteresis 2 / 2 °C, water temp compensation 2 °C, curve P22 on, P23 32 °C, P24 4 |
+
 - **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
 - **History on the GX:** every 30 s one line goes to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log`, in the same style as the daily energy log (about 0.4 MB per day). No line is written while the heat pump data is older than 3 min:
 
