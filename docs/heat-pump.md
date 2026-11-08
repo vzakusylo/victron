@@ -2,7 +2,7 @@
 
 # Heat pump (Tuya, local)
 
-> Moving the air-to-water heat pump from Tuya cloud scenes to Node-RED on the GX — stage 1: read-only page
+> Moving the air-to-water heat pump from Tuya cloud scenes to Node-RED on the GX — stage 1: monitoring page with power meter, history by day and two manual controls (curve shift, bypass)
 
 **On this page:**
 
@@ -24,7 +24,8 @@ The heat pump is today controlled by Tuya cloud scenes (DHW ladder, defrost/bypa
 |---|---|---|---|
 | Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | product `5oc9wmac3bbidekc`, controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
 | 3-way valve relay | Boiler | `bf894708aa7e3ac196zjzk` | DP 1: ON = DHW tank, OFF = heating |
-| Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | DP 1: ON = bypass (exchanger off) |
+| Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
+| Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | (enter in the node) | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a` |
 
 Local keys are **not** stored in this repository. They are typed into each Tuya node on the GX and kept in Node-RED credentials (`flows_cred.json`, not part of an export).
 
@@ -36,7 +37,7 @@ The GX and the Tuya devices must be in the same subnet (the node finds devices b
 
 1. Node-RED → Manage palette → Install `node-red-contrib-tuya-smart-device` (tested against 5.4.0).
 2. Import / deploy `flows.json` (tab `d#112` or later).
-3. Open each of the three Tuya nodes (`Heating pump`, `Boiler valve relay`, `Off Heating exchange`), tick *Store as credentials* (already on), enter the **Device ID** and **Local Key**, optionally the IP, version `3.3` (try `3.4` if it never connects). Deploy.
+3. Open each of the four Tuya nodes (`Heating pump`, `Boiler valve relay`, `Off Heating exchange`, `SA1 power meter (heat pump)`), tick *Store as credentials* (already on), enter the **Device ID** and **Local Key**, optionally the IP, version `3.3` (try `3.4` if it never connects). Deploy.
 4. Open the dashboard → **Heat Pump**. Node status under each Tuya node shows connecting / connected.
 
 Get the local keys from platform.tuya.com → Cloud → project → API Explorer → *Query Device Details in Bulk*, or with `python -m tinytuya wizard`. A key changes if the device is removed and paired again in Smart Life.
@@ -45,11 +46,13 @@ Note: many Tuya devices accept only **one local connection**. Do not run tinytuy
 
 ## Heat Pump page
 
-Stage 1 is read-only. Flow nodes:
+Flow nodes:
 
-- `Poll heat pump (GET, read only)` — every 30 s (was 60 s before d#114) sends `{"operation":"GET","schema":true}` to the three Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
-- three `tuya-smart-device` nodes → `topic = hp | valve | bypass` → `Heat pump state` (`34 Heat pump state.js`)
-- `Heat pump page` (ui_template, source `35 Heat pump page.html`) and `Heat pump temperatures` (24 h chart: supply, return, tank, outdoor; one point per minute)
+- `Poll heat pump (GET, read only)` — every 30 s (was 60 s before d#114) sends `{"operation":"GET","schema":true}` to the four Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
+- four `tuya-smart-device` nodes → `topic = hp | valve | bypass | meter` → `Heat pump state` (`34 Heat pump state.js`)
+- `Heat pump page` (ui_template, source `35 Heat pump page.html`), `Heat pump temperatures` (24 h chart: supply, return, tank, outdoor; one point per minute) and `Heat pump power` (24 h chart, W: meter and compressor estimate)
+- `Heat pump command` (`37 Heat pump command.js`): the only node that writes to the devices; also starts the history reads
+- `Read heat pump history` (exec) → `Build heat pump history` (`38`) → `Heat pump history` (ui_template, `39 Heat pump history page.html`)
 
 The page shows connection state of each device, supply / return / tank / outdoor, compressor Hz, fan, set points, mode, curve P22–P24, valve and bypass state, a defrost sign (fan 0 while compressor > 30 Hz), decoded faults (`Er03`…`Er70`) and a table of every DP received (unknown DPs listed separately).
 
@@ -63,15 +66,58 @@ State is kept in `flow.heatPump` (raw DPs per device) and `flow.heatPumpModel` (
 
 This is an estimate: power factor and drive losses are ignored, and there is no power DP.
 
+**Power meter SA1 (d#121):**
+
+`meterReading()` in `34` decodes the meter into `flow.heatPump.meter.reading` (`powerW`, `voltageV`, `currentA`, `energyKwh`, `source`). It understands two common Tuya layouts:
+
+| Layout | DPs |
+|---|---|
+| Plug / breaker | 18 = mA, 19 = W × 10, 20 = V × 10 |
+| Energy meter | 6 `phase_a` = base64 of voltage (2 bytes, 0.1 V), current (3 bytes, mA) and power (3 bytes, W); 1 = total energy in 0.01 kWh |
+
+If the meter uses other DPs, the Power tile shows "—". The page then lists the raw meter DPs, so the map in `meterReading()` can be extended. The value counts as fresh for 5 min.
+
+**Controls (d#121).** Both are sent through `Heat pump command` (`37`) and only after a confirm dialog in the browser:
+
+| Control | Page | Sent | Checks in 37 |
+|---|---|---|---|
+| Curve shift, *colder ← → warmer* | slider under the heating curve, with a dashed preview line and the set point at the current outdoor temperature before → after | `{"operation":"SET","dps":133,"set":<P23>}` to `Heating pump` | integer 20…40 |
+| Bypass | *Turn bypass ON / OFF* button | `{"operation":"SET","dps":1,"set":true/false}` to `Off Heating exchange` | boolean |
+
+Each +1 °C of P23 raises the curve by P24 / 10 °C (0.4 °C with P24 = 4) at every outdoor temperature. P22 and P24 are not changed.
+
+Every write also requires the target device to be CONNECTED with data ≤ 5 min old, and allows at most one write per device every 5 s. A same-value P23 is ignored. Writes are logged with `node.log`.
+
+A Tuya cloud scene that also switches the bypass (the DF… scenes) can switch it back. Disable those scenes to keep manual control.
+
+**History by day (d#121):**
+
+On open, the `Heat pump history` template sends `{topic:'summary'}`. `37` then builds an `sh -c` script for the exec node `Read heat pump history`. The script prints `#day <date>` and runs `gzip -dc` / `cat` over the hour files of the last 14 day folders. Days already in `flow.hpDayCache` are only marked `cached`.
+
+`38` parses the hp1 sections. It uses only rows where the heat pump letter is `C`, and weights each row by the time to the next row (max 120 s). Per day it gives:
+
+| Group | Values |
+|---|---|
+| Temperatures | outdoor, supply, return and tank: min / average / max |
+| Compressor | run hours and %, starts, average Hz while running, defrost signs |
+| Relays | bypass hours and DHW (valve) hours |
+| Measured energy | kWh, average and max W from the meter (`pw`) |
+| Estimate | compressor ≈kWh from A × V |
+| Data | hours with data |
+
+Clicking a day sends `{topic:'day', payload:{day}}`. The answer adds an hourly table and an SVG chart: temperatures on top and W below, as 2-minute averages.
+
+Finished days are cached in `flow.hpDayCache` (memory, last 60 days, lost on restart). Day names are checked against `YYYY-MM-DD` before they go into the shell script. Reading 1 day of files takes ~70 KB and the parsing takes ~20 ms.
+
 **History recorder (d#120; replaces the d#114 text log):**
 - Nodes: `Heat pump log tick (30 s)` → `Record heat pump data` (`36 Record heat pump data.js`) → `Append heat pump data` (file) + `Compress heat pump hours` (exec `sh -c`, gzip).
-- What is stored: every DP of the heat pump, the valve relay (`v…`) and the bypass relay (`b…`), plus the connection state, every 30 s.
+- What is stored: every DP of the heat pump, the valve relay (`v…`), the bypass relay (`b…`) and the SA1 power meter (`m…`, d#121), the decoded heat pump power `pw` in W (d#121, only while the meter is fresh), plus the connection state, every 30 s.
 - Files: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`, one per hour (local time of the GX). Finished hours are gzipped when a new hour starts and after a restart. The current hour stays plain.
 - Format `hp1`, a delta CSV:
   - a `#hp1 <date> <hour> cols=t,st,<dp>,…` header, then a keyframe row with every column;
   - then rows `t,st,changed values…` with empty = unchanged and trailing empties dropped;
   - `t` = second of the hour;
-  - `st` = one letter each for hp / valve / bypass: C connected, N connecting, D disconnected, E error, U unknown, S stale > 180 s;
+  - `st` = one letter each for hp / valve / bypass / meter (3 letters before d#121): C connected, N connecting, D disconnected, E error, U unknown, S stale > 180 s;
   - booleans are 1 / 0, text is as is (`,` → `;`);
   - a new section (header + keyframe) starts every hour, after a restart / deploy and when a new DP appears.
 - Size (simulated 40 DPs with realistic changes): ~4 KB per hour plain, ~1.1 KB gzipped, so about 26 KB per day and ~10 MB per year.
@@ -130,8 +176,8 @@ Check of the formula: at −3 °C outdoor the curve gives 34 °C and the pump re
 
 ## Roadmap
 
-1. **Stage 1 (now)** — read-only page; compare with the Tuya log for a day.
-2. **Stage 2** — `36 Heat pump controller.js`: state machine HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
+1. **Stage 1 (now)** — monitoring page, 30 s history with statistics by day, SA1 power meter; manual controls only (curve shift P23, bypass on/off, d#121). Compare with the Tuya log for a day.
+2. **Stage 2** — a new controller node (e.g. `40 Heat pump controller.js`; 36–39 are taken): state machine HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
 3. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = disable the flow, re-enable the scenes.
 4. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
 

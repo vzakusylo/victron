@@ -17,7 +17,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 - BMS watchdog that restores DVCC "Controlling BMS" after it is lost
 - an MCP server so an AI agent (e.g. Claude Code) can read the live state — at home or remotely over Tailscale
 - notification logging when the grid setpoint changes
-- [Heat Pump page](#heat-pump-page-tuya-wi-fi-heat-pump-read-only): local read-only view of the Tuya Wi-Fi air-to-water heat pump, its DHW valve and bypass relays, with compressor load, heating curve, a 24 h temperature chart and a 30 s history log on the GX (no cloud, no Home Assistant)
+- [Heat Pump page](#heat-pump-page-tuya-wi-fi-heat-pump): local view of the Tuya Wi-Fi air-to-water heat pump, its DHW valve and bypass relays and its SA1 power meter, with compressor load, measured power, heating curve with a warmer / colder slider, a bypass switch, 24 h charts, a 30 s history on the GX and day-by-day statistics (no cloud, no Home Assistant)
 
 ## Documentation
 
@@ -49,24 +49,30 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
-| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump-read-only) | Tuya heat pump, valve and bypass: temperatures, compressor load, heating curve, faults, all DPs, 24 h chart, 30 s log (read only, local) |
+| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 24 h charts, 30 s history, statistics by day (local) |
 
-## Heat Pump page (Tuya Wi-Fi heat pump, read only)
+## Heat Pump page (Tuya Wi-Fi heat pump)
 
-A dashboard tab for the Tuya-based air-to-water heat pump and its two Tuya relays: the boiler (DHW) valve and the heating-exchange bypass. Node-RED talks to the devices **locally over the LAN** with the Tuya local protocol ([`node-red-contrib-tuya-smart-device`](https://flows.nodered.org/node/node-red-contrib-tuya-smart-device)). There is no Tuya cloud at runtime and no Home Assistant. Stage 1 is **read only**: the flow only sends `GET`, never `SET`.
+A dashboard tab for the Tuya-based air-to-water heat pump, its two Tuya relays (the boiler (DHW) valve and the heating-exchange bypass) and the **SA1 Wi-Fi Smart Power Transformer**, which measures the power of the whole heat pump. Node-RED talks to the devices **locally over the LAN** with the Tuya local protocol ([`node-red-contrib-tuya-smart-device`](https://flows.nodered.org/node/node-red-contrib-tuya-smart-device)). There is no Tuya cloud at runtime and no Home Assistant.
+
+The page reads everything. Since d#121 it can also change **two things**, each only after a confirm dialog: the heating curve (a *colder / warmer* slider) and the bypass relay. All writes go through one node, `Heat pump command` ([`37`](37%20Heat%20pump%20command.js)). It checks the range and the connection and allows one write per device every 5 s. The valve relay and every other DP stay read only.
 
 ![Heat Pump page — connection chips, key values with compressor load, status chips and the heating curve](docs/images/heat-pump-page.png)
 
 What the page shows, top to bottom:
 
-- **Connection chips.** One per device: heat pump, boiler valve relay (ON = DHW) and heating-exchange bypass (ON = bypass), with power state and data age. Green = connected, yellow = connecting or stale, red = disconnected / error.
-- **Key values:** supply, return, DHW tank, outdoor, compressor frequency, **compressor load**, fan speed and heating set point. The DHW set point is only in the table and the log.
+- **Connection chips.** One per device: heat pump, boiler valve relay (ON = DHW), heating-exchange bypass (ON = bypass) and power meter SA1, with switch state and data age. Green = connected, yellow = connecting or stale, red = disconnected / error.
+- **Key values in one row:** supply, return, DHW tank, outdoor, compressor frequency, **compressor load**, fan speed, heating set point and **power**. On a narrow screen the row scrolls sideways. The DHW set point is only in the table and the history.
+- **Power** comes from the SA1 meter: W, with V and A below, plus the compressor estimate (`comp ≈ kW`). The meter is decoded automatically from one of two common Tuya layouts: plug-style DPs 18 / 19 / 20 (mA, W × 10, V × 10), or energy-meter DP 6 `phase_a` (base64 with V, A and W). If neither fits, the tile shows "—" and the raw meter DPs are listed at the bottom of the page.
 - **Compressor load.** It uses both frequency and current against the compressor's rated maxima, **91 Hz** and **8 A**:
   - load % is the higher of Hz / 91 (DP 115) and A / 8 (DP 112), i.e. the limit the compressor is closest to;
   - the bar turns yellow from 60 % and red from 85 %;
-  - the line below shows `Hz/91 · A/8 · ≈kW`, where power ≈ compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP, so the power is an estimate for trends only.
+  - the line below shows `Hz/91 · A/8`.
 
-  Example from the screenshot: 69/91 Hz and 3/8 A give **76 %** and ≈ 1.13 kW.
+  The compressor estimate in the Power tile is compressor current (DP 112) × DC bus voltage (DP 114). There is no power DP in the heat pump, so this estimate is for trends only; the SA1 meter gives the real figure.
+
+  Example: 76/91 Hz and 4/8 A give **84 %** and ≈ 1.50 kW.
+- **Bypass switch.** It shows the state of the heat exchanger bypass and a *Turn bypass ON / OFF* button (with a confirm dialog). It sends `DP 1 = true / false` to the `Off Heating exchange` relay. If a Tuya cloud scene also switches the bypass, the scene may switch it back.
 - **Status chips:** mode (e.g. Silent), work mode (Heating / DHW / Cooling), curve P22 with P23 / P24, valve and bypass state, and decoded faults (`Er03` … `Er70`, or *none*). A defrost sign appears when the fan is at 0 while the compressor runs above 30 Hz.
 - **Heating curve.** This is the controller's built-in weather curve (P22 on), drawn for outdoor −25…+25 °C:
 
@@ -79,6 +85,8 @@ What the page shows, top to bottom:
   | Set point °C | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 | 26.8 |
 
   At −3 °C the curve gives 34 °C, while the pump reports 35 °C and supplies 33 °C. So the formula is close, but the manual does not confirm it.
+
+  **Colder / warmer slider.** Below the chart there is a slider for **P23** (DP 133), limited to 20…40 °C. P23 shifts the whole curve. Each +1 °C of P23 raises the set point by P24 / 10 °C at every outdoor temperature, so with P24 = 4 that is +0.4 °C. While you drag, the page shows the new curve as a blue dashed line, and the set point at the current outdoor temperature before and after (e.g. `35.6 → 36.4 °C (+0.8)`). **Apply** asks for confirmation, then sends `DP 133 = <value>` to the heat pump. **Reset** discards the change. The slope (P24) and P22 are not changed.
 - **All data points:** every DP the heat pump reports, with name, value and unit. Unknown DPs are listed separately.
 
 ![All data points — live values of every Tuya DP of the heat pump](docs/images/heat-pump-datapoints.png)
@@ -93,6 +101,14 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 | Settings | heating set 35 °C, DHW set 28 °C, cooling set 20 °C, heating / DHW hysteresis 2 / 2 °C, water temp compensation 2 °C, curve P22 on, P23 32 °C, P24 4 |
 
 - **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
+- **Power (24 h), W:** a chart of the measured heat pump power (SA1 meter) and the compressor estimate, one point per minute.
+- **History by day.** This is a table of the last 14 days, read from the history files below:
+  - outdoor average (min…max), supply average, tank min…max;
+  - compressor run hours (% of the time), starts and defrost signs;
+  - **kWh measured by the meter** and max W, plus the compressor ≈kWh estimate;
+  - bypass and DHW hours, and hours with data.
+
+  Click a day to open its chart: temperatures on top and power (W) below, as 2-minute averages. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
 - **History on the GX (all data points, every 30 s).** One file per hour: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`. When the hour changes, finished hours are gzipped to `HH.csv.gz`. The format "hp1" is a delta CSV:
 
   ```
@@ -103,8 +119,8 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
   ```
 
   - `t` = second of the hour.
-  - `st` = state of the heat pump / valve / bypass: **C**onnected, co**N**necting, **D**isconnected, **E**rror, **U**nknown, **S**tale.
-  - Columns are DP ids; `v…` / `b…` are the valve and bypass DPs.
+  - `st` = state of the heat pump / valve / bypass / power meter: **C**onnected, co**N**necting, **D**isconnected, **E**rror, **U**nknown, **S**tale. Files from before d#121 have three letters.
+  - Columns are DP ids; `v…` / `b…` / `m…` are the valve, bypass and power meter DPs; `pw` is the decoded heat pump power in W.
   - An empty field means unchanged, and trailing empty fields are dropped.
   - A new header plus keyframe is written each hour, after a restart and when a new DP appears.
 
@@ -118,19 +134,26 @@ In the chart, the short dips in supply and return about once an hour are most li
 
 How it works:
 
-1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the three Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
-2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model). It also computes the compressor load and the heating-curve chart.
-3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` chart render it.
+1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the four Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
+2. `Heat pump state` ([`34 Heat pump state.js`](34%20Heat%20pump%20state.js)) merges the DPs into `flow.heatPump` (raw) and `flow.heatPumpModel` (page model). It also decodes the meter and computes the compressor load and the heating-curve chart.
+3. `Heat pump page` (ui_template, [`35 Heat pump page.html`](35%20Heat%20pump%20page.html)) and the `Heat pump temperatures` / `Heat pump power` charts render it.
 4. `Heat pump log tick (30 s)` → `Record heat pump data` ([`36 Record heat pump data.js`](36%20Record%20heat%20pump%20data.js)) → `Append heat pump data` (file node) writes the hourly file, and `Compress heat pump hours` (exec, `gzip`) packs the finished hours. The decoder is [`tools/heatpump-decode.js`](tools/heatpump-decode.js).
+5. The page buttons and the history page send requests to `Heat pump command` ([`37 Heat pump command.js`](37%20Heat%20pump%20command.js)):
+   - `curve` → `SET` DP 133 on *Heating pump*;
+   - `bypass` → `SET` DP 1 on *Off Heating exchange*;
+   - `summary` / `day` → the exec node `Read heat pump history`, which runs `gzip -dc` / `cat` over the day folders.
 
-Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the three Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
+   Every request is validated: a date must be `YYYY-MM-DD`, P23 must be an integer 20…40, the bypass value must be a boolean, and the target device must be connected with data no older than 5 min.
+6. `Build heat pump history` ([`38 Build heat pump history.js`](38%20Build%20heat%20pump%20history.js)) turns the files into statistics and the day chart. `Heat pump history` (ui_template, [`39 Heat pump history page.html`](39%20Heat%20pump%20history%20page.html)) shows them.
 
-> **Keep the Tuya keys when you update the flow.** The keys are stored as Node-RED credentials, not in `flows.json`. *Import → Replace* swaps in Tuya nodes without keys, and the next Deploy overwrites the stored keys with empty values. The same happens if you open such a node and press *Done*. When importing, use **View nodes…** in the import dialog and untick the three Tuya nodes (*Heating pump*, *Boiler valve relay*, *Off Heating exchange*) so the deployed ones are kept.
+Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the four Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
+
+> **Keep the Tuya keys when you update the flow.** The keys are stored as Node-RED credentials, not in `flows.json`. *Import → Replace* swaps in Tuya nodes without keys, and the next Deploy overwrites the stored keys with empty values. The same happens if you open such a node and press *Done*. When importing, use **View nodes…** in the import dialog and untick the Tuya nodes that are already set up (*Heating pump*, *Boiler valve relay*, *Off Heating exchange*, and *SA1 power meter (heat pump)* once it has keys), so the deployed ones are kept. The first time you import d#121, keep *SA1 power meter (heat pump)* ticked, because it is new, then enter its keys.
 
 ## Quick start
 
 1. Cerbo GX with Venus OS Large, Node-RED enabled, ESS configured, GRID CT and the battery visible on D-Bus ([assumptions](docs/limitations.md)).
-2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key / IP in the three Tuya nodes yourself. On later updates do not replace the Tuya nodes ([why](#heat-pump-page-tuya-wi-fi-heat-pump-read-only)) ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
+2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key / IP in the four Tuya nodes yourself. On later updates do not replace the Tuya nodes ([why](#heat-pump-page-tuya-wi-fi-heat-pump)) ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
 3. Set the tariff season, tiers and limits on the dashboard **Constants** page ([control logic](docs/control-logic.md#tariff-seasons-summer--winter)).
 4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `sync-commands.ps1`. `Sync-NN` syncs one node; `Sync-All` syncs all function nodes and the Heat Pump `ui_template`. Every sync bumps the tab label `d#<n>` ([development](docs/development.md)).
 5. Optional: set up remote access over [Tailscale](#remote-access-tailscale) for the dashboard, SSH and the MCP server away from home.
