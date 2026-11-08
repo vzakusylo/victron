@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#119 Day / Night Grid Control",
+    "label": "d#120 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -4848,9 +4848,9 @@
     "id": "hp-log-fn-01",
     "type": "function",
     "z": "995ac4ed6222a706",
-    "name": "Format heat pump log line",
-    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `36 Format heat pump log line.js` and the embedded `func` for \"Format heat pump log line\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - READ-ONLY history of the Tuya heat pump on the GX: every 30 s formats one text line\n//   from flow.heatPumpModel (built by \"Heat pump state\", 34) and appends it to a daily\n//   log file, in the same style as the daily energy log\n//   (`2026-09-01 00:00 | Grid 2551Wh | AC 2981Wh | Sol 0Wh`).\n// Input:\n// - any msg (inject \"Heat pump log tick (30 s)\")\n// Output (1):\n// - output 1 -> file node \"Append heat pump log\" (append, msg.filename, createDir)\n// File:\n// - /data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log  (local date of the GX)\n//     2026-11-08 00:18:30 | Sup 34C | Ret 29C | Tank 45C | Out -3C | Cmp 69Hz 3A 77% ~1128W | Fan 591 | HeatSet 35C | DhwSet 28C | Heating Silent | Valve - | Bypass OFF | Defrost no | Faults none | Age 12s\n//   Cmp  = compressor frequency, current, load % (frequency / max frequency), estimated power\n//   Age  = seconds since the last data from the heat pump\n//   \"-\"  = value not received yet\n// - About 2880 lines / ~0.4 MB per day. Log cleanup is disabled in this flow: watch disk\n//   space on the Files page.\n// Rules:\n// - No line is written while the heat pump has never sent data or the data is older than\n//   STALE_S (the line would only repeat old values). Node status shows why.\n// Change notes:\n// 1. Initial version (d#114).\n// ==========================\n\nconst LOG_DIR = '/data/home/nodered/grid-control-logs';\nconst STALE_S = 180;\n\nfunction pad(n) { return String(n).padStart(2, '0'); }\nfunction v(x, unit) { return x === null || x === undefined || x === '' ? '-' : String(x) + (unit || ''); }\n\nconst model = flow.get('heatPumpModel');\nif (!model || !model.summary || !Array.isArray(model.devices)) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no heat pump data yet' });\n    return null;\n}\n\nconst raw = flow.get('heatPump') || {};\nconst lastData = raw.hp && raw.hp.lastData ? raw.hp.lastData : 0;\nconst now = new Date();\nconst ageS = lastData ? Math.round((now.getTime() - lastData) / 1000) : null;\nif (ageS === null || ageS > STALE_S) {\n    node.status({ fill: 'yellow', shape: 'ring', text: 'stale: ' + (ageS === null ? 'no data' : ageS + ' s') + ' — not logged' });\n    return null;\n}\n\nconst s = model.summary;\nconst dayKey = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());\nconst stamp = dayKey + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());\n\nconst onOff = (b) => (b === null || b === undefined ? '-' : (b ? 'ON' : 'OFF'));\nconst valve = s.valveToDhw === null || s.valveToDhw === undefined ? '-' : (s.valveToDhw ? 'DHW' : 'Heating');\nconst faults = Array.isArray(s.faults) && s.faults.length ? s.faults.join(',') : 'none';\nconst cmp = v(s.compressorHz, 'Hz') + ' ' + v(s.compressorA, 'A') + ' ' + v(s.compressorLoadPct, '%') +\n    ' ' + (s.compressorPowerW === null || s.compressorPowerW === undefined ? '-' : '~' + s.compressorPowerW + 'W');\n\nconst line = [\n    stamp,\n    'Sup ' + v(s.supply, 'C'),\n    'Ret ' + v(s.ret, 'C'),\n    'Tank ' + v(s.tank, 'C'),\n    'Out ' + v(s.outdoor, 'C'),\n    'Cmp ' + cmp,\n    'Fan ' + v(s.fanRpm),\n    'HeatSet ' + v(s.heatingSetpoint, 'C'),\n    'DhwSet ' + v(s.dhwSetpoint, 'C'),\n    v(s.workMode) + ' ' + v(s.mode),\n    'Valve ' + valve,\n    'Bypass ' + onOff(s.bypassOn),\n    'Defrost ' + (s.defrostSign ? 'yes' : 'no'),\n    'Faults ' + faults,\n    'Age ' + ageS + 's'\n].join(' | ');\n\nmsg.filename = LOG_DIR + '/heatpump-' + dayKey + '.log';\nmsg.payload = line + '\\n';\nnode.status({ fill: 'green', shape: 'dot', text: stamp.substring(11) + ' → heatpump-' + dayKey + '.log' });\nreturn msg;\n",
-    "outputs": 1,
+    "name": "Record heat pump data",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `36 Record heat pump data.js` and the embedded `func` for \"Record heat pump data\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - READ-ONLY recorder: every 30 s stores ALL data points of the heat pump, the boiler valve\n//   relay and the bypass relay (flow.heatPump, written by \"Heat pump state\", 34) in a compact\n//   hourly file on the GX. The previous hour's file is gzipped when the hour changes.\n// Input:\n// - any msg (inject \"Heat pump log tick (30 s)\")\n// Output (2):\n// - output 1 -> file node \"Append heat pump data\" (append, msg.filename, createDir)\n// - output 2 -> exec node \"Compress heat pump hours\" (`sh -c <payload>`): gzip every *.csv\n//   except the current hour — sent on a new hour and on the first run after a restart\n// Files:\n// - /data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv     (current hour, plain)\n// - /data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv.gz  (finished hours)\n//   Local date / hour of the GX.\n// Format \"hp1\" (delta CSV, one file = one hour):\n//   #hp1 2026-11-08 00 cols=t,st,1,2,5,15,101,...,v1,b1\n//   0,CEC,1,mute,heat,0,29,33,-3,32,...        <- keyframe: every column\n//   30,,,,,,,34                                <- delta: only changed columns, rest empty\n//   60\n//   - A line starting with `#hp1` starts a section: it names the date, hour and the column\n//     list. A new section (header + keyframe) is written at the start of every file, after a\n//     Node-RED restart / deploy and whenever a new DP appears.\n//   - t   = seconds since the start of the hour (0…3599)\n//   - st  = connection state of heat pump / valve / bypass, one letter each:\n//           C connected, N connecting, D disconnected, E error, U unknown, S stale (> 180 s\n//           without data while \"connected\")\n//   - columns `1`, `2`, … = heat pump DP ids; `v<dp>` = valve relay DPs; `b<dp>` = bypass DPs\n//   - empty field = same value as the previous row of the section (or not received yet in\n//     the keyframe); trailing empty fields are dropped, so an unchanged row is just `t`\n//   - values: numbers as sent by the device, booleans 1 / 0, text as is (`,` → `;`)\n//   Decode: `node tools/heatpump-decode.js HH.csv[.gz]` → one full CSV row per sample.\n// Size (measured on test data, 40 DPs): ~5–10 KB per hour plain, ~1–2 KB per hour gzipped\n//   → about 30–50 KB per day, 15–20 MB per year.\n// Change notes:\n// 1. Initial version (d#114): one text line every 30 s to heatpump-YYYY-MM-DD.log.\n// 2. Replaced by the compact hourly \"hp1\" delta CSV with all DPs + gzip of finished hours (d#120).\n// ==========================\n\nconst BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';\nconst STALE_MS = 180 * 1000;\nconst ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b']];\nconst STATE_LETTER = { CONNECTED: 'C', CONNECTING: 'N', DISCONNECTED: 'D', ERROR: 'E', UNKNOWN: 'U' };\n\nfunction pad(n) { return String(n).padStart(2, '0'); }\n\nfunction cell(value) {\n    if (value === undefined || value === null) return '';\n    if (typeof value === 'boolean') return value ? '1' : '0';\n    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';\n    if (typeof value === 'object') return JSON.stringify(value).replace(/[,\\r\\n]/g, ';');\n    return String(value).replace(/[,\\r\\n]/g, ';');\n}\n\nfunction dpSort(a, b) {\n    const na = Number(a), nb = Number(b);\n    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;\n    return String(a).localeCompare(String(b));\n}\n\nconst st = flow.get('heatPump');\nif (!st || !st.hp) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'no heat pump data yet' });\n    return null;\n}\n\nconst now = new Date();\nconst nowMs = now.getTime();\nconst dayKey = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());\nconst hourKey = dayKey + ' ' + pad(now.getHours());\nconst t = now.getMinutes() * 60 + now.getSeconds();\nconst filename = BASE_DIR + '/' + dayKey + '/' + pad(now.getHours()) + '.csv';\n\n// Current values of every DP of every device, as cells\nconst values = {};\nROLES.forEach(([role, prefix]) => {\n    const dev = st[role];\n    if (!dev || !dev.dps) return;\n    Object.keys(dev.dps).sort(dpSort).forEach((dp) => { values[prefix + dp] = cell(dev.dps[dp]); });\n});\n\nconst stateLetters = ROLES.map(([role]) => {\n    const dev = st[role];\n    if (!dev) return 'U';\n    const letter = STATE_LETTER[dev.state] || 'U';\n    if (letter === 'C' && (!dev.lastData || nowMs - dev.lastData > STALE_MS)) return 'S';\n    return letter;\n}).join('');\n\nconst rec = context.get('rec') || {};\nconst outputs = [null, null];\nconst lines = [];\n\n// New hour (or first run after a restart / deploy) -> gzip every finished hour file.\n// Catches hours left plain by a restart too. Paths contain only digits, '-' and '/',\n// so the single-quoted sh -c script is safe.\nif (rec.file !== filename) {\n    const script = 'find ' + BASE_DIR + ' -name \"*.csv\" ! -path \"' + filename + '\" -exec gzip -f {} + 2>/dev/null; echo done';\n    outputs[1] = { payload: \"'\" + script + \"'\", topic: 'gzip' };\n}\n\n// Column list: keep the order of the running section, append new DPs at the end\nlet cols = rec.file === filename && Array.isArray(rec.cols) ? rec.cols.slice() : [];\nlet newSection = rec.file !== filename || cols.length === 0;\nObject.keys(values).forEach((k) => {\n    if (!cols.includes(k)) { cols.push(k); newSection = true; }\n});\n\nlet row;\nif (newSection) {\n    lines.push('#hp1 ' + hourKey + ' cols=t,st,' + cols.join(','));\n    row = [String(t), stateLetters].concat(cols.map((k) => (values[k] === undefined ? '' : values[k])));\n} else {\n    const prev = rec.last || {};\n    row = [String(t), stateLetters === rec.lastSt ? '' : stateLetters]\n        .concat(cols.map((k) => (values[k] !== undefined && values[k] !== prev[k] ? values[k] : '')));\n}\nwhile (row.length > 1 && row[row.length - 1] === '') row.pop();\nlines.push(row.join(','));\n\ncontext.set('rec', { file: filename, cols, last: values, lastSt: stateLetters });\n\noutputs[0] = { filename, payload: lines.join('\\n') + '\\n' };\nnode.status({ fill: 'green', shape: 'dot', text: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${stateLetters} ${cols.length} cols → ${dayKey}/${pad(now.getHours())}.csv` });\nreturn outputs;\n",
+    "outputs": 2,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -4861,6 +4861,9 @@
     "wires": [
       [
         "hp-log-file-01"
+      ],
+      [
+        "hp-log-gzip-01"
       ]
     ]
   },
@@ -4868,7 +4871,7 @@
     "id": "hp-log-file-01",
     "type": "file",
     "z": "995ac4ed6222a706",
-    "name": "Append heat pump log",
+    "name": "Append heat pump data",
     "filename": "filename",
     "filenameType": "msg",
     "appendNewline": false,
@@ -4878,6 +4881,26 @@
     "x": 740,
     "y": 2480,
     "wires": [
+      []
+    ]
+  },
+  {
+    "id": "hp-log-gzip-01",
+    "type": "exec",
+    "z": "995ac4ed6222a706",
+    "command": "sh -c",
+    "addpay": "payload",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "60",
+    "winHide": false,
+    "oldrc": false,
+    "name": "Compress heat pump hours",
+    "x": 740,
+    "y": 2520,
+    "wires": [
+      [],
+      [],
       []
     ]
   }
