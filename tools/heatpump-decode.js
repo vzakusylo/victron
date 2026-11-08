@@ -21,7 +21,8 @@ const NAMES = {
     '124': 'cool_set_c', '125': 'heat_set_c', '126': 'water_comp_c', '132': 'curve_p22', '133': 'curve_p23_c',
     '134': 'curve_p24', '135': 'freq_mode', '136': 'eheat_start_c', '137': 'tank_eheat_delay_min',
     '138': 'water_pump_mode', '139': 'defrost_enter_c', '140': 'defrost_exit_c', '141': 'defrost_diff_c',
-    '142': 'freq_min_hz', '143': 'freq_max_hz', '144': 'dhw_freq_comp_hz', 'v1': 'valve_dhw', 'b1': 'bypass_on'
+    '142': 'freq_min_hz', '143': 'freq_max_hz', '144': 'dhw_freq_comp_hz', 'v1': 'valve_dhw', 'b1': 'bypass_on',
+    'pw': 'heatpump_w'   // SA1 power meter, decoded (d#121); raw meter DPs are `m<dp>`
 };
 
 const args = process.argv.slice(2);

@@ -1,0 +1,153 @@
+<!--
+  39 Heat pump history page.html
+  Source of the ui_template "Heat pump history" (Heat Pump dashboard tab, below the live charts).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-39).
+  Reads the recorder files through "Heat pump command" (37) → exec "Read heat pump history" →
+  "Build heat pump history" (38). Sends only read requests: {topic:'summary'} and {topic:'day'}.
+-->
+<style>
+.hph { padding: 6px 4px; font-size: 14px; }
+.hph-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hph-title { font-size: 18px; font-weight: 700; margin-right: 8px; }
+.hph-sub { font-size: 12px; opacity: .7; }
+.hph button { border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; background: rgba(127,127,127,.2); color: inherit; font-size: 13px; }
+.hph button:disabled { opacity: .4; cursor: default; }
+.hph-wrap { overflow-x: auto; }
+.hph table { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.hph th, .hph td { text-align: left; padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.2); }
+.hph th { font-weight: 600; opacity: .8; }
+.hph .num { text-align: right; font-variant-numeric: tabular-nums; }
+.hph tr.pick { cursor: pointer; }
+.hph tr.pick:hover { background: rgba(127,127,127,.12); }
+.hph tr.sel { background: rgba(31,111,235,.18); }
+.hph h4 { margin: 14px 0 6px; font-size: 14px; }
+.hph-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.hph-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; background: rgba(127,127,127,.18); }
+.hph-svg { width: 100%; height: auto; display: block; }
+.hph-svg .grid line { stroke: rgba(127,127,127,.22); stroke-width: 1; }
+.hph-svg .axis text { font-size: 11px; fill: currentColor; opacity: .7; }
+.hph-svg polyline { fill: none; stroke-width: 1.6; }
+.hph-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; opacity: .85; margin: 2px 0 8px; }
+.hph-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: 3px; }
+.hph details summary { cursor: pointer; font-size: 13px; opacity: .85; margin: 6px 0; }
+</style>
+
+<div class="hph">
+  <div class="hph-head">
+    <span class="hph-title">History by day</span>
+    <button ng-click="hpRefresh()" ng-disabled="h.loading">Refresh</button>
+    <span class="hph-sub" ng-if="h.loading">loading…</span>
+    <span class="hph-sub">from the 30 s recorder files on the GX · last 14 days</span>
+  </div>
+
+  <div class="hph-sub" ng-if="!h.sum">Reading the history files…</div>
+  <div class="hph-sub" ng-if="h.sum && !h.sum.days.length">No history files yet.</div>
+
+  <div class="hph-wrap" ng-if="h.sum && h.sum.days.length">
+    <table>
+      <tr>
+        <th>Day</th><th class="num">Outdoor avg (min…max)</th><th class="num">Supply avg</th><th class="num">Tank min…max</th>
+        <th class="num">Run h</th><th class="num">Starts</th><th class="num">Defrost</th>
+        <th class="num">kWh (meter)</th><th class="num">Max W</th><th class="num">≈kWh compressor</th>
+        <th class="num">Bypass h</th><th class="num">DHW h</th><th class="num">Data h</th>
+      </tr>
+      <tr ng-repeat="d in h.sum.days" class="pick" ng-class="{sel: d.day == h.sel}" ng-click="hpLoad(d.day)">
+        <td>{{d.day}}<span ng-if="d.today"> (today)</span></td>
+        <td class="num">{{d.outdoor ? d.outdoor.avg : '—'}} <span class="hph-sub" ng-if="d.outdoor && d.outdoor.min !== null">({{d.outdoor.min}}…{{d.outdoor.max}})</span></td>
+        <td class="num">{{d.supply ? d.supply.avg : '—'}}</td>
+        <td class="num">{{d.tank && d.tank.min !== null ? d.tank.min + '…' + d.tank.max : '—'}}</td>
+        <td class="num">{{d.runH === undefined ? '—' : d.runH}} <span class="hph-sub" ng-if="d.runPct !== null && d.runPct !== undefined">({{d.runPct}} %)</span></td>
+        <td class="num">{{d.starts === undefined ? '—' : d.starts}}</td>
+        <td class="num">{{d.defrost === undefined ? '—' : d.defrost}}</td>
+        <td class="num">{{d.kwh === null || d.kwh === undefined ? '—' : d.kwh}}</td>
+        <td class="num">{{d.maxW === null || d.maxW === undefined ? '—' : d.maxW}}</td>
+        <td class="num">{{d.compKwh === undefined ? '—' : d.compKwh}}</td>
+        <td class="num">{{d.bypassH === undefined ? '—' : d.bypassH}}</td>
+        <td class="num">{{d.dhwH === undefined ? '—' : d.dhwH}}</td>
+        <td class="num">{{d.coverageH === undefined ? '—' : d.coverageH}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div ng-if="h.day && h.day.empty"><h4>{{h.day.day}}</h4><div class="hph-sub">No data for this day.</div></div>
+
+  <div ng-if="h.day && !h.day.empty">
+    <h4>{{h.day.day}}</h4>
+    <div class="hph-chips">
+      <span class="hph-chip">Outdoor {{h.day.stats.outdoor.min}} … {{h.day.stats.outdoor.max}} °C, avg {{h.day.stats.outdoor.avg}}</span>
+      <span class="hph-chip">Supply avg {{h.day.stats.supply.avg}} °C, max {{h.day.stats.supply.max}}</span>
+      <span class="hph-chip">Compressor {{h.day.stats.runH}} h ({{h.day.stats.runPct}} %), avg {{h.day.stats.avgHz}} Hz, {{h.day.stats.starts}} starts</span>
+      <span class="hph-chip">Defrost signs {{h.day.stats.defrost}}</span>
+      <span class="hph-chip" ng-if="h.day.stats.kwh !== null">Measured {{h.day.stats.kwh}} kWh · avg {{h.day.stats.avgW}} W · max {{h.day.stats.maxW}} W</span>
+      <span class="hph-chip" ng-if="h.day.stats.kwh === null">No power meter data</span>
+      <span class="hph-chip">Compressor ≈{{h.day.stats.compKwh}} kWh (A × V estimate)</span>
+      <span class="hph-chip">Bypass {{h.day.stats.bypassH}} h · DHW {{h.day.stats.dhwH}} h</span>
+    </div>
+
+    <svg viewBox="0 0 760 330" class="hph-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump day chart">
+      <g class="grid">
+        <line ng-repeat="t in h.day.chart.tTicks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
+        <line ng-repeat="t in h.day.chart.pTicks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
+        <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" ng-attr-y1="{{h.day.chart.t1}}" ng-attr-y2="{{h.day.chart.b2}}"></line>
+      </g>
+      <g class="axis">
+        <text ng-repeat="t in h.day.chart.tTicks" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
+        <text ng-repeat="t in h.day.chart.pTicks" ng-if="$index % 2 == 0" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
+        <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" ng-attr-y="{{h.day.chart.b2 + 16}}" text-anchor="middle">{{t.label}}</text>
+        <text x="4" ng-attr-y="{{h.day.chart.t1 + 4}}">°C</text>
+        <text x="4" ng-attr-y="{{h.day.chart.t2 + 4}}">W</text>
+      </g>
+      <g ng-repeat="s in h.day.chart.temp"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+      <g ng-repeat="s in h.day.chart.power"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+    </svg>
+    <div class="hph-legend">
+      <span ng-repeat="s in h.day.chart.temp"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
+      <span ng-repeat="s in h.day.chart.power"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
+      <span class="hph-sub">2-minute averages · upper panel °C, lower panel W</span>
+    </div>
+
+    <details>
+      <summary>Hourly table</summary>
+      <div class="hph-wrap">
+        <table>
+          <tr><th>Hour</th><th class="num">Outdoor avg</th><th class="num">Supply avg</th><th class="num">Compressor min</th><th class="num">kWh (meter)</th><th class="num">≈kWh compressor</th></tr>
+          <tr ng-repeat="r in h.day.hourly">
+            <td>{{r.hour}}:00</td>
+            <td class="num">{{r.outdoor === null ? '—' : r.outdoor}}</td>
+            <td class="num">{{r.supply === null ? '—' : r.supply}}</td>
+            <td class="num">{{r.runMin}}</td>
+            <td class="num">{{r.kwh === null ? '—' : r.kwh}}</td>
+            <td class="num">{{r.compKwh}}</td>
+          </tr>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+(function (scope) {
+    scope.h = { sum: null, day: null, sel: null, loading: false };
+    scope.$watch('msg', function (m) {
+        if (!m || m.topic !== 'hpHistory' || !m.payload) return;
+        var p = m.payload;
+        if (p.kind === 'summary') {
+            scope.h.sum = p;
+            if (!scope.h.sel && p.days.length) scope.hpLoad(p.days[0].day);
+        } else if (p.kind === 'day' && (!scope.h.sel || p.day === scope.h.sel)) {
+            scope.h.day = p;
+            scope.h.loading = false;
+        }
+    });
+    scope.hpLoad = function (day) {
+        scope.h.sel = day;
+        scope.h.loading = true;
+        scope.send({ topic: 'day', payload: { day: day } });
+    };
+    scope.hpRefresh = function () {
+        scope.send({ topic: 'summary', payload: {} });
+        if (scope.h.sel) scope.hpLoad(scope.h.sel);
+    };
+    setTimeout(function () { scope.send({ topic: 'summary', payload: {} }); }, 300);
+})(scope);
+</script>

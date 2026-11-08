@@ -2,18 +2,29 @@
   35 Heat pump page.html
   Source of the ui_template "Heat pump page" (Heat Pump dashboard tab).
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-35).
-  Read-only page (stage 1): shows the state built by "Heat pump state" (34). No buttons send commands.
+  Shows the state built by "Heat pump state" (34). Two controls send commands through
+  "Heat pump command" (37), each after a confirm dialog:
+    {topic:'curve',  payload:{p23}}  — warmer / colder slider (curve P23, DP 133)
+    {topic:'bypass', payload:{on}}   — heat exchanger bypass relay on / off
 -->
 <style>
 .hpw { padding: 6px 4px; font-size: 14px; }
 .hpw-title { font-size: 20px; font-weight: 700; }
 .hpw-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
-.hpw-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.hpw-card { flex: 1 1 120px; border-radius: 10px; padding: 8px 10px; background: rgba(127,127,127,.12); }
-.hpw-card .k { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .04em; }
-.hpw-card .v { font-size: 22px; font-weight: 700; }
-.hpw-card .u { font-size: 12px; opacity: .7; margin-left: 2px; }
-.hpw-card .s { font-size: 11px; opacity: .7; margin-top: 2px; }
+.hpw-cards { display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 12px; overflow-x: auto; }
+.hpw-card { flex: 1 1 0; min-width: 84px; border-radius: 10px; padding: 6px 8px; background: rgba(127,127,127,.12); }
+.hpw-card .k { font-size: 10px; opacity: .7; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hpw-card .v { font-size: 19px; font-weight: 700; white-space: nowrap; }
+.hpw-card .u { font-size: 11px; opacity: .7; margin-left: 2px; }
+.hpw-card .s { font-size: 10.5px; opacity: .7; margin-top: 2px; line-height: 1.25; }
+.hpw button { border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer; background: rgba(127,127,127,.22); color: inherit; font-size: 13px; }
+.hpw button.go { background: #1f6feb; color: #fff; }
+.hpw button:disabled { opacity: .4; cursor: default; }
+.hpw-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 6px 0 10px; padding: 8px 10px; border-radius: 10px; background: rgba(127,127,127,.08); }
+.hpw-ctl input[type=range] { width: 260px; max-width: 100%; }
+.hpw-ctl .lbl { font-size: 12px; opacity: .75; }
+.hpw-ctl .big { font-size: 16px; font-weight: 700; }
+.hpw-curve-svg .preview { fill: none; stroke: #1f6feb; stroke-width: 2; stroke-dasharray: 6 4; }
 .hpw-bar { height: 4px; border-radius: 2px; background: rgba(127,127,127,.25); margin-top: 4px; overflow: hidden; }
 .hpw-bar > div { height: 100%; background: #2ea043; }
 .hpw-bar > div.mid { background: #d29922; }
@@ -48,7 +59,7 @@
 
 <div class="hpw" ng-init="m = msg.payload">
   <div class="hpw-title">Heat pump</div>
-  <div class="hpw-sub">Local Tuya connection · read only · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>
+  <div class="hpw-sub">Local Tuya connection · controls: curve shift and bypass · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>
 
   <div class="hpw-chips">
     <span ng-repeat="d in msg.payload.devices" class="hpw-chip"
@@ -67,10 +78,16 @@
       <div class="k">Compressor load</div>
       <div class="v">{{msg.payload.summary.compressorLoadPct === null ? '—' : msg.payload.summary.compressorLoadPct}}<span class="u">%</span></div>
       <div class="hpw-bar" ng-if="msg.payload.summary.compressorLoadPct !== null"><div ng-style="{width: msg.payload.summary.compressorLoadPct + '%'}" ng-class="{mid: msg.payload.summary.compressorLoadPct >= 60, high: msg.payload.summary.compressorLoadPct >= 85}"></div></div>
-      <div class="s">{{msg.payload.summary.compressorHz === null ? '—' : msg.payload.summary.compressorHz}}/{{msg.payload.summary.compressorMaxHz}} Hz · {{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}/{{msg.payload.summary.compressorMaxA}} A<span ng-if="msg.payload.summary.compressorPowerW !== null"> · ≈{{(msg.payload.summary.compressorPowerW / 1000) | number:2}} kW</span></div>
+      <div class="s">{{msg.payload.summary.compressorHz === null ? '—' : msg.payload.summary.compressorHz}}/{{msg.payload.summary.compressorMaxHz}} Hz · {{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}/{{msg.payload.summary.compressorMaxA}} A</div>
     </div>
     <div class="hpw-card"><div class="k">Fan</div><div class="v">{{msg.payload.summary.fanRpm}}</div></div>
-    <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>  </div>
+    <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
+    <div class="hpw-card" title="Measured by the SA1 power meter ({{msg.payload.summary.powerSource || 'not connected'}}). Compressor estimate = current × {{msg.payload.summary.compressorPowerBasis}}.">
+      <div class="k">Power</div>
+      <div class="v">{{msg.payload.summary.powerW === null ? '—' : (msg.payload.summary.powerW | number:0)}}<span class="u">W</span></div>
+      <div class="s"><span ng-if="msg.payload.summary.powerV !== null">{{msg.payload.summary.powerV}} V · {{msg.payload.summary.powerA}} A</span><span ng-if="msg.payload.summary.powerW === null">meter offline</span><span ng-if="msg.payload.summary.compressorPowerW !== null"><br>comp ≈{{(msg.payload.summary.compressorPowerW / 1000) | number:2}} kW</span></div>
+    </div>
+  </div>
 
   <div class="hpw-chips" ng-if="msg.payload.summary">
     <span class="hpw-chip">Mode: {{msg.payload.summary.mode || '—'}}</span>
@@ -80,6 +97,17 @@
     <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.bypassOn}">Bypass: {{msg.payload.summary.bypassOn === null ? '—' : (msg.payload.summary.bypassOn ? 'ON' : 'OFF')}}</span>
     <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.defrostSign}" ng-if="msg.payload.summary.defrostSign">Defrost sign (fan 0, compressor &gt; 30 Hz)</span>
     <span class="hpw-chip" ng-class="msg.payload.summary.faults.length ? 'hpw-bad' : 'hpw-ok'">Faults: {{msg.payload.summary.faults.length ? msg.payload.summary.faults.join(', ') : 'none'}}</span>
+  </div>
+
+  <div class="hpw-ctl" ng-if="msg.payload.summary">
+    <span class="lbl">Heat exchanger bypass</span>
+    <span class="big">{{msg.payload.summary.bypassOn === null ? '—' : (msg.payload.summary.bypassOn ? 'ON (bypass)' : 'OFF')}}</span>
+    <button ng-disabled="!msg.payload.controls.bypass || hp.bypassSent !== null" ng-click="hpBypass(!msg.payload.summary.bypassOn)">
+      {{msg.payload.summary.bypassOn ? 'Turn bypass OFF' : 'Turn bypass ON'}}
+    </button>
+    <span class="lbl" ng-if="hp.bypassSent !== null">sent, waiting for the relay…</span>
+    <span class="lbl" ng-if="!msg.payload.controls.bypass">relay not connected</span>
+    <span class="lbl">A Tuya cloud scene that also switches the bypass may switch it back.</span>
   </div>
 
   <div ng-if="msg.payload.curveChart" class="hpw-curve">
@@ -99,6 +127,7 @@
         <text ng-attr-x="4" ng-attr-y="{{msg.payload.curveChart.svg.top + 4}}">°C</text>
       </g>
       <polyline class="curve" ng-attr-points="{{msg.payload.curveChart.svg.line}}"></polyline>
+      <polyline class="preview" ng-if="hp.p23 !== null && hp.p23 != msg.payload.curveChart.p23" ng-attr-points="{{hpPreviewLine()}}"></polyline>
       <g ng-if="msg.payload.curveChart.svg.now">
         <line class="nowline" ng-attr-x1="{{msg.payload.curveChart.svg.now.x}}" ng-attr-x2="{{msg.payload.curveChart.svg.now.x}}" ng-attr-y1="{{msg.payload.curveChart.svg.top}}" ng-attr-y2="{{msg.payload.curveChart.svg.bottom}}"></line>
         <circle class="pt-target" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{msg.payload.curveChart.svg.now.yTarget}}" r="6"></circle>
@@ -111,6 +140,23 @@
       <span><i class="sw pt-target"></i>curve target now</span>
       <span><i class="sw pt-reported"></i>reported heating set (DP 125)</span>
       <span><i class="sw pt-supply"></i>supply now</span>
+      <span ng-if="hp.p23 !== null && hp.p23 != msg.payload.curveChart.p23"><i class="sw pt-supply"></i>new curve (P23 {{hp.p23}}), not applied</span>
+    </div>
+    <div class="hpw-ctl" ng-if="hp.p23 !== null">
+      <span class="lbl">Colder</span>
+      <input type="range" min="20" max="40" step="1"
+             ng-model="hp.p23" ng-change="hp.dirty = true" ng-disabled="!msg.payload.controls.curve || hp.curveSent !== null">
+      <span class="lbl">Warmer</span>
+      <span class="big">P23 {{hp.p23}} °C</span>
+      <span class="lbl" ng-if="msg.payload.curveChart.outdoor !== null">
+        at {{msg.payload.curveChart.outdoor}} °C outdoor: {{hpCurveAt(msg.payload.curveChart.p23)}} → <b>{{hpCurveAt(hp.p23)}} °C</b>
+        ({{hpCurveAt(hp.p23) - hpCurveAt(msg.payload.curveChart.p23) >= 0 ? '+' : ''}}{{(hpCurveAt(hp.p23) - hpCurveAt(msg.payload.curveChart.p23)) | number:1}})
+      </span>
+      <button class="go" ng-disabled="!msg.payload.controls.curve || hp.p23 == msg.payload.curveChart.p23 || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
+      <button ng-if="hp.p23 != msg.payload.curveChart.p23 && hp.curveSent === null" ng-click="hp.p23 = msg.payload.curveChart.p23; hp.dirty = false">Reset</button>
+      <span class="lbl" ng-if="hp.curveSent !== null">sent, waiting for the heat pump…</span>
+      <span class="lbl" ng-if="!msg.payload.controls.curve">heat pump not connected</span>
+      <span class="lbl" ng-if="msg.payload.curveChart.enabled === false">P22 is OFF — the curve is not used now</span>
     </div>
     <table class="hpw-curve-table">
       <tr><th>Outdoor °C</th><td ng-repeat="r in msg.payload.curveChart.table" class="num">{{r.out}}</td></tr>
@@ -129,4 +175,66 @@
     </tr>
   </table>
   <div class="hpw-sub" ng-if="!msg.payload.items.length">Waiting for data from the heat pump…</div>
+
+  <div ng-if="msg.payload.summary.meterDps.length">
+    <h4>Power meter SA1 — raw data points ({{msg.payload.summary.powerSource}})</h4>
+    <table>
+      <tr><th>DP</th><th class="num">Value</th></tr>
+      <tr ng-repeat="u in msg.payload.summary.meterDps"><td>{{u.dp}}</td><td class="num">{{u.value}}</td></tr>
+    </table>
+  </div>
 </div>
+
+<script>
+(function (scope) {
+    // Local UI state; msg.payload (the model) is replaced on every update
+    scope.hp = { p23: null, dirty: false, curveSent: null, bypassSent: null };
+    function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }
+    scope.$watch('msg.payload', function (m) {
+        if (!m) return;
+        var c = m.curveChart;
+        if (c && c.p23 !== null && c.p23 !== undefined) {
+            if (scope.hp.curveSent !== null && (c.p23 === scope.hp.curveSent || Date.now() - scope.hp.curveAt > 60000)) scope.hp.curveSent = null;
+            if (scope.hp.p23 === null || (!scope.hp.dirty && scope.hp.curveSent === null)) scope.hp.p23 = c.p23;
+        }
+        var b = m.summary && m.summary.bypassOn;
+        if (scope.hp.bypassSent !== null && (b === scope.hp.bypassSent || Date.now() - scope.hp.bypassAt > 60000)) scope.hp.bypassSent = null;
+    });
+    scope.hpCurveAt = function (p23) {
+        var c = cc();
+        if (!c || c.outdoor === null) return null;
+        var t = 20 + (c.p24 / 10) * (Number(p23) - c.outdoor);
+        return Math.max(20, Math.min(60, Math.round(t * 10) / 10));
+    };
+    scope.hpPreviewLine = function () {
+        var c = cc();
+        if (!c || !c.svg || c.svg.yMax === undefined) return '';
+        var s = c.svg, pts = [];
+        for (var t = s.outMin; t <= s.outMax; t++) {
+            var v = Math.max(20, Math.min(60, 20 + (c.p24 / 10) * (Number(scope.hp.p23) - t)));
+            v = Math.max(s.yMin, Math.min(s.yMax, v));
+            var x = s.left + (t - s.outMin) / (s.outMax - s.outMin) * (s.right - s.left);
+            var y = s.top + (s.yMax - v) / (s.yMax - s.yMin) * (s.bottom - s.top);
+            pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        }
+        return pts.join(' ');
+    };
+    scope.hpApplyCurve = function () {
+        var c = cc();
+        var v = Number(scope.hp.p23);
+        if (!c || !confirm('Change heating curve P23 from ' + c.p23 + ' to ' + v + ' °C?\n'
+            + (v > c.p23 ? 'Warmer' : 'Colder') + ': the heating set point changes by '
+            + ((v - c.p23) * c.p24 / 10).toFixed(1) + ' °C at every outdoor temperature.')) return;
+        scope.hp.curveSent = v;
+        scope.hp.curveAt = Date.now();
+        scope.hp.dirty = false;
+        scope.send({ topic: 'curve', payload: { p23: v } });
+    };
+    scope.hpBypass = function (on) {
+        if (!confirm('Turn the heat exchanger bypass ' + (on ? 'ON (exchanger bypassed)' : 'OFF') + '?')) return;
+        scope.hp.bypassSent = on;
+        scope.hp.bypassAt = Date.now();
+        scope.send({ topic: 'bypass', payload: { on: on } });
+    };
+})(scope);
+</script>
