@@ -27,10 +27,11 @@
 //     list. A new section (header + keyframe) is written at the start of every file, after a
 //     Node-RED restart / deploy and whenever a new DP appears.
 //   - t   = seconds since the start of the hour (0…3599)
-//   - st  = connection state of heat pump / valve / bypass, one letter each:
+//   - st  = connection state of heat pump / valve / bypass / power meter, one letter each:
 //           C connected, N connecting, D disconnected, E error, U unknown, S stale (> 180 s
-//           without data while "connected")
-//   - columns `1`, `2`, … = heat pump DP ids; `v<dp>` = valve relay DPs; `b<dp>` = bypass DPs
+//           without data while "connected"). Files written before d#121 have 3 letters.
+//   - columns `1`, `2`, … = heat pump DP ids; `v<dp>` = valve relay DPs; `b<dp>` = bypass DPs;
+//     `m<dp>` = SA1 power meter DPs; `pw` = decoded heat pump power in W (from the meter)
 //   - empty field = same value as the previous row of the section (or not received yet in
 //     the keyframe); trailing empty fields are dropped, so an unchanged row is just `t`
 //   - values: numbers as sent by the device, booleans 1 / 0, text as is (`,` → `;`)
@@ -40,11 +41,13 @@
 // Change notes:
 // 1. Initial version (d#114): one text line every 30 s to heatpump-YYYY-MM-DD.log.
 // 2. Replaced by the compact hourly "hp1" delta CSV with all DPs + gzip of finished hours (d#120).
+// 3. SA1 power meter (d#121): meter DPs as `m<dp>`, decoded power as `pw`, 4th state letter.
+//    Read back by "Heat pump command" (37) + "Build heat pump history" (38) for the history page.
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
 const STALE_MS = 180 * 1000;
-const ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b']];
+const ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b'], ['meter', 'm']];
 const STATE_LETTER = { CONNECTED: 'C', CONNECTING: 'N', DISCONNECTED: 'D', ERROR: 'E', UNKNOWN: 'U' };
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -83,6 +86,12 @@ ROLES.forEach(([role, prefix]) => {
     if (!dev || !dev.dps) return;
     Object.keys(dev.dps).sort(dpSort).forEach((dp) => { values[prefix + dp] = cell(dev.dps[dp]); });
 });
+// Decoded heat pump power from the SA1 meter (W), only while the meter data is fresh
+const meter = st.meter;
+if (meter && meter.reading && meter.reading.powerW !== null && meter.reading.powerW !== undefined
+    && meter.lastData && nowMs - meter.lastData <= STALE_MS) {
+    values.pw = cell(meter.reading.powerW);
+}
 
 const stateLetters = ROLES.map(([role]) => {
     const dev = st[role];

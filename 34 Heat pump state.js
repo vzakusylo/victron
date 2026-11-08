@@ -5,21 +5,24 @@
 // - `34 Heat pump state.js` and the embedded `func` for "Heat pump state"
 //   in `flows.json` must always stay synchronized.
 // Purpose:
-// - READ-ONLY collector for the Tuya heat pump and its two helper relays
+// - Collector for the Tuya heat pump, its two helper relays and the SA1 power meter
 //   (stage 1 of moving the heat pump control from the Tuya cloud to the GX).
 // - Merges partial DP updates from the local Tuya connection into one state
 //   object, decodes the known heat pump DPs and feeds the "Heat Pump" page.
-// - Never sends anything to the devices. The only command used on the Tuya
-//   nodes is the periodic GET from the poll inject (read).
+// - Sends nothing itself. Commands from the page (curve shift, bypass) go through
+//   "Heat pump command" (37); this node only reads.
 // Input:
-// - msg.topic = 'hp' | 'valve' | 'bypass' (set by the change node in front)
+// - msg.topic = 'hp' | 'valve' | 'bypass' | 'meter' (set by the change node in front)
 // - data msg  : msg.payload = { data: { dps: { ... } }, deviceId, deviceName }
 // - status msg: msg.payload = { state: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR' }
-// Output (2):
+// Output (3):
 // - output 1 -> msg.payload = page model for the "Heat pump page" ui_template
 // - output 2 -> chart points for "Heat pump temperatures" (max once per minute)
+// - output 3 -> chart points for "Heat pump power" (max once per minute)
 // State:
-// - flow.heatPump = { hp: {...}, valve: {...}, bypass: {...} }
+// - flow.heatPump = { hp: {...}, valve: {...}, bypass: {...}, meter: {..., reading} }
+//   meter.reading = decoded { powerW, voltageV, currentA, energyKwh, source } — the
+//   recorder (36) stores powerW as column `pw`.
 // Change notes:
 // 1. Initial version (d#112): read-only page, DP map from the Tuya cloud model
 //    of product 5oc9wmac3bbidekc (controller PW58280, Powerworld/Michl).
@@ -36,14 +39,21 @@
 //    manual notes in docs/heat-pump.md — compare `target` with the reported DP 125).
 //    Includes ready-to-draw SVG coordinates for the page (outdoor −25…+25 °C) and
 //    the current point (outdoor, curve target, supply).
+// 5. Power meter + controls (d#121): role `meter` = "SA1 Wi-Fi Smart Power Transformer"
+//    (measures the whole heat pump). Decoded by meterReading(): Tuya plug DPs 18/19/20
+//    (mA, W×10, V×10) or energy-meter DP 6 `phase_a` (base64: V×10 2 B, mA 3 B, W 3 B).
+//    summary.power* + output 3 (24 h power chart: meter W and compressor estimate W).
+//    model.curveChart.scale lets the page draw a preview line for the "warmer / colder"
+//    slider; model.controls tells the page which commands are possible.
 // ==========================
 
-const ROLES = ['hp', 'valve', 'bypass'];
+const ROLES = ['hp', 'valve', 'bypass', 'meter'];
 
 const ROLE_LABELS = {
     hp: 'Heat pump',
     valve: 'Boiler valve relay (ON = DHW)',
-    bypass: 'Heating exchange bypass (ON = bypass)'
+    bypass: 'Heating exchange bypass (ON = bypass)',
+    meter: 'Power meter SA1'
 };
 
 // Heat pump DP map (code, label, unit)
@@ -127,6 +137,40 @@ function switchValue(dev) {
     return typeof v === 'boolean' ? v : null;
 }
 
+// Power meter (SA1). Two common Tuya layouts:
+// - plug / breaker: 18 cur_current (mA), 19 cur_power (W × 10), 20 cur_voltage (V × 10)
+// - energy meter : 6 phase_a raw base64 = voltage (2 B, 0.1 V) + current (3 B, mA) + power (3 B, W),
+//                  1 total forward energy (0.01 kWh)
+function meterReading(dev) {
+    if (!dev || !dev.lastData) return null;
+    const d = dev.dps;
+    const r = (v, k) => (v === null ? null : Math.round(v * k) / k);
+    if (num(d['19']) !== null) {
+        const w = num(d['19']) / 10;
+        return {
+            powerW: r(w, 10),
+            currentA: num(d['18']) === null ? null : r(num(d['18']) / 1000, 1000),
+            voltageV: num(d['20']) === null ? null : r(num(d['20']) / 10, 10),
+            energyKwh: null,
+            source: 'DP 19'
+        };
+    }
+    if (typeof d['6'] === 'string' && d['6']) {
+        let buf;
+        try { buf = Buffer.from(d['6'], 'base64'); } catch (e) { buf = null; }
+        if (buf && buf.length >= 8) {
+            return {
+                powerW: buf.readUIntBE(5, 3),
+                currentA: r(buf.readUIntBE(2, 3) / 1000, 1000),
+                voltageV: r(buf.readUInt16BE(0) / 10, 10),
+                energyKwh: num(d['1']) === null ? null : r(num(d['1']) / 100, 100),
+                source: 'DP 6'
+            };
+        }
+    }
+    return { powerW: null, currentA: null, voltageV: null, energyKwh: null, source: 'unknown DPs' };
+}
+
 // Built-in weather curve of the controller (P22 on)
 const CURVE_BASE_C = 20;
 const CURVE_MIN_C = 20;
@@ -185,6 +229,10 @@ function buildCurveChart(d) {
             right: W - R,
             top: T,
             bottom: H - B,
+            yMin,
+            yMax,
+            outMin: CURVE_OUT_MIN,
+            outMax: CURVE_OUT_MAX,
             now: inRange(outdoor) ? {
                 x: x(outdoor),
                 yTarget: y(target),
@@ -234,13 +282,23 @@ function buildModel(st, now) {
             state: dev.state,
             ageSeconds: age,
             stale: !dev.lastData || now - dev.lastData > STALE_MS,
-            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : switchValue(dev)
+            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' ? null : switchValue(dev))
         };
     });
 
+    const meterFresh = st.meter.lastData && now - st.meter.lastData <= STALE_MS;
+    const meter = meterFresh ? st.meter.reading : null;
+    const connected = (role) => st[role].state === 'CONNECTED' && st[role].lastData && now - st[role].lastData <= STALE_MS;
+
     return {
         updated: new Date(now).toISOString(),
-        readOnly: true,
+        readOnly: false,
+        controls: {
+            curve: connected('hp') && num(d['133']) !== null,
+            curveMin: 20,
+            curveMax: 40,
+            bypass: connected('bypass') && switchValue(st.bypass) !== null
+        },
         devices,
         summary: {
             supply: num(d['102']),
@@ -257,6 +315,12 @@ function buildModel(st, now) {
             compressorMaxA: COMPRESSOR_MAX_A,
             compressorPowerW: powerW,
             compressorPowerBasis: dcBus !== null && dcBus > 0 ? 'DC bus' : '230 V',
+            powerW: meter ? meter.powerW : null,
+            powerV: meter ? meter.voltageV : null,
+            powerA: meter ? meter.currentA : null,
+            powerEnergyKwh: meter ? meter.energyKwh : null,
+            powerSource: st.meter.reading ? st.meter.reading.source : null,
+            meterDps: Object.keys(st.meter.dps).map((dp) => ({ dp, value: st.meter.dps[dp] })),
             heatingSetpoint: num(d['125']),
             dhwSetpoint: num(d['123']),
             mode: MODE_LABELS[d['2']] || d['2'] || null,
@@ -294,6 +358,7 @@ if (typeof p.state === 'string' && !p.data) {
     Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
     dev.lastData = now;
     dev.state = 'CONNECTED';
+    if (role === 'meter') dev.reading = meterReading(dev);
 } else {
     return null;
 }
@@ -308,6 +373,7 @@ const statusText = model.summary.supply !== null
 node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
 
 let chartMsgs = null;
+let powerMsgs = null;
 const lastChart = context.get('lastChart') || 0;
 if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_MS) {
     context.set('lastChart', now);
@@ -315,6 +381,9 @@ if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_M
     chartMsgs = [
         ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor]
     ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
+    powerMsgs = [
+        ['Heat pump W (meter)', s.powerW], ['Compressor ≈W', s.compressorPowerW]
+    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
 }
 
-return [{ payload: model }, chartMsgs];
+return [{ payload: model }, chartMsgs, powerMsgs];

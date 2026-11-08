@@ -185,6 +185,15 @@ function Sync-35 { Sync-Template 'Heat pump page'               '35 Heat pump pa
 # 36 — Heat pump recorder (all DPs every 30 s → heatpump/YYYY-MM-DD/HH.csv, hourly gzip)
 function Sync-36 { Sync-Node 'Record heat pump data'            '36 Record heat pump data.js'                   -BumpVersion }
 
+# 37 — Heat pump command (curve shift P23, bypass relay, history read requests → exec)
+function Sync-37 { Sync-Node 'Heat pump command'                '37 Heat pump command.js'                       -BumpVersion }
+
+# 38 — Build heat pump history (recorder files → day statistics + day chart)
+function Sync-38 { Sync-Node 'Build heat pump history'          '38 Build heat pump history.js'                 -BumpVersion }
+
+# 39 — Heat pump history page (ui_template HTML)
+function Sync-39 { Sync-Template 'Heat pump history'            '39 Heat pump history page.html'                -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -227,6 +236,8 @@ function Sync-All {
         @{ Name = 'MCP page';                            File = '33 MCP page.js' }
         @{ Name = 'Heat pump state';                     File = '34 Heat pump state.js' }
         @{ Name = 'Record heat pump data';               File = '36 Record heat pump data.js' }
+        @{ Name = 'Heat pump command';                   File = '37 Heat pump command.js' }
+        @{ Name = 'Build heat pump history';             File = '38 Build heat pump history.js' }
     )
 
     $totalSynced = 0
@@ -244,6 +255,7 @@ function Sync-All {
     # ui_template HTML sources (not function nodes) — synced into .format
     $templates = @(
         @{ Name = 'Heat pump page';                      File = '35 Heat pump page.html' }
+        @{ Name = 'Heat pump history';                   File = '39 Heat pump history page.html' }
     )
     foreach ($entry in $templates) {
         $src = [System.IO.File]::ReadAllText((Join-Path $Root $entry.File))
