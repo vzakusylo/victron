@@ -63,12 +63,20 @@ State is kept in `flow.heatPump` (raw DPs per device) and `flow.heatPumpModel` (
 
 This is an estimate: power factor and drive losses are ignored, and there is no power DP.
 
-**History log (d#114):**
-- Nodes: `Heat pump log tick (30 s)` → `Format heat pump log line` (`36 Format heat pump log line.js`) → `Append heat pump log`.
-- Every 30 s one line is appended to `/data/home/nodered/grid-control-logs/heatpump-YYYY-MM-DD.log` (local date of the GX).
-- Format: `time | Sup | Ret | Tank | Out | Cmp Hz A % ~W | Fan | HeatSet | DhwSet | work mode + mode | Valve | Bypass | Defrost | Faults | Age`.
-- No line is written while the data is older than 180 s.
-- Size: about 2880 lines and ~0.4 MB per day. Log cleanup is disabled, so watch disk space on the Files page.
+**History recorder (d#120; replaces the d#114 text log):**
+- Nodes: `Heat pump log tick (30 s)` → `Record heat pump data` (`36 Record heat pump data.js`) → `Append heat pump data` (file) + `Compress heat pump hours` (exec `sh -c`, gzip).
+- What is stored: every DP of the heat pump, the valve relay (`v…`) and the bypass relay (`b…`), plus the connection state, every 30 s.
+- Files: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`, one per hour (local time of the GX). Finished hours are gzipped when a new hour starts and after a restart. The current hour stays plain.
+- Format `hp1`, a delta CSV:
+  - a `#hp1 <date> <hour> cols=t,st,<dp>,…` header, then a keyframe row with every column;
+  - then rows `t,st,changed values…` with empty = unchanged and trailing empties dropped;
+  - `t` = second of the hour;
+  - `st` = one letter each for hp / valve / bypass: C connected, N connecting, D disconnected, E error, U unknown, S stale > 180 s;
+  - booleans are 1 / 0, text is as is (`,` → `;`);
+  - a new section (header + keyframe) starts every hour, after a restart / deploy and when a new DP appears.
+- Size (simulated 40 DPs with realistic changes): ~4 KB per hour plain, ~1.1 KB gzipped, so about 26 KB per day and ~10 MB per year.
+- Decode: `node tools/heatpump-decode.js [--names] HH.csv[.gz] …` prints one full CSV row per sample with a timestamp; `--names` gives readable column names.
+- The old `heatpump-YYYY-MM-DD.log` text files written by d#114–d#119 are left as they are.
 
 ## Data points
 
