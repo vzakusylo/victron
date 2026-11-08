@@ -20,24 +20,28 @@ The heat pump is today controlled by Tuya cloud scenes (DHW ladder, defrost/bypa
 
 ## Devices
 
-| Role | Tuya name | Device ID | Notes |
-|---|---|---|---|
-| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | product `5oc9wmac3bbidekc`, controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
-| 3-way valve relay | Boiler | `bf894708aa7e3ac196zjzk` | DP 1: ON = DHW tank, OFF = heating |
-| Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
-| Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | (enter in the node) | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a` |
+| Role | Tuya name | Device ID | IP / protocol | Notes |
+|---|---|---|---|---|
+| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | 192.168.1.31 / 3.3 | product `5oc9wmac3bbidekc`, controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
+| 3-way valve relay | Boiler | `bf894708aa7e3ac196zjzk` | 192.168.1.53 / **3.5** | DP 1: ON = DHW tank, OFF = heating. Sends **no** UDP beacons → the IP must be set in the node |
+| Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | 192.168.1.139 / 3.4 | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
+| Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | `bff533964da65dd78dlha6` | not reachable yet | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a`. It is on the other (D-Link) Wi-Fi, which the GX cannot reach — move it to the ASUS Wi-Fi, then set its IP |
+| (defrost flag for cloud scenes) | Voksen heating | `bf2e8c592bd8d22486nwux` | 192.168.1.148 / 3.5 | not used by the flow |
+
+State on 2026-11-08 (d#122): heat pump, valve and bypass **CONNECTED**; the SA1 meter shows *ERROR / DISCONNECTED* until it is on the ASUS network, so the Power tile shows "—" and the Power chart has only the compressor estimate.
 
 Local keys are **not** stored in this repository. They are typed into each Tuya node on the GX and kept in Node-RED credentials (`flows_cred.json`, not part of an export).
 
 ## Network
 
-The GX and the Tuya devices must be in the same subnet (the node finds devices by UDP broadcast). Here both are behind the ASUS repeater `Telia-2FF703_RPT` (192.168.1.x), GX = 192.168.1.94. Pin the device IPs in the router's DHCP list.
+The GX and the Tuya devices must be in the same subnet (without an IP the node finds devices by UDP broadcast). Here both are on the ASUS network 192.168.1.x (`Telia-2FF703` and its repeater `Telia-2FF703_RPT` are one network with one DHCP), GX eth0 = 192.168.1.94. The device IPs are pinned in the ASUS DHCP list (LAN → DHCP Server → Manual Assignment; Apply restarts the router's Wi-Fi for ~30 s, the Tuya nodes reconnect by themselves). The main D-Link network (192.168.0.x) seems to isolate Wi-Fi clients, so Tuya devices there are not reachable from the GX.
 
 ## Setup
 
 1. Node-RED → Manage palette → Install `node-red-contrib-tuya-smart-device` (tested against 5.4.0).
 2. Import / deploy `flows.json` (tab `d#112` or later).
-3. Open each of the four Tuya nodes (`Heating pump`, `Boiler valve relay`, `Off Heating exchange`, `SA1 power meter (heat pump)`), tick *Store as credentials* (already on), enter the **Device ID** and **Local Key**, optionally the IP, version `3.3` (try `3.4` if it never connects). Deploy.
+3. Open each of the four Tuya nodes (`Heating pump`, `Boiler valve relay`, `Off Heating exchange`, `SA1 power meter (heat pump)`), tick *Store as credentials* (already on), enter the **Device ID** and **Local Key**, optionally the IP, version `3.3` (try `3.4` or `3.5` if it never connects). Deploy.
+   The `Boiler valve relay` speaks **3.5** and sends no UDP discovery beacons, so it needs its IP set (`192.168.1.53`, behind the ASUS router); without it the node stays DISCONNECTED (`find() timed out`). To find a device that does not broadcast: take its MAC from Smart Life Web → Device Details and look it up in the GX ARP table (`ip neigh`).
 4. Open the dashboard → **Heat Pump**. Node status under each Tuya node shows connecting / connected.
 
 Get the local keys from platform.tuya.com → Cloud → project → API Explorer → *Query Device Details in Bulk*, or with `python -m tinytuya wizard`. A key changes if the device is removed and paired again in Smart Life.
@@ -166,13 +170,13 @@ From the Tuya cloud thing model of the heat pump (product `5oc9wmac3bbidekc`):
 
 Built-in curve (P22 on): heating set point = 20 + (P24 / 10) × (P23 − outdoor), 20…60 °C (P24 = 4 → 0.4).
 
-The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It marks the current point: the curve target at the current outdoor temperature, the reported heating set point (DP 125) and the supply temperature. A table lists −20…+15 °C. With P23 = 32 and P24 = 4:
+The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It marks the current point: the curve target at the current outdoor temperature, the reported heating set point (DP 125) and the supply temperature. A table lists −20…+15 °C. With P23 = 37 and P24 = 4 (P23 raised from 32 on 8 Nov 2026 = +2 °C at every outdoor temperature; roll back = P23 32):
 
 | Outdoor °C | −20 | −15 | −10 | −5 | 0 | 5 | 10 | 15 |
 |---|---|---|---|---|---|---|---|---|
-| Set point °C | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 | 26.8 |
+| Set point °C | 42.8 | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 |
 
-Check of the formula: at −3 °C outdoor the curve gives 34 °C and the pump reported 35 °C (DP 125), so the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
+Check of the formula: with P23 = 32 at −3 °C outdoor the curve gave 34 °C and the pump reported 35 °C (DP 125); with P23 = 37 at −1 °C the curve gives 35.2 °C and the pump reports 35 °C. So the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
 
 ## Roadmap
 

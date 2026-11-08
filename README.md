@@ -36,7 +36,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 ## Dashboard pages
 
-![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP)](docs/images/dashboard-menu.png)
+![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP), Heat Pump](docs/images/dashboard-menu.png)
 
 | Page | What it is for |
 |---|---|
@@ -78,13 +78,13 @@ What the page shows, top to bottom:
 
   **heating set point = 20 + (P24 / 10) × (P23 − outdoor)**, limited to 20–60 °C.
 
-  A dashed line marks the current outdoor temperature. On it: the curve target (red), the set point the pump reports, DP 125 (yellow), and the actual supply (blue). Below the chart is a table for −20…+15 °C. With P23 = 32 and P24 = 4:
+  A dashed line marks the current outdoor temperature. On it: the curve target (red), the set point the pump reports, DP 125 (yellow), and the actual supply (blue). Below the chart is a table for −20…+15 °C. With P23 = 37 and P24 = 4 (P23 was raised from 32 on 8 Nov 2026, i.e. +2 °C everywhere):
 
   | Outdoor °C | −20 | −15 | −10 | −5 | 0 | 5 | 10 | 15 |
   |---|---|---|---|---|---|---|---|---|
-  | Set point °C | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 | 26.8 |
+  | Set point °C | 42.8 | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 |
 
-  At −3 °C the curve gives 34 °C, while the pump reports 35 °C and supplies 33 °C. So the formula is close, but the manual does not confirm it.
+  In the screenshot (outdoor −1 °C) the curve gives 35.2 °C and the pump reports 35 °C. Earlier, with P23 = 32 at −3 °C, the curve gave 34 °C against a reported 35 °C. So the formula is close, but the manual does not confirm it.
 
   **Colder / warmer slider.** Below the chart there is a slider for **P23** (DP 133), limited to 20…40 °C. P23 shifts the whole curve. Each +1 °C of P23 raises the set point by P24 / 10 °C at every outdoor temperature, so with P24 = 4 that is +0.4 °C. While you drag, the page shows the new curve as a blue dashed line, and the set point at the current outdoor temperature before and after (e.g. `35.6 → 36.4 °C (+0.8)`). **Apply** asks for confirmation, then sends `DP 133 = <value>` to the heat pump. **Reset** discards the change. The slope (P24) and P22 are not changed.
 - **All data points:** every DP the heat pump reports, with name, value and unit. Unknown DPs are listed separately.
@@ -132,6 +132,12 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 
 In the chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
 
+![Power (24 h) — measured heat pump power (SA1) and the compressor estimate; here only the estimate, because the SA1 meter is not reachable yet](docs/images/heat-pump-power.png)
+
+The Power chart keeps its 24 h in memory, so it starts again after a deploy (in the screenshot at 19:16). Until the SA1 meter is reachable from the GX (see [docs/heat-pump.md](docs/heat-pump.md#devices)) only the compressor estimate is drawn.
+
+![History by day — the day table from the 30 s recorder files and the chart of one day: temperatures on top, power below](docs/images/heat-pump-history.png)
+
 How it works:
 
 1. `Poll heat pump (GET, read only)` sends `{"operation":"GET","schema":true}` to the four Tuya nodes every 30 s. The `operation` is always set explicitly, because the Tuya node treats a message without it as `SET`.
@@ -146,7 +152,7 @@ How it works:
    Every request is validated: a date must be `YYYY-MM-DD`, P23 must be an integer 20…40, the bypass value must be a boolean, and the target device must be connected with data no older than 5 min.
 6. `Build heat pump history` ([`38 Build heat pump history.js`](38%20Build%20heat%20pump%20history.js)) turns the files into statistics and the day chart. `Heat pump history` (ui_template, [`39 Heat pump history page.html`](39%20Heat%20pump%20history%20page.html)) shows them.
 
-Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the four Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
+Setup: install the palette node, then enter the **Device ID, Local Key, IP and protocol version** in the four Tuya nodes yourself (see [Secrets](#secrets)). Set the IP explicitly: without it the node relies on UDP discovery, which can fail (`find() timed out`). Some devices never send discovery beacons — here the boiler valve relay (protocol **3.5**) — so for them the IP is required. If you do not know the IP, take the MAC from Smart Life Web (Device Details) and look it up in the router's client list or the GX ARP table (`ip neigh`). Device list, DP map and the roadmap to local control are in [docs/heat-pump.md](docs/heat-pump.md).
 
 > **Keep the Tuya keys when you update the flow.** The keys are stored as Node-RED credentials, not in `flows.json`. *Import → Replace* swaps in Tuya nodes without keys, and the next Deploy overwrites the stored keys with empty values. The same happens if you open such a node and press *Done*. When importing, use **View nodes…** in the import dialog and untick the Tuya nodes that are already set up (*Heating pump*, *Boiler valve relay*, *Off Heating exchange*, and *SA1 power meter (heat pump)* once it has keys), so the deployed ones are kept. The first time you import d#121, keep *SA1 power meter (heat pump)* ticked, because it is new, then enter its keys.
 

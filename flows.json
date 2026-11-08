@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#121 Day / Night Grid Control",
+    "label": "d#122 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -4608,10 +4608,10 @@
     "deviceId": "",
     "deviceKey": "",
     "storeAsCreds": true,
-    "deviceIp": "",
+    "deviceIp": "192.168.1.53",
     "retryTimeout": "5000",
     "findTimeout": "10000",
-    "tuyaVersion": "3.3",
+    "tuyaVersion": "3.5",
     "eventMode": "event-both",
     "logLevel": "log-level-error",
     "x": 420,
