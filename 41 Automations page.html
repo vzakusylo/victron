@@ -8,8 +8,8 @@
     {topic:'ui', payload:{action:'modeAll', mode}}   — all rules at once
     {topic:'ui', payload:{action:'flag', on:false}}  — reset the internal defrost flag
     {topic:'ui', payload:{action:'refresh'}}         — on open
-  d#138: the DHW controller panel (switch, curve, settings) moved to the Heat Pump page (35);
-  only a status line with a pointer is left here.
+  d#138: the DHW controller panel (switch, curve, settings) moved to the Heat Pump page (35).
+  d#139: its status line is removed here too; the DHW controller is only on the Heat Pump page.
 -->
 <style>
 .hpa { padding: 6px 4px; font-size: 14px; }
@@ -59,11 +59,6 @@
     <span class="note" ng-if="msg.payload.master">ON: rules set to <b>On</b> write to the devices (queue, 1.5 s between writes, each write checked 15 s later). Rules in <b>Test</b> only log. Switch the matching Smart Life scene off before a rule goes On. Turning OFF stops running sequences.</span>
   </div>
 
-  <div class="hpa-master" ng-if="msg.payload.dhw">
-    <span class="big">DHW controller: {{hpaLabel(msg.payload.dhw.mode)}}</span>
-    <span class="small">{{msg.payload.dhw.state}} · {{msg.payload.dhw.waitNote || msg.payload.dhw.why}}</span>
-    <span class="note">Its switch, curve and settings are on the <b>Heat Pump</b> tab (Boiler column) since d#138.</span>
-  </div>
 
   <div class="hpa-master">
     <span class="big">All rules</span>

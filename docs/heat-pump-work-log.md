@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-09: local automations (d#123–d#138)
+### 2026-11-08 – 2026-11-09: local automations (d#123–d#139)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -40,6 +40,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#136 | "Put the legend (supply, return, tank …) above the chart; show the values when the mouse points at it, as before." | Legends above the temperature and power charts; pointing at (or tapping) a chart shows a cursor line, a dot per series and a tooltip with the time, the event and every visible value (the builder sends a value per 2-min bucket). | Checked in a browser with the data of 9 Nov; deployed 21:41. |
 | d#137 | (found while moving the DHW panel) | **Fix:** the new nodes of d#135 had the ids `hpl-fn-01` / `hpl-exec-01` of the Automation log (42) and replaced its function and exec node, so the Automation log page did not work from 21:33 to 21:48 (the day files were still written by their own node). The Automation log nodes are restored; the sensor nodes have their own ids `hpls-*`. | Deployed 21:48. |
 | d#138 | "Move the DHW controller (tank by outdoor curve) from Automations to the heat pump." | DHW controller panel (Off / Test / On, reason, editable curve and settings) in the Boiler column of the Heat Pump page; requests go `35 → 37 (output 4) → 40`; the Automations tab keeps a status line. Also: 46 does not send DPs missing in a wake (battery state), so the last value stays. **Fix:** since d#135, `34` took `data.t` as the reading time for every device, but the Tuya nodes send `t` in seconds, so the heat pump, valve and bypass looked stale to `40` ("device not connected / stale"): the ramp-down after the 21:13 cycle stood at set point 49 °C with P22 off from 21:43 to 22:03, and no rule ran then. `34` now uses `data.t` only for the battery sensors (hot-fixed 22:03). | First cycle without preheat: 21:13–21:43, tank 41 → 46 °C. First local sensor reading 21:50 (Exchange plate 27.1 °C). |
+| d#139 | "Delete it from the local automations." | The DHW controller status line is removed from the Automations tab; the controller is shown and set only on the Heat Pump page. | — |
 
 ## Instructions
 
