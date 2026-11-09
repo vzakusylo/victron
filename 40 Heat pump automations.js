@@ -58,6 +58,15 @@
 // 4. d#126: all heat pump scenes: the 6 mode rules back plus HP Er03 restart, HP power <-16,
 //    HP smart -15..-7 (new rules default Off). Page modes Off / Test / On, all rules at once.
 //    Day log files + write check (ok / fail) for the Automation log page.
+// 5. d#127 (review of PR #11): a new node instance drops running sequences and the write queue
+//    (their timers are gone after a deploy / restart); watchdog for overdue steps and a stuck
+//    write gap; a live sequence stops, and its queued writes are dropped, once the rule is no
+//    longer On (On → Test / Off).
+// INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
+//    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
+//    context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
+//    context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'
+//        + (old.length ? '; running sequences dropped: ' + old.join(', ') : '') + (oldQ ? '; ' + oldQ + ' queued writes dropped' : '') });
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
@@ -69,6 +78,7 @@ const WRITE_GAP_MS = 1500;
 const FLAG_MAX_MS = 10 * 60 * 1000;
 const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
 const VERIFY_MS = 15 * 1000;
+const STALE_MS = 60 * 1000;
 const MIN = 60 * 1000;
 const S = 1000;
 
@@ -300,8 +310,13 @@ let settings = ctx('settings', { master: false, modes: {} });
 const runtime = ctx('runtime', {});
 ctx('log', []);
 const flag = ctx('flag', { on: false, since: 0, by: '' });
+// A new node instance (deploy of this node, Node-RED restart) has no timers, but the context is
+// kept: the node's On Start code (`initialize` in flows.json, see INIT below the header) drops
+// running sequences and queued writes and leaves a note here, which is logged once.
+const bootNote = context.get('bootNote');
+if (bootNote) { context.set('bootNote', null); logEvent({ kind: bootNote.dropped ? 'warn' : 'info', text: bootNote.text }); }
 const queue = ctx('queue', []);
-const seqs = ctx('seqs', {});   // ruleId -> { idx, total, startedAt, live, token }
+const seqs = ctx('seqs', {});   // ruleId -> { idx, total, startedAt, live, token, nextAt }
 
 function pad(x) { return String(x).padStart(2, '0'); }
 function dayKey(t) { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -373,9 +388,11 @@ function pump() {
     if (context.get('pumping')) return;
     const q = context.get('queue') || [];
     if (!q.length) return;
-    context.set('pumping', true);
+    context.set('pumping', true); context.set('pumpAt', Date.now());
     const item = q.shift(); context.set('queue', q);
-    if ((context.get('settings') || {}).master) {
+    if (modeOf(item.rule) !== 'live') {
+        logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
+    } else if ((context.get('settings') || {}).master) {
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
         node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
         setTimeout(() => {
@@ -399,6 +416,10 @@ function runStep(rule, token) {
     const base = { rule: rule.id, cloud: rule.cloud, run: token, live: sq.live };
     if (sq.live && !(context.get('settings') || {}).master) {
         logEvent(Object.assign({ kind: 'stop', text: 'sequence stopped (master OFF) at step ' + (sq.idx + 1) + '/' + sq.total }, base));
+        endSeq(rule); return;
+    }
+    if (sq.live && modeOf(rule.id) !== 'live') {
+        logEvent(Object.assign({ kind: 'stop', text: 'sequence stopped (rule no longer On) at step ' + (sq.idx + 1) + '/' + sq.total }, base));
         endSeq(rule); return;
     }
     if (modeOf(rule.id) === 'off') {
@@ -428,7 +449,7 @@ function runStep(rule, token) {
     } else {
         logEvent(Object.assign({ kind: 'dry', text: 'would ' + s.text + stepTxt }, base));
     }
-    const all = context.get('seqs'); all[rule.id].idx = sq.idx + 1; context.set('seqs', all);
+    const all = context.get('seqs'); all[rule.id].idx = sq.idx + 1; all[rule.id].nextAt = Date.now() + next; context.set('seqs', all);
     setTimeout(() => runStep(rule, token), next);
 }
 function stopLive(reason) {
@@ -496,6 +517,22 @@ if (msg.topic === 'ui') {
 // ---- tick: evaluate every rule ----------------------------------------------------
 // DF safe 10min: the flag never stays ON longer than FLAG_MAX_MS
 if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
+
+// Watchdog: a sequence whose next step is overdue by STALE_MS lost its timer → drop it;
+// a write gap that never ended → release the queue.
+for (const id of Object.keys(seqs)) {
+    const sq = seqs[id];
+    if (sq.nextAt && now - sq.nextAt > STALE_MS) {
+        const r = ruleById(id);
+        logEvent({ kind: 'warn', rule: id, cloud: r ? r.cloud : id, run: sq.token, live: sq.live, text: 'sequence dropped: step ' + (sq.idx + 1) + '/' + sq.total + ' overdue (timer lost)' });
+        delete seqs[id];
+    }
+}
+if (context.get('pumping') && now - (context.get('pumpAt') || 0) > STALE_MS) {
+    context.set('pumping', false);
+    logEvent({ kind: 'warn', text: 'write queue released (gap timer lost)' });
+    pump();
+}
 
 for (const r of RULES) {
     const md = modeOf(r.id);
