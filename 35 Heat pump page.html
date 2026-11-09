@@ -97,6 +97,7 @@
   <div class="hpw-cards" ng-if="msg.payload.summary">
     <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
+    <div class="hpw-card" title="Compressor current, DP 112 (nameplate max {{msg.payload.summary.compressorMaxA}} A)"><div class="k">Compressor current</div><div class="v">{{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}<span class="u">A</span></div><div class="s" ng-if="msg.payload.summary.compressorA !== null">of {{msg.payload.summary.compressorMaxA}} A</div></div>
     <div class="hpw-card" title="Load = input power ≈ current × {{msg.payload.summary.compressorPowerBasis}} / nameplate max {{msg.payload.summary.unitMaxW}} W (= current / {{msg.payload.summary.compressorMaxA}} A). Frequency shown against the highest seen ({{msg.payload.summary.compressorMaxHz}} Hz).">
       <div class="k">Compressor load</div>
       <div class="v">{{msg.payload.summary.compressorLoadPct === null ? '—' : msg.payload.summary.compressorLoadPct}}<span class="u">%</span></div>

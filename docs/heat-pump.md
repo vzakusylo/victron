@@ -56,13 +56,13 @@ Note: many Tuya devices accept only **one local connection**. Do not run tinytuy
 
 ## Heat Pump page
 
-**Layout (d#134):** device chips and the shared cards (outdoor, compressor, load, resource, fan, power, mode, faults) on top; below them two columns — **Heating** on the left (supply, return, heating set, accumulator, exchange plate, curve P22 / bypass, bypass control, heating curve with the P23 slider) and **Boiler (DHW tank)** on the right (tank, tank target, valve, DHW controller state and reason, boiler curve). The boiler curve uses the same outdoor axis as the heating curve: tank target, the start line (target − hysteresis), the frost zone (electric heater only), target and tank now. Its data comes from the DHW controller (`40` writes `flow.dhwView` every 10 s, `34` builds `model.dhwChart`); since d#138 the **DHW controller panel** is in this column too: Off / Test / On, outdoor average and heating lag, the reason it waits, and under the chart the editable curve points and settings with Save / Reset (requests go through `37` to `40`; since d#139 the Automations tab does not show it at all). On a narrow screen (< 900 px) the columns stack.
+**Layout (d#134):** device chips and the shared cards (outdoor, compressor Hz, compressor current in A (d#141), load, resource, fan, power, mode, faults) on top; below them two columns — **Heating** on the left (supply, return, heating set, accumulator, exchange plate, curve P22 / bypass, bypass control, heating curve with the P23 slider) and **Boiler (DHW tank)** on the right (tank, tank target, valve, DHW controller state and reason, boiler curve). The boiler curve uses the same outdoor axis as the heating curve: tank target, the start line (target − hysteresis), the frost zone (electric heater only), target and tank now. Its data comes from the DHW controller (`40` writes `flow.dhwView` every 10 s, `34` builds `model.dhwChart`); since d#138 the **DHW controller panel** is in this column too: Off / Test / On, outdoor average and heating lag, the reason it waits, and under the chart the editable curve points and settings with Save / Reset (requests go through `37` to `40`; since d#139 the Automations tab does not show it at all). On a narrow screen (< 900 px) the columns stack.
 
 Flow nodes:
 
 - `Poll heat pump (GET, read only)` — every 30 s (was 60 s before d#114) sends `{"operation":"GET","schema":true}` to the four Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
 - four `tuya-smart-device` nodes → `topic = hp | valve | bypass | meter` → `Heat pump state` (`34 Heat pump state.js`)
-- `Heat pump page` (ui_template, source `35 Heat pump page.html`). The 24 h ui_charts `Heat pump temperatures` and `Heat pump power` were removed in d#135; the history page shows the same by day (temperatures with the event lane, power = DC bus × compressor current and meter W, legends that hide / show a series)
+- `Heat pump page` (ui_template, source `35 Heat pump page.html`). The 24 h ui_charts `Heat pump temperatures` and `Heat pump power` were removed in d#135; the history page shows the same by day (temperatures with the event lane, power = DC bus × compressor current and meter W, compressor current in A on a right axis since d#141, legends that hide / show a series)
 - `Heat pump command` (`37 Heat pump command.js`): the only node that writes to the devices; also starts the history reads
 - `Read heat pump history` (exec) → `Build heat pump history` (`38`) → `Heat pump history` (ui_template, `39 Heat pump history page.html`)
 
@@ -206,7 +206,7 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 - **Safety:** every device a rule reads must be CONNECTED with data ≤ 5 min old; the conditions must hold on 3 ticks in a row (tick 10 s); then the rule rests (10–30 min).
 - **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, every rule at its default.
 
-**Local rules (5, since d#134)** — DPs: 2 mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 115 Hz, 116 fan, 125 set point, 132 P22; bypass ON = exchanger bypassed. The tank is heated only by the **DHW controller** ([docs/heat-pump-dhw-controller.md](heat-pump-dhw-controller.md)):
+**Local rules (3, since d#140)** — DPs: 2 mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 115 Hz, 116 fan, 125 set point, 132 P22; bypass ON = exchanger bypassed. The tank is heated only by the **DHW controller** ([docs/heat-pump-dhw-controller.md](heat-pump-dhw-controller.md)):
 
 | Rule | Smart Life scene (runs 7–8 Nov) | If | Then (steps) |
 |---|---|---|---|
@@ -214,10 +214,8 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 | `df_exchange_on` | DF exchange on 31 (49) | bypass ON, fan > 300, supply > 27, set < 45, P22 on | bypass OFF, wait 7 min, flag OFF |
 | (built in) | DF safe 10min (59) | flag ON ≥ 10 min | flag OFF |
 | `hp_er03_restart` *(Off)* | HP Er03 restart | fault Er03 (water flow), valve ON | valve OFF, 30 s, valve OFF, pump OFF, 1 min, pump ON, bypass OFF, set 31, P22 on (cloud also disables the scene *zz boiler 50 on <47 >1*, already off — not included) |
-| `hp_power_m16` *(Off)* | HP power <-16 (dead) | outdoor < −16, fan > 250, set < 37 **and** > 37, Smart or Silent — never true, as in the cloud | Powerful, notify |
-| `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
 
-**Deleted in d#134 (owner request: the DHW controller covers them):** the 23 rules B40 / B42 / B46 / B50 on / switch / off, their mode rules (B42 silent-smart <44 / <45, smart-silent >6a, powerful-silent >45, B46 smart-silent >48, B50 force heating mode), DF switch to heating (the controller handles a defrost during DHW itself), B recovery off (the controller's watchdog turns the valve OFF outside a cycle) and HP silent >0. Their conditions and steps are in git history (d#125–d#133). With the DHW controller Off or Test, nothing starts a DHW cycle.
+**Deleted in d#134 (owner request: the DHW controller covers them):** the 23 rules B40 / B42 / B46 / B50 on / switch / off, their mode rules (B42 silent-smart <44 / <45, smart-silent >6a, powerful-silent >45, B46 smart-silent >48, B50 force heating mode), DF switch to heating (the controller handles a defrost during DHW itself), B recovery off (the controller's watchdog turns the valve OFF outside a cycle) and HP silent >0. Their conditions and steps are in git history (d#125–d#133). **Deleted in d#140 (owner):** HP power <-16 and HP smart -15..-7, whose cloud conditions can never be true (set point < 37 **and** > 37). With the DHW controller Off or Test, nothing starts a DHW cycle.
 
 **Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). Since d#130 a deploy of this node also comes back with an **empty context** (settings, log, flag gone; seen 9 Nov 13:40, local control was OFF for about a minute). Since d#131 the On Start code notices this and the first tick reads the settings file again (output 7 → *Read automation settings*), within a second. A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
 
@@ -259,7 +257,7 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 
 **First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
 
-Still in Smart Life (2026-11-09 13:00): HP power <-16 and HP smart -15..-7 (their conditions can never be true; their GX rules stay Off), the HOME and LOG scenes. 26 of the 28 GX rules are On, so all heat pump, valve and bypass control runs on the GX. If Node-RED or the GX stops, no scene switches the valve or the bypass; the pump keeps heating on its own curve (P22).
+Still in Smart Life (2026-11-09 13:00): HP power <-16 and HP smart -15..-7 (their conditions can never be true; their GX rules were Off and are deleted in d#140), the HOME and LOG scenes. 26 of the 28 GX rules are On, so all heat pump, valve and bypass control runs on the GX. If Node-RED or the GX stops, no scene switches the valve or the bypass; the pump keeps heating on its own curve (P22).
 
 The cloud log (Smart Life → Scene Automation → Log) no longer lists the moved scenes: local rules write to the devices over the LAN and start no cloud scene. Their runs are on the Automation log page. The LOG scenes that are still on react to the device state, so they can still appear after a local action (e.g. *LOG 50* when the set point becomes 50).
 

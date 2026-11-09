@@ -32,6 +32,8 @@
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 7. d#141: compressor current (DP 112) as a third power-chart series on a right axis (A);
+//    every power series carries its axis maximum `max` for the tooltip dots.
 // 6. d#136: chart.temp[].v / chart.power.series[].v = value per 2-min bucket (hover tooltip), chart.nb.
 // 5. d#134: the power panel under the event lane is removed (owner); power is a separate chart
 //    (chart.power) with compressor power = DC bus voltage (DP 114) × current (DP 112) (owner;
@@ -200,10 +202,13 @@ function chart(rows) {
         ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
 
     const powDefs = [['Compressor W (DC bus × current)', KEYS.length, '#8c564b'], ['Heat pump W (meter)', K.pw, '#9467bd']];
-    let tMin = Infinity, tMax = -Infinity, pMax = 0;
+    // d#141: compressor current (DP 112) on the power chart, right axis in A
+    const ampDef = ['Compressor current, A', K['112'], '#e377c2'];
+    let tMin = Infinity, tMax = -Infinity, pMax = 0, aMax = 0;
     buckets.forEach((b) => {
         tempDefs.forEach(([, k]) => { const v = val(b, K[k]); if (v !== null) { tMin = Math.min(tMin, v); tMax = Math.max(tMax, v); } });
         powDefs.forEach(([, j]) => { const v = val(b, j); if (v !== null) pMax = Math.max(pMax, v); });
+        { const v = val(b, ampDef[1]); if (v !== null) aMax = Math.max(aMax, v); }
     });
     if (!Number.isFinite(tMin)) { tMin = 0; tMax = 50; }
     const yMin = Math.floor(tMin / 10) * 10, yMax = Math.max(yMin + 10, Math.ceil(tMax / 10) * 10);
@@ -212,6 +217,12 @@ function chart(rows) {
     const yP = (v) => +(PB - v / pTop * (PB - PT)).toFixed(1);
     const pTicks = [];
     for (let v = 0; v <= pTop; v += pTop <= 2000 ? 500 : 1000) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
+    // right axis: as many steps as the W axis, so the grid lines are shared
+    const pSteps = pTicks.length - 1;
+    const aStep = Math.max(1, Math.ceil(Math.max(aMax, 1) / pSteps));
+    const aTop = aStep * pSteps;
+    const yA = (v) => +(PB - v / aTop * (PB - PT)).toFixed(1);
+    const aTicks = pTicks.map((t, i) => ({ label: i * aStep, y: t.y }));
 
     function segs(j, y) {
         const out = [];
@@ -262,8 +273,10 @@ function chart(rows) {
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks,
         temp: tempDefs.map(([name, k, color]) => ({ name, color, unit: '°C', segs: segs(K[k], yT), v: vals(K[k], 1) })).filter((s) => s.segs.length),
-        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks, max: pTop,
-            series: powDefs.map(([name, j, color]) => ({ name, color, unit: 'W', segs: segs(j, yP), v: vals(j, 0) })).filter((s) => s.segs.length) }
+        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks, aTicks, max: pTop, aMax: aTop,
+            series: powDefs.map(([name, j, color]) => ({ name, color, unit: 'W', max: pTop, segs: segs(j, yP), v: vals(j, 0) }))
+                .concat([{ name: ampDef[0], color: ampDef[2], unit: 'A', max: aTop, right: true, segs: segs(ampDef[1], yA), v: vals(ampDef[1], 1) }])
+                .filter((s) => s.segs.length) }
     };
 }
 

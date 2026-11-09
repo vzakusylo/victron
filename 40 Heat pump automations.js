@@ -79,6 +79,8 @@
 //    on the Heat Pump page. DHW cycle without preheat (owner): start = P22 off, Silent, bypass
 //    OFF, set point 20 → compressor stops → valve to the tank → set point ≤ return + gap. After a
 //    defrost during DHW the same stop → valve sequence runs again.
+// 12. d#140: the two HP mode rules whose cloud conditions are never true (HP power <-16,
+//    HP smart -15..-7) are deleted (owner). Left: DF exchange off / on and HP Er03 restart.
 // 11. d#138: the DHW controller panel moved to the Heat Pump page (35); its requests arrive here
 //    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
 //    and is written at once after a DHW mode / settings change.
@@ -146,18 +148,6 @@ const RULES = [
         check: ({ hp, valve: v }) => (n(hp['15']) & 1) === 1 && v['1'] === true,
         // cloud also disables the scene "zz boiler 50 on <47 >1" (already off, not included)
         steps: [valve(false), wait(30 * S), valve(false), power(false), wait(MIN), power(true), bypass(false), set(31), p22(true)] },
-    { id: 'hp_power_m16', cloud: 'HP power <-16 (dead)', group: 'Heat pump', def: 'off',
-        name: 'Below −16 °C → Powerful (cloud conditions can never be true)',
-        when: 'outdoor < −16, fan > 250, set point < 37 and > 37, mode Smart or Silent',
-        roles: ['hp'], cooldownMs: 30 * MIN,
-        check: ({ hp }) => n(hp['103']) < -16 && n(hp['116']) > 250 && n(hp['125']) < 37 && n(hp['125']) > 37 && (hp['2'] === 'smart' || hp['2'] === 'mute'),
-        steps: [mode('strong'), note('HP power <-16')] },
-    { id: 'hp_smart_m15', cloud: 'HP smart -15..-7 (dead)', group: 'Heat pump', def: 'off',
-        name: '−15…−7 °C → Smart (cloud conditions can never be true)',
-        when: 'outdoor −15…−7, fan > 250, set point < 35 and > 35, supply > 30, mode Powerful or Silent',
-        roles: ['hp'], cooldownMs: 30 * MIN,
-        check: ({ hp }) => n(hp['103']) < -7 && n(hp['103']) > -15 && n(hp['116']) > 250 && n(hp['125']) < 35 && n(hp['125']) > 35 && n(hp['102']) > 30 && (hp['2'] === 'strong' || hp['2'] === 'mute'),
-        steps: [mode('smart'), wait(15 * MIN), note('HP smart -15..-7')] },
 ];
 const OUT = { hp: 1, bypass: 3, valve: 4 };
 const OUT_LOG = 5;
