@@ -62,6 +62,8 @@
 //    (their timers are gone after a deploy / restart); watchdog for overdue steps and a stuck
 //    write gap; a live sequence stops, and its queued writes are dropped, once the rule is no
 //    longer On (On → Test / Off).
+// 6. d#128: B50 on / B50 preheat do not start during a defrost or DEFROST_QUIET_MIN after it
+//    (outdoor sensor reads high; the cloud B50 on started a DHW cycle that way at 11:29 on 9 Nov).
 // INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
 //    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
 //    context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
@@ -79,6 +81,7 @@ const FLAG_MAX_MS = 10 * 60 * 1000;
 const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
 const VERIFY_MS = 15 * 1000;
 const STALE_MS = 60 * 1000;
+const DEFROST_QUIET_MIN = 15;
 const MIN = 60 * 1000;
 const S = 1000;
 
@@ -187,9 +190,9 @@ const RULES = [
     // B50 · outdoor > 1 °C
     { id: 'b50_on', cloud: 'B50 on <47 >1', group: 'B50 · outdoor > 1 °C',
         name: 'B50 start: preheat with bypass',
-        when: 'tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on',
+        when: 'tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on; not during / ' + DEFROST_QUIET_MIN + ' min after a defrost (outdoor sensor reads high then)',
         roles: ['hp', 'valve', 'bypass'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, bypass: b, flag }) => n(hp['108']) < 47 && n(hp['103']) > 1 && v['1'] === false && !flag && b['1'] === false && hp['1'] === true && n(hp['125']) !== 50,
+        check: ({ hp, valve: v, bypass: b, flag, recentDefrost }) => n(hp['108']) < 47 && n(hp['103']) > 1 && v['1'] === false && !flag && b['1'] === false && hp['1'] === true && n(hp['125']) !== 50 && !recentDefrost,
         steps: [p22(false), set(50), bypass(true)] },
     { id: 'b50_switch_warm', cloud: 'B50 switch >47 >0', group: 'B50 · outdoor > 1 °C',
         name: 'B50 switch valve to the tank (outdoor > 0)',
@@ -211,9 +214,9 @@ const RULES = [
         steps: [mode('mute'), set(25), valve(false), wait(10 * S), valve(false), set(25), wait(10 * S), valve(false), wait(10 * S), flagStep(true), wait(10 * S), flagStep(false), p22(true)] },
     { id: 'b50_preheat_bypass', cloud: 'B50 preheat exchange off', group: 'B50 · outdoor > 1 °C',
         name: 'B50 preheat: bypass ON',
-        when: 'set point = 50, valve OFF, bypass OFF, tank < 50',
+        when: 'set point = 50, valve OFF, bypass OFF, tank < 50; not during / ' + DEFROST_QUIET_MIN + ' min after a defrost',
         roles: ['hp', 'valve', 'bypass'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, bypass: b }) => n(hp['125']) === 50 && v['1'] === false && b['1'] === false && n(hp['108']) < 50,
+        check: ({ hp, valve: v, bypass: b, recentDefrost }) => n(hp['125']) === 50 && v['1'] === false && b['1'] === false && n(hp['108']) < 50 && !recentDefrost,
         steps: [bypass(true)] },
 
     // B42 mode
@@ -518,6 +521,15 @@ if (msg.topic === 'ui') {
 // DF safe 10min: the flag never stays ON longer than FLAG_MAX_MS
 if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
 
+// Defrost sign (fan 0 while the compressor runs > 30 Hz): during a defrost the outdoor sensor
+// (DP 103) heats up to 30–47 °C and stays high for minutes after it. Rules that start on
+// "outdoor > 1" (B50 on / preheat) must not start then (seen 2026-11-09 11:29 in the cloud).
+{
+    const hpd = (st.hp && st.hp.dps) || {};
+    if (ready('hp') && n(hpd['116']) === 0 && n(hpd['115']) > 30) context.set('lastDefrost', now);
+}
+const recentDefrost = now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MIN * MIN;
+
 // Watchdog: a sequence whose next step is overdue by STALE_MS lost its timer → drop it;
 // a write gap that never ended → release the queue.
 for (const id of Object.keys(seqs)) {
@@ -542,7 +554,7 @@ for (const r of RULES) {
     if (seqs[r.id]) { rt.ok = false; rt.streak = 0; rt.detail = 'running step ' + (seqs[r.id].idx + 1) + '/' + seqs[r.id].total; continue; }
     const notReady = r.roles.filter((role) => !ready(role));
     if (notReady.length) { rt.ok = false; rt.streak = 0; rt.detail = notReady.join(', ') + ' not connected / stale'; continue; }
-    const c = { hp: (st.hp && st.hp.dps) || {}, valve: (st.valve && st.valve.dps) || {}, bypass: (st.bypass && st.bypass.dps) || {}, flag: flag.on };
+    const c = { hp: (st.hp && st.hp.dps) || {}, valve: (st.valve && st.valve.dps) || {}, bypass: (st.bypass && st.bypass.dps) || {}, flag: flag.on, recentDefrost };
     rt.ok = !!r.check(c);
     rt.detail = hpTxt(c.hp) + ', valve ' + rel(c.valve) + ', bypass ' + rel(c.bypass) + ', flag ' + (flag.on ? 'ON' : 'OFF');
     rt.streak = rt.ok ? (rt.streak || 0) + 1 : 0;

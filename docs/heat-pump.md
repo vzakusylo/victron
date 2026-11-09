@@ -254,9 +254,13 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 | 2026-11-09 10:53 | DF safe 10min, DF exchange on 31, DF exchange off, DF switch to heating | 46, 41, 39, 1 | `df_exchange_off`, `df_exchange_on`, `df_switch_to_heating` (DF safe 10min is built into the node) | ON | first local defrost expected ~11:29, check on the Automation log page |
 | 2026-11-09 10:53 | B46 on <44 -4..1, B46 switch >38, B46 off >46 -4..1, B46 mode smart-silent >48 | 4, 6 (1 failed), 8 (3 failed), 5 | `b46_on`, `b46_switch`, `b46_off`, `b46_mode_silent` | ON | first local B46 cycle when the tank drops below 44 °C at −4…1 °C outdoor |
 
-Still in Smart Life (2026-11-09): B40 \*, B42 \*, B50 \*, B recovery off, HP silent >0, HP Er03 restart, HP power <-16, HP smart -15..-7, the HOME and LOG scenes. Their GX rules stay Test or Off.
+| 2026-11-09 11:58 | B50 on <47 >1, B50 switch >47 >0, B50 switch >45 <1, B50 off >49, B50 preheat exchange off, B50 force heating mode | 0 in the log above; 1 false start at 11:29 (see below) | `b50_on`, `b50_switch_warm`, `b50_switch_cold`, `b50_off`, `b50_preheat_bypass`, `b50_force_heating` (d#128: B50 on / preheat blocked during and 15 min after a defrost) | ON | the DHW cycle the cloud started at 11:29 is ended by the local `b50_off` (tank > 49 °C) |
 
-**Watch out while only part is moved:** the cloud scenes that still run (B50 switch, HP silent >0) read the cloud flag *Voksen heating*, which only the DF scenes set. With the DF scenes off, that flag stays OFF, so e.g. *B50 switch* could fire during a defrost. Move the B50 scenes before the outdoor temperature rises above +1 °C.
+Still in Smart Life (2026-11-09 11:58): B40 \*, B42 \*, B recovery off, HP silent >0, HP Er03 restart, HP power <-16, HP smart -15..-7, the HOME and LOG scenes. Their GX rules stay Test or Off.
+
+**Incident 2026-11-09 11:29 (why B50 was moved too):** with the DF scenes off in the cloud, nothing set the cloud flag *Voksen heating* any more. During the defrost at 11:28 the outdoor sensor (DP 103) heated up to 3 °C and then 36 °C, so the cloud *B50 on* ("outdoor > 1") started a DHW cycle at an outdoor temperature of −1 °C (set 50, bypass ON, P22 off). The cloud flag used to block it. It also beat the local *DF exchange off* to the bypass, so no local rule ran. At 11:48 *B50 switch* moved the valve to the tank; the compressor stood still until 11:52, the normal pause after set point 20. The B50 scenes now run on the GX, where *B50 on* and *B50 preheat* do not start during a defrost or for 15 min after it.
+
+**Watch out while only part is moved:** *HP silent >0* (still in the cloud) also reads the cloud flag, which now stays OFF. During a defrost it can switch the pump to Silent. That does no harm, because the pump runs Silent most of the time anyway.
 
 ## Roadmap
 
