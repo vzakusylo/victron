@@ -58,6 +58,8 @@
 // 8. Boiler curve (d#134): model.dhwChart = tank target by outdoor temperature (curve of the
 //    DHW controller, read from flow.dhwView written by 40), start line target − hyst, tank now,
 //    controller state. The page shows heating on the left and the boiler on the right.
+// 10. DHW controller panel (d#138): dhwChart also carries cfg (curve + settings, for the editor on
+//    the page), master (local control ON / OFF) and lag.
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
@@ -413,6 +415,9 @@ function buildDhwChart(d) {
     return {
         fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS,
         mode: v.mode,
+        master: v.master === undefined ? null : v.master,
+        lag: v.lag === undefined ? null : v.lag,
+        cfg: c,
         state: v.state,
         stateLabel: DHW_STATE_LABELS[v.state] || v.state,
         why: v.waitNote || v.why || '',
@@ -460,7 +465,9 @@ if (typeof p.state === 'string' && !p.data) {
     dev.lastState = now;
 } else if (p.data && typeof p.data === 'object') {
     const dps = p.data.dps || {};
-    const at = Number.isFinite(p.data.t) && p.data.t <= now ? p.data.t : now;
+    // reading time only for the battery sensors (46 / 44, ms). The Tuya nodes also send data.t,
+    // in SECONDS: using it made hp / valve / bypass look stale (d#135 bug, fixed in d#138).
+    const at = CLOUD_ROLES.includes(role) && Number.isFinite(p.data.t) && p.data.t > 1e12 && p.data.t <= now ? p.data.t : now;
     if (CLOUD_ROLES.includes(role) && dev.lastData && at < dev.lastData && dev.state === 'CONNECTED') return null;
     Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
     dev.lastData = at;

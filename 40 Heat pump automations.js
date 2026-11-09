@@ -79,6 +79,9 @@
 //    on the Heat Pump page. DHW cycle without preheat (owner): start = P22 off, Silent, bypass
 //    OFF, set point 20 → compressor stops → valve to the tank → set point ≤ return + gap. After a
 //    defrost during DHW the same stop → valve sequence runs again.
+// 11. d#138: the DHW controller panel moved to the Heat Pump page (35); its requests arrive here
+//    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
+//    and is written at once after a DHW mode / settings change.
 // INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
 //    context.set('needLoad', context.get('settings') === undefined);
 //    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
@@ -622,6 +625,7 @@ if (msg.topic === 'ui') {
         persist();
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
             + (p.mode !== 'live' ? ' — no other rule heats the tank now' : '') });
+        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object') {
@@ -630,6 +634,7 @@ if (msg.topic === 'ui') {
         persist();
         const after = JSON.stringify(settings.dhw);
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
+        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode') {
@@ -709,7 +714,7 @@ for (const r of RULES) {
 }
 dhwTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
-flow.set('dhwView', Object.assign(dhwModel(), { at: now }));
+flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
 persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;

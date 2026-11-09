@@ -24,7 +24,9 @@
 //   only for a sensor without a local reading for CLOUD_FALLBACK_H (44).
 // - context.buf = unfinished stdout line, context.lastT = { role: t } (cached repeats skipped)
 // Change notes:
-// 1. Initial version (d#134).
+// 1. Initial version (d#135).
+// 2. d#137: own node ids hpls-* (d#135 had taken the ids of the Automation log nodes by mistake).
+// 3. d#138: DPs missing in a wake (null) are not sent, so 34 keeps their last value.
 // ==========================
 
 const SENSORS = {
@@ -55,7 +57,12 @@ for (const ln of lines) {
     if (lastT[s.role] && j.t <= lastT[s.role]) continue;
     lastT[s.role] = j.t;
     local[s.role] = j.t;
-    out.push({ topic: s.role, payload: { data: { dps: { temp: j.temp, hum: j.hum, bat: j.bat }, t: j.t }, deviceId: j.id, deviceName: s.name, source: 'local' } });
+    // a wake does not always push every DP (battery_state often missing): keep the last value then
+    const dps = {};
+    if (j.temp !== null && j.temp !== undefined) dps.temp = j.temp;
+    if (j.hum !== null && j.hum !== undefined) dps.hum = j.hum;
+    if (j.bat !== null && j.bat !== undefined) dps.bat = j.bat;
+    out.push({ topic: s.role, payload: { data: { dps, t: j.t }, deviceId: j.id, deviceName: s.name, source: 'local' } });
 }
 context.set('lastT', lastT);
 flow.set('localSensors', local);

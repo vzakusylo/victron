@@ -6,6 +6,9 @@
   "Heat pump command" (37), each after a confirm dialog:
     {topic:'curve',  payload:{p23}}  — warmer / colder slider (curve P23, DP 133)
     {topic:'bypass', payload:{on}}   — heat exchanger bypass relay on / off
+    {topic:'ui', payload:{action:'mode', id:'dhw', mode}} — DHW controller Off / Test / On (d#138)
+    {topic:'ui', payload:{action:'dhwSet', cfg}}           — DHW controller curve and settings (d#138)
+    (37 passes the two 'ui' requests to "Heat pump automations" (40).)
   Layout (d#134): shared cards on top, heating on the left, boiler (DHW tank) on the right;
   the boiler curve comes from the DHW controller (model.dhwChart, built in 34).
 -->
@@ -57,6 +60,12 @@
 .hpw-legend .sw.pt-supply { background: #1f6feb; }
 .hpw .hpw-curve-table { width: auto; margin-bottom: 6px; }
 .hpw .hpw-curve-table th { padding-right: 12px; }
+.hpw button.sel { background: #1f6feb; color: #fff; }
+.hpw button.on.sel { background: #2ea043; color: #fff; }
+.hpw-dhw input[type=number] { width: 52px; background: transparent; color: inherit; border: 1px solid rgba(127,127,127,.4); border-radius: 5px; padding: 2px 4px; }
+.hpw-dhw .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 12.5px; margin: 6px 0; }
+.hpw-dhw .row label { white-space: nowrap; }
+.hpw-dhw .hpw-curve-table td { padding: 2px 3px; }
 .hpw-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .hpw-split { grid-template-columns: minmax(0, 1fr); } }
 .hpw-col { border-radius: 12px; padding: 8px 10px; background: rgba(127,127,127,.05); min-width: 0; }
@@ -206,10 +215,18 @@
         <span class="hpw-chip" ng-if="msg.payload.dhwChart" ng-class="{'hpw-warn': msg.payload.dhwChart.state !== 'HEATING', 'hpw-bad': msg.payload.dhwChart.mode !== 'live'}">Controller {{hpModeLabel(msg.payload.dhwChart.mode)}} · {{msg.payload.dhwChart.stateLabel}} since {{msg.payload.dhwChart.since | date:'HH:mm'}}</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">next start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
       </div>
-      <div class="hpw-sub" ng-if="msg.payload.dhwChart.why">{{msg.payload.dhwChart.why}}</div>
+      <div class="hpw-ctl" ng-if="msg.payload.dhwChart">
+        <span class="big">DHW controller</span>
+        <span><button ng-repeat="m in ['off','dry','live']" ng-class="{sel: msg.payload.dhwChart.mode == m, on: m == 'live'}" ng-disabled="hp.dhwModeSent !== null" ng-click="hpDhwMode(m)">{{hpModeLabel(m)}}</button></span>
+        <span class="lbl" ng-if="hp.dhwModeSent !== null">sent, waiting for the controller…</span>
+        <span class="lbl">outdoor (10-min avg, no defrost) <b>{{msg.payload.dhwChart.outdoor === null ? '—' : msg.payload.dhwChart.outdoor + ' °C'}}</b><span ng-if="msg.payload.dhwChart.lag !== null"> · heating vs its curve {{msg.payload.dhwChart.lag}} °C</span></span>
+        <span class="lbl" ng-if="msg.payload.dhwChart.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
+        <span class="lbl" ng-if="msg.payload.dhwChart.mode != 'live'" style="color:#da3633">Not On: the heat pump does not heat the tank (electric heater only).</span>
+        <span class="lbl" style="flex-basis:100%">{{msg.payload.dhwChart.why}}</span>
+      </div>
       <div ng-if="msg.payload.dhwChart" class="hpw-curve">
         <h4>Boiler curve (DHW controller {{hpModeLabel(msg.payload.dhwChart.mode)}})</h4>
-        <div class="hpw-sub">Tank target by outdoor temperature (10-min average without defrosts); a cycle starts below target − {{msg.payload.dhwChart.hyst}} °C. Edit the curve on the <b>Automations</b> tab.
+        <div class="hpw-sub">Tank target by outdoor temperature (10-min average without defrosts); a cycle starts below target − {{msg.payload.dhwChart.hyst}} °C. Edit the points and settings below the chart.
           <span ng-if="msg.payload.dhwChart.target !== null">Now: outdoor {{msg.payload.dhwChart.outdoor}} °C → target {{msg.payload.dhwChart.target}} °C · start below {{msg.payload.dhwChart.start}} °C · tank {{msg.payload.dhwChart.tank === null ? '—' : msg.payload.dhwChart.tank}} °C</span>
           <span ng-if="msg.payload.dhwChart.target === null && msg.payload.dhwChart.outdoor !== null">Outdoor {{msg.payload.dhwChart.outdoor}} °C is below the frost limit {{msg.payload.dhwChart.frostLimit}} °C: electric heater only.</span>
           <span ng-if="!msg.payload.dhwChart.fresh"> · controller data is old (automations node not running?)</span>
@@ -241,10 +258,27 @@
           <span><i class="sw pt-tank"></i>tank now</span>
           <span ng-if="msg.payload.dhwChart.svg.frostX"><i class="sw frost"></i>below {{msg.payload.dhwChart.frostLimit}} °C: electric heater only</span>
         </div>
-        <table class="hpw-curve-table">
-          <tr><th>Outdoor °C</th><td ng-repeat="r in msg.payload.dhwChart.table" class="num">{{r.out}}</td></tr>
-          <tr><th>Tank °C</th><td ng-repeat="r in msg.payload.dhwChart.table" class="num">{{r.set}}</td></tr>
-        </table>
+        <div class="hpw-dhw" ng-if="hp.dhw">
+          <table class="hpw-curve-table">
+            <tr><th>Outdoor °C</th><td ng-repeat="p in hp.dhw.curve track by $index"><input type="number" step="1" ng-model="p[0]" ng-change="hp.dhwDirty = true"></td></tr>
+            <tr><th>Tank °C</th><td ng-repeat="p in hp.dhw.curve track by $index"><input type="number" step="0.5" ng-model="p[1]" ng-change="hp.dhwDirty = true"></td></tr>
+          </table>
+          <div class="row">
+            <label>start below target − <input type="number" ng-model="hp.dhw.hyst" ng-change="hp.dhwDirty = true"> °C</label>
+            <label>gap supply − return ≤ <input type="number" ng-model="hp.dhw.gap" ng-change="hp.dhwDirty = true"> °C</label>
+            <label>frost limit <input type="number" ng-model="hp.dhw.frostLimit" ng-change="hp.dhwDirty = true"> °C</label>
+            <label>cold limit (heating first) <input type="number" ng-model="hp.dhw.coldLimit" ng-change="hp.dhwDirty = true"> °C</label>
+            <label>min interval <input type="number" step="0.5" ng-model="hp.dhw.minIntervalH" ng-change="hp.dhwDirty = true"> h</label>
+            <label>max <input type="number" ng-model="hp.dhw.maxMin" ng-change="hp.dhwDirty = true"> min (≥ −5 °C) / <input type="number" ng-model="hp.dhw.maxMinCold" ng-change="hp.dhwDirty = true"> min (≤ −15 °C)</label>
+            <label>max set point <input type="number" ng-model="hp.dhw.maxSupply" ng-change="hp.dhwDirty = true"> °C</label>
+            <label><input type="checkbox" ng-model="hp.dhw.allowPowerful" ng-change="hp.dhwDirty = true"> allow Powerful</label>
+          </div>
+          <div class="row">
+            <button class="go" ng-disabled="!hp.dhwDirty" ng-click="hpDhwSave()">Save settings</button>
+            <button ng-if="hp.dhwDirty" ng-click="hpDhwReset()">Reset</button>
+            <span class="lbl" ng-if="hp.dhwSaved">saved, the chart follows within ~30 s</span>
+          </div>
+        </div>
       </div>
       <div class="hpw-sub" ng-if="!msg.payload.dhwChart">Boiler curve: waiting for the automations node…</div>
     </section>
@@ -275,6 +309,32 @@
 (function (scope) {
     // Local UI state; msg.payload (the model) is replaced on every update
     scope.hp = { p23: null, dirty: false, curveSent: null, bypassSent: null };
+    // DHW controller (d#138, moved here from the Automations tab)
+    scope.hp.dhw = null; scope.hp.dhwDirty = false; scope.hp.dhwModeSent = null; scope.hp.dhwSaved = false;
+    function dhwCopy() { var c = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart && scope.msg.payload.dhwChart.cfg; return c ? JSON.parse(JSON.stringify(c)) : null; }
+    scope.$watch('msg.payload.dhwChart.cfg', function () { if (!scope.hp.dhwDirty) { scope.hp.dhw = dhwCopy(); } }, true);
+    scope.$watch('msg.payload.dhwChart.mode', function (m) { if (scope.hp.dhwModeSent !== null && (m === scope.hp.dhwModeSent || Date.now() - scope.hp.dhwModeAt > 60000)) scope.hp.dhwModeSent = null; });
+    scope.hpDhwReset = function () { scope.hp.dhwDirty = false; scope.hp.dhw = dhwCopy(); };
+    scope.hpDhwSave = function () {
+        var c = scope.hp.dhw;
+        if (!c) return;
+        var cfg = { curve: c.curve.map(function (p) { return [Number(p[0]), Number(p[1])]; }), allowPowerful: !!c.allowPowerful };
+        ['hyst', 'gap', 'frostLimit', 'coldLimit', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
+        scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
+        setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);
+        scope.send({ topic: 'ui', payload: { action: 'dhwSet', cfg: cfg } });
+    };
+    scope.hpDhwMode = function (m) {
+        var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
+        if (!d || d.mode === m) return;
+        var text = m === 'live'
+            ? 'Turn the DHW controller ON?\nIt heats the tank by the outdoor curve and writes to the heat pump, valve and bypass while local control is ON.'
+            : 'Set the DHW controller to ' + scope.hpModeLabel(m) + '?' + (d.mode === 'live' ? '\nA running cycle stops: valve OFF, bypass OFF, P22 on. The heat pump then does not heat the tank.' : '');
+        if (!confirm(text)) return;
+        scope.hp.dhwModeSent = m; scope.hp.dhwModeAt = Date.now();
+        scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
+    };
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }
     scope.$watch('msg.payload', function (m) {

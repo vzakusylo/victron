@@ -15,10 +15,14 @@
 // - 'bypass'  payload { on }   -> set DP 1 of the "Off Heating exchange" relay (true = bypass ON).
 // - 'summary' payload {}       -> read the last HISTORY_DAYS day folders (cached days skipped)
 // - 'day'     payload { day }  -> read every hour file of one day (YYYY-MM-DD)
-// Output (3):
+// - 'ui'      payload { action: 'mode', id: 'dhw', mode } | { action: 'dhwSet', cfg }
+//                              -> DHW controller panel of the Heat Pump page (d#138): passed to
+//                                 "Heat pump automations" (40), which checks and stores it.
+// Output (4):
 // - output 1 -> Tuya node "Heating pump"          { operation: 'SET', dps, set }
 // - output 2 -> Tuya node "Off Heating exchange"  { operation: 'SET', dps: 1, set }
 // - output 3 -> exec "Read heat pump history" (`sh -c <payload>`), msg.topic / msg.day kept
+// - output 4 -> "Heat pump automations" (40), msg.topic 'ui'
 // Safety:
 // - A command is refused while the target device is not CONNECTED with fresh data (≤ 5 min).
 // - At most one write per device every MIN_GAP_MS; values are range-checked here,
@@ -26,6 +30,7 @@
 // - Tuya cloud scenes that also switch the bypass may switch it back.
 // Change notes:
 // 1. Initial version (d#121): curve shift (P23), bypass on/off, history requests.
+// 2. d#138: 'ui' requests of the DHW controller panel go to output 4.
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
@@ -98,6 +103,13 @@ case 'day': {
     const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; d=' + day + '; [ -d $d ] || exit 0; echo "#day $d"; ' + CAT_DAY;
     node.status({ fill: 'grey', shape: 'dot', text: 'reading ' + day });
     return [null, null, { topic: 'day', day, payload: "'" + script + "'" }];
+}
+case 'ui': {
+    const okMode = p.action === 'mode' && p.id === 'dhw' && ['off', 'dry', 'live'].includes(p.mode);
+    const okSet = p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object' && Array.isArray(p.cfg.curve);
+    if (!okMode && !okSet) return refuse('ui: only the DHW controller mode / settings');
+    node.status({ fill: 'blue', shape: 'dot', text: 'DHW controller ' + (okMode ? 'mode → ' + p.mode : 'settings') });
+    return [null, null, null, { topic: 'ui', payload: okMode ? { action: 'mode', id: 'dhw', mode: p.mode } : { action: 'dhwSet', cfg: p.cfg } }];
 }
 default:
     return refuse('unknown topic ' + msg.topic);

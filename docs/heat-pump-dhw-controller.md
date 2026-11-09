@@ -108,7 +108,7 @@ From the recorder data, no new data needed: **DHW** = valve ON, **defrost** = fa
 
 ### 3.5 Dashboard settings (R3, R13)
 
-Curve points, hysteresis, frost limit, gap supply − return, max duration, min interval, allow Powerful, Off / Test / On for the controller (the same Test mode as the rules: logs what it would do).
+On the **Heat Pump** tab, Boiler column (since d#138; before on the Automations tab): curve points, hysteresis, frost limit, gap supply − return, max duration, min interval, allow Powerful, Off / Test / On for the controller (the same Test mode as the rules: logs what it would do).
 
 ### 3.6 Rollout
 

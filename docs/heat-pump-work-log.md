@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-09: local automations (d#123–d#136)
+### 2026-11-08 – 2026-11-09: local automations (d#123–d#138)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -38,6 +38,8 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#135 | "Build it" (local reader for both sensors). | `tools/tuya-local-sensors.js` listens for the beacons (630 s per run, restarted every 10 min, 30 s overlap), connects on each wake and prints the pushed DPs; function `46` passes them to `34` with the reading time; `44` asks the cloud only for a sensor without a local reading for 24 h; sensors count as fresh for 24 h (they report only on change). | Deployed 21:33; listener running. |
 | d#134 / d#135 | "Remove the power chart at the bottom under the events." Then: "Remove *Temperatures (24 h)*, it duplicates the day navigation; add a nice legend there with day switching; move *Power (24 h), W* to the day view too; power = DC bus voltage × compressor current; add colour legends." | Power panel under the event lane removed; the 24 h ui_charts *Temperatures* and *Power* removed; history page: day switcher (‹ ›, day chips), temperature chart with event lane, separate power chart (DC bus × current, meter W), legends that hide / show a series on click. The ≈kWh estimate also uses DC bus × current (about 1.7× the nameplate-based A × 220 W/A of d#133; the Compressor load card stays on the nameplate). | 9 Nov: 23.4 kWh by DC bus × current. |
 | d#136 | "Put the legend (supply, return, tank …) above the chart; show the values when the mouse points at it, as before." | Legends above the temperature and power charts; pointing at (or tapping) a chart shows a cursor line, a dot per series and a tooltip with the time, the event and every visible value (the builder sends a value per 2-min bucket). | Checked in a browser with the data of 9 Nov; deployed 21:41. |
+| d#137 | (found while moving the DHW panel) | **Fix:** the new nodes of d#135 had the ids `hpl-fn-01` / `hpl-exec-01` of the Automation log (42) and replaced its function and exec node, so the Automation log page did not work from 21:33 to 21:48 (the day files were still written by their own node). The Automation log nodes are restored; the sensor nodes have their own ids `hpls-*`. | Deployed 21:48. |
+| d#138 | "Move the DHW controller (tank by outdoor curve) from Automations to the heat pump." | DHW controller panel (Off / Test / On, reason, editable curve and settings) in the Boiler column of the Heat Pump page; requests go `35 → 37 (output 4) → 40`; the Automations tab keeps a status line. Also: 46 does not send DPs missing in a wake (battery state), so the last value stays. **Fix:** since d#135, `34` took `data.t` as the reading time for every device, but the Tuya nodes send `t` in seconds, so the heat pump, valve and bypass looked stale to `40` ("device not connected / stale"): the ramp-down after the 21:13 cycle stood at set point 49 °C with P22 off from 21:43 to 22:03, and no rule ran then. `34` now uses `data.t` only for the battery sensors (hot-fixed 22:03). | First cycle without preheat: 21:13–21:43, tank 41 → 46 °C. First local sensor reading 21:50 (Exchange plate 27.1 °C). |
 
 ## Instructions
 
@@ -46,6 +48,8 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 - SSH: `ssh -i ~/.ssh/id_ed25519_cerbo root@192.168.0.110` (GX eth0 192.168.1.94 is on the Tuya network).
 - Node-RED admin API on the GX: `http://127.0.0.1:1880` (use it over SSH). Deploy type `nodes`, with a copy of `flows.json` / `flows_cred.json` to `.node-red/backup-<date>-pre-d<N>` first.
 - Every change: edit the numbered source file, sync it into `flows.json` (`sync-commands.ps1`), raise the tab label `d#N` by one, deploy only the changed nodes, check the tab label on the GX.
+- New nodes: check that every id is new in `flows.json` **before** the deploy (`hpl-` was taken by the Automation log; d#137). Let the update script stop on a duplicate id (as the d#137 one does).
+- Do not deploy `40` while a DHW cycle or its ramp-down runs: the node comes back with an empty context and would leave P22 off / the set point high.
 - Send non-ASCII text (°, ≥, −) to the GX base64-encoded or from a foreground shell; a background PowerShell pipe corrupted it once.
 - A deploy of a function node can come back with an **empty node context**. `40` reads its settings file again (On Start `needLoad`); the DHW controller then starts again from HEATING. Prefer to deploy `40` when no DHW cycle runs.
 
