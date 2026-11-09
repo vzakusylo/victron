@@ -21,21 +21,29 @@
 // Output (2):
 // - output 1 -> ui_template "Automation log page", msg.payload = page model
 // - output 2 -> exec node "Read automation log" (`sh -c <payload>`)
+// Retention: day files older than KEEP_DAYS are deleted when the page reads a day.
 // Change notes:
 // 1. Initial version (d#126).
+// 2. d#127: the shell script is quoted as one word for `sh -c` (the day file was never read);
+//    day files older than KEEP_DAYS are deleted.
 // ==========================
 
 const DIR = '/data/home/nodered/grid-control-logs/automations';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 90;
+const KEEP_DAYS = 400;
 
 function pad(x) { return String(x).padStart(2, '0'); }
 function dayKey(t) { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 const today = dayKey(Date.now());
 
+// The exec node runs `sh -c <payload>` unquoted, so the whole script must be one shell word.
+function shellQuote(script) { return "'" + String(script).replace(/'/g, "'\\''") + "'"; }
+// Day file + list of days; also deletes day files older than KEEP_DAYS (runs when the page reads a day).
 function readCmd(day) {
-    return 'f=' + DIR + '/' + day + '.jsonl; [ -f "$f" ] && cat "$f"; echo "#days"; '
-        + 'cd ' + DIR + ' 2>/dev/null && wc -l *.jsonl 2>/dev/null | grep -v " total$" | tail -n ' + MAX_DAYS;
+    return shellQuote('f=' + DIR + '/' + day + '.jsonl; [ -f "$f" ] && cat "$f"; echo "#days"; '
+        + 'find ' + DIR + ' -maxdepth 1 -name "*.jsonl" -mtime +' + KEEP_DAYS + ' -delete 2>/dev/null; '
+        + 'cd ' + DIR + ' 2>/dev/null && wc -l *.jsonl 2>/dev/null | grep -v " total$" | tail -n ' + MAX_DAYS);
 }
 
 // Group events (oldest first) into items, newest first.

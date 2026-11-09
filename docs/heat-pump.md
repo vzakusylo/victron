@@ -224,6 +224,10 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 | `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
 | `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
 
+**Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
+
+**Overlapping rules (as in the cloud):** `b50_switch_warm` and `b50_switch_cold` both match at 0 < outdoor < 1 °C, and `b50_on` / `b50_preheat_bypass` both switch the bypass ON. Both scenes act in the cloud too; check this before setting them On.
+
 **No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.) Smart Life scenes of other devices (*HOME dehum*, *HOME charger*) and the *LOG …* scenes (replaced by the Automation log) are not moved.
 
 **Known limit (comparison of 9 Nov):** the cloud acts within seconds of a device report, the local rule needs its conditions on 3 ticks of 10 s. While a cloud scene is still on, it changes the state first (e.g. bypass ON at supply < 27), so the local rule in Test usually never sees its conditions for 30 s. The step sequences themselves matched the cloud (B46 on / switch / off on 9 Nov, 08:14–08:46).
@@ -239,7 +243,7 @@ The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20A
 - **Navigation by day:** previous / next day, *today*, a date picker, and chips for the last 21 days that have a file, with the number of events.
 - **One entry per rule run:** time, scene name, status (*executed*, *failed*, *stopped*, *test*, *running*), number of confirmed / failed writes; tap to see every step with its time. Settings, flag and warning events are listed between the runs.
 - **Filters:** All, Runs, On (writes), Failed / stopped, Test, Settings / flag. While the page shows today, new events appear at once.
-- Files are small (about 100–200 bytes per event); nothing deletes them yet.
+- Files are small (about 100–200 bytes per event). Day files older than 400 days are deleted when the page reads a day (d#127).
 
 ## Migration log (Smart Life → GX)
 
