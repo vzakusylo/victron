@@ -258,9 +258,13 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 
 | 2026-11-09 12:47 | HP Er03 restart, HP silent >0, B40 on <36 -20..-11, B40 switch >37, B40 off >39, B42 on <41 -10..-5, B42 switch >39, B42 off >42, B42 mode silent-smart <44, B42 mode smart-silent >6a, B42 mode powerful-silent >45, B42 mode silent-smart <45 | 0 (outdoor −5…+1 °C) | `hp_er03_restart`, `hp_silent_0`, `b40_on`, `b40_switch`, `b40_off`, `b42_on`, `b42_switch`, `b42_off`, `b42_mode_smart`, `b42_mode_smart45`, `b42_mode_silent_valve`, `b42_mode_powerful_silent` (d#129: B42 off now includes the steps of *Slowly cool down*) | ON | B40 runs at −20…−11 °C and B42 at −10…−5 °C, so they are first checked on a colder day |
 
+| 2026-11-09 13:00 | B recovery off (it was already off in Smart Life when checked; when it was switched off is not known) | 0 | `b_recovery_valve_off` | ON | — |
+
 **First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
 
-Still in Smart Life (2026-11-09 12:47): B recovery off (its GX rule stays Test), HP power <-16 and HP smart -15..-7 (their conditions can never be true), the HOME and LOG scenes. 25 of the 28 GX rules are On.
+Still in Smart Life (2026-11-09 13:00): HP power <-16 and HP smart -15..-7 (their conditions can never be true; their GX rules stay Off), the HOME and LOG scenes. 26 of the 28 GX rules are On, so all heat pump, valve and bypass control runs on the GX. If Node-RED or the GX stops, no scene switches the valve or the bypass; the pump keeps heating on its own curve (P22).
+
+The cloud log (Smart Life → Scene Automation → Log) no longer lists the moved scenes: local rules write to the devices over the LAN and start no cloud scene. Their runs are on the Automation log page. The LOG scenes that are still on react to the device state, so they can still appear after a local action (e.g. *LOG 50* when the set point becomes 50).
 
 **Incident 2026-11-09 11:29 (why B50 was moved too):** with the DF scenes off in the cloud, nothing set the cloud flag *Voksen heating* any more. During the defrost at 11:28 the outdoor sensor (DP 103) heated up to 3 °C and then 36 °C, so the cloud *B50 on* ("outdoor > 1") started a DHW cycle at an outdoor temperature of −1 °C (set 50, bypass ON, P22 off). The cloud flag used to block it. It also beat the local *DF exchange off* to the bypass, so no local rule ran. At 11:48 *B50 switch* moved the valve to the tank; the compressor stood still until 11:52, the normal pause after set point 20. The B50 scenes now run on the GX, where *B50 on* and *B50 preheat* do not start during a defrost or for 15 min after it.
 
