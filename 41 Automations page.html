@@ -4,7 +4,8 @@
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-41).
   Shows the model built by "Heat pump automations" (40) and sends, each after a confirm dialog:
     {topic:'ui', payload:{action:'master', on}}      — master switch for all local automations
-    {topic:'ui', payload:{action:'mode', id, mode}}  — per rule: off / dry / live
+    {topic:'ui', payload:{action:'mode', id, mode}}  — per rule: off / dry / live, shown as Off / Test / On
+    {topic:'ui', payload:{action:'modeAll', mode}}   — all rules at once
     {topic:'ui', payload:{action:'flag', on:false}}  — reset the internal defrost flag
     {topic:'ui', payload:{action:'refresh'}}         — on open
 -->
@@ -37,23 +38,31 @@
 .hpa .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hpa h4 { margin: 16px 0 6px; font-size: 14px; }
 .hpa .small { font-size: 12px; opacity: .75; }
-.hpa .k-write, .hpa .k-start { color: #2ea043; font-weight: 700; }
-.hpa .k-dry { color: #d29922; font-weight: 700; }
-.hpa .k-flag { color: #1f6feb; font-weight: 700; }
-.hpa .k-warn { color: #da3633; font-weight: 700; }
+.hpa .k-write, .hpa .k-start, .hpa .k-ok, .hpa .k-done { color: #2ea043; font-weight: 700; }
+.hpa .k-dry, .hpa .k-test { color: #d29922; font-weight: 700; }
+.hpa .k-flag, .hpa .k-setting { color: #1f6feb; font-weight: 700; }
+.hpa .k-warn, .hpa .k-fail, .hpa .k-stop { color: #da3633; font-weight: 700; }
 </style>
 
 <div class="hpa">
   <div class="hpa-title">Local automations (Cerbo GX)</div>
-  <div class="hpa-sub">Heating and DHW boiler scenes (Smart Life B* and DF*) moved to Node-RED · tick 10 s, conditions must hold {{msg.payload.hold}} ticks · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>
+  <div class="hpa-sub">All heat pump scenes of Smart Life (B*, DF*, HP*) as local rules in Node-RED · tick 10 s, conditions must hold {{msg.payload.hold}} ticks · updated {{msg.payload.updated | date:'HH:mm:ss'}} · every event is kept by day on the <b>Automation log</b> page</div>
 
   <div class="hpa-master">
     <span class="big">Local control: {{msg.payload.master ? 'ON' : 'OFF'}}</span>
     <button ng-class="msg.payload.master ? 'off' : 'on'" ng-click="hpaMaster(!msg.payload.master)">
       {{msg.payload.master ? 'Turn OFF all local automations' : 'Turn ON local automations'}}
     </button>
-    <span class="note" ng-if="!msg.payload.master">OFF: no local rule writes to a device. Rules are still evaluated and every step is logged as "would …", so they can be compared with the Smart Life log.</span>
-    <span class="note" ng-if="msg.payload.master">ON: rules in mode <b>live</b> write to the devices (queue, 1.5 s between writes). Rules in <b>dry</b> only log. Switch the matching Smart Life scene off before a rule goes live. Turning OFF stops running live sequences.</span>
+    <span class="note" ng-if="!msg.payload.master">OFF: no local rule writes to a device. Rules set to On or Test are still evaluated and every step is logged as "would …".</span>
+    <span class="note" ng-if="msg.payload.master">ON: rules set to <b>On</b> write to the devices (queue, 1.5 s between writes, each write checked 15 s later). Rules in <b>Test</b> only log. Switch the matching Smart Life scene off before a rule goes On. Turning OFF stops running sequences.</span>
+  </div>
+
+  <div class="hpa-master">
+    <span class="big">All rules</span>
+    <span class="small">On {{msg.payload.counts.live}} · Test {{msg.payload.counts.dry}} · Off {{msg.payload.counts.off}}</span>
+    <span class="hpa-modes">
+      <button ng-repeat="m in ['off','dry','live']" ng-click="hpaModeAll(m)">all {{hpaLabel(m)}}</button>
+    </span>
   </div>
 
   <div class="hpa-chips">
@@ -78,9 +87,9 @@
       <div class="steps"><b>Then</b> {{r.then}}</div>
       <div class="row">
         <span class="hpa-modes">
-          <button ng-repeat="m in ['off','dry','live']" ng-class="{sel: r.mode==m}" ng-click="hpaMode(r, m)">{{m}}</button>
+          <button ng-repeat="m in ['off','dry','live']" ng-class="{sel: r.mode==m, on: r.mode==m && m=='live'}" ng-click="hpaMode(r, m)">{{hpaLabel(m)}}</button>
         </span>
-        <span class="hpa-chip" ng-if="r.running" ng-class="r.running.live ? 'hpa-ok' : 'hpa-warn'">{{r.running.live ? 'running' : 'dry-run'}} step {{r.running.idx}}/{{r.running.total}}</span>
+        <span class="hpa-chip" ng-if="r.running" ng-class="r.running.live ? 'hpa-ok' : 'hpa-warn'">{{r.running.live ? 'running' : 'test run'}} step {{r.running.idx}}/{{r.running.total}}</span>
         <span class="hpa-chip" ng-if="!r.running" ng-class="{'hpa-ok': r.ok}">{{r.ok ? 'conditions met' : 'not met'}}<span ng-if="r.ok && r.streak"> ({{r.streak}}/{{msg.payload.hold}})</span></span>
         <span class="small">{{r.detail}}</span>
       </div>
@@ -88,23 +97,18 @@
     </div>
   </div>
 
-  <h4>Log (newest first)</h4>
+  <h4>Latest events (newest first) — full history by day on the Automation log page</h4>
   <table>
     <tr><th>Time</th><th>Kind</th><th>Event</th></tr>
     <tr ng-repeat="e in msg.payload.log | limitTo:60">
       <td class="num">{{e.t | date:'dd.MM HH:mm:ss'}}</td>
       <td ng-class="'k-' + e.kind">{{e.kind}}</td>
-      <td>{{e.text}}</td>
+      <td><b ng-if="e.cloud">{{e.cloud}}: </b>{{e.text}}</td>
     </tr>
     <tr ng-if="!msg.payload.log.length"><td colspan="3" class="small">nothing yet</td></tr>
   </table>
 
-  <h4>Not moved (stay in Smart Life or switched off there)</h4>
-  <table>
-    <tr><th>Scene</th><th>What it does</th></tr>
-    <tr ng-repeat="x in msg.payload.notMoved"><td>{{x.cloud}}</td><td class="small">{{x.what}}</td></tr>
-  </table>
-  <div class="small" style="margin-top:8px">The defrost flag is internal: the cloud flag device “Voksen heating” is not used. Not included yet: the tap-to-run scene “Slowly cool down” that the cloud B42 off runs before P22 on.</div>
+  <div class="small" style="margin-top:8px">The defrost flag is internal: the cloud flag device “Voksen heating” is not used. Not included: the tap-to-run scene “Slowly cool down” that the cloud B42 off runs before P22 on, and the scene switch in “HP Er03 restart”. “HP power &lt;-16” and “HP smart -15..-7” are copied as they are in the cloud, where their set point conditions can never be true together.</div>
 </div>
 
 <script>
@@ -116,11 +120,20 @@
         if (!confirm(text)) return;
         scope.send({ topic: 'ui', payload: { action: 'master', on: on } });
     };
+    var LABEL = { off: 'Off', dry: 'Test', live: 'On' };
+    scope.hpaLabel = function (m) { return LABEL[m] || m; };
     scope.hpaMode = function (r, m) {
         if (r.mode === m) return;
-        if (m === 'live' && !confirm('Set "' + r.name + '" to LIVE?\nIt writes to the devices while local control is ON.\n'
+        if (m === 'live' && !confirm('Turn "' + r.name + '" ON?\nIt writes to the devices while local control is ON.\n'
             + 'Switch the Smart Life scene "' + r.cloud + '" off first, otherwise both act.')) return;
         scope.send({ topic: 'ui', payload: { action: 'mode', id: r.id, mode: m } });
+    };
+    scope.hpaModeAll = function (m) {
+        var text = m === 'live'
+            ? 'Turn ALL rules ON?\nThey write to the devices while local control is ON. Switch all matching Smart Life scenes off first.'
+            : 'Set all rules to ' + LABEL[m] + '?';
+        if (!confirm(text)) return;
+        scope.send({ topic: 'ui', payload: { action: 'modeAll', mode: m } });
     };
     scope.hpaFlagReset = function () {
         if (!confirm('Reset the internal defrost flag to OFF?')) return;

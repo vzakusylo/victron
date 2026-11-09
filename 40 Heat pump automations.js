@@ -5,13 +5,21 @@
 // - `40 Heat pump automations.js` and the embedded `func` for "Heat pump automations"
 //   in `flows.json` must always stay synchronized.
 // Purpose:
-// - Local replacements for the Tuya cloud scenes (Smart Life "B…" DHW cycles and "DF…" defrost
-//   handling) that control heating and the DHW boiler, moved onto the GX.
-// - One MASTER switch turns local control on / off for all rules at once. Master OFF (default)
-//   = no rule writes to a device; rules are only evaluated and logged.
-// - Each rule has its own mode: 'off' (not evaluated), 'dry' (evaluated, every step logged as
-//   "would …", nothing written; default) or 'live' (writes, only while the master is ON).
-//   Before a rule goes live, switch the matching Smart Life scene off, otherwise both act.
+// - Local replacements for all Tuya cloud scenes of the heat pump (Smart Life "B…" DHW cycles
+//   and modes, "DF…" defrost handling, "HP…" scenes), moved onto the GX.
+// - One MASTER switch ("Local control") turns local control on / off for all rules at once.
+//   Master OFF (default) = no rule writes to a device; rules are only evaluated and logged.
+// - Each rule has its own mode, shown on the page as Off / Test / On:
+//   'off' (not evaluated), 'dry' = Test (evaluated, every step logged as "would …", nothing
+//   written) or 'live' = On (writes, only while the master is ON). Default: 'dry' for the
+//   rules of d#125, 'off' for the rules added in d#126 (rule.def). The page can also set all
+//   rules at once. Before a rule goes On, switch the matching Smart Life scene off.
+// Log:
+// - Every event (rule start, each step, write result, settings, flag) is one JSON line in
+//   LOG_DIR/YYYY-MM-DD.jsonl (local date of the GX), written by output 6. Events of one
+//   sequence share `run`, so the "Automation log" page (42 / 43) groups them like the Smart
+//   Life log. Each device write is checked VERIFY_MS later against the value the device
+//   reports: kind 'ok' or 'fail'.
 // Defrost flag:
 // - An INTERNAL flag replaces the cloud-only "Voksen heating" Defrost DP. It is set and cleared
 //   by the DF / switch / off rules exactly where the cloud scenes set it, and cleared after
@@ -20,13 +28,15 @@
 // Input (msg.topic):
 // - 'tick' (inject, every 10 s) -> evaluate all rules, send the page model.
 // - 'load' (file in, on start)  -> msg.payload = saved settings JSON.
-// - 'ui'   (Automations page)   -> payload { action: 'refresh' | 'master' | 'mode' | 'flag', on, id, mode }.
-// Output (5):
+// - 'ui'   (Automations page)   -> payload { action: 'refresh' | 'master' | 'mode' | 'modeAll' | 'flag', on, id, mode }.
+// Output (6):
 // - output 1 -> Automations page (ui_template), msg.payload = page model
 // - output 2 -> Tuya node "Heating pump"          { operation: 'SET', dps, set }
 // - output 3 -> file node, msg.filename + msg.payload (settings JSON)
 // - output 4 -> Tuya node "Off Heating exchange"  { operation: 'SET', dps: 1, set }
 // - output 5 -> Tuya node "Boiler valve relay"    { operation: 'SET', dps: 1, set }
+// - output 6 -> file node "Append automation log" (msg.filename, msg.payload = JSON line) and
+//               "Automation log" (42), msg.event = the event object
 // Safety:
 // - A rule needs every device it reads CONNECTED with data ≤ 5 min old.
 // - Conditions must hold on HOLD consecutive ticks (3 × 10 s); then the rule rests COOLDOWN.
@@ -34,8 +44,9 @@
 //   not start again while it runs. Device writes go through one queue, ≥ WRITE_GAP_MS apart.
 // - Steps of a live rule are only sent while the master is ON; switching the master OFF stops
 //   all running sequences.
-// - Settings live in CONFIG_PATH; a missing / broken file means master OFF, all rules 'dry'.
-// DPs: hp 1 power, 2 mode (smart / strong / mute), 102 supply, 103 outdoor, 108 DHW tank,
+// - Settings live in CONFIG_PATH; a missing / broken file means master OFF, rules at their default.
+// DPs: hp 1 power, 2 mode (smart / strong / mute), 5 work mode, 15 faults (bit 0 = Er03),
+//      102 supply, 103 outdoor, 108 DHW tank,
 //      115 compressor Hz, 116 fan 1 rpm, 125 heating set point, 132 curve P22 ('1' on / '0' off);
 //      valve / bypass DP 1 (true = ON). Valve ON = DHW tank, bypass ON = heat exchanger bypassed.
 // Change notes:
@@ -44,6 +55,9 @@
 // 3. d#125: internal defrost flag (no Voksen heating), sequences with delays, DF rules and all
 //    B40 / B42 / B46 / B50 on / switch / off rules; mode rules B46 / B42 smart-silent,
 //    B42 powerful-silent and B50 force heating removed (owner: not moved). Tick 10 s.
+// 4. d#126: all heat pump scenes: the 6 mode rules back plus HP Er03 restart, HP power <-16,
+//    HP smart -15..-7 (new rules default Off). Page modes Off / Test / On, all rules at once.
+//    Day log files + write check (ok / fail) for the Automation log page.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
@@ -53,6 +67,8 @@ const MODES = ['off', 'dry', 'live'];
 const HOLD = 3;
 const WRITE_GAP_MS = 1500;
 const FLAG_MAX_MS = 10 * 60 * 1000;
+const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
+const VERIFY_MS = 15 * 1000;
 const MIN = 60 * 1000;
 const S = 1000;
 
@@ -62,6 +78,8 @@ const mode = (m) => ({ role: 'hp', dps: 2, set: m, text: 'mode ' + ({ smart: 'Sm
 const p22 = (on) => ({ role: 'hp', dps: 132, set: on ? '1' : '0', text: 'curve P22 ' + (on ? 'on' : 'off') });
 const valve = (on) => ({ role: 'valve', dps: 1, set: on, text: 'valve ' + (on ? 'ON (DHW)' : 'OFF (heating)') });
 const bypass = (on) => ({ role: 'bypass', dps: 1, set: on, text: 'bypass ' + (on ? 'ON' : 'OFF') });
+const power = (on) => ({ role: 'hp', dps: 1, set: on, text: 'heat pump ' + (on ? 'ON' : 'OFF') });
+const workMode = (m) => ({ role: 'hp', dps: 5, set: m, text: 'work mode ' + ({ heat: 'Heating', cool: 'Cooling', wth: 'DHW' })[m] });
 const flagStep = (on) => ({ flag: on, text: 'defrost flag ' + (on ? 'ON' : 'OFF') });
 const wait = (ms) => ({ delay: ms, text: 'wait ' + (ms >= MIN ? ms / MIN + ' min' : ms / S + ' s') });
 const note = (text) => ({ note: text, text: 'notify: ' + text });
@@ -188,13 +206,74 @@ const RULES = [
         check: ({ hp, valve: v, bypass: b }) => n(hp['125']) === 50 && v['1'] === false && b['1'] === false && n(hp['108']) < 50,
         steps: [bypass(true)] },
 
-    // B42 mode (kept)
+    // B42 mode
     { id: 'b42_mode_smart', cloud: 'B42 mode silent-smart <44', group: 'B42 · outdoor −10…−5 °C',
         name: 'B42: Silent → Smart when supply < 44 °C',
         when: 'mode Silent, set point = 42, supply < 44',
         roles: ['hp'], cooldownMs: 10 * MIN,
         check: ({ hp }) => hp['2'] === 'mute' && n(hp['125']) === 42 && n(hp['102']) < 44,
         steps: [mode('smart')] },
+    { id: 'b42_mode_smart45', cloud: 'B42 mode silent-smart <45', group: 'B42 · outdoor −10…−5 °C', def: 'off',
+        name: 'B42: Silent → Smart when supply < 45 °C, fan > 300',
+        when: 'mode Silent, supply < 45, fan > 300, set point = 42',
+        roles: ['hp'], cooldownMs: 10 * MIN,
+        check: ({ hp }) => hp['2'] === 'mute' && n(hp['102']) < 45 && n(hp['116']) > 300 && n(hp['125']) === 42,
+        steps: [mode('smart')] },
+    { id: 'b42_mode_silent_valve', cloud: 'B42 mode smart-silent >6a', group: 'B42 · outdoor −10…−5 °C', def: 'off',
+        name: 'B42: Smart → Silent when supply > 44 °C (valve on DHW)',
+        when: 'set point = 42, supply > 44, mode Smart, valve ON',
+        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
+        check: ({ hp, valve: v }) => n(hp['125']) === 42 && n(hp['102']) > 44 && hp['2'] === 'smart' && v['1'] === true,
+        steps: [mode('mute')] },
+    { id: 'b42_mode_powerful_silent', cloud: 'B42 mode powerful-silent >45', group: 'B42 · outdoor −10…−5 °C', def: 'off',
+        name: 'B42: Smart / Powerful → Silent when supply > 45 °C',
+        when: 'supply > 45, fan > 300, set point = 42, mode Smart or Powerful',
+        roles: ['hp'], cooldownMs: 10 * MIN,
+        check: ({ hp }) => n(hp['102']) > 45 && n(hp['116']) > 300 && n(hp['125']) === 42 && (hp['2'] === 'smart' || hp['2'] === 'strong'),
+        steps: [mode('mute')] },
+
+    // B46 mode
+    { id: 'b46_mode_silent', cloud: 'B46 mode smart-silent >48', group: 'B46 · outdoor −4…1 °C', def: 'off',
+        name: 'B46: Smart → Silent when supply > 48 °C',
+        when: 'mode Smart, set point = 46, supply > 48',
+        roles: ['hp'], cooldownMs: 10 * MIN,
+        check: ({ hp }) => hp['2'] === 'smart' && n(hp['125']) === 46 && n(hp['102']) > 48,
+        steps: [mode('mute')] },
+
+    // B50 work mode
+    { id: 'b50_force_heating', cloud: 'B50 force heating mode', group: 'B50 · outdoor > 1 °C', def: 'off',
+        name: 'B50: work mode Cooling → Heating',
+        when: 'set point = 50, work mode Cooling',
+        roles: ['hp'], cooldownMs: 10 * MIN,
+        check: ({ hp }) => n(hp['125']) === 50 && hp['5'] === 'cool',
+        steps: [workMode('heat')] },
+
+    // Heat pump (HP scenes)
+    { id: 'hp_silent_0', cloud: 'HP silent >0', group: 'Heat pump', def: 'off',
+        name: 'Heating above 0 °C outdoor → Silent',
+        when: 'outdoor > 0, flag OFF, set point < 40, valve OFF (and not already Silent)',
+        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
+        check: ({ hp, valve: v, flag }) => n(hp['103']) > 0 && !flag && n(hp['125']) < 40 && v['1'] === false && hp['2'] !== 'mute',
+        steps: [mode('mute')] },
+    { id: 'hp_er03_restart', cloud: 'HP Er03 restart', group: 'Heat pump', def: 'off',
+        name: 'Er03 water flow failure on DHW → valve back, restart the pump',
+        when: 'fault Er03 (water flow), valve ON',
+        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
+        check: ({ hp, valve: v }) => (n(hp['15']) & 1) === 1 && v['1'] === true,
+        // cloud also disables the scene "zz boiler 50 on <47 >1" (already off, not included)
+        steps: [valve(false), wait(30 * S), valve(false), power(false), wait(MIN), power(true), bypass(false), set(31), p22(true)] },
+    { id: 'hp_power_m16', cloud: 'HP power <-16 (dead)', group: 'Heat pump', def: 'off',
+        name: 'Below −16 °C → Powerful (cloud conditions can never be true)',
+        when: 'outdoor < −16, fan > 250, set point < 37 and > 37, mode Smart or Silent',
+        roles: ['hp'], cooldownMs: 30 * MIN,
+        check: ({ hp }) => n(hp['103']) < -16 && n(hp['116']) > 250 && n(hp['125']) < 37 && n(hp['125']) > 37 && (hp['2'] === 'smart' || hp['2'] === 'mute'),
+        steps: [mode('strong'), note('HP power <-16')] },
+    { id: 'hp_smart_m15', cloud: 'HP smart -15..-7 (dead)', group: 'Heat pump', def: 'off',
+        name: '−15…−7 °C → Smart (cloud conditions can never be true)',
+        when: 'outdoor −15…−7, fan > 250, set point < 35 and > 35, supply > 30, mode Powerful or Silent',
+        roles: ['hp'], cooldownMs: 30 * MIN,
+        check: ({ hp }) => n(hp['103']) < -7 && n(hp['103']) > -15 && n(hp['116']) > 250 && n(hp['125']) < 35 && n(hp['125']) > 35 && n(hp['102']) > 30 && (hp['2'] === 'strong' || hp['2'] === 'mute'),
+        steps: [mode('smart'), wait(15 * MIN), note('HP smart -15..-7')] },
 
     // Boiler safety
     { id: 'b_recovery_valve_off', cloud: 'B recovery off', group: 'Boiler safety',
@@ -205,16 +284,8 @@ const RULES = [
         steps: [valve(false)] }
 ];
 const OUT = { hp: 1, bypass: 3, valve: 4 };
+const OUT_LOG = 5;
 
-// Not moved (owner decision 2026-11-08) and not active as local rules
-const NOT_MOVED = [
-    { cloud: 'B46 mode smart-silent >48', what: 'Smart, set 46, supply > 48 → Silent' },
-    { cloud: 'B42 mode smart-silent >6a', what: 'Smart, set 42, supply > 44, valve ON → Silent' },
-    { cloud: 'B42 mode powerful-silent >45', what: 'Smart / Powerful, set 42, supply > 45, fan > 300 → Silent' },
-    { cloud: 'B42 mode silent-smart <45', what: 'Silent → Smart below 45 °C supply' },
-    { cloud: 'B50 force heating mode', what: 'set 50, work mode Cooling → Heating' },
-    { cloud: 'HP silent >0', what: 'outdoor > 0, flag OFF, set < 40, valve OFF → Silent' }
-];
 // Smart Life runs on 7–8 Nov 2026 (outdoor −5…+1 °C), for the page
 const RUNS = { 'B46 on <44 -4..1': 6, 'B46 switch >38': 15, 'B46 off >46 -4..1': 8, 'DF exchange off': 45, 'DF exchange on 31': 49, 'DF switch to heating': 6, 'DF safe 10min': 59 };
 const RUNS_FAILED = { 'B46 switch >38': 4, 'B46 off >46 -4..1': 3 };
@@ -223,108 +294,153 @@ const RUNS_FAILED = { 'B46 switch >38': 4, 'B46 off >46 -4..1': 3 };
 const now = Date.now();
 const st = flow.get('heatPump') || {};
 // Shared objects live in node context from the first run on, so the timer callbacks
-// (runStep / pump) and this invocation always work on the same objects.
+// (runStep / pump / verify) and this invocation always work on the same objects.
 function ctx(key, init) { if (context.get(key) === undefined) context.set(key, init); return context.get(key); }
 let settings = ctx('settings', { master: false, modes: {} });
 const runtime = ctx('runtime', {});
-const log = ctx('log', []);
+ctx('log', []);
 const flag = ctx('flag', { on: false, since: 0, by: '' });
 const queue = ctx('queue', []);
 const seqs = ctx('seqs', {});   // ruleId -> { idx, total, startedAt, live, token }
 
-function modeOf(id) { return MODES.includes(settings.modes[id]) ? settings.modes[id] : 'dry'; }
+function pad(x) { return String(x).padStart(2, '0'); }
+function dayKey(t) { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function ruleById(id) { return RULES.find((r) => r.id === id); }
+function modeOf(id) {
+    const s = context.get('settings') || settings;
+    if (s.modes && MODES.includes(s.modes[id])) return s.modes[id];
+    const r = ruleById(id);
+    return (r && r.def) || 'dry';
+}
 function ready(role) {
     const dev = st[role];
     return !!(dev && dev.state === 'CONNECTED' && dev.lastData && now - dev.lastData <= FRESH_MS);
 }
-function addLog(kind, text, t) {
-    log.unshift({ t: t || Date.now(), kind, text });
-    if (log.length > LOG_MAX) log.length = LOG_MAX;
+// One log event: kept in context for the Automations page and appended to the day file
+// LOG_DIR/YYYY-MM-DD.jsonl (output 6) for the Automation log page.
+// e = { kind, text, rule?, cloud?, run?, live? }
+function logEvent(e) {
+    e.t = e.t || Date.now();
+    const lg = context.get('log') || [];
+    lg.unshift(e);
+    if (lg.length > LOG_MAX) lg.length = LOG_MAX;
+    context.set('log', lg);
+    const arr = [null, null, null, null, null, null];
+    arr[OUT_LOG] = { topic: 'log', filename: LOG_DIR + '/' + dayKey(e.t) + '.jsonl', payload: JSON.stringify(e) + '\n', event: e };
+    node.send(arr);
 }
 function saveMsg() { return { filename: CONFIG_PATH, payload: JSON.stringify(settings, null, 2) }; }
 function persist() {
-    context.set('settings', settings); context.set('runtime', runtime); context.set('log', log);
+    context.set('settings', settings); context.set('runtime', runtime);
     context.set('flag', flag); context.set('queue', queue); context.set('seqs', seqs);
 }
-function setFlag(on, by) {
-    if (flag.on === on) return;
-    flag.on = on; flag.since = Date.now(); flag.by = by;
-    addLog('flag', 'defrost flag ' + (on ? 'ON' : 'OFF') + ' (' + by + ')');
+function setFlag(on, by, extra) {
+    const f = context.get('flag') || flag;
+    if (f.on === on) return;
+    f.on = on; f.since = Date.now(); f.by = by;
+    context.set('flag', f);
+    logEvent(Object.assign({ kind: 'flag', text: 'defrost flag ' + (on ? 'ON' : 'OFF') + ' (' + by + ')' }, extra || {}));
 }
 function model() {
     const dev = (role) => { const d = st[role] || {}; return { state: d.state || 'UNKNOWN', age: d.lastData ? Math.round((now - d.lastData) / 1000) : null }; };
+    const f = context.get('flag') || flag;
+    const sq = context.get('seqs') || {};
     return {
         updated: new Date(now).toISOString(),
         master: !!settings.master,
         devices: { hp: dev('hp'), valve: dev('valve'), bypass: dev('bypass') },
-        flag: { on: flag.on, since: flag.since, by: flag.by, maxMin: FLAG_MAX_MS / MIN },
+        flag: { on: f.on, since: f.since, by: f.by, maxMin: FLAG_MAX_MS / MIN },
         hold: HOLD,
+        counts: { off: RULES.filter((r) => modeOf(r.id) === 'off').length, dry: RULES.filter((r) => modeOf(r.id) === 'dry').length, live: RULES.filter((r) => modeOf(r.id) === 'live').length },
         rules: RULES.map((r) => {
-            const rt = runtime[r.id] || {}; const sq = seqs[r.id];
+            const rt = runtime[r.id] || {}; const s = sq[r.id];
             return { id: r.id, name: r.name, cloud: r.cloud, group: r.group, when: r.when,
-                then: r.steps.map((s) => s.text).join(' → '), mode: modeOf(r.id), ok: !!rt.ok, streak: rt.streak || 0,
+                then: r.steps.map((x) => x.text).join(' → '), mode: modeOf(r.id), ok: !!rt.ok, streak: rt.streak || 0,
                 detail: rt.detail || '', lastFire: rt.lastFire || 0, lastText: rt.lastText || '',
                 runs: RUNS[r.cloud] || 0, runsFailed: RUNS_FAILED[r.cloud] || 0,
-                running: sq ? { idx: sq.idx, total: sq.total, live: sq.live } : null };
+                running: s ? { idx: s.idx, total: s.total, live: s.live } : null };
         }),
-        notMoved: NOT_MOVED,
-        queue: queue.length,
-        log
+        queue: (context.get('queue') || []).length,
+        log: context.get('log') || []
     };
 }
 function send(out, m) {
-    const arr = [null, null, null, null, null]; arr[out] = m; node.send(arr);
+    const arr = [null, null, null, null, null, null]; arr[out] = m; node.send(arr);
 }
-// Device write queue: one SET every WRITE_GAP_MS
+// Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
+// against the value the device reports (ok / fail in the log, like the Smart Life log).
 function pump() {
     if (context.get('pumping')) return;
     const q = context.get('queue') || [];
     if (!q.length) return;
     context.set('pumping', true);
     const item = q.shift(); context.set('queue', q);
-    if (context.get('settings').master) {
+    if ((context.get('settings') || {}).master) {
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
-        node.log('Heat pump automations: ' + item.rule + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
+        node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
+        setTimeout(() => {
+            const dev = (flow.get('heatPump') || {})[item.role];
+            const v = dev && dev.dps ? dev.dps[item.dps] : undefined;
+            const good = String(v) === String(item.set);
+            logEvent({ kind: good ? 'ok' : 'fail', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+                text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v) });
+        }, VERIFY_MS);
     } else {
-        const lg = context.get('log') || []; lg.unshift({ t: Date.now(), kind: 'warn', text: item.rule + ': ' + item.text + ' dropped (master OFF)' }); context.set('log', lg);
+        logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
     setTimeout(() => { context.set('pumping', false); pump(); }, WRITE_GAP_MS);
 }
-// Sequence runner (timers). Each step: device write (queued if live, logged if dry), flag, note or delay.
+function endSeq(rule) { const all = context.get('seqs') || {}; delete all[rule.id]; context.set('seqs', all); }
+// Sequence runner (timers). Each step: device write (queued if live, logged if dry),
+// flag, note or delay.
 function runStep(rule, token) {
     const sq = (context.get('seqs') || {})[rule.id];
     if (!sq || sq.token !== token) return;
-    const lg = context.get('log') || [];
-    const settingsNow = context.get('settings') || {};
-    if (sq.live && !settingsNow.master) {
-        lg.unshift({ t: Date.now(), kind: 'warn', text: rule.cloud + ': sequence stopped (master OFF) at step ' + (sq.idx + 1) + '/' + sq.total });
-        context.set('log', lg); const all = context.get('seqs'); delete all[rule.id]; context.set('seqs', all); return;
+    const base = { rule: rule.id, cloud: rule.cloud, run: token, live: sq.live };
+    if (sq.live && !(context.get('settings') || {}).master) {
+        logEvent(Object.assign({ kind: 'stop', text: 'sequence stopped (master OFF) at step ' + (sq.idx + 1) + '/' + sq.total }, base));
+        endSeq(rule); return;
+    }
+    if (modeOf(rule.id) === 'off') {
+        logEvent(Object.assign({ kind: 'stop', text: 'sequence stopped (rule switched Off) at step ' + (sq.idx + 1) + '/' + sq.total }, base));
+        endSeq(rule); return;
     }
     if (sq.idx >= rule.steps.length) {
-        lg.unshift({ t: Date.now(), kind: 'info', text: rule.cloud + ': sequence done' });
-        context.set('log', lg); const all = context.get('seqs'); delete all[rule.id]; context.set('seqs', all); return;
+        logEvent(Object.assign({ kind: 'done', text: 'sequence done (' + sq.total + ' steps)' }, base));
+        endSeq(rule); return;
     }
     const s = rule.steps[sq.idx];
+    const stepTxt = ' (step ' + (sq.idx + 1) + '/' + sq.total + ')';
     let next = 0;
-    if (s.delay) { next = s.delay; }
-    else if (s.flag !== undefined) {
-        const f = context.get('flag') || { on: false };
-        if (f.on !== s.flag) { f.on = s.flag; f.since = Date.now(); f.by = rule.cloud; context.set('flag', f);
-            lg.unshift({ t: Date.now(), kind: 'flag', text: 'defrost flag ' + (s.flag ? 'ON' : 'OFF') + ' (' + rule.cloud + ')' }); }
+    if (s.delay) {
+        next = s.delay;
+        logEvent(Object.assign({ kind: 'step', text: s.text + stepTxt }, base));
+    } else if (s.flag !== undefined) {
+        setFlag(s.flag, rule.cloud, base);
     } else if (s.note) {
-        lg.unshift({ t: Date.now(), kind: 'info', text: rule.cloud + ': ' + s.note });
+        logEvent(Object.assign({ kind: 'step', text: 'notify: ' + s.note + stepTxt }, base));
     } else if (sq.live) {
-        const q = context.get('queue') || []; q.push({ rule: rule.cloud, role: s.role, dps: s.dps, set: s.set, text: s.text }); context.set('queue', q);
-        lg.unshift({ t: Date.now(), kind: 'write', text: rule.cloud + ': ' + s.text + ' (step ' + (sq.idx + 1) + '/' + sq.total + ')' });
+        const q = context.get('queue') || [];
+        q.push({ rule: rule.id, cloud: rule.cloud, run: token, role: s.role, dps: s.dps, set: s.set, text: s.text });
+        context.set('queue', q);
+        logEvent(Object.assign({ kind: 'write', text: s.text + stepTxt }, base));
         pump();
     } else {
-        lg.unshift({ t: Date.now(), kind: 'dry', text: rule.cloud + ': would ' + s.text + ' (step ' + (sq.idx + 1) + '/' + sq.total + ')' });
+        logEvent(Object.assign({ kind: 'dry', text: 'would ' + s.text + stepTxt }, base));
     }
-    if (lg.length > LOG_MAX) lg.length = LOG_MAX;
-    context.set('log', lg);
     const all = context.get('seqs'); all[rule.id].idx = sq.idx + 1; context.set('seqs', all);
     setTimeout(() => runStep(rule, token), next);
 }
+function stopLive(reason) {
+    const all = context.get('seqs') || {};
+    for (const id of Object.keys(all)) if (all[id].live) {
+        const r = ruleById(id);
+        logEvent({ kind: 'stop', rule: id, cloud: r ? r.cloud : id, run: all[id].token, live: true, text: 'sequence stopped (' + reason + ') at step ' + (all[id].idx + 1) + '/' + all[id].total });
+        delete all[id];
+    }
+    context.set('seqs', all);
+}
+const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
 
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
@@ -332,14 +448,15 @@ if (msg.topic === 'load') {
         const s = JSON.parse(String(msg.payload || '{}'));
         settings = { master: s.master === true, modes: {} };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
-        addLog('info', 'settings loaded: master ' + (settings.master ? 'ON' : 'OFF'));
+        persist();
+        logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
     } catch (e) {
         settings = { master: false, modes: {} };
-        addLog('warn', 'settings file unreadable, master OFF: ' + e.message);
+        persist();
+        logEvent({ kind: 'warn', text: 'settings file unreadable, local control OFF: ' + e.message });
     }
-    persist();
     node.status({ fill: settings.master ? 'green' : 'grey', shape: 'dot', text: 'master ' + (settings.master ? 'ON' : 'OFF') });
-    return [{ payload: model() }, null, null, null, null];
+    return [{ payload: model() }, null, null, null, null, null];
 }
 
 // ---- ui -----------------------------------------------------------------------
@@ -347,27 +464,33 @@ if (msg.topic === 'ui') {
     const p = msg.payload || {};
     if (p.action === 'master' && typeof p.on === 'boolean') {
         settings.master = p.on;
-        if (!p.on) { for (const id of Object.keys(seqs)) if (seqs[id].live) delete seqs[id]; queue.length = 0; }
-        addLog('info', 'master switched ' + (p.on ? 'ON — live rules may write' : 'OFF — no local writes, live sequences stopped'));
-        node.log('Heat pump automations: master ' + (p.on ? 'ON' : 'OFF'));
         persist();
+        if (!p.on) { stopLive('local control OFF'); context.set('queue', []); }
+        logEvent({ kind: 'setting', text: 'local control switched ' + (p.on ? 'ON — rules set to On write to the devices' : 'OFF — no local writes, running sequences stopped') });
+        node.log('Heat pump automations: master ' + (p.on ? 'ON' : 'OFF'));
         node.status({ fill: p.on ? 'green' : 'grey', shape: 'dot', text: 'master ' + (p.on ? 'ON' : 'OFF') });
-        return [{ payload: model() }, null, saveMsg(), null, null];
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode') {
-        const r = RULES.find((x) => x.id === p.id);
+        const r = ruleById(p.id);
         if (!r || !MODES.includes(p.mode)) { node.warn('Heat pump automations: bad mode request ' + JSON.stringify(p)); return null; }
         settings.modes[r.id] = p.mode;
-        addLog('info', r.cloud + ': mode → ' + p.mode);
         persist();
-        return [{ payload: model() }, null, saveMsg(), null, null];
+        logEvent({ kind: 'setting', rule: r.id, cloud: r.cloud, text: 'rule set to ' + MODE_LABEL[p.mode] });
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'modeAll') {
+        if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad modeAll request ' + JSON.stringify(p)); return null; }
+        for (const r of RULES) settings.modes[r.id] = p.mode;
+        persist();
+        logEvent({ kind: 'setting', text: 'all ' + RULES.length + ' rules: ' + MODE_LABEL[p.mode] });
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'flag' && p.on === false) {
         setFlag(false, 'reset on the page');
-        persist();
-        return [{ payload: model() }, null, null, null, null];
+        return [{ payload: model() }, null, null, null, null, null];
     }
-    return [{ payload: model() }, null, null, null, null];
+    return [{ payload: model() }, null, null, null, null, null];
 }
 
 // ---- tick: evaluate every rule ----------------------------------------------------
@@ -389,11 +512,12 @@ for (const r of RULES) {
     if (rt.streak >= HOLD && now - (rt.lastFire || 0) >= r.cooldownMs) {
         const live = md === 'live' && settings.master;
         rt.lastFire = now; rt.streak = 0;
-        rt.lastText = (live ? 'started' : 'dry-run' + (md === 'live' ? ' (master OFF)' : '')) + ': ' + r.steps.map((s) => s.text).join(' → ');
-        addLog(live ? 'start' : 'dry', r.cloud + ': conditions met (' + rt.detail + ') → ' + (live ? 'start' : 'would start') + ' ' + r.steps.length + ' steps');
+        rt.lastText = (live ? 'started' : 'test run' + (md === 'live' ? ' (local control OFF)' : '')) + ': ' + r.steps.map((s) => s.text).join(' → ');
         const token = now + ':' + r.id;
         seqs[r.id] = { idx: 0, total: r.steps.length, startedAt: now, live, token };
         persist();
+        logEvent({ kind: live ? 'start' : 'test', rule: r.id, cloud: r.cloud, run: token, live,
+            text: 'conditions met (' + rt.detail + ') → ' + (live ? 'start' : 'test, would start') + ' ' + r.steps.length + ' steps' });
         runStep(r, token);
     }
 }
@@ -401,5 +525,5 @@ persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;
 node.status({ fill: settings.master ? 'green' : 'grey', shape: running ? 'dot' : 'ring',
-    text: 'master ' + (settings.master ? 'ON' : 'OFF') + ' · live ' + liveCount + '/' + RULES.length + ' · flag ' + (flag.on ? 'ON' : 'OFF') + (running ? ' · running ' + running : '') });
-return [{ payload: model() }, null, null, null, null];
+    text: 'master ' + (settings.master ? 'ON' : 'OFF') + ' · on ' + liveCount + '/' + RULES.length + ' · flag ' + ((context.get('flag') || flag).on ? 'ON' : 'OFF') + (running ? ' · running ' + running : '') });
+return [{ payload: model() }, null, null, null, null, null];
