@@ -206,6 +206,9 @@ function Sync-42 { Sync-Node 'Automation log'                   '42 Automation l
 # 43 — Automation log page (ui_template HTML)
 function Sync-43 { Sync-Template 'Automation log page'          '43 Automation log page.html'                   -BumpVersion }
 
+# 44 — Heat pump cloud sensors (Accumulator tank temp + Exchange plate from the Tuya cloud)
+function Sync-44 { Sync-Node 'Heat pump cloud sensors'          '44 Heat pump cloud sensors.js'                 -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -252,6 +255,7 @@ function Sync-All {
         @{ Name = 'Build heat pump history';             File = '38 Build heat pump history.js' }
         @{ Name = 'Heat pump automations';               File = '40 Heat pump automations.js' }
         @{ Name = 'Automation log';                      File = '42 Automation log.js' }
+        @{ Name = 'Heat pump cloud sensors';             File = '44 Heat pump cloud sensors.js' }
     )
 
     $totalSynced = 0

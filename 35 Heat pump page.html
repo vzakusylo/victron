@@ -73,6 +73,8 @@
     <div class="hpw-card"><div class="k">Return</div><div class="v">{{msg.payload.summary.ret}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">DHW tank</div><div class="v">{{msg.payload.summary.tank}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
+    <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Accumulator (cloud)</div><div class="v">{{msg.payload.summary.accTemp === null || msg.payload.summary.accTemp === undefined ? '—' : msg.payload.summary.accTemp}}<span class="u">°C</span></div></div>
+    <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Exchange plate (cloud)</div><div class="v">{{msg.payload.summary.plateTemp === null || msg.payload.summary.plateTemp === undefined ? '—' : msg.payload.summary.plateTemp}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
     <div class="hpw-card" title="Load = higher of frequency / {{msg.payload.summary.compressorMaxHz}} Hz ({{msg.payload.summary.compressorFreqPct}} %) and current / {{msg.payload.summary.compressorMaxA}} A ({{msg.payload.summary.compressorCurrentPct}} %). Power ≈ current × {{msg.payload.summary.compressorPowerBasis}} — estimate.">
       <div class="k">Compressor load</div>

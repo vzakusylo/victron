@@ -13,6 +13,7 @@
 //   "Heat pump command" (37); this node only reads.
 // Input:
 // - msg.topic = 'hp' | 'valve' | 'bypass' | 'meter' (set by the change node in front)
+//   | 'acc' | 'plate' (cloud sensors, from 44)
 // - data msg  : msg.payload = { data: { dps: { ... } }, deviceId, deviceName }
 // - status msg: msg.payload = { state: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR' }
 // Output (3):
@@ -45,16 +46,25 @@
 //    summary.power* + output 3 (24 h power chart: meter W and compressor estimate W).
 //    model.curveChart.scale lets the page draw a preview line for the "warmer / colder"
 //    slider; model.controls tells the page which commands are possible.
+// 6. Cloud sensors (d#132): roles `acc` (Accumulator tank temp) and `plate` (Exchange plate),
+//    battery Wi-Fi sensors read from the Tuya cloud by "Heat pump cloud sensors" (44), dps
+//    { temp, hum, bat }. summary.accTemp / plateTemp (fresh ≤ 10 min) and two more series on
+//    the 24 h temperature chart.
 // ==========================
 
-const ROLES = ['hp', 'valve', 'bypass', 'meter'];
+const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
 
 const ROLE_LABELS = {
     hp: 'Heat pump',
     valve: 'Boiler valve relay (ON = DHW)',
     bypass: 'Heating exchange bypass (ON = bypass)',
-    meter: 'Power meter SA1'
+    meter: 'Power meter SA1',
+    acc: 'Accumulator tank temp (cloud)',
+    plate: 'Exchange plate temp (cloud)'
 };
+// cloud sensors (44) arrive every 2 min and report only every few minutes
+const CLOUD_ROLES = ['acc', 'plate'];
+const CLOUD_STALE_MS = 10 * 60 * 1000;
 
 // Heat pump DP map (code, label, unit)
 const HP_DPS = {
@@ -281,14 +291,18 @@ function buildModel(st, now) {
             label: ROLE_LABELS[role],
             state: dev.state,
             ageSeconds: age,
-            stale: !dev.lastData || now - dev.lastData > STALE_MS,
-            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' ? null : switchValue(dev))
+            stale: !dev.lastData || now - dev.lastData > (CLOUD_ROLES.includes(role) ? CLOUD_STALE_MS : STALE_MS),
+            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' || CLOUD_ROLES.includes(role) ? null : switchValue(dev))
         };
     });
 
     const meterFresh = st.meter.lastData && now - st.meter.lastData <= STALE_MS;
     const meter = meterFresh ? st.meter.reading : null;
     const connected = (role) => st[role].state === 'CONNECTED' && st[role].lastData && now - st[role].lastData <= STALE_MS;
+    const cloudTemp = (role) => {
+        const c = st[role];
+        return c && c.state === 'CONNECTED' && c.lastData && now - c.lastData <= CLOUD_STALE_MS ? num(c.dps.temp) : null;
+    };
 
     return {
         updated: new Date(now).toISOString(),
@@ -305,6 +319,8 @@ function buildModel(st, now) {
             ret: num(d['101']),
             tank: num(d['108']),
             outdoor: num(d['103']),
+            accTemp: cloudTemp('acc'),
+            plateTemp: cloudTemp('plate'),
             compressorHz: freq,
             fanRpm: fan,
             compressorA: current,
@@ -379,7 +395,8 @@ if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_M
     context.set('lastChart', now);
     const s = model.summary;
     chartMsgs = [
-        ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor]
+        ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor],
+        ['Accumulator', s.accTemp], ['Exchange plate', s.plateTemp]
     ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
     powerMsgs = [
         ['Heat pump W (meter)', s.powerW], ['Compressor ≈W', s.compressorPowerW]

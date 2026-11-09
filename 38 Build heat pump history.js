@@ -31,9 +31,11 @@
 // Change notes:
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
+// 3. d#132: Accumulator (`atemp`) and Exchange plate (`xtemp`) cloud sensors on the day chart
+//    (a series is shown only when the day has data for it).
 // ==========================
 
-const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125'];
+const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp'];
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
@@ -184,7 +186,8 @@ function chart(rows) {
     const val = (b, j) => (b && b[j].n ? b[j].s / b[j].n : null);
     const x = (i) => +(L + (i + 0.5) * BUCKET_S / 86400 * (W - L - R)).toFixed(1);
 
-    const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c']];
+    const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c'],
+        ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
     const powDefs = [['Heat pump W (meter)', KEYS.length - 1, '#9467bd'], ['Compressor ≈W', KEYS.length, '#8c564b']];
 
     let tMin = Infinity, tMax = -Infinity, pMax = 0;
@@ -247,7 +250,7 @@ function chart(rows) {
         events: evOut,
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks, pTicks,
-        temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })),
+        temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })).filter((s) => s.segs.length),
         power: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length)
     };
 }
