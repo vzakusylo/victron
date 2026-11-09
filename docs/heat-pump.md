@@ -224,7 +224,7 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 | `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
 | `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
 
-**Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
+**Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). Since d#130 a deploy of this node also comes back with an **empty context** (settings, log, flag gone; seen 9 Nov 13:40, local control was OFF for about a minute). Since d#131 the On Start code notices this and the first tick reads the settings file again (output 7 → *Read automation settings*), within a second. A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
 
 **Overlapping rules (as in the cloud):** `b50_switch_warm` and `b50_switch_cold` both match at 0 < outdoor < 1 °C, and `b50_on` / `b50_preheat_bypass` both switch the bypass ON. Both scenes act in the cloud too; check this before setting them On.
 
@@ -260,6 +260,8 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 
 | 2026-11-09 13:00 | B recovery off (it was already off in Smart Life when checked; when it was switched off is not known) | 0 | `b_recovery_valve_off` | ON | — |
 
+| 2026-11-09 13:48 | — (all already off) | — | **DHW controller On** (d#130 / d#131); the 23 rules in `DHW_REPLACES` (B40 / B42 / B46 / B50 incl. mode rules, DF switch to heating, B recovery, HP silent >0) are treated as Off | ON | first cycle when the tank drops below the curve target − 3 °C (45.5 − 3 at −0.8 °C outdoor) |
+
 **First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
 
 Still in Smart Life (2026-11-09 13:00): HP power <-16 and HP smart -15..-7 (their conditions can never be true; their GX rules stay Off), the HOME and LOG scenes. 26 of the 28 GX rules are On, so all heat pump, valve and bypass control runs on the GX. If Node-RED or the GX stops, no scene switches the valve or the bypass; the pump keeps heating on its own curve (P22).
@@ -276,7 +278,8 @@ Since 12:47 every scene that reads the cloud flag *Voksen heating* runs on the G
 2. **Stage 1b (now, d#123–d#126)** — Automations page: master switch, per-rule Off / Test / On and all at once, internal defrost flag, all heat pump scenes as timed sequences, write check, Automation log by day; switch rule by rule On and the scene off (see above).
 3. **Stage 2** — a controller state machine in `40 Heat pump automations.js`: HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
 4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes. Started 2026-11-09 with the DF and B46 scenes, see [Migration log](#migration-log-smart-life--gx).
-5. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
+5. **Stage 2b (d#130, deployed Off)** — one DHW controller by outdoor curve instead of the B\* rules, with set point ramps, supply − return gap, automatic power, heating first in the cold, and an event lane on the history day chart: [heat-pump-dhw-controller.md](heat-pump-dhw-controller.md).
+6. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
 
 ---
 

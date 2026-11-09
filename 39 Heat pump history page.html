@@ -97,6 +97,9 @@
         <text x="4" ng-attr-y="{{h.day.chart.t1 + 4}}">°C</text>
         <text x="4" ng-attr-y="{{h.day.chart.t2 + 4}}">W</text>
       </g>
+      <g ng-if="h.day.chart.events">
+        <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" style="stroke:none" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
+      </g>
       <g ng-repeat="s in h.day.chart.temp"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
       <g ng-repeat="s in h.day.chart.power"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
     </svg>
@@ -104,6 +107,10 @@
       <span ng-repeat="s in h.day.chart.temp"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
       <span ng-repeat="s in h.day.chart.power"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
       <span class="hph-sub">2-minute averages · upper panel °C, lower panel W</span>
+    </div>
+    <div class="hph-legend" ng-if="h.day.chart.eventLegend">
+      <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', vertical-align: '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
+      <span class="hph-sub">event lane between the panels: what the heat pump did (from the valve, bypass, fan and compressor)</span>
     </div>
 
     <details>

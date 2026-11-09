@@ -25,11 +25,15 @@
 // State:
 // - flow.hpDayCache = { 'YYYY-MM-DD': stats } for finished days (not today), last 60 days;
 //   "Heat pump command" (37) skips cached days when it reads the summary.
+// Event lane (d#130): chart.events = segments of heating (compressor runs), DHW (valve ON),
+// preheat (bypass ON, valve OFF, set point ≥ 40) and defrost (fan 0 while the compressor runs
+// > 30 Hz, plus the bypass time after it at a heating set point).
 // Change notes:
 // 1. Initial version (d#121).
+// 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // ==========================
 
-const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw'];
+const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125'];
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
@@ -213,9 +217,35 @@ function chart(rows) {
     const xTicks = [];
     for (let h = 0; h <= 24; h += 3) xTicks.push({ label: pad(h % 24) + ':00', x: +(L + h / 24 * (W - L - R)).toFixed(1) });
 
+    // event lane between the two charts: what the heat pump did, from the recorded states
+    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf' };
+    const xs = (s) => +(L + s / 86400 * (W - L - R)).toFixed(1);
+    const events = [];
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.ok) continue;
+        const a = r.a, hz = a[K['115']], fan = a[K['116']];
+        // bypass ON with a DHW set point (≥ 40) = preheat; with a heating set point = after a defrost
+        const kind = fan === 0 && hz !== null && hz > 30 ? 'defrost'
+            : a[K.v1] === 1 ? 'dhw'
+            : a[K.b1] === 1 ? (a[K['125']] !== null && a[K['125']] >= 40 ? 'preheat' : 'defrost')
+            : hz !== null && hz > 0 ? 'heating' : null;
+        const s1 = r.s, s2 = rows[i + 1] ? Math.min(rows[i + 1].s, r.s + MAX_DT) : r.s + 30;
+        const last = events[events.length - 1];
+        if (kind && last && last.kind === kind && s1 - last.s2 <= MAX_DT) last.s2 = s2;
+        else if (kind) events.push({ kind, s1, s2 });
+    }
+    const evOut = events.map((e) => ({ kind: e.kind, color: EV[e.kind], x: xs(e.s1), w: Math.max(0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
+        from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
+    const evCount = {};
+    events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
+
     return {
         viewBox: '0 0 ' + W + ' 330',
         left: L, right: W - R, t1: T1, b1: B1, t2: T2, b2: B2,
+        evTop: B1 + 6, evH: 14,
+        events: evOut,
+        eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks, pTicks,
         temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })),
         power: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length)

@@ -29,7 +29,7 @@
 // - 'tick' (inject, every 10 s) -> evaluate all rules, send the page model.
 // - 'load' (file in, on start)  -> msg.payload = saved settings JSON.
 // - 'ui'   (Automations page)   -> payload { action: 'refresh' | 'master' | 'mode' | 'modeAll' | 'flag', on, id, mode }.
-// Output (6):
+// Output (7):
 // - output 1 -> Automations page (ui_template), msg.payload = page model
 // - output 2 -> Tuya node "Heating pump"          { operation: 'SET', dps, set }
 // - output 3 -> file node, msg.filename + msg.payload (settings JSON)
@@ -37,6 +37,7 @@
 // - output 5 -> Tuya node "Boiler valve relay"    { operation: 'SET', dps: 1, set }
 // - output 6 -> file node "Append automation log" (msg.filename, msg.payload = JSON line) and
 //               "Automation log" (42), msg.event = the event object
+// - output 7 -> file in node "Read automation settings" (reload after an empty context, d#131)
 // Safety:
 // - A rule needs every device it reads CONNECTED with data ≤ 5 min old.
 // - Conditions must hold on HOLD consecutive ticks (3 × 10 s); then the rule rests COOLDOWN.
@@ -65,7 +66,13 @@
 // 6. d#128: B50 on / B50 preheat do not start during a defrost or DEFROST_QUIET_MIN after it
 //    (outdoor sensor reads high; the cloud B50 on started a DHW cycle that way at 11:29 on 9 Nov).
 // 7. d#129: B42 off includes the steps of the scene "Slowly cool down" (set 39 → 38 → 37).
+// 8. d#130: DHW controller (tank by outdoor curve, one state machine, settings on the page,
+//    docs/heat-pump-dhw-controller.md). While it is On, the B* rules, their mode rules,
+//    DF switch to heating, B recovery and HP silent >0 are treated as Off (DHW_REPLACES).
+// 9. d#131: after a node start without settings in the context, the settings file is read again
+//    (output 7 → "Read automation settings"); On Start sets `needLoad`.
 // INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
+//    context.set('needLoad', context.get('settings') === undefined);
 //    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
 //    context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
 //    context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'
@@ -303,6 +310,63 @@ const RULES = [
 const OUT = { hp: 1, bypass: 3, valve: 4 };
 const OUT_LOG = 5;
 
+// ---- DHW controller settings (d#130, docs/heat-pump-dhw-controller.md) ------------
+const DHW_ID = 'dhw';
+const DHW_NAME = 'DHW controller';
+const DHW_DEFAULTS = {
+    curve: [[-15, 40], [-10, 42], [-5, 44], [0, 46], [2, 49]],   // outdoor °C → tank target °C
+    frostLimit: -20,     // below: no DHW by the heat pump (electric heater only)
+    hyst: 3,             // start when tank < target − hyst
+    gap: 5,              // DHW: set point ≤ return + gap
+    switchMargin: 3,     // switch when supply ≥ tank + margin (it drops 1–2 °C while the compressor stops)
+    preheatAdd: 4,       // preheat set point goal = tank + preheatAdd
+    supplyAdd: 4,        // DHW supply target = tank target + supplyAdd
+    maxSupply: 55,       // set point cap
+    minIntervalH: 2,     // at most one DHW cycle per … h
+    maxMin: 60,          // max DHW cycle at ≥ −5 °C outdoor …
+    maxMinCold: 30,      // … falling linearly to this at ≤ −15 °C
+    coldLimit: -10,      // below: no DHW start while heating lags
+    lagC: 2,             // heating lags = 30-min supply average > lagC below the heating curve
+    allowPowerful: false
+};
+const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], switchMargin: [0, 5], preheatAdd: [1, 10],
+    supplyAdd: [1, 10], maxSupply: [45, 55], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180],
+    coldLimit: [-25, 5], lagC: [1, 10] };
+// Local rules the controller replaces: they are treated as Off while the controller is On.
+const DHW_REPLACES = ['b40_on', 'b40_switch', 'b40_off', 'b42_on', 'b42_switch', 'b42_off', 'b42_mode_smart', 'b42_mode_smart45',
+    'b42_mode_silent_valve', 'b42_mode_powerful_silent', 'b46_on', 'b46_switch', 'b46_off', 'b46_mode_silent', 'b50_on',
+    'b50_switch_warm', 'b50_switch_cold', 'b50_off', 'b50_preheat_bypass', 'b50_force_heating', 'df_switch_to_heating',
+    'b_recovery_valve_off', 'hp_silent_0'];
+// raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
+function dhwCfg(raw, base) {
+    const c = JSON.parse(JSON.stringify(base || DHW_DEFAULTS));
+    const r = raw || {};
+    for (const k of Object.keys(DHW_LIMITS)) {
+        const v = Number(r[k]);
+        if (r[k] !== undefined && Number.isFinite(v) && v >= DHW_LIMITS[k][0] && v <= DHW_LIMITS[k][1]) c[k] = v;
+    }
+    if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
+    if (Array.isArray(r.curve) && r.curve.length >= 2 && r.curve.length <= 8) {
+        const pts = r.curve.map((p) => [Number(p[0]), Number(p[1])]);
+        const okPts = pts.every((p, i) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && p[0] >= -30 && p[0] <= 20
+            && p[1] >= 30 && p[1] <= 55 && (i === 0 || p[0] > pts[i - 1][0]));
+        if (okPts) c.curve = pts;
+    }
+    return c;
+}
+function curveAt(curve, x) {
+    if (x <= curve[0][0]) return curve[0][1];
+    const last = curve[curve.length - 1];
+    if (x >= last[0]) return last[1];
+    for (let i = 1; i < curve.length; i++) {
+        const a = curve[i - 1], b = curve[i];
+        if (x <= b[0]) return Math.round((a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])) * 2) / 2;
+    }
+    return last[1];
+}
+// built-in heating curve of the pump (P22): 20 + P24 / 10 × (P23 − outdoor), 20…60 °C
+function heatCurveAt(p23, p24, x) { return Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x))); }
+
 // Smart Life runs on 7–8 Nov 2026 (outdoor −5…+1 °C), for the page
 const RUNS = { 'B46 on <44 -4..1': 6, 'B46 switch >38': 15, 'B46 off >46 -4..1': 8, 'DF exchange off': 45, 'DF exchange on 31': 49, 'DF switch to heating': 6, 'DF safe 10min': 59 };
 const RUNS_FAILED = { 'B46 switch >38': 4, 'B46 off >46 -4..1': 3 };
@@ -322,6 +386,14 @@ const flag = ctx('flag', { on: false, since: 0, by: '' });
 // running sequences and queued writes and leaves a note here, which is logged once.
 const bootNote = context.get('bootNote');
 if (bootNote) { context.set('bootNote', null); logEvent({ kind: bootNote.dropped ? 'warn' : 'info', text: bootNote.text }); }
+// The context can also come back empty after a deploy (seen 9 Nov 13:40, d#130): then read the
+// settings file again (output 7 → file node "Read automation settings" → topic 'load').
+// Until it arrives the defaults apply: local control OFF.
+if (context.get('needLoad')) {
+    context.set('needLoad', false);
+    logEvent({ kind: 'warn', text: 'settings missing after the node start → reading the settings file again' });
+    node.send([null, null, null, null, null, null, { topic: 'load', filename: CONFIG_PATH }]);
+}
 const queue = ctx('queue', []);
 const seqs = ctx('seqs', {});   // ruleId -> { idx, total, startedAt, live, token, nextAt }
 
@@ -331,9 +403,11 @@ function ruleById(id) { return RULES.find((r) => r.id === id); }
 function modeOf(id) {
     const s = context.get('settings') || settings;
     if (s.modes && MODES.includes(s.modes[id])) return s.modes[id];
+    if (id === DHW_ID) return 'off';
     const r = ruleById(id);
     return (r && r.def) || 'dry';
 }
+function dhwCfgNow() { const s = context.get('settings') || settings; return s.dhw || dhwCfg({}); }
 function ready(role) {
     const dev = st[role];
     return !!(dev && dev.state === 'CONNECTED' && dev.lastData && now - dev.lastData <= FRESH_MS);
@@ -369,6 +443,7 @@ function model() {
     const sq = context.get('seqs') || {};
     return {
         updated: new Date(now).toISOString(),
+        updatedMs: now,
         master: !!settings.master,
         devices: { hp: dev('hp'), valve: dev('valve'), bypass: dev('bypass') },
         flag: { on: f.on, since: f.since, by: f.by, maxMin: FLAG_MAX_MS / MIN },
@@ -382,6 +457,7 @@ function model() {
                 runs: RUNS[r.cloud] || 0, runsFailed: RUNS_FAILED[r.cloud] || 0,
                 running: s ? { idx: s.idx, total: s.total, live: s.live } : null };
         }),
+        dhw: dhwModel(),
         queue: (context.get('queue') || []).length,
         log: context.get('log') || []
     };
@@ -397,7 +473,7 @@ function pump() {
     if (!q.length) return;
     context.set('pumping', true); context.set('pumpAt', Date.now());
     const item = q.shift(); context.set('queue', q);
-    if (modeOf(item.rule) !== 'live') {
+    if (!item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
     } else if ((context.get('settings') || {}).master) {
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
@@ -470,12 +546,215 @@ function stopLive(reason) {
 }
 const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
 
+// ---- DHW controller (d#130) ----------------------------------------------------------
+// One state machine instead of the B* rules: tank target from the outdoor curve, preheat
+// until the supply reaches the tank, compressor stop (set point 20), valve to the tank,
+// set point ramped and kept ≤ return + gap, power Silent → Smart (→ Powerful) only when the
+// supply does not rise, defrost during DHW on the heating side, smooth ramp back to heating.
+// States: HEATING → PREHEAT → STOP → DHW (⇄ DEFROST_DHW) → RAMPDOWN → HEATING.
+function dhwState() {
+    return ctx('dhw', { state: 'HEATING', since: now, run: null, live: false, lastEnd: 0, setCmd: null, rampAt: 0,
+        startAt: 0, startTank: null, streak: 0, outS: [], outAvg: null, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
+        valveOnSince: 0, goal: null, why: '', waitNote: '' });
+}
+function dhwModel() {
+    const d = dhwState(), c = dhwCfgNow();
+    const out = d.outAvg;
+    return { mode: modeOf(DHW_ID), state: d.state, since: d.since, why: d.why, waitNote: d.waitNote, outAvg: out,
+        target: out === null ? null : (out < c.frostLimit ? null : curveAt(c.curve, out)), frost: out !== null && out < c.frostLimit,
+        setCmd: d.setCmd, startTank: d.startTank, startAt: d.startAt, lastEnd: d.lastEnd,
+        nextStart: d.lastEnd ? d.lastEnd + c.minIntervalH * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c, replaced: DHW_REPLACES };
+}
+function dhwLag(d) {
+    const s = d.lagS || [];
+    if (s.length < 20 || s[s.length - 1][0] - s[0][0] < 20 * MIN) return null;
+    return Math.round(s.reduce((a, x) => a + x[1], 0) / s.length * 10) / 10;
+}
+function dhwTick() {
+    const d = dhwState(), c = dhwCfgNow();
+    const md = modeOf(DHW_ID);
+    const liveNow = md === 'live' && settings.master;
+    const H = (st.hp && st.hp.dps) || {}, V = (st.valve && st.valve.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
+    const sup = n(H['102']), ret = n(H['101']), tank = n(H['108']), out = n(H['103']), hz = n(H['115']), fan = n(H['116']);
+    const valveOn = V['1'] === true, bypassOn = B['1'] === true;
+    const defNow = fan === 0 && hz > 30;
+    const devOk = ready('hp') && ready('valve') && ready('bypass');
+    const go = (state, text, kind) => { d.state = state; d.since = now; if (text) logEvent({ kind: kind || 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text }); };
+    const write = (s, force) => {
+        if (!d.live && !force) { logEvent({ kind: 'dry', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: false, text: 'would ' + s.text }); return; }
+        if (!liveNow) return;
+        const q = context.get('queue') || [];
+        q.push({ rule: DHW_ID, cloud: DHW_NAME, run: d.run, role: s.role, dps: s.dps, set: s.set, text: s.text, force: !!force });
+        context.set('queue', q);
+        logEvent({ kind: 'write', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: true, text: s.text });
+        pump();
+    };
+    const setTo = (v) => { v = Math.max(20, Math.min(c.maxSupply, Math.round(v))); if (d.setCmd !== v) { d.setCmd = v; d.rampAt = now; write(set(v)); } };
+    const modeTo = (m) => {
+        if (H['2'] === m) { d.modeCmd = null; return; }
+        if (d.modeCmd === m && now - (d.modeAt || 0) < MIN) return;   // sent, wait for the device
+        d.modeCmd = m; d.modeAt = now; write(mode(m));
+    };
+
+    // outdoor: 10-min average outside defrosts (the sensor reads 30–47 °C during / after them)
+    if (ready('hp') && Number.isFinite(out) && !recentDefrost && !defNow) d.outS.push([now, out]);
+    d.outS = d.outS.filter((x) => now - x[0] <= 10 * MIN);
+    if (d.outS.length) d.outAvg = Math.round(d.outS.reduce((a, x) => a + x[1], 0) / d.outS.length * 10) / 10;
+    // heating lag: 30-min average of supply − heating curve while heating runs
+    if (d.state === 'HEATING' && ready('hp') && !valveOn && !bypassOn && !recentDefrost && hz > 0 && d.outAvg !== null
+        && Number.isFinite(n(H['133'])) && Number.isFinite(n(H['134']))) {
+        d.lagS.push([now, sup - heatCurveAt(n(H['133']), n(H['134']), d.outAvg)]);
+    }
+    d.lagS = d.lagS.filter((x) => now - x[0] <= 30 * MIN);
+
+    // controller switched off / local control OFF during a cycle → back to heating
+    if (d.state !== 'HEATING' && (md === 'off' || (d.live && !liveNow))) {
+        if (d.live && settings.master) { write(valve(false), true); write(bypass(false), true); write(p22(true), true); }
+        go('HEATING', 'cycle stopped (' + (md === 'off' ? 'controller Off' : 'local control OFF or controller no longer On') + ')' + (d.live && settings.master ? ': valve OFF, bypass OFF, P22 on' : ''), 'stop');
+        d.run = null; d.setCmd = null; d.lastEnd = now;
+        context.set('dhw', d); return;
+    }
+    if (md === 'off') { d.why = 'controller Off'; context.set('dhw', d); return; }
+    if (!devOk) { d.waitNote = 'device not connected / stale'; context.set('dhw', d); return; }
+    d.waitNote = '';
+    const target = d.outAvg === null ? null : (d.outAvg < c.frostLimit ? null : curveAt(c.curve, d.outAvg));
+    const elapsed = now - d.since;
+    const cycleMin = (now - d.startAt) / MIN;
+    const maxDur = d.outAvg === null || d.outAvg >= -5 ? c.maxMin : d.outAvg <= -15 ? c.maxMinCold
+        : c.maxMin + (c.maxMinCold - c.maxMin) * (-5 - d.outAvg) / 10;
+    const endCycle = (why) => {
+        go('RAMPDOWN', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min → valve to heating, set point down to the heating curve');
+        if (valveOn) write(valve(false));
+        if (bypassOn) write(bypass(false));
+        modeTo('mute');
+        d.goal = d.outAvg === null || !Number.isFinite(n(H['133'])) ? 35 : Math.round(heatCurveAt(n(H['133']), n(H['134']), d.outAvg));
+        d.rampAt = now;
+    };
+
+    switch (d.state) {
+    case 'HEATING': {
+        // watchdog (On only): valve ON outside a DHW cycle for 60 s → valve back to heating
+        if (md === 'live' && valveOn) {
+            if (!d.valveOnSince) d.valveOnSince = now;
+            else if (now - d.valveOnSince >= MIN && liveNow) {
+                d.run = null; d.live = true;
+                write(valve(false));
+                logEvent({ kind: 'warn', rule: DHW_ID, cloud: DHW_NAME, live: true, text: 'valve ON outside a DHW cycle for 1 min → valve OFF' });
+                d.valveOnSince = 0;
+            }
+        } else d.valveOnSince = 0;
+        const why = [];
+        if (target === null) why.push(d.outAvg === null ? 'no outdoor value yet' : 'outdoor ' + d.outAvg + ' °C below the frost limit ' + c.frostLimit + ' °C (electric heater only)');
+        else if (!(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
+        if (d.lastEnd && now - d.lastEnd < c.minIntervalH * 3600 * 1000) why.push('last cycle ' + Math.round((now - d.lastEnd) / MIN) + ' min ago (min ' + c.minIntervalH + ' h)');
+        if (defNow || recentDefrost) why.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
+        if ((context.get('flag') || flag).on) why.push('defrost flag ON');
+        if (valveOn) why.push('valve ON');
+        if (H['1'] !== true) why.push('heat pump off');
+        const lag = dhwLag(d);
+        if (d.outAvg !== null && d.outAvg < c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
+        d.why = why.length ? why.join('; ') : 'start conditions met';
+        d.streak = why.length ? 0 : d.streak + 1;
+        if (d.streak >= HOLD) {
+            d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
+            logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
+                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C → preheat (bypass ON, P22 off, Silent)' });
+            d.goal = Math.min(c.maxSupply, Math.round(tank + c.preheatAdd));
+            d.setCmd = Number.isFinite(n(H['125'])) ? n(H['125']) : 35;
+            write(p22(false)); modeTo('mute'); if (!bypassOn) write(bypass(true));
+            go('PREHEAT', 'preheat: set point ramps ' + d.setCmd + ' → ' + d.goal + ' °C, switch at supply ≥ ' + (tank + c.switchMargin) + ' °C and return ≥ ' + (tank - 5) + ' °C');
+        }
+        break;
+    }
+    case 'PREHEAT': {
+        if (defNow) { d.why = 'defrost during preheat — waiting'; break; }
+        if (d.setCmd < d.goal && now - d.rampAt >= 30 * S) setTo(d.setCmd + 1);
+        if (sup >= tank + c.switchMargin && ret >= tank - 5) {
+            write(set(20)); d.setCmd = 20;
+            go('STOP', 'supply ' + sup + ' °C ≥ tank ' + tank + ' + ' + c.switchMargin + ', return ' + ret + ' °C → set point 20 (compressor stops) before the valve switch');
+        } else if (elapsed >= 30 * MIN) {
+            endCycle('preheat did not reach the tank temperature in 30 min');
+        } else if (elapsed >= 20 * MIN && H['2'] === 'mute') {
+            modeTo('smart'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'preheat slow (20 min) → Smart' });
+        }
+        d.why = 'preheat: supply ' + sup + ' / return ' + ret + ' °C, need ≥ ' + (tank + c.switchMargin) + ' / ' + (tank - 5);
+        break;
+    }
+    case 'STOP': {
+        if ((hz === 0 && elapsed >= 20 * S) || elapsed >= MIN) {
+            write(valve(true));
+            const want = Math.min(c.maxSupply, target === null ? 45 : target + c.supplyAdd, Math.round(ret) + c.gap);
+            d.setCmd = null; setTo(Math.max(30, want));
+            if (bypassOn) write(bypass(false));
+            d.prog = { t: now, sup }; d.defTicks = 0;
+            go('DHW', 'valve to the tank, bypass OFF, set point ' + d.setCmd + ' °C (≤ return ' + ret + ' + ' + c.gap + ')');
+        }
+        d.why = 'waiting for the compressor to stop (' + hz + ' Hz)';
+        break;
+    }
+    case 'DHW': {
+        const supTarget = Math.min(c.maxSupply, (target === null ? 45 : target) + c.supplyAdd);
+        const want = Math.min(supTarget, Math.round(ret) + c.gap);
+        if (defNow) {
+            d.defTicks++;
+            if (d.defTicks >= 2) {
+                write(valve(false)); if (!bypassOn) write(bypass(true));
+                d.fanOkSince = 0;
+                go('DEFROST_DHW', 'defrost during DHW → valve to heating, bypass ON (the tank is not cooled)');
+                break;
+            }
+        } else d.defTicks = 0;
+        if (target !== null && tank >= target) { endCycle('tank at target ' + target + ' °C'); break; }
+        if (cycleMin >= maxDur) { endCycle('max duration ' + Math.round(maxDur) + ' min at ' + d.outAvg + ' °C outdoor'); break; }
+        if (!valveOn && elapsed >= MIN) { endCycle('valve switched to heating by someone else'); break; }
+        if (want > d.setCmd && now - d.rampAt >= MIN) setTo(d.setCmd + 1);
+        else if (want < d.setCmd && now - d.rampAt >= 30 * S) setTo(d.setCmd - 1);
+        // power: up only when the supply does not rise; back to Silent near the target
+        if (d.prog && now - d.prog.t >= 10 * MIN) {
+            const rise = sup - d.prog.sup;
+            if (sup < want - 3 && rise < 2) {
+                if (H['2'] === 'mute') { modeTo('smart'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Smart' }); }
+                else if (H['2'] === 'smart' && c.allowPowerful) { modeTo('strong'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Powerful' }); }
+            }
+            d.prog = { t: now, sup };
+        }
+        if (H['2'] !== 'mute' && sup >= want - 1) modeTo('mute');
+        d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C, supply ' + sup + ' / return ' + ret + ', set point ' + d.setCmd + ' (≤ return + ' + c.gap + ', max ' + supTarget + '), ' + Math.round(cycleMin) + ' / ' + Math.round(maxDur) + ' min';
+        break;
+    }
+    case 'DEFROST_DHW': {
+        if (!defNow && fan > 300) { if (!d.fanOkSince) d.fanOkSince = now; } else d.fanOkSince = 0;
+        if (cycleMin >= maxDur) { endCycle('max duration during a defrost'); break; }
+        if (d.fanOkSince && now - d.fanOkSince >= MIN) {
+            d.goal = Math.min(c.maxSupply, Math.round(tank + c.preheatAdd)); d.rampAt = now;
+            go('PREHEAT', 'defrost over → preheat again (supply must reach the tank ' + tank + ' °C before the valve switch)');
+        }
+        d.why = 'defrost during DHW: valve on heating, waiting for the fan';
+        break;
+    }
+    case 'RAMPDOWN': {
+        if (d.setCmd === null || d.setCmd <= d.goal) {
+            write(p22(true));
+            d.lastEnd = now;
+            go('HEATING', 'back to heating: P22 on (curve)', 'done');
+            d.run = null; d.setCmd = null;
+        } else if (now - d.rampAt >= MIN) setTo(Math.max(d.goal, d.setCmd - 1));
+        d.why = 'set point down to ' + d.goal + ' °C, 1 °C per minute';
+        break;
+    }
+    default:
+        go('HEATING', 'unknown state reset', 'warn');
+    }
+    context.set('dhw', d);
+}
+
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
     try {
         const s = JSON.parse(String(msg.payload || '{}'));
-        settings = { master: s.master === true, modes: {} };
+        settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw) };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
+        if (s.modes && MODES.includes(s.modes[DHW_ID])) settings.modes[DHW_ID] = s.modes[DHW_ID];
         persist();
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
     } catch (e) {
@@ -497,6 +776,22 @@ if (msg.topic === 'ui') {
         logEvent({ kind: 'setting', text: 'local control switched ' + (p.on ? 'ON — rules set to On write to the devices' : 'OFF — no local writes, running sequences stopped') });
         node.log('Heat pump automations: master ' + (p.on ? 'ON' : 'OFF'));
         node.status({ fill: p.on ? 'green' : 'grey', shape: 'dot', text: 'master ' + (p.on ? 'ON' : 'OFF') });
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'mode' && p.id === DHW_ID) {
+        if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad DHW mode ' + JSON.stringify(p)); return null; }
+        settings.modes[DHW_ID] = p.mode;
+        persist();
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
+            + (p.mode === 'live' ? ' — the ' + DHW_REPLACES.length + ' B* / mode / recovery rules it replaces are Off now' : '') });
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object') {
+        const before = JSON.stringify(dhwCfgNow());
+        settings.dhw = dhwCfg(p.cfg, dhwCfgNow());
+        persist();
+        const after = JSON.stringify(settings.dhw);
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode') {
@@ -555,6 +850,7 @@ for (const r of RULES) {
     const rt = runtime[r.id] || { streak: 0, lastFire: 0 };
     runtime[r.id] = rt;
     if (md === 'off') { rt.ok = false; rt.streak = 0; rt.detail = 'rule off'; continue; }
+    if (modeOf(DHW_ID) === 'live' && DHW_REPLACES.includes(r.id)) { rt.ok = false; rt.streak = 0; rt.detail = 'replaced by the DHW controller (On)'; continue; }
     if (seqs[r.id]) { rt.ok = false; rt.streak = 0; rt.detail = 'running step ' + (seqs[r.id].idx + 1) + '/' + seqs[r.id].total; continue; }
     const notReady = r.roles.filter((role) => !ready(role));
     if (notReady.length) { rt.ok = false; rt.streak = 0; rt.detail = notReady.join(', ') + ' not connected / stale'; continue; }
@@ -574,6 +870,7 @@ for (const r of RULES) {
         runStep(r, token);
     }
 }
+dhwTick();
 persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;
