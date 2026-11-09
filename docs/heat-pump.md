@@ -241,12 +241,25 @@ The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20A
 - **Filters:** All, Runs, On (writes), Failed / stopped, Test, Settings / flag. While the page shows today, new events appear at once.
 - Files are small (about 100–200 bytes per event); nothing deletes them yet.
 
+## Migration log (Smart Life → GX)
+
+Which Smart Life scenes are switched off and run on the GX instead. Settings file on the GX: `/data/home/nodered/grid-control-config/heat-pump-automations.json`. **Rollback** for any step: *Turn OFF all local automations* on the Automations page and switch the listed scenes on again in Smart Life.
+
+| Date | Smart Life scenes switched OFF | Runs in 2 days before (Smart Life log, 7 Nov evening – 9 Nov) | GX rules set On | Local control | Result |
+|---|---|---|---|---|---|
+| 2026-11-09 10:53 | DF safe 10min, DF exchange on 31, DF exchange off, DF switch to heating | 46, 41, 39, 1 | `df_exchange_off`, `df_exchange_on`, `df_switch_to_heating` (DF safe 10min is built into the node) | ON | first local defrost expected ~11:29, check on the Automation log page |
+| 2026-11-09 10:53 | B46 on <44 -4..1, B46 switch >38, B46 off >46 -4..1, B46 mode smart-silent >48 | 4, 6 (1 failed), 8 (3 failed), 5 | `b46_on`, `b46_switch`, `b46_off`, `b46_mode_silent` | ON | first local B46 cycle when the tank drops below 44 °C at −4…1 °C outdoor |
+
+Still in Smart Life (2026-11-09): B40 \*, B42 \*, B50 \*, B recovery off, HP silent >0, HP Er03 restart, HP power <-16, HP smart -15..-7, the HOME and LOG scenes. Their GX rules stay Test or Off.
+
+**Watch out while only part is moved:** the cloud scenes that still run (B50 switch, HP silent >0) read the cloud flag *Voksen heating*, which only the DF scenes set. With the DF scenes off, that flag stays OFF, so e.g. *B50 switch* could fire during a defrost. Move the B50 scenes before the outdoor temperature rises above +1 °C.
+
 ## Roadmap
 
 1. **Stage 1** — monitoring page, 30 s history with statistics by day, SA1 power meter; manual controls only (curve shift P23, bypass on/off, d#121). Compare with the Tuya log for a day.
 2. **Stage 1b (now, d#123–d#126)** — Automations page: master switch, per-rule Off / Test / On and all at once, internal defrost flag, all heat pump scenes as timed sequences, write check, Automation log by day; switch rule by rule On and the scene off (see above).
 3. **Stage 2** — a controller state machine in `40 Heat pump automations.js`: HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
-4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes.
+4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes. Started 2026-11-09 with the DF and B46 scenes, see [Migration log](#migration-log-smart-life--gx).
 5. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
 
 ---
