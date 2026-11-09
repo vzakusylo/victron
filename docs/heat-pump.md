@@ -22,7 +22,7 @@ The heat pump is today controlled by Tuya cloud scenes (DHW ladder, defrost/bypa
 
 | Role | Tuya name | Device ID | IP / protocol | Notes |
 |---|---|---|---|---|
-| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | 192.168.1.31 / 3.3 | product `5oc9wmac3bbidekc`, controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
+| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | 192.168.1.31 / 3.3 | product `5oc9wmac3bbidekc`, Power World PW030-DKZLRS-A (EVI DC inverter, R32, 230 V, max 9.67 A / 2.13 kW input), controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
 | 3-way valve relay | Boiler | `bf894708aa7e3ac196zjzk` | 192.168.1.53 / **3.5** | DP 1: ON = DHW tank, OFF = heating. Sends **no** UDP beacons → the IP must be set in the node |
 | Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | 192.168.1.139 / 3.4 | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
 | Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | `bff533964da65dd78dlha6` | not reachable yet | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a`. It is on the other (D-Link) Wi-Fi, which the GX cannot reach — move it to the ASUS Wi-Fi, then set its IP |
@@ -66,13 +66,21 @@ The page shows connection state of each device, supply / return / tank / outdoor
 
 State is kept in `flow.heatPump` (raw DPs per device) and `flow.heatPumpModel` (page model).
 
-**Compressor load card (d#114, maxima d#116):**
-- rated maxima: 91 Hz and 8 A (constants `COMPRESSOR_MAX_HZ` / `COMPRESSOR_MAX_A` in `34`);
-- frequency % = DP 115 / 91, current % = DP 112 / 8, each clamped to 0–100;
-- load % = the higher of the two. Example: 69 Hz, 3 A → 76 % / 38 % → **76 %**;
-- power ≈ DP 112 (compressor current) × DP 114 (DC bus voltage; 230 V until received).
+**Nameplate (outdoor unit):** Power World **PW030-DKZLRS-A**, EVI DC inverter heat pump (Easylife series), 230 V~ 1-phase, R32 1300 g, heating 1.28–6.81 kW at input 0.31–2.13 kW and 1.57–8.40 kW at input 0.32–1.87 kW (two test conditions, not printed on the plate; probably A7/W55 and A7/W35), current 1.28–9.67 A, max pressure 4.4 MPa, 96 kg. Sold by Michl, bought 2022-01-01. Power World advertises a Panasonic twin-rotary EVI compressor for this series; the exact compressor model is only on the compressor itself (not checked).
 
-This is an estimate: power factor and drive losses are ignored, and there is no power DP.
+**Compressor load card (d#133):**
+- power ≈ DP 112 (current) × **220 W/A**: the nameplate gives 2.13 kW at 9.67 A (220 W/A) and 0.31 kW at 1.28 A (242 W/A), so the input power is close to current × 220–240 W/A;
+- load % = that power / 2130 W (nameplate max input) = current / 9.67 A. Example: 69 Hz, 3 A → ≈ 660 W → **31 %**;
+- frequency is shown against 90 Hz, the highest value recorded (Smart);
+- until d#133 the power was current × DC bus voltage (DP 114, ~376 V): that gave up to 3 kW at 8 A, above the nameplate maximum, i.e. ~1.7× too high, and the load was the higher of Hz / 91 and A / 8.
+
+Still an estimate: it assumes DP 112 is the unit's input current. Once the SA1 meter is reachable, compare its watts with current × 220 and correct `W_PER_A` (in `34`, `38`, `45`).
+
+**Compressor resource (d#133)** — function *Compressor resource* ([`45`](../45%20Compressor%20resource.js)), every 30 s, counters in `/data/home/nodered/grid-control-config/compressor-resource.json` (saved every 10 min, read again after every node start):
+- measured from 2026-11-08 01:17 (seeded from the recorder history at the first deploy): run hours, starts, defrosts, DHW run hours, equivalent full-load hours (time × current / 9.67 A), estimated kWh (current × 220 W/A), hours by frequency band (< 40, 40–70, 70–90, ≥ 90 Hz), hours with discharge (DP 104) > 95 °C;
+- before that, 2022-01-01 … 2026-11-07, an **estimate** from daily outdoor temperatures in Hokksund (Open-Meteo archive): run fraction (17 − T) / 20, clamped 0…1, plus 1 h DHW a day → **≈ 21 957 h** (≈ 4 500 h a year); starts ≈ 27 000 (26 a day in the defrost season, 8 otherwise). Rough: it assumes the house needs the full capacity at −3 °C, as on 8–9 Nov;
+- resource % = (estimated + measured hours) / **60 000 h**. That service life is an **assumption**: the compressor maker publishes none. Change `lifeH` in the counter file if a better value is known;
+- shown as the *Compressor resource* card on the Heat Pump page (hover for the split estimated / measured). First values (9 Nov 15:24): 21 993 h ≈ 36.7 %; measured 35.7 h, 47 starts, 47 defrosts, average 67 Hz and 32 % load, ≈ 24 kWh.
 
 **Power meter SA1 (d#121):**
 

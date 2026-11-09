@@ -46,6 +46,9 @@
 //    summary.power* + output 3 (24 h power chart: meter W and compressor estimate W).
 //    model.curveChart.scale lets the page draw a preview line for the "warmer / colder"
 //    slider; model.controls tells the page which commands are possible.
+// 7. Nameplate (d#133, PW030-DKZLRS-A): power ≈ DP 112 current × 220 W/A (was × DC bus
+//    voltage, ~1.7× too high); load = that power / 2130 W (nameplate max input); max frequency
+//    90 Hz. summary.resource = compressor resource counters from "Compressor resource" (45).
 // 6. Cloud sensors (d#132): roles `acc` (Accumulator tank temp) and `plate` (Exchange plate),
 //    battery Wi-Fi sensors read from the Tuya cloud by "Heat pump cloud sensors" (44), dps
 //    { temp, hum, bat }. summary.accTemp / plateTemp (fresh ≤ 10 min) and two more series on
@@ -117,9 +120,15 @@ const MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };
 const WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };
 
 const CHART_INTERVAL_MS = 60 * 1000;
-const COMPRESSOR_MAX_HZ = 91;     // rated max compressor frequency
-const COMPRESSOR_MAX_A = 8;       // rated max compressor current
-const FALLBACK_VOLTAGE_V = 230;   // used only while DP 114 (DC bus) has not been received
+// Nameplate PW030-DKZLRS-A (Power World EVI DC inverter, 230 V 1-phase, R32): current
+// 1.28–9.67 A, input power 0.31–2.13 kW (heating). 2.13 kW / 9.67 A = 220 W per amp at full
+// load (0.31 kW / 1.28 A = 242 W/A at minimum) — so the input power ≈ current × 220 W/A.
+// The DC bus voltage (DP 114, ~376 V) is NOT the supply voltage: current × DC bus gave up to
+// 3 kW at 8 A, above the nameplate maximum (d#133).
+const COMPRESSOR_MAX_HZ = 90;     // highest frequency seen (Smart; recorder 8–9 Nov 2026)
+const COMPRESSOR_MAX_A = 9.67;    // nameplate max current of the unit
+const UNIT_MAX_W = 2130;          // nameplate max input power (heating)
+const W_PER_A = 220;              // nameplate 2130 W / 9.67 A
 const STALE_MS = 5 * 60 * 1000;
 
 function emptyDevice() {
@@ -279,9 +288,9 @@ function buildModel(st, now) {
     const pct = (value, max) => (value === null ? null : Math.max(0, Math.min(100, Math.round(value / max * 100))));
     const freqPct = pct(freq, COMPRESSOR_MAX_HZ);
     const currentPct = pct(current, COMPRESSOR_MAX_A);
-    const loadPct = freqPct === null && currentPct === null ? null : Math.max(freqPct || 0, currentPct || 0);
-    const voltage = dcBus !== null && dcBus > 0 ? dcBus : FALLBACK_VOLTAGE_V;
-    const powerW = current === null ? null : Math.round(Math.max(0, current) * voltage);
+    // load = estimated input power / nameplate max input power (= current / 9.67 A)
+    const powerW = current === null ? null : Math.round(Math.max(0, current) * W_PER_A);
+    const loadPct = powerW === null ? null : Math.max(0, Math.min(100, Math.round(powerW / UNIT_MAX_W * 100)));
 
     const devices = ROLES.map((role) => {
         const dev = st[role];
@@ -330,7 +339,9 @@ function buildModel(st, now) {
             compressorMaxHz: COMPRESSOR_MAX_HZ,
             compressorMaxA: COMPRESSOR_MAX_A,
             compressorPowerW: powerW,
-            compressorPowerBasis: dcBus !== null && dcBus > 0 ? 'DC bus' : '230 V',
+            compressorPowerBasis: W_PER_A + ' W/A (nameplate 9.67 A = 2.13 kW)',
+            unitMaxW: UNIT_MAX_W,
+            resource: flow.get('compressorResource') || null,
             powerW: meter ? meter.powerW : null,
             powerV: meter ? meter.voltageV : null,
             powerA: meter ? meter.currentA : null,
@@ -399,7 +410,7 @@ if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_M
         ['Accumulator', s.accTemp], ['Exchange plate', s.plateTemp]
     ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
     powerMsgs = [
-        ['Heat pump W (meter)', s.powerW], ['Compressor ≈W', s.compressorPowerW]
+        ['Heat pump W (meter)', s.powerW], ['Heat pump ≈W (A × 220)', s.compressorPowerW]
     ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
 }
 

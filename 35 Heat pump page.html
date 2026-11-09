@@ -76,18 +76,25 @@
     <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Accumulator (cloud)</div><div class="v">{{msg.payload.summary.accTemp === null || msg.payload.summary.accTemp === undefined ? '—' : msg.payload.summary.accTemp}}<span class="u">°C</span></div></div>
     <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Exchange plate (cloud)</div><div class="v">{{msg.payload.summary.plateTemp === null || msg.payload.summary.plateTemp === undefined ? '—' : msg.payload.summary.plateTemp}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
-    <div class="hpw-card" title="Load = higher of frequency / {{msg.payload.summary.compressorMaxHz}} Hz ({{msg.payload.summary.compressorFreqPct}} %) and current / {{msg.payload.summary.compressorMaxA}} A ({{msg.payload.summary.compressorCurrentPct}} %). Power ≈ current × {{msg.payload.summary.compressorPowerBasis}} — estimate.">
+    <div class="hpw-card" title="Load = input power ≈ current × {{msg.payload.summary.compressorPowerBasis}} / nameplate max {{msg.payload.summary.unitMaxW}} W (= current / {{msg.payload.summary.compressorMaxA}} A). Frequency shown against the highest seen ({{msg.payload.summary.compressorMaxHz}} Hz).">
       <div class="k">Compressor load</div>
       <div class="v">{{msg.payload.summary.compressorLoadPct === null ? '—' : msg.payload.summary.compressorLoadPct}}<span class="u">%</span></div>
       <div class="hpw-bar" ng-if="msg.payload.summary.compressorLoadPct !== null"><div ng-style="{width: msg.payload.summary.compressorLoadPct + '%'}" ng-class="{mid: msg.payload.summary.compressorLoadPct >= 60, high: msg.payload.summary.compressorLoadPct >= 85}"></div></div>
-      <div class="s">{{msg.payload.summary.compressorHz === null ? '—' : msg.payload.summary.compressorHz}}/{{msg.payload.summary.compressorMaxHz}} Hz · {{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}/{{msg.payload.summary.compressorMaxA}} A</div>
+      <div class="s">≈{{msg.payload.summary.compressorPowerW === null ? '—' : (msg.payload.summary.compressorPowerW | number:0)}} / {{msg.payload.summary.unitMaxW}} W · {{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}/{{msg.payload.summary.compressorMaxA}} A · {{msg.payload.summary.compressorHz === null ? '—' : msg.payload.summary.compressorHz}}/{{msg.payload.summary.compressorMaxHz}} Hz</div>
+    </div>
+    <div class="hpw-card" ng-if="msg.payload.summary.resource" title="{{msg.payload.summary.resource.totalRunH}} h = {{msg.payload.summary.resource.estimatedRunH}} h estimated ({{msg.payload.summary.resource.purchase}} … {{msg.payload.summary.resource.estimateUntil}}: {{msg.payload.summary.resource.estimateNote}}) + {{msg.payload.summary.resource.measuredRunH}} h measured since {{msg.payload.summary.resource.measuredSince | date:'dd.MM.yyyy HH:mm'}}. Service life {{msg.payload.summary.resource.lifeH}} h is an assumption (no maker value).">
+      <div class="k">Compressor resource</div>
+      <div class="v">{{msg.payload.summary.resource.lifePct}}<span class="u">%</span></div>
+      <div class="hpw-bar"><div ng-style="{width: (msg.payload.summary.resource.lifePct > 100 ? 100 : msg.payload.summary.resource.lifePct) + '%'}" ng-class="{mid: msg.payload.summary.resource.lifePct >= 60, high: msg.payload.summary.resource.lifePct >= 85}"></div></div>
+      <div class="s">{{msg.payload.summary.resource.totalRunH | number:0}} / {{msg.payload.summary.resource.lifeH | number:0}} h · {{msg.payload.summary.resource.years}} years · ~{{msg.payload.summary.resource.hoursPerYear | number:0}} h/year<br>
+        measured: {{msg.payload.summary.resource.measuredRunH}} h, {{msg.payload.summary.resource.measuredStarts}} starts, {{msg.payload.summary.resource.measuredDefrosts}} defrosts, avg {{msg.payload.summary.resource.avgHz}} Hz / {{msg.payload.summary.resource.avgLoadPct}} %, ≈{{msg.payload.summary.resource.kwh}} kWh</div>
     </div>
     <div class="hpw-card"><div class="k">Fan</div><div class="v">{{msg.payload.summary.fanRpm}}</div></div>
     <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
-    <div class="hpw-card" title="Measured by the SA1 power meter ({{msg.payload.summary.powerSource || 'not connected'}}). Compressor estimate = current × {{msg.payload.summary.compressorPowerBasis}}.">
+    <div class="hpw-card" title="Measured by the SA1 power meter ({{msg.payload.summary.powerSource || 'not connected'}}). Estimate = current × {{msg.payload.summary.compressorPowerBasis}}.">
       <div class="k">Power</div>
       <div class="v">{{msg.payload.summary.powerW === null ? '—' : (msg.payload.summary.powerW | number:0)}}<span class="u">W</span></div>
-      <div class="s"><span ng-if="msg.payload.summary.powerV !== null">{{msg.payload.summary.powerV}} V · {{msg.payload.summary.powerA}} A</span><span ng-if="msg.payload.summary.powerW === null">meter offline</span><span ng-if="msg.payload.summary.compressorPowerW !== null"><br>comp ≈{{(msg.payload.summary.compressorPowerW / 1000) | number:2}} kW</span></div>
+      <div class="s"><span ng-if="msg.payload.summary.powerV !== null">{{msg.payload.summary.powerV}} V · {{msg.payload.summary.powerA}} A</span><span ng-if="msg.payload.summary.powerW === null">meter offline</span><span ng-if="msg.payload.summary.compressorPowerW !== null"><br>estimate ≈{{(msg.payload.summary.compressorPowerW / 1000) | number:2}} kW</span></div>
     </div>
   </div>
 

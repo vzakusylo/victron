@@ -209,6 +209,9 @@ function Sync-43 { Sync-Template 'Automation log page'          '43 Automation l
 # 44 — Heat pump cloud sensors (Accumulator tank temp + Exchange plate from the Tuya cloud)
 function Sync-44 { Sync-Node 'Heat pump cloud sensors'          '44 Heat pump cloud sensors.js'                 -BumpVersion }
 
+# 45 — Compressor resource (run hours, starts, load, energy; file grid-control-config/compressor-resource.json)
+function Sync-45 { Sync-Node 'Compressor resource'              '45 Compressor resource.js'                     -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -256,6 +259,7 @@ function Sync-All {
         @{ Name = 'Heat pump automations';               File = '40 Heat pump automations.js' }
         @{ Name = 'Automation log';                      File = '42 Automation log.js' }
         @{ Name = 'Heat pump cloud sensors';             File = '44 Heat pump cloud sensors.js' }
+        @{ Name = 'Compressor resource';                 File = '45 Compressor resource.js' }
     )
 
     $totalSynced = 0

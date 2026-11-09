@@ -21,7 +21,7 @@
 //   avgHz while running, defrost = entries into "fan 0 and compressor > 30 Hz"
 // - dhwH = valve relay ON (v1), bypassH = bypass relay ON (b1)
 // - kwh / maxW / avgW = measured by the SA1 meter (column `pw`), null if no meter data
-// - compKwh = compressor estimate, DP 112 A × DP 114 V (230 V fallback) — trends only
+// - compKwh = heat pump estimate, DP 112 A × 220 W/A (nameplate 9.67 A = 2.13 kW, d#133)
 // State:
 // - flow.hpDayCache = { 'YYYY-MM-DD': stats } for finished days (not today), last 60 days;
 //   "Heat pump command" (37) skips cached days when it reads the summary.
@@ -31,6 +31,7 @@
 // Change notes:
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
+// 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
 // 3. d#132: Accumulator (`atemp`) and Exchange plate (`xtemp`) cloud sensors on the day chart
 //    (a series is shown only when the day has data for it).
 // ==========================
@@ -39,6 +40,7 @@ const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1'
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
+const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133)
 const BUCKET_S = 120;
 const CACHE_DAYS = 60;
 
@@ -135,7 +137,7 @@ function stats(rows) {
             maxW = maxW === null ? pw : Math.max(maxW, pw);
         }
         if (amp !== null) {
-            const c = Math.max(0, amp) * (bus !== null && bus > 0 ? bus : 230) * dt / 3600;
+            const c = Math.max(0, amp) * W_PER_A * dt / 3600;
             compWh += c; H.compWh += c;
         }
     }
@@ -181,14 +183,14 @@ function chart(rows) {
         const b = buckets[i] || (buckets[i] = KEYS.map(() => ({ s: 0, n: 0 })).concat([{ s: 0, n: 0 }]));
         KEYS.forEach((k, j) => { const v = r.a[j]; if (v !== null) { b[j].s += v; b[j].n++; } });
         const amp = r.a[K['112']], bus = r.a[K['114']];
-        if (amp !== null) { b[KEYS.length].s += Math.max(0, amp) * (bus !== null && bus > 0 ? bus : 230); b[KEYS.length].n++; }
+        if (amp !== null) { b[KEYS.length].s += Math.max(0, amp) * W_PER_A; b[KEYS.length].n++; }
     });
     const val = (b, j) => (b && b[j].n ? b[j].s / b[j].n : null);
     const x = (i) => +(L + (i + 0.5) * BUCKET_S / 86400 * (W - L - R)).toFixed(1);
 
     const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c'],
         ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
-    const powDefs = [['Heat pump W (meter)', KEYS.length - 1, '#9467bd'], ['Compressor ≈W', KEYS.length, '#8c564b']];
+    const powDefs = [['Heat pump W (meter)', KEYS.length - 1, '#9467bd'], ['Heat pump ≈W (A × 220)', KEYS.length, '#8c564b']];
 
     let tMin = Infinity, tMax = -Infinity, pMax = 0;
     buckets.forEach((b) => {
