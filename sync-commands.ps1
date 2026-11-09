@@ -194,6 +194,18 @@ function Sync-38 { Sync-Node 'Build heat pump history'          '38 Build heat p
 # 39 — Heat pump history page (ui_template HTML)
 function Sync-39 { Sync-Template 'Heat pump history'            '39 Heat pump history page.html'                -BumpVersion }
 
+# 40 — Heat pump automations (local replacements for all Smart Life heat pump scenes, master switch, Off / Test / On, day log)
+function Sync-40 { Sync-Node 'Heat pump automations'            '40 Heat pump automations.js'                   -BumpVersion }
+
+# 41 — Automations page (ui_template HTML)
+function Sync-41 { Sync-Template 'Automations page'             '41 Automations page.html'                      -BumpVersion }
+
+# 42 — Automation log (reads the day files, groups events per rule run)
+function Sync-42 { Sync-Node 'Automation log'                   '42 Automation log.js'                          -BumpVersion }
+
+# 43 — Automation log page (ui_template HTML)
+function Sync-43 { Sync-Template 'Automation log page'          '43 Automation log page.html'                   -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -238,6 +250,8 @@ function Sync-All {
         @{ Name = 'Record heat pump data';               File = '36 Record heat pump data.js' }
         @{ Name = 'Heat pump command';                   File = '37 Heat pump command.js' }
         @{ Name = 'Build heat pump history';             File = '38 Build heat pump history.js' }
+        @{ Name = 'Heat pump automations';               File = '40 Heat pump automations.js' }
+        @{ Name = 'Automation log';                      File = '42 Automation log.js' }
     )
 
     $totalSynced = 0
@@ -256,6 +270,8 @@ function Sync-All {
     $templates = @(
         @{ Name = 'Heat pump page';                      File = '35 Heat pump page.html' }
         @{ Name = 'Heat pump history';                   File = '39 Heat pump history page.html' }
+        @{ Name = 'Automations page';                    File = '41 Automations page.html' }
+        @{ Name = 'Automation log page';                 File = '43 Automation log page.html' }
     )
     foreach ($entry in $templates) {
         $src = [System.IO.File]::ReadAllText((Join-Path $Root $entry.File))

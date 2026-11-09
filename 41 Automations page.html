@@ -1,0 +1,157 @@
+<!--
+  41 Automations page.html
+  Source of the ui_template "Automations page" (Automations dashboard tab).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-41).
+  Shows the model built by "Heat pump automations" (40) and sends, each after a confirm dialog:
+    {topic:'ui', payload:{action:'master', on}}      — master switch for all local automations
+    {topic:'ui', payload:{action:'mode', id, mode}}  — per rule: off / dry / live, shown as Off / Test / On
+    {topic:'ui', payload:{action:'modeAll', mode}}   — all rules at once
+    {topic:'ui', payload:{action:'flag', on:false}}  — reset the internal defrost flag
+    {topic:'ui', payload:{action:'refresh'}}         — on open
+-->
+<style>
+.hpa { padding: 6px 4px; font-size: 14px; }
+.hpa-title { font-size: 20px; font-weight: 700; }
+.hpa-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.hpa button { border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer; background: rgba(127,127,127,.22); color: inherit; font-size: 13px; }
+.hpa button.on { background: #2ea043; color: #fff; }
+.hpa button.off { background: #da3633; color: #fff; }
+.hpa button.sel { background: #1f6feb; color: #fff; }
+.hpa-master { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 6px 0 12px; padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.10); }
+.hpa-master .big { font-size: 17px; font-weight: 700; }
+.hpa-master .note { font-size: 12px; opacity: .75; flex-basis: 100%; }
+.hpa-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.hpa-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; background: rgba(127,127,127,.18); }
+.hpa-ok { background: rgba(46,160,67,.25); }
+.hpa-warn { background: rgba(210,153,34,.30); }
+.hpa-bad { background: rgba(218,54,51,.30); }
+.hpa-grp { font-weight: 700; margin: 14px 0 6px; font-size: 14px; }
+.hpa-rule { border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; background: rgba(127,127,127,.08); }
+.hpa-rule .name { font-weight: 700; }
+.hpa-rule .cloud { font-size: 12px; opacity: .7; }
+.hpa-rule .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 5px; font-size: 13px; }
+.hpa-rule .steps { font-size: 12.5px; margin-top: 4px; }
+.hpa-modes button { margin-right: 4px; }
+.hpa table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hpa th, .hpa td { text-align: left; padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.2); vertical-align: top; }
+.hpa th { font-weight: 600; opacity: .8; }
+.hpa .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hpa h4 { margin: 16px 0 6px; font-size: 14px; }
+.hpa .small { font-size: 12px; opacity: .75; }
+.hpa .k-write, .hpa .k-start, .hpa .k-ok, .hpa .k-done { color: #2ea043; font-weight: 700; }
+.hpa .k-dry, .hpa .k-test { color: #d29922; font-weight: 700; }
+.hpa .k-flag, .hpa .k-setting { color: #1f6feb; font-weight: 700; }
+.hpa .k-warn, .hpa .k-fail, .hpa .k-stop { color: #da3633; font-weight: 700; }
+</style>
+
+<div class="hpa">
+  <div class="hpa-title">Local automations (Cerbo GX)</div>
+  <div class="hpa-sub">All heat pump scenes of Smart Life (B*, DF*, HP*) as local rules in Node-RED · tick 10 s, conditions must hold {{msg.payload.hold}} ticks · updated {{msg.payload.updated | date:'HH:mm:ss'}} · every event is kept by day on the <b>Automation log</b> page</div>
+
+  <div class="hpa-master">
+    <span class="big">Local control: {{msg.payload.master ? 'ON' : 'OFF'}}</span>
+    <button ng-class="msg.payload.master ? 'off' : 'on'" ng-click="hpaMaster(!msg.payload.master)">
+      {{msg.payload.master ? 'Turn OFF all local automations' : 'Turn ON local automations'}}
+    </button>
+    <span class="note" ng-if="!msg.payload.master">OFF: no local rule writes to a device. Rules set to On or Test are still evaluated and every step is logged as "would …".</span>
+    <span class="note" ng-if="msg.payload.master">ON: rules set to <b>On</b> write to the devices (queue, 1.5 s between writes, each write checked 15 s later). Rules in <b>Test</b> only log. Switch the matching Smart Life scene off before a rule goes On. Turning OFF stops running sequences.</span>
+  </div>
+
+  <div class="hpa-master">
+    <span class="big">All rules</span>
+    <span class="small">On {{msg.payload.counts.live}} · Test {{msg.payload.counts.dry}} · Off {{msg.payload.counts.off}}</span>
+    <span class="hpa-modes">
+      <button ng-repeat="m in ['off','dry','live']" ng-click="hpaModeAll(m)">all {{hpaLabel(m)}}</button>
+    </span>
+  </div>
+
+  <div class="hpa-chips">
+    <span class="hpa-chip" ng-repeat="(k, d) in msg.payload.devices"
+          ng-class="{'hpa-ok': d.state=='CONNECTED', 'hpa-warn': d.state=='CONNECTING', 'hpa-bad': d.state=='DISCONNECTED' || d.state=='ERROR'}">
+      {{k}}: {{d.state}}<span ng-if="d.age !== null"> · {{d.age}} s</span>
+    </span>
+    <span class="hpa-chip" ng-class="{'hpa-warn': msg.payload.flag.on}">
+      defrost flag (internal): <b>{{msg.payload.flag.on ? 'ON' : 'OFF'}}</b>
+      <span ng-if="msg.payload.flag.since"> since {{msg.payload.flag.since | date:'HH:mm:ss'}} · {{msg.payload.flag.by}}</span>
+    </span>
+    <button ng-if="msg.payload.flag.on" ng-click="hpaFlagReset()">reset flag</button>
+    <span class="small" ng-if="msg.payload.queue">write queue: {{msg.payload.queue}}</span>
+  </div>
+
+  <div ng-repeat="g in hpaGroups()">
+    <div class="hpa-grp">{{g.name}}</div>
+    <div class="hpa-rule" ng-repeat="r in g.items">
+      <div class="name">{{r.name}}</div>
+      <div class="cloud">Smart Life scene “{{r.cloud}}”<span ng-if="r.runs"> · ran {{r.runs}}× on 7–8 Nov<span ng-if="r.runsFailed"> ({{r.runsFailed}} failed)</span></span></div>
+      <div class="row"><span><b>If</b> {{r.when}}</span></div>
+      <div class="steps"><b>Then</b> {{r.then}}</div>
+      <div class="row">
+        <span class="hpa-modes">
+          <button ng-repeat="m in ['off','dry','live']" ng-class="{sel: r.mode==m, on: r.mode==m && m=='live'}" ng-click="hpaMode(r, m)">{{hpaLabel(m)}}</button>
+        </span>
+        <span class="hpa-chip" ng-if="r.running" ng-class="r.running.live ? 'hpa-ok' : 'hpa-warn'">{{r.running.live ? 'running' : 'test run'}} step {{r.running.idx}}/{{r.running.total}}</span>
+        <span class="hpa-chip" ng-if="!r.running" ng-class="{'hpa-ok': r.ok}">{{r.ok ? 'conditions met' : 'not met'}}<span ng-if="r.ok && r.streak"> ({{r.streak}}/{{msg.payload.hold}})</span></span>
+        <span class="small">{{r.detail}}</span>
+      </div>
+      <div class="row small" ng-if="r.lastFire">last: {{r.lastFire | date:'dd.MM HH:mm:ss'}} — {{r.lastText}}</div>
+    </div>
+  </div>
+
+  <h4>Latest events (newest first) — full history by day on the Automation log page</h4>
+  <table>
+    <tr><th>Time</th><th>Kind</th><th>Event</th></tr>
+    <tr ng-repeat="e in msg.payload.log | limitTo:60">
+      <td class="num">{{e.t | date:'dd.MM HH:mm:ss'}}</td>
+      <td ng-class="'k-' + e.kind">{{e.kind}}</td>
+      <td><b ng-if="e.cloud">{{e.cloud}}: </b>{{e.text}}</td>
+    </tr>
+    <tr ng-if="!msg.payload.log.length"><td colspan="3" class="small">nothing yet</td></tr>
+  </table>
+
+  <div class="small" style="margin-top:8px">The defrost flag is internal: the cloud flag device “Voksen heating” is not used. Not included: the tap-to-run scene “Slowly cool down” that the cloud B42 off runs before P22 on, and the scene switch in “HP Er03 restart”. “HP power &lt;-16” and “HP smart -15..-7” are copied as they are in the cloud, where their set point conditions can never be true together.</div>
+</div>
+
+<script>
+(function (scope) {
+    scope.hpaMaster = function (on) {
+        var text = on
+            ? 'Turn ON local automations?\nRules in mode "live" will write to the heat pump, valve and bypass. Rules in "dry" keep only logging.'
+            : 'Turn OFF all local automations?\nNo local rule will write anything, running live sequences stop.';
+        if (!confirm(text)) return;
+        scope.send({ topic: 'ui', payload: { action: 'master', on: on } });
+    };
+    var LABEL = { off: 'Off', dry: 'Test', live: 'On' };
+    scope.hpaLabel = function (m) { return LABEL[m] || m; };
+    scope.hpaMode = function (r, m) {
+        if (r.mode === m) return;
+        if (m === 'live' && !confirm('Turn "' + r.name + '" ON?\nIt writes to the devices while local control is ON.\n'
+            + 'Switch the Smart Life scene "' + r.cloud + '" off first, otherwise both act.')) return;
+        scope.send({ topic: 'ui', payload: { action: 'mode', id: r.id, mode: m } });
+    };
+    scope.hpaModeAll = function (m) {
+        var text = m === 'live'
+            ? 'Turn ALL rules ON?\nThey write to the devices while local control is ON. Switch all matching Smart Life scenes off first.'
+            : 'Set all rules to ' + LABEL[m] + '?';
+        if (!confirm(text)) return;
+        scope.send({ topic: 'ui', payload: { action: 'modeAll', mode: m } });
+    };
+    scope.hpaFlagReset = function () {
+        if (!confirm('Reset the internal defrost flag to OFF?')) return;
+        scope.send({ topic: 'ui', payload: { action: 'flag', on: false } });
+    };
+    scope.hpaGroups = function () {
+        var p = scope.msg && scope.msg.payload;
+        if (!p || !p.rules) return [];
+        if (scope._hpaRules === p.rules) return scope._hpaGroups;
+        var map = {}, out = [];
+        p.rules.forEach(function (r) {
+            if (!map[r.group]) { map[r.group] = { name: r.group, items: [] }; out.push(map[r.group]); }
+            map[r.group].items.push(r);
+        });
+        scope._hpaRules = p.rules;
+        scope._hpaGroups = out;
+        return out;
+    };
+    scope.send({ topic: 'ui', payload: { action: 'refresh' } });
+})(scope);
+</script>
