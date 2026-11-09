@@ -203,7 +203,7 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 | `b40_off` | B40 off >39 | outdoor −20…−11, tank > 39, fan > 300, supply > 38, set 40, valve ON | set 37, valve OFF, wait 4 s, set 37, valve OFF, P22 on |
 | `b42_on` | B42 on <41 -10..-5 | outdoor −10…−5, tank < 41, fan > 400, supply > 35, valve + bypass OFF, set < 40 | P22 off, Powerful, set 42, bypass ON |
 | `b42_switch` | B42 switch >39 | supply > 39, set 42, valve OFF, fan > 300, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 42, bypass OFF |
-| `b42_off` | B42 off >42 | tank > 42, supply > 41, valve ON, set 42 | set 41, wait 10 s, valve OFF, set 41, wait 1 min, set 39, wait 1 min, valve OFF, Silent, wait 3 min, P22 on (cloud also runs the scene *Slowly cool down* — not included) |
+| `b42_off` | B42 off >42 | tank > 42, supply > 41, valve ON, set 42 | set 41, wait 10 s, valve OFF, set 41, wait 1 min, set 39, wait 1 min, valve OFF, Silent, wait 3 min, then the steps of the scene *Slowly cool down*: set 39, P22 on, wait 2 min, set 38, wait 3 min, set 37 (d#129; the cloud starts the scene and sets P22 on at the same moment) |
 | `b46_on` | B46 on <44 -4..1 (6) | tank < 44, outdoor −4…1, fan > 300, supply > 30, valve + bypass OFF, set < 40 | P22 off, Smart, set 46, bypass ON |
 | `b46_switch` | B46 switch >38 (15, 4 failed) | supply > 38, fan > 40, valve OFF, set 46, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 46, bypass OFF |
 | `b46_off` | B46 off >46 -4..1 (8, 3 failed) | tank > 46, fan > 400, supply > 46, valve ON, outdoor −4…1, flag OFF, set 46 | set 45, bypass OFF, 10 s, set 45, 3 s, valve OFF, 2 s, valve OFF, then set 43 → 41 → 39 → 38 → 35 one per minute, Silent, P22 on |
@@ -256,11 +256,15 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 
 | 2026-11-09 11:58 | B50 on <47 >1, B50 switch >47 >0, B50 switch >45 <1, B50 off >49, B50 preheat exchange off, B50 force heating mode | 0 in the log above; 1 false start at 11:29 (see below) | `b50_on`, `b50_switch_warm`, `b50_switch_cold`, `b50_off`, `b50_preheat_bypass`, `b50_force_heating` (d#128: B50 on / preheat blocked during and 15 min after a defrost) | ON | the DHW cycle the cloud started at 11:29 is ended by the local `b50_off` (tank > 49 °C) |
 
-Still in Smart Life (2026-11-09 11:58): B40 \*, B42 \*, B recovery off, HP silent >0, HP Er03 restart, HP power <-16, HP smart -15..-7, the HOME and LOG scenes. Their GX rules stay Test or Off.
+| 2026-11-09 12:47 | HP Er03 restart, HP silent >0, B40 on <36 -20..-11, B40 switch >37, B40 off >39, B42 on <41 -10..-5, B42 switch >39, B42 off >42, B42 mode silent-smart <44, B42 mode smart-silent >6a, B42 mode powerful-silent >45, B42 mode silent-smart <45 | 0 (outdoor −5…+1 °C) | `hp_er03_restart`, `hp_silent_0`, `b40_on`, `b40_switch`, `b40_off`, `b42_on`, `b42_switch`, `b42_off`, `b42_mode_smart`, `b42_mode_smart45`, `b42_mode_silent_valve`, `b42_mode_powerful_silent` (d#129: B42 off now includes the steps of *Slowly cool down*) | ON | B40 runs at −20…−11 °C and B42 at −10…−5 °C, so they are first checked on a colder day |
+
+**First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
+
+Still in Smart Life (2026-11-09 12:47): B recovery off (its GX rule stays Test), HP power <-16 and HP smart -15..-7 (their conditions can never be true), the HOME and LOG scenes. 25 of the 28 GX rules are On.
 
 **Incident 2026-11-09 11:29 (why B50 was moved too):** with the DF scenes off in the cloud, nothing set the cloud flag *Voksen heating* any more. During the defrost at 11:28 the outdoor sensor (DP 103) heated up to 3 °C and then 36 °C, so the cloud *B50 on* ("outdoor > 1") started a DHW cycle at an outdoor temperature of −1 °C (set 50, bypass ON, P22 off). The cloud flag used to block it. It also beat the local *DF exchange off* to the bypass, so no local rule ran. At 11:48 *B50 switch* moved the valve to the tank; the compressor stood still until 11:52, the normal pause after set point 20. The B50 scenes now run on the GX, where *B50 on* and *B50 preheat* do not start during a defrost or for 15 min after it.
 
-**Watch out while only part is moved:** *HP silent >0* (still in the cloud) also reads the cloud flag, which now stays OFF. During a defrost it can switch the pump to Silent. That does no harm, because the pump runs Silent most of the time anyway.
+Since 12:47 every scene that reads the cloud flag *Voksen heating* runs on the GX with the internal flag, so the cloud flag is no longer used.
 
 ## Roadmap
 

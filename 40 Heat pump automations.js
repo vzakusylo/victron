@@ -64,6 +64,7 @@
 //    longer On (On → Test / Off).
 // 6. d#128: B50 on / B50 preheat do not start during a defrost or DEFROST_QUIET_MIN after it
 //    (outdoor sensor reads high; the cloud B50 on started a DHW cycle that way at 11:29 on 9 Nov).
+// 7. d#129: B42 off includes the steps of the scene "Slowly cool down" (set 39 → 38 → 37).
 // INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
 //    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
 //    context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
@@ -163,8 +164,11 @@ const RULES = [
         when: 'tank > 42, supply > 41, valve ON, set point = 42',
         roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
         check: ({ hp, valve: v }) => n(hp['108']) > 42 && n(hp['102']) > 41 && v['1'] === true && n(hp['125']) === 42,
-        // cloud also runs the tap-to-run scene "Slowly cool down" before P22 on (not read yet, not included)
-        steps: [set(41), wait(10 * S), valve(false), set(41), wait(MIN), set(39), wait(MIN), valve(false), mode('mute'), wait(3 * MIN), p22(true)] },
+        // after "wait 3 min" the cloud starts the tap-to-run scene "Slowly cool down" (set 39,
+        // 2 min, set 38, 3 min, set 37; read 2026-11-09) and sets P22 on right away; the scene's
+        // steps then run on in parallel — here in the same order and timing
+        steps: [set(41), wait(10 * S), valve(false), set(41), wait(MIN), set(39), wait(MIN), valve(false), mode('mute'), wait(3 * MIN),
+            set(39), p22(true), wait(2 * MIN), set(38), wait(3 * MIN), set(37)] },
 
     // B46 · outdoor −4…1 °C (ran on 7–8 Nov)
     { id: 'b46_on', cloud: 'B46 on <44 -4..1', group: 'B46 · outdoor −4…1 °C',
