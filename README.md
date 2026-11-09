@@ -33,7 +33,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Development & deployment](docs/development.md) | repository layout, flow versioning, sync and deploy workflow |
 | [Assumptions, limitations & roadmap](docs/limitations.md) | what the setup assumes, known limits, planned improvements |
 | [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
-| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#135), owner requests, operating instructions |
+| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#136), owner requests, operating instructions |
 
 ## Dashboard pages
 
@@ -109,7 +109,7 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
   - **kWh measured by the meter** and max W, plus the compressor ≈kWh estimate;
   - bypass and DHW hours, and hours with data.
 
-  Switch days with ‹ › or the day chips (or click a row). Each day has a temperature chart with the event lane under it (heating / DHW / defrost) and a separate power chart: compressor W = DC bus voltage × compressor current, and the SA1 meter W when it is reachable; all as 2-minute averages. Click a name in a legend to hide or show that series (remembered in the browser). The 24 h charts *Temperatures* and *Power* were removed in d#135: the same data is here by day. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
+  Switch days with ‹ › or the day chips (or click a row). Each day has a temperature chart with the event lane under it (heating / DHW / defrost) and a separate power chart: compressor W = DC bus voltage × compressor current, and the SA1 meter W when it is reachable; all as 2-minute averages. The legends sit above the charts; click a name to hide or show that series (remembered in the browser). Point at a chart (or tap it) to see a cursor line, a dot per series and a tooltip with the time, the event (heating / dhw / defrost) and every visible value (d#136). The 24 h charts *Temperatures* and *Power* were removed in d#135: the same data is here by day. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
 - **History on the GX (all data points, every 30 s).** One file per hour: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`. When the hour changes, finished hours are gzipped to `HH.csv.gz`. The format "hp1" is a delta CSV:
 
   ```

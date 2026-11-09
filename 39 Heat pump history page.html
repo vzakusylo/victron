@@ -4,6 +4,8 @@
   d#134: day switcher (previous / next, day chips), temperature chart with the event lane, a
   separate power chart (compressor W = DC bus × current, meter W), legends that hide / show a
   series on click. The 24 h ui_charts "Temperatures" and "Power" were removed (same data here).
+  d#136: legends above the charts; pointing at (or tapping) a chart shows a cursor line, a dot
+  per series and a tooltip with the time, the event and every visible value.
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-39).
   Reads the recorder files through "Heat pump command" (37) → exec "Read heat pump history" →
   "Build heat pump history" (38). Sends only read requests: {topic:'summary'} and {topic:'day'}.
@@ -46,6 +48,15 @@
 .hph-key .k.off { opacity: .45; text-decoration: line-through; }
 .hph-key .note { font-size: 12px; opacity: .65; align-self: center; }
 .hph-svg.power { margin-top: 6px; }
+.hph-plot { position: relative; cursor: crosshair; }
+.hph-svg .cursor { stroke: currentColor; stroke-width: 1; opacity: .45; stroke-dasharray: 3 3; }
+.hph-svg .dot { stroke: #fff; stroke-width: 1.2; }
+.hph-tip { position: absolute; top: 4px; transform: translateX(10px); pointer-events: none; z-index: 5; min-width: 150px;
+  background: rgba(30,30,30,.92); color: #fff; border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45; box-shadow: 0 2px 8px rgba(0,0,0,.3); white-space: nowrap; }
+.hph-tip.flip { transform: translateX(calc(-100% - 10px)); }
+.hph-tip .tt { font-weight: 600; margin-bottom: 2px; }
+.hph-tip i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.hph-tip b { font-variant-numeric: tabular-nums; }
 </style>
 
 <div class="hph">
@@ -106,6 +117,11 @@
       <span class="hph-chip">Bypass {{h.day.stats.bypassH}} h · DHW {{h.day.stats.dhwH}} h</span>
     </div>
 
+    <div class="hph-key">
+      <span ng-repeat="s in h.day.chart.temp" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
+      <span class="note">°C, 2-minute averages · point at the chart for values · click a name to hide / show it</span>
+    </div>
+    <div class="hph-plot" ng-mousemove="hpHover($event, 'temp')" ng-click="hpHover($event, 'temp')" ng-mouseleave="h.hov = null">
     <svg viewBox="0 0 760 250" class="hph-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump day chart">
       <g class="grid">
         <line ng-repeat="t in h.day.chart.tTicks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
@@ -120,10 +136,13 @@
         <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" style="stroke:none" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
       </g>
       <g ng-repeat="s in h.day.chart.temp" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+      <line class="cursor" ng-if="h.hov.chart == 'temp'" ng-attr-x1="{{h.hov.x}}" ng-attr-x2="{{h.hov.x}}" ng-attr-y1="{{h.day.chart.t1}}" ng-attr-y2="{{h.day.chart.b2}}"></line>
+      <circle class="dot" ng-if="h.hov.chart == 'temp'" ng-repeat="r in h.hov.rows" ng-show="r.y !== null" ng-attr-cx="{{h.hov.x}}" ng-attr-cy="{{r.y}}" r="3.5" ng-attr-fill="{{r.color}}"></circle>
     </svg>
-    <div class="hph-key">
-      <span ng-repeat="s in h.day.chart.temp" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
-      <span class="note">°C, 2-minute averages · click a name to hide / show it</span>
+    <div class="hph-tip" ng-if="h.hov.chart == 'temp'" ng-style="{left: h.hov.leftPct + '%'}" ng-class="{flip: h.hov.flip}">
+      <div class="tt">{{h.day.day}} {{h.hov.time}}<span ng-if="h.hov.ev"> · {{h.hov.ev}}</span></div>
+      <div ng-repeat="r in h.hov.rows"><i ng-style="{background: r.color}"></i>{{r.name}} <b>{{r.v === null ? '—' : r.v}}</b> {{r.v === null ? '' : r.unit}}</div>
+    </div>
     </div>
     <div class="hph-legend" ng-if="h.day.chart.eventLegend">
       <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', vertical-align: '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
@@ -132,6 +151,11 @@
 
     <div ng-if="h.day.chart.power && h.day.chart.power.series.length">
       <h4>Power, W</h4>
+      <div class="hph-key">
+        <span ng-repeat="s in h.day.chart.power.series" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
+        <span class="note">W, 2-minute averages · compressor = DC bus voltage (DP 114) × compressor current (DP 112)</span>
+      </div>
+      <div class="hph-plot" ng-mousemove="hpHover($event, 'power')" ng-click="hpHover($event, 'power')" ng-mouseleave="h.hov = null">
       <svg viewBox="0 0 760 156" class="hph-svg power" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump power by day">
         <g class="grid">
           <line ng-repeat="t in h.day.chart.power.ticks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
@@ -143,10 +167,13 @@
           <text x="4" ng-attr-y="{{h.day.chart.power.top + 4}}">W</text>
         </g>
         <g ng-repeat="s in h.day.chart.power.series" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+        <line class="cursor" ng-if="h.hov.chart == 'power'" ng-attr-x1="{{h.hov.x}}" ng-attr-x2="{{h.hov.x}}" ng-attr-y1="{{h.day.chart.power.top}}" ng-attr-y2="{{h.day.chart.power.bottom}}"></line>
+        <circle class="dot" ng-if="h.hov.chart == 'power'" ng-repeat="r in h.hov.rows" ng-show="r.y !== null" ng-attr-cx="{{h.hov.x}}" ng-attr-cy="{{r.y}}" r="3.5" ng-attr-fill="{{r.color}}"></circle>
       </svg>
-      <div class="hph-key">
-        <span ng-repeat="s in h.day.chart.power.series" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
-        <span class="note">W, 2-minute averages · compressor = DC bus voltage (DP 114) × compressor current (DP 112)</span>
+      <div class="hph-tip" ng-if="h.hov.chart == 'power'" ng-style="{left: h.hov.leftPct + '%'}" ng-class="{flip: h.hov.flip}">
+        <div class="tt">{{h.day.day}} {{h.hov.time}}<span ng-if="h.hov.ev"> · {{h.hov.ev}}</span></div>
+        <div ng-repeat="r in h.hov.rows"><i ng-style="{background: r.color}"></i>{{r.name}} <b>{{r.v === null ? '—' : r.v}}</b> {{r.v === null ? '' : r.unit}}</div>
+      </div>
       </div>
     </div>
 
@@ -173,6 +200,33 @@
 (function (scope) {
     scope.h = { sum: null, day: null, sel: null, loading: false, hide: {} };
     try { scope.h.hide = JSON.parse(localStorage.getItem('hphHide') || '{}') || {}; } catch (e) { scope.h.hide = {}; }
+    // hover / tap on a chart: values of the visible series at that 2-min bucket (d#136)
+    var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    scope.hpHover = function (e, which) {
+        var c = scope.h.day && scope.h.day.chart;
+        var svg = e.currentTarget && e.currentTarget.querySelector('svg');
+        if (!c || !c.nb || !svg) return;
+        var r = svg.getBoundingClientRect();
+        var vx = (e.clientX - r.left) / r.width * 760;
+        if (vx < c.left || vx > c.right) { scope.h.hov = null; return; }
+        var i = Math.max(0, Math.min(c.nb - 1, Math.floor((vx - c.left) / (c.right - c.left) * c.nb)));
+        var xb = c.left + (i + 0.5) / c.nb * (c.right - c.left);
+        var list = which === 'temp' ? c.temp : c.power.series;
+        var y = which === 'temp'
+            ? function (v) { return c.t1 + (c.yMax - v) / (c.yMax - c.yMin) * (c.b1 - c.t1); }
+            : function (v) { return c.power.bottom - v / c.power.max * (c.power.bottom - c.power.top); };
+        var rows = [];
+        list.forEach(function (s) {
+            if (scope.h.hide[s.name] || !s.v) return;
+            var v = s.v[i];
+            rows.push({ name: s.name, color: s.color, unit: s.unit, v: v === undefined ? null : v, y: v === null || v === undefined ? null : y(v) });
+        });
+        var ev = null;
+        (c.events || []).forEach(function (x) { if (xb >= x.x && xb <= x.x + x.w) ev = x.kind; });
+        var sec = i * c.bucketS;
+        scope.h.hov = { chart: which, x: xb, leftPct: xb / 760 * 100, flip: xb > 520, rows: rows, ev: ev,
+            time: pad2(Math.floor(sec / 3600)) + ':' + pad2(Math.floor(sec % 3600 / 60)) };
+    };
     scope.hpToggle = function (name) {
         scope.h.hide[name] = !scope.h.hide[name];
         try { localStorage.setItem('hphHide', JSON.stringify(scope.h.hide)); } catch (e) { /* no storage */ }

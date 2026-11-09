@@ -32,6 +32,7 @@
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 6. d#136: chart.temp[].v / chart.power.series[].v = value per 2-min bucket (hover tooltip), chart.nb.
 // 5. d#134: the power panel under the event lane is removed (owner); power is a separate chart
 //    (chart.power) with compressor power = DC bus voltage (DP 114) × current (DP 112) (owner;
 //    reads ~1.7× the nameplate-based A × 220 W/A) and the meter W; the ≈kWh estimate uses it too.
@@ -223,6 +224,8 @@ function chart(rows) {
         if (cur.length > 1) out.push(cur.join(' '));
         return out;
     }
+    // d#136: value per bucket for the hover tooltip of the page (null = no data)
+    const vals = (j, dec) => buckets.map((b) => { const v = val(b, j); return v === null ? null : +v.toFixed(dec); });
     const tTicks = [];
     for (let v = yMin; v <= yMax; v += 10) tTicks.push({ label: v, y: yT(v) });
     const xTicks = [];
@@ -253,14 +256,14 @@ function chart(rows) {
 
     return {
         viewBox: '0 0 ' + W + ' 250',
-        left: L, right: W - R, t1: T1, b1: B1, b2: B2,
+        left: L, right: W - R, t1: T1, b1: B1, b2: B2, nb, bucketS: BUCKET_S, yMin, yMax,
         evTop: B1 + 6, evH: 14,
         events: evOut,
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks,
-        temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })).filter((s) => s.segs.length),
-        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks,
-            series: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length) }
+        temp: tempDefs.map(([name, k, color]) => ({ name, color, unit: '°C', segs: segs(K[k], yT), v: vals(K[k], 1) })).filter((s) => s.segs.length),
+        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks, max: pTop,
+            series: powDefs.map(([name, j, color]) => ({ name, color, unit: 'W', segs: segs(j, yP), v: vals(j, 0) })).filter((s) => s.segs.length) }
     };
 }
 

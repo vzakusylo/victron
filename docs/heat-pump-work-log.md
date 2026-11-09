@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-09: local automations (d#123–d#135)
+### 2026-11-08 – 2026-11-09: local automations (d#123–d#136)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -37,6 +37,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | — | "Read the accumulator and exchange plate sensors from the local network, not the cloud." | Test (not yet in the flow): the sensors sleep, but on wake they send a UDP beacon. *Exchange plate* is at 192.168.1.116 (protocol 3.4); 21:21 a local connection took 0.4 s and the sensor pushed DP 1 = 296 (29.6 °C) and DP 2 = 30 (%). The `get` request itself is answered with "json obj data unvalid" — the data comes as a push right after the connect. *Accumulator tank temp* is probably 192.168.1.160 (a beacon was seen, not decoded yet). Local keys of both are on the GX in `grid-control-config/tuya-local-sensors.json` (mode 600). | Built in d#135 (next row). |
 | d#135 | "Build it" (local reader for both sensors). | `tools/tuya-local-sensors.js` listens for the beacons (630 s per run, restarted every 10 min, 30 s overlap), connects on each wake and prints the pushed DPs; function `46` passes them to `34` with the reading time; `44` asks the cloud only for a sensor without a local reading for 24 h; sensors count as fresh for 24 h (they report only on change). | Deployed 21:33; listener running. |
 | d#134 / d#135 | "Remove the power chart at the bottom under the events." Then: "Remove *Temperatures (24 h)*, it duplicates the day navigation; add a nice legend there with day switching; move *Power (24 h), W* to the day view too; power = DC bus voltage × compressor current; add colour legends." | Power panel under the event lane removed; the 24 h ui_charts *Temperatures* and *Power* removed; history page: day switcher (‹ ›, day chips), temperature chart with event lane, separate power chart (DC bus × current, meter W), legends that hide / show a series on click. The ≈kWh estimate also uses DC bus × current (about 1.7× the nameplate-based A × 220 W/A of d#133; the Compressor load card stays on the nameplate). | 9 Nov: 23.4 kWh by DC bus × current. |
+| d#136 | "Put the legend (supply, return, tank …) above the chart; show the values when the mouse points at it, as before." | Legends above the temperature and power charts; pointing at (or tapping) a chart shows a cursor line, a dot per series and a tooltip with the time, the event and every visible value (the builder sends a value per 2-min bucket). | Checked in a browser with the data of 9 Nov; deployed 21:41. |
 
 ## Instructions
 
