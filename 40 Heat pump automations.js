@@ -71,6 +71,14 @@
 //    DF switch to heating, B recovery and HP silent >0 are treated as Off (DHW_REPLACES).
 // 9. d#131: after a node start without settings in the context, the settings file is read again
 //    (output 7 → "Read automation settings"); On Start sets `needLoad`.
+// 10. d#134: the 23 rules the DHW controller replaced are deleted (B40 / B42 / B46 / B50 with
+//    their mode rules, DF switch to heating, B recovery off, HP silent >0; owner request). Left:
+//    DF exchange off / on, HP Er03 restart and the two dead HP mode rules. The tank is heated only
+//    by the DHW controller now: with it Off or Test nothing starts a DHW cycle.
+//    Every tick also writes flow.dhwView (= the controller's page model) for the boiler curve
+//    on the Heat Pump page. DHW cycle without preheat (owner): start = P22 off, Silent, bypass
+//    OFF, set point 20 → compressor stops → valve to the tank → set point ≤ return + gap. After a
+//    defrost during DHW the same stop → valve sequence runs again.
 // INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
 //    context.set('needLoad', context.get('settings') === undefined);
 //    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
@@ -126,159 +134,8 @@ const RULES = [
         roles: ['hp', 'bypass'], cooldownMs: 10 * MIN,
         check: ({ hp, bypass: b }) => b['1'] === true && n(hp['116']) > 300 && n(hp['102']) > 27 && n(hp['125']) < 45 && String(hp['132']) === '1',
         steps: [bypass(false), wait(7 * MIN), flagStep(false)] },
-    { id: 'df_switch_to_heating', cloud: 'DF switch to heating', group: 'Defrost',
-        name: 'Defrost during DHW → valve to heating, bypass ON, flag ON',
-        when: 'fan 0, compressor > 30 Hz, valve ON, outdoor < 14 °C, flag OFF, set point 40 / 42 / 46 / 50',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['116']) === 0 && n(hp['115']) > 30 && v['1'] === true && n(hp['103']) < 14 && !flag && [40, 42, 46, 50].includes(n(hp['125'])),
-        steps: [note('defrost during DHW'), flagStep(true), valve(false), bypass(true)] },
-
-    // B40 · outdoor −20…−11 °C
-    { id: 'b40_on', cloud: 'B40 on <36 -20..-11', group: 'B40 · outdoor −20…−11 °C',
-        name: 'B40 start: preheat with bypass',
-        when: 'tank < 36, valve OFF, supply > 35, outdoor −20…−11, bypass OFF, set point < 40',
-        roles: ['hp', 'valve', 'bypass'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, bypass: b }) => n(hp['108']) < 36 && v['1'] === false && n(hp['102']) > 35 && between(hp['103'], -20, -11) && b['1'] === false && n(hp['125']) < 40,
-        steps: [p22(false), mode('strong'), set(40), bypass(true)] },
-    { id: 'b40_switch', cloud: 'B40 switch >37', group: 'B40 · outdoor −20…−11 °C',
-        name: 'B40 switch valve to the tank',
-        when: 'valve OFF, fan > 250, set point = 40, supply > 37, flag OFF',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => v['1'] === false && n(hp['116']) > 250 && n(hp['125']) === 40 && n(hp['102']) > 37 && !flag,
-        steps: [flagStep(true), set(20), wait(MIN), valve(true), set(40), bypass(false)] },
-    { id: 'b40_off', cloud: 'B40 off >39', group: 'B40 · outdoor −20…−11 °C',
-        name: 'B40 end: valve back to heating',
-        when: 'outdoor −20…−11, tank > 39, fan > 300, supply > 38, set point = 40, valve ON',
-        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v }) => between(hp['103'], -20, -11) && n(hp['108']) > 39 && n(hp['116']) > 300 && n(hp['102']) > 38 && n(hp['125']) === 40 && v['1'] === true,
-        steps: [set(37), valve(false), wait(4 * S), set(37), valve(false), p22(true)] },
-
-    // B42 · outdoor −10…−5 °C
-    { id: 'b42_on', cloud: 'B42 on <41 -10..-5', group: 'B42 · outdoor −10…−5 °C',
-        name: 'B42 start: preheat with bypass',
-        when: 'outdoor −10…−5, tank < 41, fan > 400, supply > 35, valve OFF, bypass OFF, set point < 40',
-        roles: ['hp', 'valve', 'bypass'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, bypass: b }) => between(hp['103'], -10, -5) && n(hp['108']) < 41 && n(hp['116']) > 400 && n(hp['102']) > 35 && v['1'] === false && b['1'] === false && n(hp['125']) < 40,
-        steps: [p22(false), mode('strong'), set(42), bypass(true)] },
-    { id: 'b42_switch', cloud: 'B42 switch >39', group: 'B42 · outdoor −10…−5 °C',
-        name: 'B42 switch valve to the tank',
-        when: 'supply > 39, set point = 42, valve OFF, fan > 300, flag OFF',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['102']) > 39 && n(hp['125']) === 42 && v['1'] === false && n(hp['116']) > 300 && !flag,
-        steps: [flagStep(true), set(20), wait(MIN), valve(true), set(42), bypass(false)] },
-    { id: 'b42_off', cloud: 'B42 off >42', group: 'B42 · outdoor −10…−5 °C',
-        name: 'B42 end: set point down, valve back, P22 on',
-        when: 'tank > 42, supply > 41, valve ON, set point = 42',
-        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v }) => n(hp['108']) > 42 && n(hp['102']) > 41 && v['1'] === true && n(hp['125']) === 42,
-        // after "wait 3 min" the cloud starts the tap-to-run scene "Slowly cool down" (set 39,
-        // 2 min, set 38, 3 min, set 37; read 2026-11-09) and sets P22 on right away; the scene's
-        // steps then run on in parallel — here in the same order and timing
-        steps: [set(41), wait(10 * S), valve(false), set(41), wait(MIN), set(39), wait(MIN), valve(false), mode('mute'), wait(3 * MIN),
-            set(39), p22(true), wait(2 * MIN), set(38), wait(3 * MIN), set(37)] },
-
-    // B46 · outdoor −4…1 °C (ran on 7–8 Nov)
-    { id: 'b46_on', cloud: 'B46 on <44 -4..1', group: 'B46 · outdoor −4…1 °C',
-        name: 'B46 start: preheat with bypass',
-        when: 'tank < 44, outdoor −4…1, fan > 300, supply > 30, valve OFF, bypass OFF, set point < 40',
-        roles: ['hp', 'valve', 'bypass'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, bypass: b }) => n(hp['108']) < 44 && between(hp['103'], -4, 1) && n(hp['116']) > 300 && n(hp['102']) > 30 && v['1'] === false && b['1'] === false && n(hp['125']) < 40,
-        steps: [p22(false), mode('smart'), set(46), bypass(true)] },
-    { id: 'b46_switch', cloud: 'B46 switch >38', group: 'B46 · outdoor −4…1 °C',
-        name: 'B46 switch valve to the tank',
-        when: 'supply > 38, fan > 40, valve OFF, set point = 46, flag OFF',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['102']) > 38 && n(hp['116']) > 40 && v['1'] === false && n(hp['125']) === 46 && !flag,
-        steps: [flagStep(true), set(20), wait(MIN), valve(true), set(46), bypass(false)] },
-    { id: 'b46_off', cloud: 'B46 off >46 -4..1', group: 'B46 · outdoor −4…1 °C',
-        name: 'B46 end: valve back, set point down in steps, P22 on',
-        when: 'tank > 46, fan > 400, supply > 46, valve ON, outdoor −4…1, flag OFF, set point = 46',
-        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['108']) > 46 && n(hp['116']) > 400 && n(hp['102']) > 46 && v['1'] === true && between(hp['103'], -4, 1) && !flag && n(hp['125']) === 46,
-        steps: [set(45), bypass(false), wait(10 * S), set(45), wait(3 * S), valve(false), wait(2 * S), valve(false),
-            wait(MIN), set(43), wait(MIN), set(41), wait(MIN), set(39), wait(MIN), set(38), wait(MIN), set(35), mode('mute'), p22(true)] },
-
-    // B50 · outdoor > 1 °C
-    { id: 'b50_on', cloud: 'B50 on <47 >1', group: 'B50 · outdoor > 1 °C',
-        name: 'B50 start: preheat with bypass',
-        when: 'tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on; not during / ' + DEFROST_QUIET_MIN + ' min after a defrost (outdoor sensor reads high then)',
-        roles: ['hp', 'valve', 'bypass'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, bypass: b, flag, recentDefrost }) => n(hp['108']) < 47 && n(hp['103']) > 1 && v['1'] === false && !flag && b['1'] === false && hp['1'] === true && n(hp['125']) !== 50 && !recentDefrost,
-        steps: [p22(false), set(50), bypass(true)] },
-    { id: 'b50_switch_warm', cloud: 'B50 switch >47 >0', group: 'B50 · outdoor > 1 °C',
-        name: 'B50 switch valve to the tank (outdoor > 0)',
-        when: 'valve OFF, set point = 50, outdoor > 0, tank < 49, flag OFF, supply > 47',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => v['1'] === false && n(hp['125']) === 50 && n(hp['103']) > 0 && n(hp['108']) < 49 && !flag && n(hp['102']) > 47,
-        steps: [note('B50 switch'), flagStep(true), set(20), wait(MIN), valve(true), set(50), bypass(false)] },
-    { id: 'b50_switch_cold', cloud: 'B50 switch >45 <1', group: 'B50 · outdoor > 1 °C',
-        name: 'B50 switch valve to the tank (outdoor < 1)',
-        when: 'supply > 45, set point = 50, valve OFF, outdoor < 1, flag OFF, tank < 49',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['102']) > 45 && n(hp['125']) === 50 && v['1'] === false && n(hp['103']) < 1 && !flag && n(hp['108']) < 49,
-        steps: [flagStep(true), set(20), wait(MIN), valve(true), set(50), bypass(false)] },
-    { id: 'b50_off', cloud: 'B50 off >49', group: 'B50 · outdoor > 1 °C',
-        name: 'B50 end: Silent, set point 25, valve back, P22 on',
-        when: 'tank > 49, valve ON',
-        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v }) => n(hp['108']) > 49 && v['1'] === true,
-        steps: [mode('mute'), set(25), valve(false), wait(10 * S), valve(false), set(25), wait(10 * S), valve(false), wait(10 * S), flagStep(true), wait(10 * S), flagStep(false), p22(true)] },
-    { id: 'b50_preheat_bypass', cloud: 'B50 preheat exchange off', group: 'B50 · outdoor > 1 °C',
-        name: 'B50 preheat: bypass ON',
-        when: 'set point = 50, valve OFF, bypass OFF, tank < 50; not during / ' + DEFROST_QUIET_MIN + ' min after a defrost',
-        roles: ['hp', 'valve', 'bypass'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v, bypass: b, recentDefrost }) => n(hp['125']) === 50 && v['1'] === false && b['1'] === false && n(hp['108']) < 50 && !recentDefrost,
-        steps: [bypass(true)] },
-
-    // B42 mode
-    { id: 'b42_mode_smart', cloud: 'B42 mode silent-smart <44', group: 'B42 · outdoor −10…−5 °C',
-        name: 'B42: Silent → Smart when supply < 44 °C',
-        when: 'mode Silent, set point = 42, supply < 44',
-        roles: ['hp'], cooldownMs: 10 * MIN,
-        check: ({ hp }) => hp['2'] === 'mute' && n(hp['125']) === 42 && n(hp['102']) < 44,
-        steps: [mode('smart')] },
-    { id: 'b42_mode_smart45', cloud: 'B42 mode silent-smart <45', group: 'B42 · outdoor −10…−5 °C', def: 'off',
-        name: 'B42: Silent → Smart when supply < 45 °C, fan > 300',
-        when: 'mode Silent, supply < 45, fan > 300, set point = 42',
-        roles: ['hp'], cooldownMs: 10 * MIN,
-        check: ({ hp }) => hp['2'] === 'mute' && n(hp['102']) < 45 && n(hp['116']) > 300 && n(hp['125']) === 42,
-        steps: [mode('smart')] },
-    { id: 'b42_mode_silent_valve', cloud: 'B42 mode smart-silent >6a', group: 'B42 · outdoor −10…−5 °C', def: 'off',
-        name: 'B42: Smart → Silent when supply > 44 °C (valve on DHW)',
-        when: 'set point = 42, supply > 44, mode Smart, valve ON',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v }) => n(hp['125']) === 42 && n(hp['102']) > 44 && hp['2'] === 'smart' && v['1'] === true,
-        steps: [mode('mute')] },
-    { id: 'b42_mode_powerful_silent', cloud: 'B42 mode powerful-silent >45', group: 'B42 · outdoor −10…−5 °C', def: 'off',
-        name: 'B42: Smart / Powerful → Silent when supply > 45 °C',
-        when: 'supply > 45, fan > 300, set point = 42, mode Smart or Powerful',
-        roles: ['hp'], cooldownMs: 10 * MIN,
-        check: ({ hp }) => n(hp['102']) > 45 && n(hp['116']) > 300 && n(hp['125']) === 42 && (hp['2'] === 'smart' || hp['2'] === 'strong'),
-        steps: [mode('mute')] },
-
-    // B46 mode
-    { id: 'b46_mode_silent', cloud: 'B46 mode smart-silent >48', group: 'B46 · outdoor −4…1 °C', def: 'off',
-        name: 'B46: Smart → Silent when supply > 48 °C',
-        when: 'mode Smart, set point = 46, supply > 48',
-        roles: ['hp'], cooldownMs: 10 * MIN,
-        check: ({ hp }) => hp['2'] === 'smart' && n(hp['125']) === 46 && n(hp['102']) > 48,
-        steps: [mode('mute')] },
-
-    // B50 work mode
-    { id: 'b50_force_heating', cloud: 'B50 force heating mode', group: 'B50 · outdoor > 1 °C', def: 'off',
-        name: 'B50: work mode Cooling → Heating',
-        when: 'set point = 50, work mode Cooling',
-        roles: ['hp'], cooldownMs: 10 * MIN,
-        check: ({ hp }) => n(hp['125']) === 50 && hp['5'] === 'cool',
-        steps: [workMode('heat')] },
 
     // Heat pump (HP scenes)
-    { id: 'hp_silent_0', cloud: 'HP silent >0', group: 'Heat pump', def: 'off',
-        name: 'Heating above 0 °C outdoor → Silent',
-        when: 'outdoor > 0, flag OFF, set point < 40, valve OFF (and not already Silent)',
-        roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
-        check: ({ hp, valve: v, flag }) => n(hp['103']) > 0 && !flag && n(hp['125']) < 40 && v['1'] === false && hp['2'] !== 'mute',
-        steps: [mode('mute')] },
     { id: 'hp_er03_restart', cloud: 'HP Er03 restart', group: 'Heat pump', def: 'off',
         name: 'Er03 water flow failure on DHW → valve back, restart the pump',
         when: 'fault Er03 (water flow), valve ON',
@@ -298,14 +155,6 @@ const RULES = [
         roles: ['hp'], cooldownMs: 30 * MIN,
         check: ({ hp }) => n(hp['103']) < -7 && n(hp['103']) > -15 && n(hp['116']) > 250 && n(hp['125']) < 35 && n(hp['125']) > 35 && n(hp['102']) > 30 && (hp['2'] === 'strong' || hp['2'] === 'mute'),
         steps: [mode('smart'), wait(15 * MIN), note('HP smart -15..-7')] },
-
-    // Boiler safety
-    { id: 'b_recovery_valve_off', cloud: 'B recovery off', group: 'Boiler safety',
-        name: 'Recovery: valve back to heating',
-        when: 'valve ON while the set point is a heating value (33 / 35 / 36 / 37)',
-        roles: ['hp', 'valve'], cooldownMs: 10 * MIN,
-        check: ({ hp, valve: v }) => v['1'] === true && [33, 35, 36, 37].includes(n(hp['125'])),
-        steps: [valve(false)] }
 ];
 const OUT = { hp: 1, bypass: 3, valve: 4 };
 const OUT_LOG = 5;
@@ -318,8 +167,8 @@ const DHW_DEFAULTS = {
     frostLimit: -20,     // below: no DHW by the heat pump (electric heater only)
     hyst: 3,             // start when tank < target − hyst
     gap: 5,              // DHW: set point ≤ return + gap
-    switchMargin: 3,     // switch when supply ≥ tank + margin (it drops 1–2 °C while the compressor stops)
-    preheatAdd: 4,       // preheat set point goal = tank + preheatAdd
+    switchMargin: 3,     // unused since d#134 (no preheat), kept so older settings files still load
+    preheatAdd: 4,       // unused since d#134 (no preheat)
     supplyAdd: 4,        // DHW supply target = tank target + supplyAdd
     maxSupply: 55,       // set point cap
     minIntervalH: 2,     // at most one DHW cycle per … h
@@ -332,11 +181,6 @@ const DHW_DEFAULTS = {
 const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], switchMargin: [0, 5], preheatAdd: [1, 10],
     supplyAdd: [1, 10], maxSupply: [45, 55], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180],
     coldLimit: [-25, 5], lagC: [1, 10] };
-// Local rules the controller replaces: they are treated as Off while the controller is On.
-const DHW_REPLACES = ['b40_on', 'b40_switch', 'b40_off', 'b42_on', 'b42_switch', 'b42_off', 'b42_mode_smart', 'b42_mode_smart45',
-    'b42_mode_silent_valve', 'b42_mode_powerful_silent', 'b46_on', 'b46_switch', 'b46_off', 'b46_mode_silent', 'b50_on',
-    'b50_switch_warm', 'b50_switch_cold', 'b50_off', 'b50_preheat_bypass', 'b50_force_heating', 'df_switch_to_heating',
-    'b_recovery_valve_off', 'hp_silent_0'];
 // raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
 function dhwCfg(raw, base) {
     const c = JSON.parse(JSON.stringify(base || DHW_DEFAULTS));
@@ -547,11 +391,13 @@ function stopLive(reason) {
 const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
 
 // ---- DHW controller (d#130) ----------------------------------------------------------
-// One state machine instead of the B* rules: tank target from the outdoor curve, preheat
-// until the supply reaches the tank, compressor stop (set point 20), valve to the tank,
-// set point ramped and kept ≤ return + gap, power Silent → Smart (→ Powerful) only when the
-// supply does not rise, defrost during DHW on the heating side, smooth ramp back to heating.
-// States: HEATING → PREHEAT → STOP → DHW (⇄ DEFROST_DHW) → RAMPDOWN → HEATING.
+// One state machine instead of the B* rules: tank target from the outdoor curve, compressor
+// stop (set point 20), valve to the tank, set point ramped and kept ≤ return + gap, power
+// Silent → Smart (→ Powerful) only when the supply does not rise, defrost during DHW on the
+// heating side (then stop + valve to the tank again), smooth ramp back to heating.
+// States: HEATING → STOP → DHW (⇄ DEFROST_DHW → STOP) → RAMPDOWN → HEATING.
+// d#134 (owner): no preheat with the bypass any more; PREHEAT is only left for a cycle saved by
+// an older version and goes straight to STOP.
 function dhwState() {
     return ctx('dhw', { state: 'HEATING', since: now, run: null, live: false, lastEnd: 0, setCmd: null, rampAt: 0,
         startAt: 0, startTank: null, streak: 0, outS: [], outAvg: null, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
@@ -563,7 +409,7 @@ function dhwModel() {
     return { mode: modeOf(DHW_ID), state: d.state, since: d.since, why: d.why, waitNote: d.waitNote, outAvg: out,
         target: out === null ? null : (out < c.frostLimit ? null : curveAt(c.curve, out)), frost: out !== null && out < c.frostLimit,
         setCmd: d.setCmd, startTank: d.startTank, startAt: d.startAt, lastEnd: d.lastEnd,
-        nextStart: d.lastEnd ? d.lastEnd + c.minIntervalH * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c, replaced: DHW_REPLACES };
+        nextStart: d.lastEnd ? d.lastEnd + c.minIntervalH * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c };
 }
 function dhwLag(d) {
     const s = d.lagS || [];
@@ -658,26 +504,18 @@ function dhwTick() {
         if (d.streak >= HOLD) {
             d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
             logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
-                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C → preheat (bypass ON, P22 off, Silent)' });
-            d.goal = Math.min(c.maxSupply, Math.round(tank + c.preheatAdd));
-            d.setCmd = Number.isFinite(n(H['125'])) ? n(H['125']) : 35;
-            write(p22(false)); modeTo('mute'); if (!bypassOn) write(bypass(true));
-            go('PREHEAT', 'preheat: set point ramps ' + d.setCmd + ' → ' + d.goal + ' °C, switch at supply ≥ ' + (tank + c.switchMargin) + ' °C and return ≥ ' + (tank - 5) + ' °C');
+                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C → P22 off, Silent, set point 20 (compressor stops), then valve to the tank' });
+            // d#134 (owner): no preheat — stop the compressor, switch the valve, heat the tank
+            write(p22(false)); modeTo('mute'); if (bypassOn) write(bypass(false));
+            write(set(20)); d.setCmd = 20; d.rampAt = now;
+            go('STOP', 'set point 20 (compressor stops) before the valve switch');
         }
         break;
     }
     case 'PREHEAT': {
-        if (defNow) { d.why = 'defrost during preheat — waiting'; break; }
-        if (d.setCmd < d.goal && now - d.rampAt >= 30 * S) setTo(d.setCmd + 1);
-        if (sup >= tank + c.switchMargin && ret >= tank - 5) {
-            write(set(20)); d.setCmd = 20;
-            go('STOP', 'supply ' + sup + ' °C ≥ tank ' + tank + ' + ' + c.switchMargin + ', return ' + ret + ' °C → set point 20 (compressor stops) before the valve switch');
-        } else if (elapsed >= 30 * MIN) {
-            endCycle('preheat did not reach the tank temperature in 30 min');
-        } else if (elapsed >= 20 * MIN && H['2'] === 'mute') {
-            modeTo('smart'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'preheat slow (20 min) → Smart' });
-        }
-        d.why = 'preheat: supply ' + sup + ' / return ' + ret + ' °C, need ≥ ' + (tank + c.switchMargin) + ' / ' + (tank - 5);
+        // no preheat since d#134; a cycle saved in this state (older version) goes on with the stop
+        write(set(20)); d.setCmd = 20; d.rampAt = now;
+        go('STOP', 'set point 20 (compressor stops) before the valve switch (preheat removed)');
         break;
     }
     case 'STOP': {
@@ -726,8 +564,8 @@ function dhwTick() {
         if (!defNow && fan > 300) { if (!d.fanOkSince) d.fanOkSince = now; } else d.fanOkSince = 0;
         if (cycleMin >= maxDur) { endCycle('max duration during a defrost'); break; }
         if (d.fanOkSince && now - d.fanOkSince >= MIN) {
-            d.goal = Math.min(c.maxSupply, Math.round(tank + c.preheatAdd)); d.rampAt = now;
-            go('PREHEAT', 'defrost over → preheat again (supply must reach the tank ' + tank + ' °C before the valve switch)');
+            write(set(20)); d.setCmd = 20; d.rampAt = now;
+            go('STOP', 'defrost over → set point 20 (compressor stops), then valve to the tank again');
         }
         d.why = 'defrost during DHW: valve on heating, waiting for the fan';
         break;
@@ -783,7 +621,7 @@ if (msg.topic === 'ui') {
         settings.modes[DHW_ID] = p.mode;
         persist();
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
-            + (p.mode === 'live' ? ' — the ' + DHW_REPLACES.length + ' B* / mode / recovery rules it replaces are Off now' : '') });
+            + (p.mode !== 'live' ? ' — no other rule heats the tank now' : '') });
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object') {
@@ -850,7 +688,6 @@ for (const r of RULES) {
     const rt = runtime[r.id] || { streak: 0, lastFire: 0 };
     runtime[r.id] = rt;
     if (md === 'off') { rt.ok = false; rt.streak = 0; rt.detail = 'rule off'; continue; }
-    if (modeOf(DHW_ID) === 'live' && DHW_REPLACES.includes(r.id)) { rt.ok = false; rt.streak = 0; rt.detail = 'replaced by the DHW controller (On)'; continue; }
     if (seqs[r.id]) { rt.ok = false; rt.streak = 0; rt.detail = 'running step ' + (seqs[r.id].idx + 1) + '/' + seqs[r.id].total; continue; }
     const notReady = r.roles.filter((role) => !ready(role));
     if (notReady.length) { rt.ok = false; rt.streak = 0; rt.detail = notReady.join(', ') + ' not connected / stale'; continue; }
@@ -871,6 +708,8 @@ for (const r of RULES) {
     }
 }
 dhwTick();
+// d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
+flow.set('dhwView', Object.assign(dhwModel(), { at: now }));
 persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;

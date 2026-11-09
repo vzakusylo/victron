@@ -83,15 +83,17 @@ The target tank temperature comes from points (outdoor → tank °C), with linea
 
 | State | What the controller does | Next |
 |---|---|---|
-| HEATING | Pump on its curve (P22 on, valve OFF, bypass OFF). | tank < target − hysteresis, start allowed → PREHEAT |
-| PREHEAT | P22 off, bypass ON (small circuit), Silent. Set point ramps from the current value to tank + margin (default +4 °C), +1 °C per 30 s. | supply ≥ tank + switch margin (default +1 °C) **and** return ≥ tank − 5 °C → STOP; 20 min without reaching it → Smart, 30 min → give up (log, back to HEATING) |
-| STOP | Set point 20 (compressor stops, as today). | compressor 0 Hz or 90 s → SWITCH |
+| HEATING | Pump on its curve (P22 on, valve OFF, bypass OFF). | tank < target − hysteresis, start allowed → STOP |
+| ~~PREHEAT~~ | **Removed in d#134** (owner): the start goes straight to STOP. Was: P22 off, bypass ON, set point ramped to tank + 4 °C until supply ≥ tank + margin. A cycle saved in this state by an older version goes on with STOP. | → STOP |
+| STOP | P22 off, Silent, bypass OFF, set point 20 (compressor stops). | compressor 0 Hz for 20 s or 60 s → valve ON (tank), bypass OFF, set point = min(supply target, return + gap) → DHW (SWITCH is one step of the code) |
 | SWITCH | Valve ON (tank), bypass OFF. | 10 s → DHW |
 | DHW | Set point = min(supply target, return + gap). Supply target = tank target + 4 °C (max 55). Ramp at most +1 °C per minute. Silent; Smart only if the supply rises < 0.2 °C/min for 10 min while below the supply target; Powerful never by default (setting). | tank ≥ target → END; defrost sign 20 s → DEFROST_DHW; max duration → END |
-| DEFROST_DHW | Valve OFF (heating side), bypass ON: the defrost takes its heat from the small circuit, not from the tank (R6). | defrost over (fan > 300 for 60 s) → PREHEAT again (supply must reach the tank again) |
+| DEFROST_DHW | Valve OFF (heating side), bypass ON: the defrost takes its heat from the small circuit, not from the tank (R6). | defrost over (fan > 300 for 60 s) → STOP again (set point 20, then valve to the tank) |
 | END | Valve OFF, bypass OFF, set point down 1 °C per minute to the heating curve value, Silent, P22 on. | → HEATING |
 
-The heating defrost rules (DF exchange off / on 31) stay as they are. B recovery stays as a watchdog: valve ON while the controller is not in SWITCH / DHW → valve OFF.
+The heating defrost rules (DF exchange off / on 31) stay as they are. The controller has its own watchdog instead of B recovery: valve ON for 1 min outside a cycle → valve OFF.
+
+**Without preheat (d#134, owner decision):** the valve switches to the tank while the supply is still at heating temperature (about the return, 30–38 °C) and below the tank. The tank sensor may drop by 1–3 °C at the start (point 1 of the review); the owner accepts this for a simpler, shorter cycle without the small-circuit run at high frequency (point 2).
 
 ### 3.3 Power and compressor protection (R9, R11, R13, R14)
 
@@ -106,14 +108,14 @@ From the recorder data, no new data needed: **DHW** = valve ON, **defrost** = fa
 
 ### 3.5 Dashboard settings (R3, R13)
 
-Curve points, hysteresis, frost limit, gap supply − return, switch margin, max duration, min interval, allow Powerful, Off / Test / On for the controller (the same Test mode as the rules: logs what it would do).
+Curve points, hysteresis, frost limit, gap supply − return, max duration, min interval, allow Powerful, Off / Test / On for the controller (the same Test mode as the rules: logs what it would do).
 
 ### 3.6 Rollout
 
 1. Built and tested (d#130), deployed Off.
 2. Controller **On** (the B\* rules are then Off by themselves, R4); watch the first cycles on the Automation log page and the event lane of the history page. Test mode only shows the start decision (section above).
-3. Rollback: controller Off → the B\* rules run again.
-4. Later: delete the B\* rules and their mode rules from `40` (R4).
+3. Rollback: controller Off → nothing heats the tank by the heat pump (only the electric heater). Before d#134 the B\* rules ran again.
+4. Done in d#134: the B\* rules, their mode rules, DF switch to heating, B recovery off and HP silent >0 are deleted from `40` (R4). The boiler curve is also drawn on the Heat Pump page, right of the heating curve.
 
 ### 3.7 Heating first in cold weather (R16)
 

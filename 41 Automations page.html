@@ -72,7 +72,7 @@
       <span ng-if="msg.payload.dhw.lag !== null"> · heating vs its curve {{msg.payload.dhw.lag}} °C</span>
       <span ng-if="msg.payload.dhw.nextStart > msg.payload.updatedMs"> · next start after {{msg.payload.dhw.nextStart | date:'HH:mm'}}</span></span>
     <span class="note">{{msg.payload.dhw.waitNote || msg.payload.dhw.why}}</span>
-    <span class="note" ng-if="msg.payload.dhw.mode=='live'">On: the {{msg.payload.dhw.replaced.length}} local B40 / B42 / B46 / B50 rules, their mode rules, DF switch to heating, B recovery and HP silent &gt;0 are Off (the controller does their job).</span>
+    <span class="note" ng-if="msg.payload.dhw.mode!='live'">Not On: no rule heats the tank (the old B* rules are deleted, d#134).</span>
     <div class="hpa-dhw-edit" style="flex-basis:100%">
       <table class="hpa-curve">
         <tr><th>Outdoor °C</th><td ng-repeat="p in hpaDhw.curve track by $index"><input type="number" step="1" ng-model="p[0]" ng-change="hpaDhwDirty()"></td></tr>
@@ -81,7 +81,6 @@
       <div class="row small">
         <label>start below target − <input type="number" ng-model="hpaDhw.hyst" ng-change="hpaDhwDirty()"> °C</label>
         <label>gap supply − return ≤ <input type="number" ng-model="hpaDhw.gap" ng-change="hpaDhwDirty()"> °C</label>
-        <label>switch at supply ≥ tank + <input type="number" ng-model="hpaDhw.switchMargin" ng-change="hpaDhwDirty()"> °C</label>
         <label>frost limit <input type="number" ng-model="hpaDhw.frostLimit" ng-change="hpaDhwDirty()"> °C</label>
         <label>cold limit (heating first) <input type="number" ng-model="hpaDhw.coldLimit" ng-change="hpaDhwDirty()"> °C</label>
         <label>min interval <input type="number" step="0.5" ng-model="hpaDhw.minIntervalH" ng-change="hpaDhwDirty()"> h</label>
@@ -183,7 +182,7 @@
         if (!scope.hpaDhw) return;
         var c = scope.hpaDhw;
         var cfg = { curve: c.curve.map(function (p) { return [Number(p[0]), Number(p[1])]; }), allowPowerful: !!c.allowPowerful };
-        ['hyst', 'gap', 'switchMargin', 'frostLimit', 'coldLimit', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['hyst', 'gap', 'frostLimit', 'coldLimit', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hpaDhwIsDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'dhwSet', cfg: cfg } });
@@ -192,8 +191,8 @@
         var d = scope.msg && scope.msg.payload && scope.msg.payload.dhw;
         if (!d || d.mode === m) return;
         var text = m === 'live'
-            ? 'Turn the DHW controller ON?\nIt heats the tank by the outdoor curve and writes to the heat pump, valve and bypass while local control is ON.\nThe ' + d.replaced.length + ' local B* / mode / recovery rules it replaces are Off while it is On.'
-            : 'Set the DHW controller to ' + LABEL[m] + '?' + (d.mode === 'live' ? '\nA running cycle stops: valve OFF, bypass OFF, P22 on. The B* rules are active again.' : '');
+            ? 'Turn the DHW controller ON?\nIt heats the tank by the outdoor curve and writes to the heat pump, valve and bypass while local control is ON.'
+            : 'Set the DHW controller to ' + LABEL[m] + '?' + (d.mode === 'live' ? '\nA running cycle stops: valve OFF, bypass OFF, P22 on. No other rule heats the tank then.' : '');
         if (!confirm(text)) return;
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
     };

@@ -53,6 +53,9 @@
 //    battery Wi-Fi sensors read from the Tuya cloud by "Heat pump cloud sensors" (44), dps
 //    { temp, hum, bat }. summary.accTemp / plateTemp (fresh ≤ 10 min) and two more series on
 //    the 24 h temperature chart.
+// 8. Boiler curve (d#134): model.dhwChart = tank target by outdoor temperature (curve of the
+//    DHW controller, read from flow.dhwView written by 40), start line target − hyst, tank now,
+//    controller state. The page shows heating on the left and the boiler on the right.
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
@@ -359,8 +362,78 @@ function buildModel(st, now) {
             defrostSign
         },
         curveChart: buildCurveChart(d),
+        dhwChart: buildDhwChart(d),
         items,
         unknown
+    };
+}
+
+// Boiler curve (d#134): tank target by outdoor temperature from the DHW controller of
+// "Heat pump automations" (40), which writes flow.dhwView every 10 s. Same SVG frame and
+// outdoor range as the heating curve, so the two charts sit side by side on the page.
+const DHW_VIEW_STALE_MS = 2 * 60 * 1000;
+const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop before the valve switch',
+    DHW: 'heating the tank (valve on DHW)', DEFROST_DHW: 'defrost during DHW', RAMPDOWN: 'set point back down' };
+function tankCurveAt(curve, x) {
+    if (x <= curve[0][0]) return curve[0][1];
+    const last = curve[curve.length - 1];
+    if (x >= last[0]) return last[1];
+    for (let i = 1; i < curve.length; i++) {
+        const a = curve[i - 1], b = curve[i];
+        if (x <= b[0]) return Math.round((a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])) * 2) / 2;
+    }
+    return last[1];
+}
+function buildDhwChart(d) {
+    const v = flow.get('dhwView');
+    if (!v || !v.cfg || !Array.isArray(v.cfg.curve) || !v.cfg.curve.length) return null;
+    const c = v.cfg, curve = c.curve;
+    const tank = num(d['108']);
+    const outdoor = v.outAvg !== null && v.outAvg !== undefined ? v.outAvg : num(d['103']);
+    const pts = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t++) pts.push({ out: t, set: t < c.frostLimit ? null : tankCurveAt(curve, t) });
+    const W = 600, H = 240, L = 44, R = 10, T = 12, B = 36;
+    const values = pts.filter((p) => p.set !== null).map((p) => p.set).concat([tank].filter((x) => x !== null));
+    const yMin = Math.floor((Math.min(...values) - c.hyst - 1) / 5) * 5;
+    const yMax = Math.ceil((Math.max(...values) + 1) / 5) * 5;
+    const x = (t) => +(L + (t - CURVE_OUT_MIN) / (CURVE_OUT_MAX - CURVE_OUT_MIN) * (W - L - R)).toFixed(1);
+    const y = (val) => +(T + (yMax - Math.max(yMin, Math.min(yMax, val))) / (yMax - yMin) * (H - T - B)).toFixed(1);
+    const line = (off) => pts.filter((p) => p.set !== null).map((p) => `${x(p.out)},${y(p.set - off)}`).join(' ');
+    const xTicks = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t += 5) xTicks.push({ label: t, x: x(t) });
+    const yTicks = [];
+    for (let val = yMin; val <= yMax; val += 5) yTicks.push({ label: val, y: y(val) });
+    const target = outdoor === null || outdoor < c.frostLimit ? null : tankCurveAt(curve, outdoor);
+    const inRange = outdoor !== null && outdoor >= CURVE_OUT_MIN && outdoor <= CURVE_OUT_MAX;
+    return {
+        fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS,
+        mode: v.mode,
+        state: v.state,
+        stateLabel: DHW_STATE_LABELS[v.state] || v.state,
+        why: v.waitNote || v.why || '',
+        since: v.since,
+        outdoor,
+        tank,
+        target,
+        start: target === null ? null : target - c.hyst,
+        hyst: c.hyst,
+        frostLimit: c.frostLimit,
+        nextStart: v.nextStart || 0,
+        lastEnd: v.lastEnd || 0,
+        table: curve.map((p) => ({ out: p[0], set: p[1] })),
+        svg: {
+            line: line(0),
+            startLine: line(c.hyst),
+            frostX: c.frostLimit > CURVE_OUT_MIN ? x(c.frostLimit) : null,
+            xTicks,
+            yTicks,
+            left: L,
+            right: W - R,
+            top: T,
+            bottom: H - B,
+            now: inRange ? { x: x(outdoor), yTarget: target === null ? null : y(target), yStart: target === null ? null : y(target - c.hyst),
+                yTank: tank === null ? null : y(tank) } : null
+        }
     };
 }
 

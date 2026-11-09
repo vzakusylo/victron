@@ -27,8 +27,8 @@ The heat pump is today controlled by Tuya cloud scenes (DHW ladder, defrost/bypa
 | Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | 192.168.1.139 / 3.4 | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
 | Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | `bff533964da65dd78dlha6` | not reachable yet | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a`. It is on the other (D-Link) Wi-Fi, which the GX cannot reach — move it to the ASUS Wi-Fi, then set its IP |
 | (defrost flag for cloud scenes) | Voksen heating | `bf2e8c592bd8d22486nwux` | 192.168.1.148 / 3.5 | not used by the flow |
-| Accumulator tank sensor | Accumulator tank temp | `bfe0dd97b76a98f454a8bt` | **cloud only** | Wi-Fi temperature / humidity sensor on battery (product `lf36y5nwb8jkxwgg`); sleeps, no beacons, not reachable locally → read from the Tuya cloud (d#132) |
-| Exchange plate sensor | Exchange plate | `bfe949ce996182ffb9b1zl` | **cloud only** | Wi-Fi temperature sensor on battery (product `byusvumeme5iicad`); read from the Tuya cloud (d#132) |
+| Accumulator tank sensor | Accumulator tank temp | `bfe0dd97b76a98f454a8bt` | probably 192.168.1.160 / ? | Wi-Fi temperature / humidity sensor on battery (product `lf36y5nwb8jkxwgg`, TH01 CB3S); sleeps; read from the Tuya cloud (d#132) |
+| Exchange plate sensor | Exchange plate | `bfe949ce996182ffb9b1zl` | 192.168.1.116 / 3.4 (only while awake) | Wi-Fi temperature sensor on battery (product `byusvumeme5iicad`); read from the Tuya cloud (d#132). Test 9 Nov: on wake it sends a UDP beacon; a local connection right after it gets DP 1 (°C × 10) and DP 2 (%) pushed — see [heat-pump-work-log.md](heat-pump-work-log.md) |
 
 **Cloud sensors (d#132).** The two battery sensors are read from the Tuya Cloud OpenAPI every 2 min: inject *Cloud sensors poll (2 min)* → function *Heat pump cloud sensors* ([`44`](../44%20Heat%20pump%20cloud%20sensors.js)) → exec *Read Tuya cloud sensors* runs [`tools/tuya-cloud-status.js`](../tools/tuya-cloud-status.js) on the GX (copied to `/data/home/nodered/tools/`) → back to `44` → *Heat pump state* (`34`) as roles `acc` and `plate`. From there they show as tiles on the Heat Pump page, as two series on the 24 h temperature chart, in the recorder as columns `atemp` / `ahum` / `abat` and `xtemp` / `xhum` / `xbat`, and on the day chart of the history page. The credentials of the Tuya IoT cloud project are **not** in the repository: `/data/home/nodered/grid-control-config/tuya-cloud.json` on the GX (`{ "accessId", "accessSecret", "endpoint": "https://openapi.tuyaeu.com" }`, mode 600). Without that file the node shows the error and both sensors read *ERROR*. Calls: one status call per 2 min for both sensors (~22 000 a month) plus a token about every 2 h and the value scales once a day. Cloud project: *Home local*, Central Europe data center. First reading 9 Nov 14:54: accumulator 25.5 °C / 32 %, exchange plate 28 °C / 32 %, both batteries `high` (the sensors send `battery_state` low / middle / high, not a percentage). The exchange plate sensor reports on a change of 0.3 °C or every 40 min (`temp_sensitivity` 3, `temp_periodic_report` 40), so a flat line on the chart means no change, not a lost sensor. Caches in `/tmp` must belong to the `nodered` user (a test run as root once blocked the node: run the tool as `su -s /bin/sh nodered -c '…'`).
 
@@ -53,6 +53,8 @@ Get the local keys from platform.tuya.com → Cloud → project → API Explorer
 Note: many Tuya devices accept only **one local connection**. Do not run tinytuya / Home Assistant locally against the same device at the same time. The Smart Life app and cloud keep working.
 
 ## Heat Pump page
+
+**Layout (d#134):** device chips and the shared cards (outdoor, compressor, load, resource, fan, power, mode, faults) on top; below them two columns — **Heating** on the left (supply, return, heating set, accumulator, exchange plate, curve P22 / bypass, bypass control, heating curve with the P23 slider) and **Boiler (DHW tank)** on the right (tank, tank target, valve, DHW controller state and reason, boiler curve). The boiler curve uses the same outdoor axis as the heating curve: tank target, the start line (target − hysteresis), the frost zone (electric heater only), target and tank now. Its data comes from the DHW controller (`40` writes `flow.dhwView` every 10 s, `34` builds `model.dhwChart`); the curve is edited on the Automations tab. On a narrow screen (< 900 px) the columns stack.
 
 Flow nodes:
 
@@ -202,43 +204,20 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 - **Safety:** every device a rule reads must be CONNECTED with data ≤ 5 min old; the conditions must hold on 3 ticks in a row (tick 10 s); then the rule rests (10–30 min).
 - **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, every rule at its default.
 
-**Local rules (28)** — DPs: 2 mode, 5 work mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 108 tank, 115 Hz, 116 fan, 125 set point, 132 P22; valve ON = DHW, bypass ON = exchanger bypassed. Default Test, except the rules marked *(Off)*:
+**Local rules (5, since d#134)** — DPs: 2 mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 115 Hz, 116 fan, 125 set point, 132 P22; bypass ON = exchanger bypassed. The tank is heated only by the **DHW controller** ([docs/heat-pump-dhw-controller.md](heat-pump-dhw-controller.md)):
 
 | Rule | Smart Life scene (runs 7–8 Nov) | If | Then (steps) |
 |---|---|---|---|
 | `df_exchange_off` | DF exchange off (45) | fan 0, > 30 Hz, bypass OFF, supply < 27, outdoor < 14 | bypass ON, flag ON |
 | `df_exchange_on` | DF exchange on 31 (49) | bypass ON, fan > 300, supply > 27, set < 45, P22 on | bypass OFF, wait 7 min, flag OFF |
-| `df_switch_to_heating` | DF switch to heating (6) | fan 0, > 30 Hz, valve ON, outdoor < 14, flag OFF, set 40/42/46/50 | flag ON, valve OFF, bypass ON |
 | (built in) | DF safe 10min (59) | flag ON ≥ 10 min | flag OFF |
-| `b40_on` | B40 on <36 -20..-11 | tank < 36, valve OFF, supply > 35, outdoor −20…−11, bypass OFF, set < 40 | P22 off, Powerful, set 40, bypass ON |
-| `b40_switch` | B40 switch >37 | valve OFF, fan > 250, set 40, supply > 37, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 40, bypass OFF |
-| `b40_off` | B40 off >39 | outdoor −20…−11, tank > 39, fan > 300, supply > 38, set 40, valve ON | set 37, valve OFF, wait 4 s, set 37, valve OFF, P22 on |
-| `b42_on` | B42 on <41 -10..-5 | outdoor −10…−5, tank < 41, fan > 400, supply > 35, valve + bypass OFF, set < 40 | P22 off, Powerful, set 42, bypass ON |
-| `b42_switch` | B42 switch >39 | supply > 39, set 42, valve OFF, fan > 300, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 42, bypass OFF |
-| `b42_off` | B42 off >42 | tank > 42, supply > 41, valve ON, set 42 | set 41, wait 10 s, valve OFF, set 41, wait 1 min, set 39, wait 1 min, valve OFF, Silent, wait 3 min, then the steps of the scene *Slowly cool down*: set 39, P22 on, wait 2 min, set 38, wait 3 min, set 37 (d#129; the cloud starts the scene and sets P22 on at the same moment) |
-| `b46_on` | B46 on <44 -4..1 (6) | tank < 44, outdoor −4…1, fan > 300, supply > 30, valve + bypass OFF, set < 40 | P22 off, Smart, set 46, bypass ON |
-| `b46_switch` | B46 switch >38 (15, 4 failed) | supply > 38, fan > 40, valve OFF, set 46, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 46, bypass OFF |
-| `b46_off` | B46 off >46 -4..1 (8, 3 failed) | tank > 46, fan > 400, supply > 46, valve ON, outdoor −4…1, flag OFF, set 46 | set 45, bypass OFF, 10 s, set 45, 3 s, valve OFF, 2 s, valve OFF, then set 43 → 41 → 39 → 38 → 35 one per minute, Silent, P22 on |
-| `b50_on` | B50 on <47 >1 | tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on | P22 off, set 50, bypass ON |
-| `b50_switch_warm` | B50 switch >47 >0 | valve OFF, set 50, outdoor > 0, tank < 49, flag OFF, supply > 47 | flag ON, set 20, wait 1 min, valve ON, set 50, bypass OFF |
-| `b50_switch_cold` | B50 switch >45 <1 | supply > 45, set 50, valve OFF, outdoor < 1, flag OFF, tank < 49 | same as above |
-| `b50_off` | B50 off >49 | tank > 49, valve ON | Silent, set 25, valve OFF (×3 over 30 s), flag ON 10 s, P22 on |
-| `b50_preheat_bypass` | B50 preheat exchange off | set 50, valve OFF, bypass OFF, tank < 50 | bypass ON |
-| `b42_mode_smart` | B42 mode silent-smart <44 | Silent, set 42, supply < 44 | Smart |
-| `b42_mode_smart45` *(Off)* | B42 mode silent-smart <45 | Silent, supply < 45, fan > 300, set 42 | Smart |
-| `b42_mode_silent_valve` *(Off)* | B42 mode smart-silent >6a | set 42, supply > 44, Smart, valve ON | Silent |
-| `b42_mode_powerful_silent` *(Off)* | B42 mode powerful-silent >45 | supply > 45, fan > 300, set 42, Smart or Powerful | Silent |
-| `b46_mode_silent` *(Off)* | B46 mode smart-silent >48 | Smart, set 46, supply > 48 | Silent |
-| `b50_force_heating` *(Off)* | B50 force heating mode | set 50, work mode Cooling | work mode Heating |
-| `hp_silent_0` *(Off)* | HP silent >0 | outdoor > 0, flag OFF, set < 40, valve OFF, not already Silent | Silent |
 | `hp_er03_restart` *(Off)* | HP Er03 restart | fault Er03 (water flow), valve ON | valve OFF, 30 s, valve OFF, pump OFF, 1 min, pump ON, bypass OFF, set 31, P22 on (cloud also disables the scene *zz boiler 50 on <47 >1*, already off — not included) |
 | `hp_power_m16` *(Off)* | HP power <-16 (dead) | outdoor < −16, fan > 250, set < 37 **and** > 37, Smart or Silent — never true, as in the cloud | Powerful, notify |
 | `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
-| `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
+
+**Deleted in d#134 (owner request: the DHW controller covers them):** the 23 rules B40 / B42 / B46 / B50 on / switch / off, their mode rules (B42 silent-smart <44 / <45, smart-silent >6a, powerful-silent >45, B46 smart-silent >48, B50 force heating mode), DF switch to heating (the controller handles a defrost during DHW itself), B recovery off (the controller's watchdog turns the valve OFF outside a cycle) and HP silent >0. Their conditions and steps are in git history (d#125–d#133). With the DHW controller Off or Test, nothing starts a DHW cycle.
 
 **Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). Since d#130 a deploy of this node also comes back with an **empty context** (settings, log, flag gone; seen 9 Nov 13:40, local control was OFF for about a minute). Since d#131 the On Start code notices this and the first tick reads the settings file again (output 7 → *Read automation settings*), within a second. A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
-
-**Overlapping rules (as in the cloud):** `b50_switch_warm` and `b50_switch_cold` both match at 0 < outdoor < 1 °C, and `b50_on` / `b50_preheat_bypass` both switch the bypass ON. Both scenes act in the cloud too; check this before setting them On.
 
 **No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.) Smart Life scenes of other devices (*HOME dehum*, *HOME charger*) and the *LOG …* scenes (replaced by the Automation log) are not moved.
 
@@ -273,6 +252,8 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 | 2026-11-09 13:00 | B recovery off (it was already off in Smart Life when checked; when it was switched off is not known) | 0 | `b_recovery_valve_off` | ON | — |
 
 | 2026-11-09 13:48 | — (all already off) | — | **DHW controller On** (d#130 / d#131); the 23 rules in `DHW_REPLACES` (B40 / B42 / B46 / B50 incl. mode rules, DF switch to heating, B recovery, HP silent >0) are treated as Off | ON | first cycle when the tank drops below the curve target − 3 °C (45.5 − 3 at −0.8 °C outdoor) |
+
+| 2026-11-09 21:05 | — | — | **The 23 replaced rules deleted** (d#134, owner request); left: `df_exchange_off`, `df_exchange_on`, `hp_er03_restart`, `hp_power_m16`, `hp_smart_m15` + the DHW controller | ON | the first controller cycle started 20:49 (tank 41 °C, target 45 at −2 °C) |
 
 **First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
 
