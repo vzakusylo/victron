@@ -81,7 +81,7 @@
   <div class="hpw-chips">
     <span ng-repeat="d in msg.payload.devices" class="hpw-chip"
           ng-class="{'hpw-ok': d.state=='CONNECTED' && !d.stale, 'hpw-warn': d.state=='CONNECTING' || (d.state=='CONNECTED' && d.stale), 'hpw-bad': d.state=='DISCONNECTED' || d.state=='ERROR'}">
-      {{d.label}}: {{d.state}}<span ng-if="d.switchOn !== null"> · {{d.switchOn ? 'ON' : 'OFF'}}</span><span ng-if="d.ageSeconds !== null"> · {{d.ageSeconds}} s</span>
+      {{d.label}}<span ng-if="d.source"> ({{d.source}})</span>: {{d.state}}<span ng-if="d.switchOn !== null"> · {{d.switchOn ? 'ON' : 'OFF'}}</span><span ng-if="d.ageSeconds !== null"> · {{d.ageSeconds < 120 ? d.ageSeconds + ' s' : (d.ageSeconds < 7200 ? (d.ageSeconds / 60 | number:0) + ' min' : (d.ageSeconds / 3600 | number:1) + ' h')}}</span>
     </span>
   </div>
 
@@ -123,8 +123,8 @@
         <div class="hpw-card"><div class="k">Supply</div><div class="v">{{msg.payload.summary.supply}}<span class="u">°C</span></div></div>
         <div class="hpw-card"><div class="k">Return</div><div class="v">{{msg.payload.summary.ret}}<span class="u">°C</span></div></div>
         <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
-        <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Accumulator (cloud)</div><div class="v">{{msg.payload.summary.accTemp === null || msg.payload.summary.accTemp === undefined ? '—' : msg.payload.summary.accTemp}}<span class="u">°C</span></div></div>
-        <div class="hpw-card" title="Tuya Wi-Fi sensor on battery, read from the Tuya cloud every 2 min"><div class="k">Exchange plate (cloud)</div><div class="v">{{msg.payload.summary.plateTemp === null || msg.payload.summary.plateTemp === undefined ? '—' : msg.payload.summary.plateTemp}}<span class="u">°C</span></div></div>
+        <div class="hpw-card" title="Tuya Wi-Fi sensor on battery: it reports on a change of 0.3 °C, read locally when it wakes"><div class="k">Accumulator</div><div class="v">{{msg.payload.summary.accTemp === null || msg.payload.summary.accTemp === undefined ? '—' : msg.payload.summary.accTemp}}<span class="u">°C</span></div></div>
+        <div class="hpw-card" title="Tuya Wi-Fi sensor on battery: it reports on a change of 0.3 °C or every 40 min, read locally when it wakes"><div class="k">Exchange plate</div><div class="v">{{msg.payload.summary.plateTemp === null || msg.payload.summary.plateTemp === undefined ? '—' : msg.payload.summary.plateTemp}}<span class="u">°C</span></div></div>
       </div>
       <div class="hpw-chips" ng-if="msg.payload.summary">
         <span class="hpw-chip" ng-if="msg.payload.summary.curve">Curve P22: {{msg.payload.summary.curve.enabled ? 'ON' : 'OFF'}} (P23 {{msg.payload.summary.curve.p23}}, P24 {{msg.payload.summary.curve.p24}})</span>

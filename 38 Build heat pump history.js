@@ -32,6 +32,9 @@
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 5. d#134: the power panel under the event lane is removed (owner); power is a separate chart
+//    (chart.power) with compressor power = DC bus voltage (DP 114) × current (DP 112) (owner;
+//    reads ~1.7× the nameplate-based A × 220 W/A) and the meter W; the ≈kWh estimate uses it too.
 // 3. d#132: Accumulator (`atemp`) and Exchange plate (`xtemp`) cloud sensors on the day chart
 //    (a series is shown only when the day has data for it).
 // ==========================
@@ -40,7 +43,9 @@ const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1'
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
-const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133)
+const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133); only when DP 114 is missing
+// d#134 (owner): compressor power = DC bus voltage (DP 114) × compressor current (DP 112)
+const compW = (amp, bus) => (amp === null ? null : Math.max(0, amp) * (bus !== null && bus > 0 ? bus : W_PER_A));
 const BUCKET_S = 120;
 const CACHE_DAYS = 60;
 
@@ -137,7 +142,7 @@ function stats(rows) {
             maxW = maxW === null ? pw : Math.max(maxW, pw);
         }
         if (amp !== null) {
-            const c = Math.max(0, amp) * W_PER_A * dt / 3600;
+            const c = compW(amp, bus) * dt / 3600;
             compWh += c; H.compWh += c;
         }
     }
@@ -173,7 +178,9 @@ function stats(rows) {
 // ---- day chart (SVG coordinates) ----------------------------------------
 function chart(rows) {
     const W = 760, L = 40, R = 12;
-    const T1 = 10, B1 = 200, T2 = 228, B2 = 300;
+    // d#134: the event lane is the bottom of the temperature chart; power has its own chart (power)
+    const T1 = 10, B1 = 200, B2 = 224;
+    const PT = 8, PB = 128;   // power chart, viewBox 0 0 760 156
     const nb = Math.ceil(86400 / BUCKET_S);
     const buckets = [];
     for (let i = 0; i < nb; i++) buckets.push(null);
@@ -183,15 +190,15 @@ function chart(rows) {
         const b = buckets[i] || (buckets[i] = KEYS.map(() => ({ s: 0, n: 0 })).concat([{ s: 0, n: 0 }]));
         KEYS.forEach((k, j) => { const v = r.a[j]; if (v !== null) { b[j].s += v; b[j].n++; } });
         const amp = r.a[K['112']], bus = r.a[K['114']];
-        if (amp !== null) { b[KEYS.length].s += Math.max(0, amp) * W_PER_A; b[KEYS.length].n++; }
+        if (amp !== null) { b[KEYS.length].s += compW(amp, bus); b[KEYS.length].n++; }
     });
     const val = (b, j) => (b && b[j].n ? b[j].s / b[j].n : null);
     const x = (i) => +(L + (i + 0.5) * BUCKET_S / 86400 * (W - L - R)).toFixed(1);
 
     const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c'],
         ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
-    const powDefs = [['Heat pump W (meter)', KEYS.length - 1, '#9467bd'], ['Heat pump ≈W (A × 220)', KEYS.length, '#8c564b']];
 
+    const powDefs = [['Compressor W (DC bus × current)', KEYS.length, '#8c564b'], ['Heat pump W (meter)', K.pw, '#9467bd']];
     let tMin = Infinity, tMax = -Infinity, pMax = 0;
     buckets.forEach((b) => {
         tempDefs.forEach(([, k]) => { const v = val(b, K[k]); if (v !== null) { tMin = Math.min(tMin, v); tMax = Math.max(tMax, v); } });
@@ -199,9 +206,11 @@ function chart(rows) {
     });
     if (!Number.isFinite(tMin)) { tMin = 0; tMax = 50; }
     const yMin = Math.floor(tMin / 10) * 10, yMax = Math.max(yMin + 10, Math.ceil(tMax / 10) * 10);
-    const pTop = Math.max(500, Math.ceil(pMax / 500) * 500);
     const yT = (v) => +(T1 + (yMax - v) / (yMax - yMin) * (B1 - T1)).toFixed(1);
-    const yP = (v) => +(B2 - v / pTop * (B2 - T2)).toFixed(1);
+    const pTop = Math.max(1000, Math.ceil(pMax / 1000) * 1000);
+    const yP = (v) => +(PB - v / pTop * (PB - PT)).toFixed(1);
+    const pTicks = [];
+    for (let v = 0; v <= pTop; v += pTop <= 2000 ? 500 : 1000) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
 
     function segs(j, y) {
         const out = [];
@@ -216,9 +225,6 @@ function chart(rows) {
     }
     const tTicks = [];
     for (let v = yMin; v <= yMax; v += 10) tTicks.push({ label: v, y: yT(v) });
-    const pStep = pTop <= 1000 ? 250 : (pTop <= 3000 ? 500 : 1000);
-    const pTicks = [];
-    for (let v = 0; v <= pTop; v += pStep) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
     const xTicks = [];
     for (let h = 0; h <= 24; h += 3) xTicks.push({ label: pad(h % 24) + ':00', x: +(L + h / 24 * (W - L - R)).toFixed(1) });
 
@@ -246,14 +252,15 @@ function chart(rows) {
     events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
 
     return {
-        viewBox: '0 0 ' + W + ' 330',
-        left: L, right: W - R, t1: T1, b1: B1, t2: T2, b2: B2,
+        viewBox: '0 0 ' + W + ' 250',
+        left: L, right: W - R, t1: T1, b1: B1, b2: B2,
         evTop: B1 + 6, evH: 14,
         events: evOut,
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
-        xTicks, tTicks, pTicks,
+        xTicks, tTicks,
         temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })).filter((s) => s.segs.length),
-        power: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length)
+        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks,
+            series: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length) }
     };
 }
 
@@ -262,7 +269,7 @@ const text = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : Strin
 const parsed = parse(text);
 const nowD = new Date();
 const today = nowD.getFullYear() + '-' + pad(nowD.getMonth() + 1) + '-' + pad(nowD.getDate());
-const cache = flow.get('hpDayCache') || {};
+const cache = flow.get('hpDayCache2') || {};
 
 if (msg.topic === 'day') {
     const d = parsed.days[msg.day];
@@ -272,7 +279,7 @@ if (msg.topic === 'day') {
     }
     const s = stats(d.rows);
     if (msg.day < today) { cache[msg.day] = s.stats; }
-    flow.set('hpDayCache', cache);
+    flow.set('hpDayCache2', cache);
     node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + d.rows.length + ' samples' });
     return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows) } };
 }
@@ -290,6 +297,6 @@ const days = parsed.order.map((day) => {
 const keep = Object.keys(cache).sort().slice(-CACHE_DAYS);
 const trimmed = {};
 keep.forEach((k) => { trimmed[k] = cache[k]; });
-flow.set('hpDayCache', trimmed);
+flow.set('hpDayCache2', trimmed);
 node.status({ fill: 'green', shape: 'dot', text: 'summary: ' + days.length + ' days' });
 return { topic: 'hpHistory', payload: { kind: 'summary', days } };

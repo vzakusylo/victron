@@ -45,6 +45,7 @@
 // 2. Replaced by the compact hourly "hp1" delta CSV with all DPs + gzip of finished hours (d#120).
 // 3. SA1 power meter (d#121): meter DPs as `m<dp>`, decoded power as `pw`, 4th state letter.
 //    Read back by "Heat pump command" (37) + "Build heat pump history" (38) for the history page.
+// 5. d#134: battery sensors (acc, plate) count as stale only after 24 h (they report on change).
 // 4. Cloud sensors (d#132): Accumulator tank temp as `atemp` / `ahum` / `abat`, Exchange plate as
 //    `xtemp` / `xhum` / `xbat` (from 44 via 34); state letters 5 and 6. Files before d#132
 //    have 4 letters.
@@ -52,6 +53,9 @@
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
 const STALE_MS = 180 * 1000;
+// battery sensors report only on a change or every 40 min (d#134): stale after 24 h
+const SLEEPY_STALE_MS = 24 * 3600 * 1000;
+const SLEEPY = ['acc', 'plate'];
 const ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b'], ['meter', 'm'], ['acc', 'a'], ['plate', 'x']];
 const STATE_LETTER = { CONNECTED: 'C', CONNECTING: 'N', DISCONNECTED: 'D', ERROR: 'E', UNKNOWN: 'U' };
 
@@ -102,7 +106,7 @@ const stateLetters = ROLES.map(([role]) => {
     const dev = st[role];
     if (!dev) return 'U';
     const letter = STATE_LETTER[dev.state] || 'U';
-    if (letter === 'C' && (!dev.lastData || nowMs - dev.lastData > STALE_MS)) return 'S';
+    if (letter === 'C' && (!dev.lastData || nowMs - dev.lastData > (SLEEPY.includes(role) ? SLEEPY_STALE_MS : STALE_MS))) return 'S';
     return letter;
 }).join('');
 

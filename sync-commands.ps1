@@ -212,6 +212,9 @@ function Sync-44 { Sync-Node 'Heat pump cloud sensors'          '44 Heat pump cl
 # 45 — Compressor resource (run hours, starts, load, energy; file grid-control-config/compressor-resource.json)
 function Sync-45 { Sync-Node 'Compressor resource'              '45 Compressor resource.js'                     -BumpVersion }
 
+# 46 — Heat pump local sensors (battery sensors read locally on wake, tools/tuya-local-sensors.js)
+function Sync-46 { Sync-Node 'Heat pump local sensors'          '46 Heat pump local sensors.js'                 -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Development & deployment](docs/development.md) | repository layout, flow versioning, sync and deploy workflow |
 | [Assumptions, limitations & roadmap](docs/limitations.md) | what the setup assumes, known limits, planned improvements |
 | [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
-| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#134), owner requests, operating instructions |
+| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#135), owner requests, operating instructions |
 
 ## Dashboard pages
 
@@ -50,7 +50,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
-| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 24 h charts, 30 s history, statistics by day (local) |
+| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 30 s history, charts and statistics by day (local) |
 | [Automations](docs/heat-pump.md#automations-page-d123d126) | local replacements for all Smart Life heat pump scenes (B\* DHW cycles and modes, DF\* defrost, HP\*) as timed sequences with an internal defrost flag: master switch for all local automations, per rule Off / Test / On and all at once, write check (d#123–d#126) |
 | [Automation log](docs/heat-pump.md#automation-log-page-d126) | everything the local automations did, kept in a file per day: navigation by day, one entry per rule run with its steps and write results, filters (d#126). Which Smart Life scenes already run on the GX: [Migration log](docs/heat-pump.md#migration-log-smart-life--gx) |
 
@@ -103,15 +103,13 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 | Compressor / drive | 69 Hz, 3 A, DC bus 376 V, heatsink 55 °C, fan 1 608 rpm, fan 2 0 rpm |
 | Settings | heating set 35 °C, DHW set 28 °C, cooling set 20 °C, heating / DHW hysteresis 2 / 2 °C, water temp compensation 2 °C, curve P22 on, P23 32 °C, P24 4 |
 
-- **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
-- **Power (24 h), W:** a chart of the measured heat pump power (SA1 meter) and the compressor estimate, one point per minute.
 - **History by day.** This is a table of the last 14 days, read from the history files below:
   - outdoor average (min…max), supply average, tank min…max;
   - compressor run hours (% of the time), starts and defrost signs;
   - **kWh measured by the meter** and max W, plus the compressor ≈kWh estimate;
   - bypass and DHW hours, and hours with data.
 
-  Click a day to open its chart: temperatures on top and power (W) below, as 2-minute averages. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
+  Switch days with ‹ › or the day chips (or click a row). Each day has a temperature chart with the event lane under it (heating / DHW / defrost) and a separate power chart: compressor W = DC bus voltage × compressor current, and the SA1 meter W when it is reachable; all as 2-minute averages. Click a name in a legend to hide or show that series (remembered in the browser). The 24 h charts *Temperatures* and *Power* were removed in d#135: the same data is here by day. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
 - **History on the GX (all data points, every 30 s).** One file per hour: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`. When the hour changes, finished hours are gzipped to `HH.csv.gz`. The format "hp1" is a delta CSV:
 
   ```
@@ -131,13 +129,9 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 
   To get full rows back: `node tools/heatpump-decode.js [--names] 00.csv.gz 01.csv.gz > day.csv`.
 
-![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
+In the temperature chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
 
-In the chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
-
-![Power (24 h) — measured heat pump power (SA1) and the compressor estimate; here only the estimate, because the SA1 meter is not reachable yet](docs/images/heat-pump-power.png)
-
-The Power chart keeps its 24 h in memory, so it starts again after a deploy (in the screenshot at 19:16). Until the SA1 meter is reachable from the GX (see [docs/heat-pump.md](docs/heat-pump.md#devices)) only the compressor estimate is drawn.
+Until the SA1 meter is reachable from the GX (see [docs/heat-pump.md](docs/heat-pump.md#devices)) only the compressor power is drawn.
 
 ![History by day — the day table from the 30 s recorder files and the chart of one day: temperatures on top, power below](docs/images/heat-pump-history.png)
 

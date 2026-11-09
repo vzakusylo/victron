@@ -1,6 +1,9 @@
 <!--
   39 Heat pump history page.html
-  Source of the ui_template "Heat pump history" (Heat Pump dashboard tab, below the live charts).
+  Source of the ui_template "Heat pump history" (Heat Pump dashboard tab, below the Heat pump page).
+  d#134: day switcher (previous / next, day chips), temperature chart with the event lane, a
+  separate power chart (compressor W = DC bus × current, meter W), legends that hide / show a
+  series on click. The 24 h ui_charts "Temperatures" and "Power" were removed (same data here).
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-39).
   Reads the recorder files through "Heat pump command" (37) → exec "Read heat pump history" →
   "Build heat pump history" (38). Sends only read requests: {topic:'summary'} and {topic:'day'}.
@@ -30,6 +33,19 @@
 .hph-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; opacity: .85; margin: 2px 0 8px; }
 .hph-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: 3px; }
 .hph details summary { cursor: pointer; font-size: 13px; opacity: .85; margin: 6px 0; }
+.hph-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 10px; }
+.hph-days .day { border-radius: 14px; padding: 3px 10px; font-size: 12.5px; background: rgba(127,127,127,.14); cursor: pointer; border: 1px solid transparent; }
+.hph-days .day:hover { background: rgba(127,127,127,.24); }
+.hph-days .day.sel { background: #1f6feb; color: #fff; }
+.hph-days .day small { opacity: .75; margin-left: 4px; }
+.hph-days .nav { font-size: 15px; padding: 2px 10px; }
+.hph-key { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 4px 0 10px; }
+.hph-key .k { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 6px; border-radius: 6px; font-size: 12.5px; cursor: pointer; user-select: none; background: rgba(127,127,127,.08); }
+.hph-key .k:hover { background: rgba(127,127,127,.18); }
+.hph-key .k b { display: inline-block; width: 13px; height: 13px; border-radius: 3px; border: 2px solid; box-sizing: border-box; }
+.hph-key .k.off { opacity: .45; text-decoration: line-through; }
+.hph-key .note { font-size: 12px; opacity: .65; align-self: center; }
+.hph-svg.power { margin-top: 6px; }
 </style>
 
 <div class="hph">
@@ -69,6 +85,12 @@
     </table>
   </div>
 
+  <div class="hph-days" ng-if="h.sum && h.sum.days.length">
+    <button class="nav" title="Earlier day" ng-disabled="!hpStep(1)" ng-click="hpLoad(hpStep(1))">‹</button>
+    <span ng-repeat="d in h.sum.days.slice().reverse()" class="day" ng-class="{sel: d.day == h.sel}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></span>
+    <button class="nav" title="Later day" ng-disabled="!hpStep(-1)" ng-click="hpLoad(hpStep(-1))">›</button>
+  </div>
+
   <div ng-if="h.day && h.day.empty"><h4>{{h.day.day}}</h4><div class="hph-sub">No data for this day.</div></div>
 
   <div ng-if="h.day && !h.day.empty">
@@ -84,33 +106,48 @@
       <span class="hph-chip">Bypass {{h.day.stats.bypassH}} h · DHW {{h.day.stats.dhwH}} h</span>
     </div>
 
-    <svg viewBox="0 0 760 330" class="hph-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump day chart">
+    <svg viewBox="0 0 760 250" class="hph-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump day chart">
       <g class="grid">
         <line ng-repeat="t in h.day.chart.tTicks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
-        <line ng-repeat="t in h.day.chart.pTicks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
         <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" ng-attr-y1="{{h.day.chart.t1}}" ng-attr-y2="{{h.day.chart.b2}}"></line>
       </g>
       <g class="axis">
         <text ng-repeat="t in h.day.chart.tTicks" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
-        <text ng-repeat="t in h.day.chart.pTicks" ng-if="$index % 2 == 0" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
         <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" ng-attr-y="{{h.day.chart.b2 + 16}}" text-anchor="middle">{{t.label}}</text>
         <text x="4" ng-attr-y="{{h.day.chart.t1 + 4}}">°C</text>
-        <text x="4" ng-attr-y="{{h.day.chart.t2 + 4}}">W</text>
       </g>
       <g ng-if="h.day.chart.events">
         <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" style="stroke:none" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
       </g>
-      <g ng-repeat="s in h.day.chart.temp"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
-      <g ng-repeat="s in h.day.chart.power"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+      <g ng-repeat="s in h.day.chart.temp" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
     </svg>
-    <div class="hph-legend">
-      <span ng-repeat="s in h.day.chart.temp"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
-      <span ng-repeat="s in h.day.chart.power"><i ng-style="{background: s.color}"></i>{{s.name}}</span>
-      <span class="hph-sub">2-minute averages · upper panel °C, lower panel W</span>
+    <div class="hph-key">
+      <span ng-repeat="s in h.day.chart.temp" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
+      <span class="note">°C, 2-minute averages · click a name to hide / show it</span>
     </div>
     <div class="hph-legend" ng-if="h.day.chart.eventLegend">
       <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', vertical-align: '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
-      <span class="hph-sub">event lane between the panels: what the heat pump did (from the valve, bypass, fan and compressor)</span>
+      <span class="hph-sub">event lane under the chart: what the heat pump did (from the valve, bypass, fan and compressor)</span>
+    </div>
+
+    <div ng-if="h.day.chart.power && h.day.chart.power.series.length">
+      <h4>Power, W</h4>
+      <svg viewBox="0 0 760 156" class="hph-svg power" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump power by day">
+        <g class="grid">
+          <line ng-repeat="t in h.day.chart.power.ticks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
+          <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" ng-attr-y1="{{h.day.chart.power.top}}" ng-attr-y2="{{h.day.chart.power.bottom}}"></line>
+        </g>
+        <g class="axis">
+          <text ng-repeat="t in h.day.chart.power.ticks" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
+          <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" ng-attr-y="{{h.day.chart.power.bottom + 16}}" text-anchor="middle">{{t.label}}</text>
+          <text x="4" ng-attr-y="{{h.day.chart.power.top + 4}}">W</text>
+        </g>
+        <g ng-repeat="s in h.day.chart.power.series" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
+      </svg>
+      <div class="hph-key">
+        <span ng-repeat="s in h.day.chart.power.series" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
+        <span class="note">W, 2-minute averages · compressor = DC bus voltage (DP 114) × compressor current (DP 112)</span>
+      </div>
     </div>
 
     <details>
@@ -134,7 +171,24 @@
 
 <script>
 (function (scope) {
-    scope.h = { sum: null, day: null, sel: null, loading: false };
+    scope.h = { sum: null, day: null, sel: null, loading: false, hide: {} };
+    try { scope.h.hide = JSON.parse(localStorage.getItem('hphHide') || '{}') || {}; } catch (e) { scope.h.hide = {}; }
+    scope.hpToggle = function (name) {
+        scope.h.hide[name] = !scope.h.hide[name];
+        try { localStorage.setItem('hphHide', JSON.stringify(scope.h.hide)); } catch (e) { /* no storage */ }
+    };
+    // days are listed newest first: +1 = earlier day, -1 = later day
+    scope.hpStep = function (dir) {
+        var d = scope.h.sum && scope.h.sum.days;
+        if (!d || !scope.h.sel) return null;
+        for (var i = 0; i < d.length; i++) if (d[i].day === scope.h.sel) return d[i + dir] ? d[i + dir].day : null;
+        return null;
+    };
+    scope.hpDayLabel = function (d) {
+        if (d.today) return 'Today';
+        var p = d.day.split('-'), dt = new Date(+p[0], +p[1] - 1, +p[2]);
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dt.getDay()] + ' ' + (+p[2]) + '.' + (+p[1]);
+    };
     scope.$watch('msg', function (m) {
         if (!m || m.topic !== 'hpHistory' || !m.payload) return;
         var p = m.payload;

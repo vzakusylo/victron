@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-09: local automations (d#123–d#134)
+### 2026-11-08 – 2026-11-09: local automations (d#123–d#135)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -34,7 +34,9 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#134 | "Delete the automations the boiler curve covers." | 23 rules deleted from `40`: B40 / B42 / B46 / B50 on / switch / off and their mode rules, DF switch to heating, B recovery off, HP silent >0. Left: DF exchange off / on, HP Er03 restart and the two never-true HP mode rules. | The tank is heated only by the DHW controller now. |
 | d#134 | "Put the boiler curve right of the heating curve; heating on the left, boiler on the right." | Heat Pump page in two columns; boiler curve chart from `flow.dhwView` (written by `40`, built by `34`). | Checked with mock data in a browser. |
 | d#134 | "Remove the boiler preheat; switch straight to the boiler: stop the compressor by lowering the set point, switch to the boiler, heat." | Cycle start: P22 off, Silent, bypass OFF, set point 20 → compressor stops → valve ON → set point ≤ return + 5. Same after a defrost during DHW. | Deployed 21:12; 21:14 valve to the tank, all writes confirmed; supply 43 / return 37, tank 41 → 45 °C. |
-| — | "Read the accumulator and exchange plate sensors from the local network, not the cloud." | Test (not yet in the flow): the sensors sleep, but on wake they send a UDP beacon. *Exchange plate* is at 192.168.1.116 (protocol 3.4); 21:21 a local connection took 0.4 s and the sensor pushed DP 1 = 296 (29.6 °C) and DP 2 = 30 (%). The `get` request itself is answered with "json obj data unvalid" — the data comes as a push right after the connect. *Accumulator tank temp* is probably 192.168.1.160 (a beacon was seen, not decoded yet). Local keys of both are on the GX in `grid-control-config/tuya-local-sensors.json` (mode 600). | Next: a beacon listener in Node-RED that connects on each wake and takes the pushed DPs; the cloud read stays as a fallback until it works. |
+| — | "Read the accumulator and exchange plate sensors from the local network, not the cloud." | Test (not yet in the flow): the sensors sleep, but on wake they send a UDP beacon. *Exchange plate* is at 192.168.1.116 (protocol 3.4); 21:21 a local connection took 0.4 s and the sensor pushed DP 1 = 296 (29.6 °C) and DP 2 = 30 (%). The `get` request itself is answered with "json obj data unvalid" — the data comes as a push right after the connect. *Accumulator tank temp* is probably 192.168.1.160 (a beacon was seen, not decoded yet). Local keys of both are on the GX in `grid-control-config/tuya-local-sensors.json` (mode 600). | Built in d#135 (next row). |
+| d#135 | "Build it" (local reader for both sensors). | `tools/tuya-local-sensors.js` listens for the beacons (630 s per run, restarted every 10 min, 30 s overlap), connects on each wake and prints the pushed DPs; function `46` passes them to `34` with the reading time; `44` asks the cloud only for a sensor without a local reading for 24 h; sensors count as fresh for 24 h (they report only on change). | Deployed 21:33; listener running. |
+| d#134 / d#135 | "Remove the power chart at the bottom under the events." Then: "Remove *Temperatures (24 h)*, it duplicates the day navigation; add a nice legend there with day switching; move *Power (24 h), W* to the day view too; power = DC bus voltage × compressor current; add colour legends." | Power panel under the event lane removed; the 24 h ui_charts *Temperatures* and *Power* removed; history page: day switcher (‹ ›, day chips), temperature chart with event lane, separate power chart (DC bus × current, meter W), legends that hide / show a series on click. The ≈kWh estimate also uses DC bus × current (about 1.7× the nameplate-based A × 220 W/A of d#133; the Compressor load card stays on the nameplate). | 9 Nov: 23.4 kWh by DC bus × current. |
 
 ## Instructions
 
@@ -70,6 +72,6 @@ Automations tab → DHW controller → edit the outdoor / tank points and the se
 
 ### Open items
 
-- Battery sensors: build the local beacon listener, confirm the accumulator sensor's IP, then drop the cloud poll.
+- Battery sensors: confirm that both sensors arrive locally (device chips show *(local)*); the accumulator sensor reports only on a change, so its first local reading can take hours.
 - SA1 power meter: move it to the Telia / ASUS network, set its IP and key, then calibrate 220 W/A against the meter.
 - Compressor run hours from the pump panel, if available, replace the weather estimate in `45`.

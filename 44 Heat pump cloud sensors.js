@@ -24,6 +24,9 @@
 //   only on change or every few minutes.
 // Change notes:
 // 1. Initial version (d#132).
+// 2. d#134: only a FALLBACK now. The sensors are read locally by "Heat pump local sensors" (46);
+//    the cloud is asked only for a sensor without a local reading for CLOUD_FALLBACK_H
+//    (flow.localSensors). Cloud messages carry source 'cloud'.
 // ==========================
 
 const SENSORS = [
@@ -31,9 +34,15 @@ const SENSORS = [
     { role: 'plate', id: 'bfe949ce996182ffb9b1zl', name: 'Exchange plate' }
 ];
 
+const CLOUD_FALLBACK_H = 24;
 if (msg.topic === 'poll') {
-    return [null, { topic: 'cloud', payload: SENSORS.map((s) => s.id).join(' ') }];
+    const local = flow.get('localSensors') || {};
+    const need = SENSORS.filter((s) => !local[s.role] || Date.now() - local[s.role] > CLOUD_FALLBACK_H * 3600 * 1000);
+    context.set('polled', need.map((s) => s.role));
+    if (!need.length) { node.status({ fill: 'grey', shape: 'dot', text: 'not needed: both sensors read locally' }); return null; }
+    return [null, { topic: 'cloud', payload: need.map((s) => s.id).join(' ') }];
 }
+const polled = context.get('polled') || SENSORS.map((s) => s.role);
 
 let j = null;
 try { j = JSON.parse(String(msg.payload || '').trim().split('\n').pop()); } catch (e) { j = null; }
@@ -42,15 +51,15 @@ if (!j || !j.ok) {
     node.status({ fill: 'red', shape: 'ring', text: String(err).slice(0, 60) });
     const last = context.get('lastErr') || 0;
     if (Date.now() - last > 30 * 60 * 1000) { node.warn('Heat pump cloud sensors: ' + err); context.set('lastErr', Date.now()); }
-    return [SENSORS.map((s) => ({ topic: s.role, payload: { state: 'ERROR' } })), null];
+    return [SENSORS.filter((s) => polled.includes(s.role)).map((s) => ({ topic: s.role, payload: { state: 'ERROR' } })), null];
 }
 const msgs = [];
 const txt = [];
-for (const s of SENSORS) {
+for (const s of SENSORS.filter((x) => polled.includes(x.role))) {
     const d = j.devices && j.devices[s.id];
     if (!d) { msgs.push({ topic: s.role, payload: { state: 'DISCONNECTED' } }); txt.push(s.role + ' ?'); continue; }
-    msgs.push({ topic: s.role, payload: { data: { dps: { temp: d.temp, hum: d.hum, bat: d.bat } }, deviceId: s.id, deviceName: s.name } });
+    msgs.push({ topic: s.role, payload: { data: { dps: { temp: d.temp, hum: d.hum, bat: d.bat } }, deviceId: s.id, deviceName: s.name, source: 'cloud' } });
     txt.push(s.role + ' ' + d.temp + '°');
 }
-node.status({ fill: 'green', shape: 'dot', text: txt.join(' · ') });
+node.status({ fill: 'yellow', shape: 'dot', text: 'cloud fallback: ' + txt.join(' · ') });
 return [msgs, null];

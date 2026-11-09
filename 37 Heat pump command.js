@@ -83,7 +83,7 @@ case 'bypass': {
 }
 case 'summary': {
     // Days already summarised (finished days only) are not read again
-    const cache = flow.get('hpDayCache') || {};
+    const cache = flow.get('hpDayCache2') || {};
     const cached = Object.keys(cache).filter((d) => DAY_RE.test(d));
     const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; '
         + 'for d in $(ls | grep -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" | sort | tail -n ' + HISTORY_DAYS + '); do '

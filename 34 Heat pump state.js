@@ -13,13 +13,13 @@
 //   "Heat pump command" (37); this node only reads.
 // Input:
 // - msg.topic = 'hp' | 'valve' | 'bypass' | 'meter' (set by the change node in front)
-//   | 'acc' | 'plate' (cloud sensors, from 44)
+//   | 'acc' | 'plate' (battery sensors: local from 46, cloud fallback from 44)
 // - data msg  : msg.payload = { data: { dps: { ... } }, deviceId, deviceName }
 // - status msg: msg.payload = { state: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR' }
 // Output (3):
 // - output 1 -> msg.payload = page model for the "Heat pump page" ui_template
-// - output 2 -> chart points for "Heat pump temperatures" (max once per minute)
-// - output 3 -> chart points for "Heat pump power" (max once per minute)
+// - output 2, 3 -> not used since d#134 (the 24 h ui_charts were removed; the history page has
+//   the same data by day)
 // State:
 // - flow.heatPump = { hp: {...}, valve: {...}, bypass: {...}, meter: {..., reading} }
 //   meter.reading = decoded { powerW, voltageV, currentA, energyKwh, source } — the
@@ -53,6 +53,8 @@
 //    battery Wi-Fi sensors read from the Tuya cloud by "Heat pump cloud sensors" (44), dps
 //    { temp, hum, bat }. summary.accTemp / plateTemp (fresh ≤ 10 min) and two more series on
 //    the 24 h temperature chart.
+// 9. Battery sensors local (d#134): readings from 46 (local, msg.payload.source 'local', data.t =
+//    reading time) or 44 (cloud fallback). Fresh for 24 h; device chip shows the source.
 // 8. Boiler curve (d#134): model.dhwChart = tank target by outdoor temperature (curve of the
 //    DHW controller, read from flow.dhwView written by 40), start line target − hyst, tank now,
 //    controller state. The page shows heating on the left and the boiler on the right.
@@ -65,12 +67,15 @@ const ROLE_LABELS = {
     valve: 'Boiler valve relay (ON = DHW)',
     bypass: 'Heating exchange bypass (ON = bypass)',
     meter: 'Power meter SA1',
-    acc: 'Accumulator tank temp (cloud)',
-    plate: 'Exchange plate temp (cloud)'
+    acc: 'Accumulator tank temp',
+    plate: 'Exchange plate temp'
 };
-// cloud sensors (44) arrive every 2 min and report only every few minutes
+// battery sensors (d#134: read locally by 46 when they wake, cloud only as a fallback by 44) report
+// only on a change of 0.3 °C or on their periodic report (Exchange plate every 40 min; the
+// accumulator sensor was silent for 8 h at a steady 25.5 °C), so they count as fresh for 24 h.
+// msg.payload.data.t = time of the reading; an older reading than the one shown is ignored.
 const CLOUD_ROLES = ['acc', 'plate'];
-const CLOUD_STALE_MS = 10 * 60 * 1000;
+const CLOUD_STALE_MS = 24 * 3600 * 1000;
 
 // Heat pump DP map (code, label, unit)
 const HP_DPS = {
@@ -122,7 +127,6 @@ const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'E
 const MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };
 const WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };
 
-const CHART_INTERVAL_MS = 60 * 1000;
 // Nameplate PW030-DKZLRS-A (Power World EVI DC inverter, 230 V 1-phase, R32): current
 // 1.28–9.67 A, input power 0.31–2.13 kW (heating). 2.13 kW / 9.67 A = 220 W per amp at full
 // load (0.31 kW / 1.28 A = 242 W/A at minimum) — so the input power ≈ current × 220 W/A.
@@ -304,6 +308,7 @@ function buildModel(st, now) {
             state: dev.state,
             ageSeconds: age,
             stale: !dev.lastData || now - dev.lastData > (CLOUD_ROLES.includes(role) ? CLOUD_STALE_MS : STALE_MS),
+            source: dev.source || null,
             switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' || CLOUD_ROLES.includes(role) ? null : switchValue(dev))
         };
     });
@@ -455,9 +460,12 @@ if (typeof p.state === 'string' && !p.data) {
     dev.lastState = now;
 } else if (p.data && typeof p.data === 'object') {
     const dps = p.data.dps || {};
+    const at = Number.isFinite(p.data.t) && p.data.t <= now ? p.data.t : now;
+    if (CLOUD_ROLES.includes(role) && dev.lastData && at < dev.lastData && dev.state === 'CONNECTED') return null;
     Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
-    dev.lastData = now;
+    dev.lastData = at;
     dev.state = 'CONNECTED';
+    if (CLOUD_ROLES.includes(role)) dev.source = p.source || 'cloud';
     if (role === 'meter') dev.reading = meterReading(dev);
 } else {
     return null;
@@ -472,19 +480,4 @@ const statusText = model.summary.supply !== null
     : `${role}: ${dev.state}`;
 node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
 
-let chartMsgs = null;
-let powerMsgs = null;
-const lastChart = context.get('lastChart') || 0;
-if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_MS) {
-    context.set('lastChart', now);
-    const s = model.summary;
-    chartMsgs = [
-        ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor],
-        ['Accumulator', s.accTemp], ['Exchange plate', s.plateTemp]
-    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
-    powerMsgs = [
-        ['Heat pump W (meter)', s.powerW], ['Heat pump ≈W (A × 220)', s.compressorPowerW]
-    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
-}
-
-return [{ payload: model }, chartMsgs, powerMsgs];
+return [{ payload: model }, null, null];
