@@ -178,12 +178,55 @@ The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It mar
 
 Check of the formula: with P23 = 32 at −3 °C outdoor the curve gave 34 °C and the pump reported 35 °C (DP 125); with P23 = 37 at −1 °C the curve gives 35.2 °C and the pump reports 35 °C. So the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
 
+## Automations page (d#123–d#125)
+
+The Smart Life heating / DHW scenes (**B\*** DHW cycles and **DF\*** defrost handling) run as local rules on the GX. Node `Heat pump automations` ([`40`](../40%20Heat%20pump%20automations.js)) and the **Automations** dashboard tab ([`41`](../41%20Automations%20page.html)):
+
+- **Master switch** "Local control ON / OFF" for all local automations. **OFF is the default**: no local rule writes to a device, but every rule is still evaluated and every step is logged as "would …", so it can be compared with the Smart Life log. Turning it OFF also stops running live sequences.
+- **Per rule mode:** `off` (not evaluated), `dry` (default, log only) or `live` (writes, only while the master is ON). Before a rule goes live, switch the matching Smart Life scene off, otherwise both act.
+- **Sequences:** each rule runs the same steps and delays as its cloud scene (e.g. *B46 off* lowers the set point in 1-min steps over ~6 min). A rule does not start again while its own sequence runs. All device writes go through one queue, 1.5 s apart.
+- **Internal defrost flag** instead of the cloud-only *Voksen heating* device: set and cleared exactly where the cloud scenes set it (DF exchange off / DF switch to heating / B* switch → ON; DF exchange on 31 after 7 min → OFF) and cleared after 10 min at the latest (*DF safe 10min*). It is internal state, not a device, so it also moves in `dry`. The page shows it and has a *reset flag* button.
+- **Safety:** every device a rule reads must be CONNECTED with data ≤ 5 min old; the conditions must hold on 3 ticks in a row (tick 10 s); then the rule rests (10–30 min).
+- **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, all rules `dry`.
+
+**Local rules (d#125, all `dry` by default)** — DPs: 102 supply, 103 outdoor, 108 tank, 115 Hz, 116 fan, 125 set point, 132 P22; valve ON = DHW, bypass ON = exchanger bypassed:
+
+| Rule | Smart Life scene (runs 7–8 Nov) | If | Then (steps) |
+|---|---|---|---|
+| `df_exchange_off` | DF exchange off (45) | fan 0, > 30 Hz, bypass OFF, supply < 27, outdoor < 14 | bypass ON, flag ON |
+| `df_exchange_on` | DF exchange on 31 (49) | bypass ON, fan > 300, supply > 27, set < 45, P22 on | bypass OFF, wait 7 min, flag OFF |
+| `df_switch_to_heating` | DF switch to heating (6) | fan 0, > 30 Hz, valve ON, outdoor < 14, flag OFF, set 40/42/46/50 | flag ON, valve OFF, bypass ON |
+| (built in) | DF safe 10min (59) | flag ON ≥ 10 min | flag OFF |
+| `b40_on` | B40 on <36 -20..-11 | tank < 36, valve OFF, supply > 35, outdoor −20…−11, bypass OFF, set < 40 | P22 off, Powerful, set 40, bypass ON |
+| `b40_switch` | B40 switch >37 | valve OFF, fan > 250, set 40, supply > 37, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 40, bypass OFF |
+| `b40_off` | B40 off >39 | outdoor −20…−11, tank > 39, fan > 300, supply > 38, set 40, valve ON | set 37, valve OFF, wait 4 s, set 37, valve OFF, P22 on |
+| `b42_on` | B42 on <41 -10..-5 | outdoor −10…−5, tank < 41, fan > 400, supply > 35, valve + bypass OFF, set < 40 | P22 off, Powerful, set 42, bypass ON |
+| `b42_switch` | B42 switch >39 | supply > 39, set 42, valve OFF, fan > 300, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 42, bypass OFF |
+| `b42_off` | B42 off >42 | tank > 42, supply > 41, valve ON, set 42 | set 41, wait 10 s, valve OFF, set 41, wait 1 min, set 39, wait 1 min, valve OFF, Silent, wait 3 min, P22 on (cloud also runs the scene *Slowly cool down* — not included) |
+| `b46_on` | B46 on <44 -4..1 (6) | tank < 44, outdoor −4…1, fan > 300, supply > 30, valve + bypass OFF, set < 40 | P22 off, Smart, set 46, bypass ON |
+| `b46_switch` | B46 switch >38 (15, 4 failed) | supply > 38, fan > 40, valve OFF, set 46, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 46, bypass OFF |
+| `b46_off` | B46 off >46 -4..1 (8, 3 failed) | tank > 46, fan > 400, supply > 46, valve ON, outdoor −4…1, flag OFF, set 46 | set 45, bypass OFF, 10 s, set 45, 3 s, valve OFF, 2 s, valve OFF, then set 43 → 41 → 39 → 38 → 35 one per minute, Silent, P22 on |
+| `b50_on` | B50 on <47 >1 | tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on | P22 off, set 50, bypass ON |
+| `b50_switch_warm` | B50 switch >47 >0 | valve OFF, set 50, outdoor > 0, tank < 49, flag OFF, supply > 47 | flag ON, set 20, wait 1 min, valve ON, set 50, bypass OFF |
+| `b50_switch_cold` | B50 switch >45 <1 | supply > 45, set 50, valve OFF, outdoor < 1, flag OFF, tank < 49 | same as above |
+| `b50_off` | B50 off >49 | tank > 49, valve ON | Silent, set 25, valve OFF (×3 over 30 s), flag ON 10 s, P22 on |
+| `b50_preheat_bypass` | B50 preheat exchange off | set 50, valve OFF, bypass OFF, tank < 50 | bypass ON |
+| `b42_mode_smart` | B42 mode silent-smart <44 | Silent, set 42, supply < 44 | Smart |
+| `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
+
+**Not moved** (owner decision, 2026-11-08): *B46 mode smart-silent >48*, *B42 mode smart-silent >6a*, *B42 mode powerful-silent >45*, *B42 mode silent-smart <45*, *B50 force heating mode*, *HP silent >0*.
+
+**No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.)
+
+**Next:** compare the dry-run log with the Smart Life log over a few DHW cycles; then rule by rule: Smart Life scene off → rule `live` → master ON. Rollback = master OFF and the scenes on again.
+
 ## Roadmap
 
-1. **Stage 1 (now)** — monitoring page, 30 s history with statistics by day, SA1 power meter; manual controls only (curve shift P23, bypass on/off, d#121). Compare with the Tuya log for a day.
-2. **Stage 2** — a new controller node (e.g. `40 Heat pump controller.js`; 36–39 are taken): state machine HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
-3. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = disable the flow, re-enable the scenes.
-4. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
+1. **Stage 1** — monitoring page, 30 s history with statistics by day, SA1 power meter; manual controls only (curve shift P23, bypass on/off, d#121). Compare with the Tuya log for a day.
+2. **Stage 1b (now, d#123–d#125)** — Automations page: master switch, per-rule off / dry / live, internal defrost flag, all B* on / switch / off and DF rules as timed sequences in dry-run; compare with the Smart Life log, then switch rule by rule to live and the scene off (see above).
+3. **Stage 2** — a controller state machine in `40 Heat pump automations.js`: HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
+4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes.
+5. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
 
 ---
 
