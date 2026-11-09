@@ -1,0 +1,130 @@
+<!--
+  43 Automation log page.html
+  Source of the ui_template "Automation log page" (Automation log dashboard tab).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-43).
+  Shows the model built by "Automation log" (42): the events of one day, grouped like the
+  Smart Life log (one entry per rule run, tap to see its steps), and navigation by day.
+  Sends:
+    {topic:'ui', payload:{action:'open'}}            — on open (today)
+    {topic:'ui', payload:{action:'day', day}}        — another day (YYYY-MM-DD)
+    {topic:'ui', payload:{action:'refresh'}}         — read the shown day again
+-->
+<style>
+.hpl { padding: 6px 4px; font-size: 14px; }
+.hpl-title { font-size: 20px; font-weight: 700; }
+.hpl-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.hpl button { border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer; background: rgba(127,127,127,.22); color: inherit; font-size: 13px; }
+.hpl button.sel { background: #1f6feb; color: #fff; }
+.hpl button:disabled { opacity: .4; cursor: default; }
+.hpl-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 10px; padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.10); }
+.hpl-nav .day { font-size: 17px; font-weight: 700; min-width: 170px; text-align: center; }
+.hpl-nav input { background: transparent; color: inherit; border: 1px solid rgba(127,127,127,.4); border-radius: 6px; padding: 3px 6px; }
+.hpl-days { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.hpl-days button { padding: 3px 9px; font-size: 12px; }
+.hpl-days .cnt { opacity: .7; margin-left: 4px; }
+.hpl-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
+.hpl-item { border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; background: rgba(127,127,127,.08); }
+.hpl-item.run { cursor: pointer; }
+.hpl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.hpl-time { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 64px; }
+.hpl-name { font-weight: 700; }
+.hpl-sum { font-size: 12.5px; opacity: .8; margin-top: 3px; }
+.hpl-badge { border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
+.b-ok { background: rgba(46,160,67,.25); }
+.b-failed, .b-stopped { background: rgba(218,54,51,.30); }
+.b-test, .b-test-running { background: rgba(210,153,34,.30); }
+.b-running { background: rgba(31,111,235,.30); }
+.b-setting, .b-flag { background: rgba(31,111,235,.20); }
+.b-warn { background: rgba(218,54,51,.30); }
+.b-info { background: rgba(127,127,127,.2); }
+.hpl table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.hpl td { padding: 2px 6px; border-bottom: 1px solid rgba(127,127,127,.2); vertical-align: top; }
+.hpl td.num { white-space: nowrap; font-variant-numeric: tabular-nums; width: 70px; }
+.hpl .k-write, .hpl .k-start, .hpl .k-ok, .hpl .k-done { color: #2ea043; font-weight: 700; }
+.hpl .k-dry, .hpl .k-test { color: #d29922; font-weight: 700; }
+.hpl .k-flag, .hpl .k-setting, .hpl .k-step { color: #1f6feb; font-weight: 700; }
+.hpl .k-warn, .hpl .k-fail, .hpl .k-stop { color: #da3633; font-weight: 700; }
+.hpl .small { font-size: 12px; opacity: .75; }
+</style>
+
+<div class="hpl">
+  <div class="hpl-title">Automation log</div>
+  <div class="hpl-sub">Everything the local heat pump automations did, by day (files on the GX: grid-control-logs/automations/YYYY-MM-DD.jsonl). Tap a run to see its steps.</div>
+
+  <div class="hpl-nav">
+    <button ng-click="hplShift(-1)">◀ previous day</button>
+    <span class="day">{{hplDate(msg.payload.day)}}<span ng-if="msg.payload.isToday"> · today</span></span>
+    <button ng-click="hplShift(1)" ng-disabled="msg.payload.isToday">next day ▶</button>
+    <button ng-click="hplGo(msg.payload.today)" ng-disabled="msg.payload.isToday">today</button>
+    <input type="date" ng-model="hplPick" ng-change="hplPicked()">
+    <button ng-click="hplRefresh()">refresh</button>
+  </div>
+
+  <div class="hpl-days" ng-if="msg.payload.days.length">
+    <button ng-repeat="d in msg.payload.days | limitTo:21" ng-class="{sel: d.day == msg.payload.day}" ng-click="hplGo(d.day)">{{hplShort(d.day)}}<span class="cnt">{{d.count}}</span></button>
+  </div>
+
+  <div class="hpl-filter">
+    <button ng-repeat="f in hplFilters" ng-class="{sel: hplF == f.id}" ng-click="hplSetF(f.id)">{{f.label}}</button>
+    <span class="small">runs {{msg.payload.counts.runs}} · on {{msg.payload.counts.ok}} · failed / stopped {{msg.payload.counts.failed}} · test {{msg.payload.counts.test}} · other events {{msg.payload.counts.events}}</span>
+  </div>
+  <div class="small" ng-if="msg.payload.note">{{msg.payload.note}}</div>
+
+  <div ng-repeat="it in msg.payload.items | filter:hplMatch" class="hpl-item" ng-class="{run: it.type=='run'}" ng-click="it.type=='run' && hplToggle(it)">
+    <div class="hpl-head">
+      <span class="hpl-time">{{it.t | date:'HH:mm:ss'}}</span>
+      <span class="hpl-badge" ng-class="'b-' + (it.type=='run' ? it.status.replace(' ', '-') : it.kind)">{{it.type=='run' ? hplStatus(it.status) : it.kind}}</span>
+      <span class="hpl-name" ng-if="it.type=='run'">{{it.cloud}}</span>
+      <span ng-if="it.type!='run'"><b ng-if="it.cloud">{{it.cloud}}: </b>{{it.text}}</span>
+      <span class="small" ng-if="it.type=='run'">{{it.steps.length}} entries<span ng-if="it.oks || it.fails"> · writes confirmed {{it.oks}}<span ng-if="it.fails">, failed {{it.fails}}</span></span><span ng-if="it.last && it.last > it.t"> · until {{it.last | date:'HH:mm:ss'}}</span> {{hplOpen[it.run] ? '▲' : '▼'}}</span>
+    </div>
+    <div class="hpl-sum" ng-if="it.type=='run' && !hplOpen[it.run]">{{it.summary}}</div>
+    <table ng-if="it.type=='run' && hplOpen[it.run]">
+      <tr ng-repeat="s in it.steps"><td class="num">{{s.t | date:'HH:mm:ss'}}</td><td ng-class="'k-' + s.kind" style="width:60px">{{s.kind}}</td><td>{{s.text}}</td></tr>
+    </table>
+  </div>
+  <div class="small" ng-if="msg.payload && !(msg.payload.items | filter:hplMatch).length">No events on this day.</div>
+</div>
+
+<script>
+(function (scope) {
+    scope.hplOpen = {};
+    scope.hplF = 'all';
+    scope.hplFilters = [
+        { id: 'all', label: 'All' }, { id: 'runs', label: 'Runs' }, { id: 'on', label: 'On (writes)' },
+        { id: 'failed', label: 'Failed / stopped' }, { id: 'test', label: 'Test' }, { id: 'other', label: 'Settings / flag' }
+    ];
+    var STATUS = { ok: 'executed', failed: 'failed', stopped: 'stopped', running: 'running', test: 'test', 'test running': 'test running' };
+    scope.hplStatus = function (s) { return STATUS[s] || s; };
+    scope.hplSetF = function (f) { scope.hplF = f; };
+    scope.hplMatch = function (it) {
+        var f = scope.hplF;
+        if (f === 'all') return true;
+        if (f === 'other') return it.type !== 'run';
+        if (it.type !== 'run') return false;
+        if (f === 'runs') return true;
+        if (f === 'on') return it.live;
+        if (f === 'failed') return it.status === 'failed' || it.status === 'stopped';
+        if (f === 'test') return !it.live;
+        return true;
+    };
+    scope.hplToggle = function (it) { scope.hplOpen[it.run] = !scope.hplOpen[it.run]; };
+    function parse(d) { var p = String(d || '').split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+    function key(dt) { var m = dt.getMonth() + 1, d = dt.getDate(); return dt.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d; }
+    scope.hplDate = function (d) {
+        if (!d) return '';
+        return parse(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    };
+    scope.hplShort = function (d) { return parse(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+    scope.hplGo = function (d) { if (!d) return; scope.hplOpen = {}; scope.send({ topic: 'ui', payload: { action: 'day', day: d } }); };
+    scope.hplShift = function (n) {
+        var p = scope.msg && scope.msg.payload; if (!p) return;
+        var dt = parse(p.day); dt.setDate(dt.getDate() + n);
+        var k = key(dt); if (k > p.today) return;
+        scope.hplGo(k);
+    };
+    scope.hplPicked = function () { if (scope.hplPick) scope.hplGo(key(scope.hplPick)); };
+    scope.hplRefresh = function () { scope.send({ topic: 'ui', payload: { action: 'refresh' } }); };
+    scope.send({ topic: 'ui', payload: { action: 'open' } });
+})(scope);
+</script>

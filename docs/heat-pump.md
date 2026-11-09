@@ -178,18 +178,19 @@ The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It mar
 
 Check of the formula: with P23 = 32 at −3 °C outdoor the curve gave 34 °C and the pump reported 35 °C (DP 125); with P23 = 37 at −1 °C the curve gives 35.2 °C and the pump reports 35 °C. So the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
 
-## Automations page (d#123–d#125)
+## Automations page (d#123–d#126)
 
-The Smart Life heating / DHW scenes (**B\*** DHW cycles and **DF\*** defrost handling) run as local rules on the GX. Node `Heat pump automations` ([`40`](../40%20Heat%20pump%20automations.js)) and the **Automations** dashboard tab ([`41`](../41%20Automations%20page.html)):
+All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** defrost handling, **HP\*** scenes) run as local rules on the GX. Node `Heat pump automations` ([`40`](../40%20Heat%20pump%20automations.js)) and the **Automations** dashboard tab ([`41`](../41%20Automations%20page.html)):
 
-- **Master switch** "Local control ON / OFF" for all local automations. **OFF is the default**: no local rule writes to a device, but every rule is still evaluated and every step is logged as "would …", so it can be compared with the Smart Life log. Turning it OFF also stops running live sequences.
-- **Per rule mode:** `off` (not evaluated), `dry` (default, log only) or `live` (writes, only while the master is ON). Before a rule goes live, switch the matching Smart Life scene off, otherwise both act.
+- **Master switch** "Local control ON / OFF" for all local automations. **OFF is the default**: no local rule writes to a device, but rules set to On or Test are still evaluated and every step is logged as "would …". Turning it OFF also stops running live sequences.
+- **Per rule: Off / Test / On** (stored as `off` / `dry` / `live`). Off = not evaluated; Test = evaluated, steps only logged; On = writes, only while the master is ON. Default: Test for the 19 rules of d#125, Off for the 9 rules added in d#126. **All rules at once:** buttons *all Off / all Test / all On*. Before a rule goes On, switch the matching Smart Life scene off, otherwise both act. Switching a rule Off also stops its running sequence.
+- **Write check:** 15 s after each write the rule compares the value the device reports with the value it sent and logs `ok` or `fail` (like *Executed* / *Failed* in the Smart Life log).
 - **Sequences:** each rule runs the same steps and delays as its cloud scene (e.g. *B46 off* lowers the set point in 1-min steps over ~6 min). A rule does not start again while its own sequence runs. All device writes go through one queue, 1.5 s apart.
 - **Internal defrost flag** instead of the cloud-only *Voksen heating* device: set and cleared exactly where the cloud scenes set it (DF exchange off / DF switch to heating / B* switch → ON; DF exchange on 31 after 7 min → OFF) and cleared after 10 min at the latest (*DF safe 10min*). It is internal state, not a device, so it also moves in `dry`. The page shows it and has a *reset flag* button.
 - **Safety:** every device a rule reads must be CONNECTED with data ≤ 5 min old; the conditions must hold on 3 ticks in a row (tick 10 s); then the rule rests (10–30 min).
-- **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, all rules `dry`.
+- **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, every rule at its default.
 
-**Local rules (d#125, all `dry` by default)** — DPs: 102 supply, 103 outdoor, 108 tank, 115 Hz, 116 fan, 125 set point, 132 P22; valve ON = DHW, bypass ON = exchanger bypassed:
+**Local rules (28)** — DPs: 2 mode, 5 work mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 108 tank, 115 Hz, 116 fan, 125 set point, 132 P22; valve ON = DHW, bypass ON = exchanger bypassed. Default Test, except the rules marked *(Off)*:
 
 | Rule | Smart Life scene (runs 7–8 Nov) | If | Then (steps) |
 |---|---|---|---|
@@ -212,18 +213,38 @@ The Smart Life heating / DHW scenes (**B\*** DHW cycles and **DF\*** defrost han
 | `b50_off` | B50 off >49 | tank > 49, valve ON | Silent, set 25, valve OFF (×3 over 30 s), flag ON 10 s, P22 on |
 | `b50_preheat_bypass` | B50 preheat exchange off | set 50, valve OFF, bypass OFF, tank < 50 | bypass ON |
 | `b42_mode_smart` | B42 mode silent-smart <44 | Silent, set 42, supply < 44 | Smart |
+| `b42_mode_smart45` *(Off)* | B42 mode silent-smart <45 | Silent, supply < 45, fan > 300, set 42 | Smart |
+| `b42_mode_silent_valve` *(Off)* | B42 mode smart-silent >6a | set 42, supply > 44, Smart, valve ON | Silent |
+| `b42_mode_powerful_silent` *(Off)* | B42 mode powerful-silent >45 | supply > 45, fan > 300, set 42, Smart or Powerful | Silent |
+| `b46_mode_silent` *(Off)* | B46 mode smart-silent >48 | Smart, set 46, supply > 48 | Silent |
+| `b50_force_heating` *(Off)* | B50 force heating mode | set 50, work mode Cooling | work mode Heating |
+| `hp_silent_0` *(Off)* | HP silent >0 | outdoor > 0, flag OFF, set < 40, valve OFF, not already Silent | Silent |
+| `hp_er03_restart` *(Off)* | HP Er03 restart | fault Er03 (water flow), valve ON | valve OFF, 30 s, valve OFF, pump OFF, 1 min, pump ON, bypass OFF, set 31, P22 on (cloud also disables the scene *zz boiler 50 on <47 >1*, already off — not included) |
+| `hp_power_m16` *(Off)* | HP power <-16 (dead) | outdoor < −16, fan > 250, set < 37 **and** > 37, Smart or Silent — never true, as in the cloud | Powerful, notify |
+| `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
 | `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
 
-**Not moved** (owner decision, 2026-11-08): *B46 mode smart-silent >48*, *B42 mode smart-silent >6a*, *B42 mode powerful-silent >45*, *B42 mode silent-smart <45*, *B50 force heating mode*, *HP silent >0*.
+**No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.) Smart Life scenes of other devices (*HOME dehum*, *HOME charger*) and the *LOG …* scenes (replaced by the Automation log) are not moved.
 
-**No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.)
+**Known limit (comparison of 9 Nov):** the cloud acts within seconds of a device report, the local rule needs its conditions on 3 ticks of 10 s. While a cloud scene is still on, it changes the state first (e.g. bypass ON at supply < 27), so the local rule in Test usually never sees its conditions for 30 s. The step sequences themselves matched the cloud (B46 on / switch / off on 9 Nov, 08:14–08:46).
 
-**Next:** compare the dry-run log with the Smart Life log over a few DHW cycles; then rule by rule: Smart Life scene off → rule `live` → master ON. Rollback = master OFF and the scenes on again.
+**Next:** rule by rule: Smart Life scene off → rule On → master ON; check the run on the Automation log page. Rollback = master OFF and the scenes on again.
+
+## Automation log page (d#126)
+
+Every event of the local automations is one JSON line in `/data/home/nodered/grid-control-logs/automations/YYYY-MM-DD.jsonl` (local date of the GX, file node *Append automation log*): `{ t, kind, text, rule, cloud, run, live }`. Kinds: `test` / `start` (a rule run begins), `dry` / `write` / `step` (steps), `ok` / `fail` (write checked against the device), `done` / `stop` (run ends), `flag`, `setting`, `warn`. Events of one run share `run`.
+
+The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20Automation%20log.js), exec node *Read automation log*, ui_template [`43`](../43%20Automation%20log%20page.html)) shows one day like the Smart Life log:
+
+- **Navigation by day:** previous / next day, *today*, a date picker, and chips for the last 21 days that have a file, with the number of events.
+- **One entry per rule run:** time, scene name, status (*executed*, *failed*, *stopped*, *test*, *running*), number of confirmed / failed writes; tap to see every step with its time. Settings, flag and warning events are listed between the runs.
+- **Filters:** All, Runs, On (writes), Failed / stopped, Test, Settings / flag. While the page shows today, new events appear at once.
+- Files are small (about 100–200 bytes per event); nothing deletes them yet.
 
 ## Roadmap
 
 1. **Stage 1** — monitoring page, 30 s history with statistics by day, SA1 power meter; manual controls only (curve shift P23, bypass on/off, d#121). Compare with the Tuya log for a day.
-2. **Stage 1b (now, d#123–d#125)** — Automations page: master switch, per-rule off / dry / live, internal defrost flag, all B* on / switch / off and DF rules as timed sequences in dry-run; compare with the Smart Life log, then switch rule by rule to live and the scene off (see above).
+2. **Stage 1b (now, d#123–d#126)** — Automations page: master switch, per-rule Off / Test / On and all at once, internal defrost flag, all heat pump scenes as timed sequences, write check, Automation log by day; switch rule by rule On and the scene off (see above).
 3. **Stage 2** — a controller state machine in `40 Heat pump automations.js`: HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
 4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes.
 5. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
