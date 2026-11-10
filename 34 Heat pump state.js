@@ -460,6 +460,7 @@ function buildDhwChart(d) {
         curveSupply: v.curveSupply === undefined ? null : v.curveSupply,
         boilerP23Now: outdoor === null || wanted === null ? null : Math.max(0, Math.min(40, Math.round(outdoor + (wanted - 20) / ((c.boilerP24 || 12) / 10)))),
         prot: v.prot || null,
+        plan: v.plan || null,
         heatCurve: v.heatCurve || null,
         supplyNow,
         svg: {

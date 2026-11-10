@@ -7,6 +7,8 @@
   d#136: legends above the charts; pointing at (or tapping) a chart shows a cursor line, a dot
   per series and a tooltip with the time, the event and every visible value.
   d#141: compressor current (A) on the power chart, right axis.
+  d#143: while a DHW cycle runs, today's chart shows a dashed tank target line and a dashed
+  projection to the expected end (from the controller); today's chart refreshes every minute.
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-39).
   Reads the recorder files through "Heat pump command" (37) → exec "Read heat pump history" →
   "Build heat pump history" (38). Sends only read requests: {topic:'summary'} and {topic:'day'}.
@@ -52,6 +54,11 @@
 .hph-plot { position: relative; cursor: crosshair; }
 .hph-svg .cursor { stroke: currentColor; stroke-width: 1; opacity: .45; stroke-dasharray: 3 3; }
 .hph-svg .dot { stroke: #fff; stroke-width: 1.2; }
+.hph-svg .plan-target { stroke: #ff7f0e; stroke-width: 1.4; stroke-dasharray: 6 4; fill: none; opacity: .9; }
+.hph-svg .plan-proj { stroke: #ff7f0e; stroke-width: 2; stroke-dasharray: 3 3; fill: none; }
+.hph-svg .plan-end { fill: #fff; stroke: #ff7f0e; stroke-width: 2; }
+.hph-svg .plan-label { font-size: 11px; fill: #ff7f0e; font-weight: 600; }
+.hph-plan { font-size: 12.5px; margin: -4px 0 8px; color: #c25e00; }
 .hph-tip { position: absolute; top: 4px; transform: translateX(10px); pointer-events: none; z-index: 5; min-width: 150px;
   background: rgba(30,30,30,.92); color: #fff; border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45; box-shadow: 0 2px 8px rgba(0,0,0,.3); white-space: nowrap; }
 .hph-tip.flip { transform: translateX(calc(-100% - 10px)); }
@@ -136,6 +143,12 @@
       <g ng-if="h.day.chart.events">
         <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" style="stroke:none" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
       </g>
+      <g ng-if="h.day.chart.plan">
+        <line class="plan-target" ng-attr-x1="{{h.day.chart.plan.x0}}" ng-attr-x2="{{h.day.chart.plan.xEnd}}" ng-attr-y1="{{h.day.chart.plan.yTarget}}" ng-attr-y2="{{h.day.chart.plan.yTarget}}"></line>
+        <line class="plan-proj" ng-if="h.day.chart.plan.yNow !== null" ng-attr-x1="{{h.day.chart.plan.xNow}}" ng-attr-x2="{{h.day.chart.plan.xEnd}}" ng-attr-y1="{{h.day.chart.plan.yNow}}" ng-attr-y2="{{h.day.chart.plan.yTarget}}"></line>
+        <circle class="plan-end" ng-attr-cx="{{h.day.chart.plan.xEnd}}" ng-attr-cy="{{h.day.chart.plan.yTarget}}" r="4"></circle>
+        <text class="plan-label" ng-attr-x="{{h.day.chart.plan.xEnd > 640 ? h.day.chart.plan.xEnd - 6 : h.day.chart.plan.xEnd + 6}}" ng-attr-y="{{h.day.chart.plan.yTarget - 6}}" ng-attr-text-anchor="{{h.day.chart.plan.xEnd > 640 ? 'end' : 'start'}}">{{h.day.chart.plan.target}} °C ≈ {{h.day.chart.plan.etaText}}</text>
+      </g>
       <g ng-repeat="s in h.day.chart.temp" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}"></polyline></g>
       <line class="cursor" ng-if="h.hov.chart == 'temp'" ng-attr-x1="{{h.hov.x}}" ng-attr-x2="{{h.hov.x}}" ng-attr-y1="{{h.day.chart.t1}}" ng-attr-y2="{{h.day.chart.b2}}"></line>
       <circle class="dot" ng-if="h.hov.chart == 'temp'" ng-repeat="r in h.hov.rows" ng-show="r.y !== null" ng-attr-cx="{{h.hov.x}}" ng-attr-cy="{{r.y}}" r="3.5" ng-attr-fill="{{r.color}}"></circle>
@@ -145,6 +158,8 @@
       <div ng-repeat="r in h.hov.rows"><i ng-style="{background: r.color}"></i>{{r.name}} <b>{{r.v === null ? '—' : r.v}}</b> {{r.v === null ? '' : r.unit}}</div>
     </div>
     </div>
+    <div class="hph-plan" ng-if="h.day.chart.plan">┅ DHW cycle running: tank heading to <b>{{h.day.chart.plan.target}} °C</b>, expected end ≈ <b>{{h.day.chart.plan.etaText}}</b>
+      <span ng-if="h.day.chart.plan.rate !== null">(tank +{{h.day.chart.plan.rate}} °C/min over the last 6 min)</span><span ng-if="h.day.chart.plan.byMax"> — at the latest, by the max duration</span>. The chart refreshes every minute.</div>
     <div class="hph-legend" ng-if="h.day.chart.eventLegend">
       <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', vertical-align: '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
       <span class="hph-sub">event lane under the chart: what the heat pump did (from the valve, bypass, fan and compressor)</span>
@@ -272,5 +287,13 @@
         if (scope.h.sel) scope.hpLoad(scope.h.sel);
     };
     setTimeout(function () { scope.send({ topic: 'summary', payload: {} }); }, 300);
+    // d#143: today's chart is read again every minute (new rows, the running DHW cycle's plan)
+    var liveTimer = setInterval(function () {
+        var s = scope.h.sum, sel = scope.h.sel;
+        if (!s || !sel || scope.h.loading) return;
+        var t = s.days.filter(function (d) { return d.today; })[0];
+        if (t && t.day === sel) scope.send({ topic: 'day', payload: { day: sel } });
+    }, 60000);
+    scope.$on('$destroy', function () { clearInterval(liveTimer); });
 })(scope);
 </script>

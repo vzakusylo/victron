@@ -32,6 +32,8 @@
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 8. d#143: chart.plan (today only, while a DHW cycle runs): dashed tank target line from the cycle
+//    start and a dashed projection from the tank now to the target at the expected end (flow.dhwView).
 // 7. d#141: compressor current (DP 112) as a third power-chart series on a right axis (A);
 //    every power series carries its axis maximum `max` for the tooltip dots.
 // 6. d#136: chart.temp[].v / chart.power.series[].v = value per 2-min bucket (hover tooltip), chart.nb.
@@ -179,7 +181,8 @@ function stats(rows) {
 }
 
 // ---- day chart (SVG coordinates) ----------------------------------------
-function chart(rows) {
+// dv = flow.dhwView for today (d#143): plan of the running DHW cycle, drawn as dashed lines
+function chart(rows, dv) {
     const W = 760, L = 40, R = 12;
     // d#134: the event lane is the bottom of the temperature chart; power has its own chart (power)
     const T1 = 10, B1 = 200, B2 = 224;
@@ -262,6 +265,18 @@ function chart(rows) {
     }
     const evOut = events.map((e) => ({ kind: e.kind, color: EV[e.kind], x: xs(e.s1), w: Math.max(0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
         from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
+    // d#143: where the running DHW cycle is heading — target line and the expected end
+    let plan = null;
+    const okRows = rows.filter((r) => r.ok);
+    if (dv && dv.plan && dv.at && Date.now() - dv.at <= 2 * 60 * 1000 && okRows.length) {
+        const p = dv.plan, lastS = okRows[okRows.length - 1].s, nowMs = Date.now();
+        const sOf = (ms) => Math.max(0, Math.min(86400, lastS + (ms - nowMs) / 1000));
+        const clampY = (v) => yT(Math.max(yMin, Math.min(yMax, v)));
+        const eta = new Date(p.eta);
+        plan = { x0: xs(sOf(p.startAt)), xNow: xs(lastS), yNow: p.tank === null || p.tank === undefined ? null : clampY(p.tank),
+            xEnd: xs(sOf(p.eta)), yTarget: clampY(p.target), target: p.target, rate: p.rate, byMax: !!p.byMax,
+            etaText: pad(eta.getHours()) + ':' + pad(eta.getMinutes()), state: dv.state };
+    }
     const evCount = {};
     events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
 
@@ -270,6 +285,7 @@ function chart(rows) {
         left: L, right: W - R, t1: T1, b1: B1, b2: B2, nb, bucketS: BUCKET_S, yMin, yMax,
         evTop: B1 + 6, evH: 14,
         events: evOut,
+        plan,
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks,
         temp: tempDefs.map(([name, k, color]) => ({ name, color, unit: '°C', segs: segs(K[k], yT), v: vals(K[k], 1) })).filter((s) => s.segs.length),
@@ -297,7 +313,7 @@ if (msg.topic === 'day') {
     if (msg.day < today) { cache[msg.day] = s.stats; }
     flow.set('hpDayCache2', cache);
     node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + d.rows.length + ' samples' });
-    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows) } };
+    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows, msg.day === today ? flow.get('dhwView') : null) } };
 }
 
 // summary

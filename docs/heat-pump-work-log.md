@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-10: local automations (d#123–d#142)
+### 2026-11-08 – 2026-11-10: local automations (d#123–d#143)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -46,6 +46,8 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | plan | "Write a detailed plan, current and planned: use only the heating curve and set its values for the boiler, two curve settings; pick the boiler values; simplify the boiler automation; keep the switch to heating during a defrost in DHW; bypass ON during a defrost in heating." Then: option B, P23 ramp, and "check power reduction in frost to save the compressor; it must not run at its maximum". | [heat-pump-dhw-curve-plan.md](heat-pump-dhw-curve-plan.md): a fixed P23 / P24 pair can only give a supply that falls in warmer weather (P24 ≥ 1), so the boiler curve uses P24 12 and a P23 computed per cycle; compressor protection P1–P7. | Decisions recorded in the plan. |
 | d#142 | "Build it." | Pump test (P23 0 stops the compressor in ~50 s, restart ~50 s after P23 back; DP 125 does not follow the curve). DHW controller rebuilt on the curve: P22 always on, stop = P23 0, boiler P24 12 + computed P23 ramped within the gap, end = stored heating curve back, no DP 125 writes, no ramp-down; protection in the cold and on Hz / A / discharge; DF rules only outside a cycle; HP Er03 restart without the set point write; the P23 slider is locked during a cycle; the heating chart shows the stored heating curve then; boiler chart with the wanted-supply line and new settings. 26 model checks pass. | Deployed 13:01; heating curve stored (P23 38 / P24 4); first cycle on the curve pending. |
 | docs | "Write a detailed description of what was done, how it changed and how it works now; commit everything." | [heat-pump-boiler.md](heat-pump-boiler.md). | — |
+| d#143 | "Check the curve and why the heating did not start" (first live cycle on the curve, 14:16). | The curve values were right (20 + 1.2 × (P23 − outdoor)). After the valve switch the loop held tank water at 40–42 °C, but the start P23 12 (from the heating return 33 °C + 5) gave 35.6 °C, so the compressor stayed off until the +1/min ramp reached 44 °C at 14:26. Fix: start and ramp limit from the warmest of return / supply / tank + gap. Model tests extended (pump restarts only when the curve is 2 °C above the water). | Cycle 14:16–14:43: tank 40 → 46 °C in 26 min, all writes confirmed. Deployed 14:50 together with the next row. |
+| d#143 | "Draw with a dashed line where the boiler heating is heading and the expected end time." | Controller: `plan` = tank target and expected end (least-squares tank rise over the last 6 min, at the latest the max duration). History page: dashed target line from the cycle start, dashed projection from the tank now to the target at the expected end with a label, a note under the chart, today's chart refreshed every minute. Boiler column: "heading to … °C, expected end ≈ …". Model: estimate 11.9 min vs real 8.7 min. | Deployed 14:50. |
 
 ## Instructions
 
