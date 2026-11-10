@@ -1,5 +1,7 @@
 # DHW controller by outdoor curve
 
+**Since d#142 (10 Nov) the cycle runs on the pump's own curve** — see [heat-pump-dhw-curve-plan.md](heat-pump-dhw-curve-plan.md): P22 stays on, stop = P23 0, boiler = P24 12 with P23 from the wanted supply, ramp of P23 within the gap, heating curve back at the end, compressor protection in the cold. The start conditions, the tank target curve, defrost in DHW and the requirements below are unchanged; sections 3.2 (states) and 3.3 describe the d#130–d#141 version.
+
 Status 2026-11-09: built in **d#130** (`40 Heat pump automations.js`, panel on the Automations page
 `41`, event lane on the history day chart `38` / `39`) and deployed **Off**. One local controller
 heats the DHW tank with the heat pump. While it is **On** it replaces the local B40 / B42 / B46 / B50

@@ -31,6 +31,7 @@
 // Change notes:
 // 1. Initial version (d#121): curve shift (P23), bypass on/off, history requests.
 // 2. d#138: 'ui' requests of the DHW controller panel go to output 4.
+// 3. d#142: P23 (curve) refused while a DHW cycle runs (the pump is on the boiler curve then).
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
@@ -71,6 +72,9 @@ case 'curve': {
     const v = Number(p.p23);
     if (!Number.isInteger(v) || v < CURVE_MIN || v > CURVE_MAX) return refuse('P23 ' + p.p23 + ' outside ' + CURVE_MIN + '…' + CURVE_MAX);
     if (!ready('hp')) return refuse('heat pump not connected');
+    // d#142: during a DHW cycle the pump runs on the boiler curve; the heating P23 comes back at its end
+    const dv = flow.get('dhwView');
+    if (dv && dv.state && dv.state !== 'HEATING') return refuse('DHW cycle running, change the heating curve after it');
     const cur = st.hp.dps['133'];
     if (Number(cur) === v) { node.status({ fill: 'grey', shape: 'dot', text: 'P23 already ' + v }); return null; }
     if (throttled('hp')) return refuse('too fast, wait 5 s');

@@ -81,6 +81,11 @@
 //    defrost during DHW the same stop → valve sequence runs again.
 // 12. d#140: the two HP mode rules whose cloud conditions are never true (HP power <-16,
 //    HP smart -15..-7) are deleted (owner). Left: DF exchange off / on and HP Er03 restart.
+// 13. d#142: DHW on the pump's own curve (docs/heat-pump-dhw-curve-plan.md): P22 stays on; stop =
+//    P23 0, boiler = P24 12 + P23 computed from the wanted supply, ramp +1 per minute while supply −
+//    return ≤ gap, end = heating curve back (settings.heatCurve, stored from the pump outside cycles).
+//    No DP 125 writes, no RAMPDOWN. Compressor protection in the cold and on high Hz / A / discharge.
+//    DF rules only while no DHW cycle runs. settings.dhwLastEnd keeps the interval across restarts.
 // 11. d#138: the DHW controller panel moved to the Heat Pump page (35); its requests arrive here
 //    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
 //    and is written at once after a DHW mode / settings change.
@@ -107,7 +112,6 @@ const MIN = 60 * 1000;
 const S = 1000;
 
 // ---- step helpers ---------------------------------------------------------
-const set = (v) => ({ role: 'hp', dps: 125, set: v, text: 'set point ' + v + ' °C' });
 const mode = (m) => ({ role: 'hp', dps: 2, set: m, text: 'mode ' + ({ smart: 'Smart', strong: 'Powerful', mute: 'Silent' })[m] });
 const p22 = (on) => ({ role: 'hp', dps: 132, set: on ? '1' : '0', text: 'curve P22 ' + (on ? 'on' : 'off') });
 const valve = (on) => ({ role: 'valve', dps: 1, set: on, text: 'valve ' + (on ? 'ON (DHW)' : 'OFF (heating)') });
@@ -129,15 +133,15 @@ const RULES = [
     // Defrost handling (DF scenes) — they own the internal flag
     { id: 'df_exchange_off', cloud: 'DF exchange off', group: 'Defrost',
         name: 'Defrost starts during heating → bypass ON, flag ON',
-        when: 'fan 0, compressor > 30 Hz, bypass OFF, supply < 27 °C, outdoor < 14 °C',
+        when: 'fan 0, compressor > 30 Hz, bypass OFF, supply < 27 °C, outdoor < 14 °C, no DHW cycle running',
         roles: ['hp', 'bypass'], cooldownMs: 3 * MIN,
-        check: ({ hp, bypass: b }) => n(hp['116']) === 0 && n(hp['115']) > 30 && b['1'] === false && n(hp['102']) < 27 && n(hp['103']) < 14,
+        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && n(hp['116']) === 0 && n(hp['115']) > 30 && b['1'] === false && n(hp['102']) < 27 && n(hp['103']) < 14,
         steps: [bypass(true), flagStep(true)] },
     { id: 'df_exchange_on', cloud: 'DF exchange on 31', group: 'Defrost',
         name: 'Defrost over → bypass OFF, flag OFF after 7 min',
-        when: 'bypass ON, fan > 300, supply > 27 °C, set point < 45 °C, curve P22 on',
+        when: 'bypass ON, fan > 300, supply > 27 °C, set point < 45 °C, curve P22 on, no DHW cycle running',
         roles: ['hp', 'bypass'], cooldownMs: 10 * MIN,
-        check: ({ hp, bypass: b }) => b['1'] === true && n(hp['116']) > 300 && n(hp['102']) > 27 && n(hp['125']) < 45 && String(hp['132']) === '1',
+        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && b['1'] === true && n(hp['116']) > 300 && n(hp['102']) > 27 && n(hp['125']) < 45 && String(hp['132']) === '1',
         steps: [bypass(false), wait(7 * MIN), flagStep(false)] },
 
     // Heat pump (HP scenes)
@@ -147,42 +151,51 @@ const RULES = [
         roles: ['hp', 'valve'], cooldownMs: 30 * MIN,
         check: ({ hp, valve: v }) => (n(hp['15']) & 1) === 1 && v['1'] === true,
         // cloud also disables the scene "zz boiler 50 on <47 >1" (already off, not included)
-        steps: [valve(false), wait(30 * S), valve(false), power(false), wait(MIN), power(true), bypass(false), set(31), p22(true)] },
+        // d#142: no set point 31 any more; the DHW controller ends its cycle and writes the heating curve back
+        steps: [valve(false), wait(30 * S), valve(false), power(false), wait(MIN), power(true), bypass(false), p22(true)] },
 ];
 const OUT = { hp: 1, bypass: 3, valve: 4 };
 const OUT_LOG = 5;
 
-// ---- DHW controller settings (d#130, docs/heat-pump-dhw-controller.md) ------------
+// ---- DHW controller settings (d#130, d#142: docs/heat-pump-dhw-curve-plan.md) ----------
 const DHW_ID = 'dhw';
 const DHW_NAME = 'DHW controller';
+const UNIT_MAX_A = 9.67;   // nameplate PW030-DKZLRS-A
 const DHW_DEFAULTS = {
     curve: [[-15, 40], [-10, 42], [-5, 44], [0, 46], [2, 49]],   // outdoor °C → tank target °C
     frostLimit: -20,     // below: no DHW by the heat pump (electric heater only)
     hyst: 3,             // start when tank < target − hyst
-    gap: 5,              // DHW: set point ≤ return + gap
-    switchMargin: 3,     // unused since d#134 (no preheat), kept so older settings files still load
-    preheatAdd: 4,       // unused since d#134 (no preheat)
-    supplyAdd: 4,        // DHW supply target = tank target + supplyAdd
-    maxSupply: 55,       // set point cap
+    gap: 5,              // DHW: curve supply ≤ return + gap while the ramp runs
+    gapRamp: true,       // raise the boiler P23 1 per minute while supply − return ≤ gap
+    supplyAdd: 4,        // wanted DHW supply = tank target + supplyAdd
+    maxSupply: 55,       // wanted supply cap
+    boilerP24: 12,       // boiler curve coefficient (1.2 °C per °C); P23 is computed per cycle
     minIntervalH: 2,     // at most one DHW cycle per … h
-    maxMin: 60,          // max DHW cycle at ≥ −5 °C outdoor …
-    maxMinCold: 30,      // … falling linearly to this at ≤ −15 °C
-    coldLimit: -10,      // below: no DHW start while heating lags
+    maxMin: 60,          // max DHW cycle …
+    maxMinCold: 30,      // … at outdoor ≤ coldLimit
+    coldLimit: -10,      // at or below: Silent only, supply ≤ coldCap, coldIntervalH, maxMinCold, heating first
+    coldCap: 46,         // wanted supply cap at outdoor ≤ coldLimit
+    coldIntervalH: 3,    // min interval at outdoor ≤ coldLimit
     lagC: 2,             // heating lags = 30-min supply average > lagC below the heating curve
+    protHz: 80,          // compressor protection: frequency …
+    protAmpPct: 85,      // … or current in % of 9.67 A …
+    protDischarge: 90,   // … or discharge (DP 104) °C, held 3 min → P23 − 2
     allowPowerful: false
 };
-const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], switchMargin: [0, 5], preheatAdd: [1, 10],
-    supplyAdd: [1, 10], maxSupply: [45, 55], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180],
-    coldLimit: [-25, 5], lagC: [1, 10] };
+const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], supplyAdd: [1, 10], maxSupply: [45, 55],
+    boilerP24: [5, 30], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180], coldLimit: [-25, 5],
+    coldCap: [40, 55], coldIntervalH: [0, 12], lagC: [1, 10], protHz: [50, 90], protAmpPct: [50, 100], protDischarge: [70, 110] };
 // raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
 function dhwCfg(raw, base) {
-    const c = JSON.parse(JSON.stringify(base || DHW_DEFAULTS));
+    const c = Object.assign(JSON.parse(JSON.stringify(DHW_DEFAULTS)), JSON.parse(JSON.stringify(base || {})));
+    for (const k of Object.keys(c)) if (!(k in DHW_DEFAULTS)) delete c[k];   // old keys (switchMargin, preheatAdd)
     const r = raw || {};
     for (const k of Object.keys(DHW_LIMITS)) {
         const v = Number(r[k]);
-        if (r[k] !== undefined && Number.isFinite(v) && v >= DHW_LIMITS[k][0] && v <= DHW_LIMITS[k][1]) c[k] = v;
+        if (r[k] !== undefined && r[k] !== null && r[k] !== '' && Number.isFinite(v) && v >= DHW_LIMITS[k][0] && v <= DHW_LIMITS[k][1]) c[k] = v;
     }
     if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
+    if (typeof r.gapRamp === 'boolean') c.gapRamp = r.gapRamp;
     if (Array.isArray(r.curve) && r.curve.length >= 2 && r.curve.length <= 8) {
         const pts = r.curve.map((p) => [Number(p[0]), Number(p[1])]);
         const okPts = pts.every((p, i) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && p[0] >= -30 && p[0] <= 20
@@ -203,6 +216,14 @@ function curveAt(curve, x) {
 }
 // built-in heating curve of the pump (P22): 20 + P24 / 10 × (P23 − outdoor), 20…60 °C
 function heatCurveAt(p23, p24, x) { return Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x))); }
+// boiler curve (d#142): P23 that makes the pump's curve give supply `w` at outdoor `x` with P24 `p24`
+function p23For(w, x, p24) { return Math.max(0, Math.min(40, Math.round(x + (w - 20) / (p24 / 10)))); }
+// wanted DHW supply at outdoor x (tank target + supplyAdd, capped; capped lower in the cold)
+function wantedSupply(c, x) {
+    const t = x === null || x < c.frostLimit ? null : curveAt(c.curve, x);
+    if (t === null) return null;
+    return Math.min(c.maxSupply, t + c.supplyAdd, x <= c.coldLimit ? c.coldCap : 99);
+}
 
 // Smart Life runs on 7–8 Nov 2026 (outdoor −5…+1 °C), for the page
 const RUNS = { 'B46 on <44 -4..1': 6, 'B46 switch >38': 15, 'B46 off >46 -4..1': 8, 'DF exchange off': 45, 'DF exchange on 31': 49, 'DF switch to heating': 6, 'DF safe 10min': 59 };
@@ -383,41 +404,59 @@ function stopLive(reason) {
 }
 const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
 
-// ---- DHW controller (d#130) ----------------------------------------------------------
-// One state machine instead of the B* rules: tank target from the outdoor curve, compressor
-// stop (set point 20), valve to the tank, set point ramped and kept ≤ return + gap, power
-// Silent → Smart (→ Powerful) only when the supply does not rise, defrost during DHW on the
-// heating side (then stop + valve to the tank again), smooth ramp back to heating.
-// States: HEATING → STOP → DHW (⇄ DEFROST_DHW → STOP) → RAMPDOWN → HEATING.
-// d#134 (owner): no preheat with the bypass any more; PREHEAT is only left for a cycle saved by
-// an older version and goes straight to STOP.
+// ---- DHW controller (d#130, rebuilt on the pump's curve in d#142) -------------------------
+// The pump's weather curve P22 stays ON all the time. The controller only switches the curve's
+// values (docs/heat-pump-dhw-curve-plan.md):
+//   heating — the owner's P23 / P24 (P23 slider), stored in settings.heatCurve;
+//   stop    — P23 0: the curve gives 20 °C and the compressor stops before a valve switch;
+//   boiler  — P24 = boilerP24 (12) and P23 computed from the wanted supply (tank target + 4) at
+//             the 10-min outdoor average, raised 1 per minute while supply − return ≤ gap.
+// States: HEATING → STOP → DHW (⇄ DEFROST_DHW → STOP) → HEATING (end = heating curve back).
+// Compressor protection in DHW: Silent only at ≤ coldLimit, supply ≤ coldCap there; ≥ protHz or
+// ≥ protAmpPct of 9.67 A or discharge ≥ protDischarge for 3 min → P23 − 2 and Silent (every 3 min);
+// held 10 min or 3 steps and hot again → end of the cycle (the electric heater takes over).
+// If Node-RED stops mid-cycle the pump still runs on a curve; on every start (and outside a cycle)
+// the heating values are written back when the pump shows the stop or boiler values.
+const p23w = (v) => ({ role: 'hp', dps: 133, set: v, text: 'curve P23 ' + v });
+const p24w = (v) => ({ role: 'hp', dps: 134, set: v, text: 'curve P24 ' + v });
 function dhwState() {
-    return ctx('dhw', { state: 'HEATING', since: now, run: null, live: false, lastEnd: 0, setCmd: null, rampAt: 0,
+    return ctx('dhw', { state: 'HEATING', since: now, run: null, live: false, lastEnd: 0, p23Cmd: null, p24Cmd: null, rampAt: 0,
         startAt: 0, startTank: null, streak: 0, outS: [], outAvg: null, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
-        valveOnSince: 0, goal: null, why: '', waitNote: '' });
+        valveOnSince: 0, goal: null, want: null, prot: null, curveFixAt: 0, why: '', waitNote: '' });
 }
+function dhwLastEnd(d) { return Math.max(d.lastEnd || 0, Number((context.get('settings') || settings).dhwLastEnd) || 0); }
 function dhwModel() {
     const d = dhwState(), c = dhwCfgNow();
     const out = d.outAvg;
+    const cold = out !== null && out <= c.coldLimit;
+    const lastEnd = dhwLastEnd(d);
+    const s = context.get('settings') || settings;
     return { mode: modeOf(DHW_ID), state: d.state, since: d.since, why: d.why, waitNote: d.waitNote, outAvg: out,
         target: out === null ? null : (out < c.frostLimit ? null : curveAt(c.curve, out)), frost: out !== null && out < c.frostLimit,
-        setCmd: d.setCmd, startTank: d.startTank, startAt: d.startAt, lastEnd: d.lastEnd,
-        nextStart: d.lastEnd ? d.lastEnd + c.minIntervalH * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c };
+        cold, wanted: out === null ? null : wantedSupply(c, out),
+        p23Cmd: d.p23Cmd, p24Cmd: d.p24Cmd, goalP23: d.goal, curveSupply: d.p23Cmd !== null && d.p24Cmd !== null && out !== null ? +heatCurveAt(d.p23Cmd, d.p24Cmd, out).toFixed(1) : null,
+        prot: d.prot, heatCurve: s.heatCurve || null,
+        startTank: d.startTank, startAt: d.startAt, lastEnd,
+        nextStart: lastEnd ? lastEnd + (cold ? c.coldIntervalH : c.minIntervalH) * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c };
 }
 function dhwLag(d) {
     const s = d.lagS || [];
     if (s.length < 20 || s[s.length - 1][0] - s[0][0] < 20 * MIN) return null;
     return Math.round(s.reduce((a, x) => a + x[1], 0) / s.length * 10) / 10;
 }
+function saveSettingsFile() { persist(); send(2, saveMsg()); }
 function dhwTick() {
     const d = dhwState(), c = dhwCfgNow();
     const md = modeOf(DHW_ID);
     const liveNow = md === 'live' && settings.master;
     const H = (st.hp && st.hp.dps) || {}, V = (st.valve && st.valve.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
     const sup = n(H['102']), ret = n(H['101']), tank = n(H['108']), out = n(H['103']), hz = n(H['115']), fan = n(H['116']);
+    const amp = n(H['112']), dis = n(H['104']);
+    const P23 = n(H['133']), P24 = n(H['134']), P22on = String(H['132']) === '1';
     const valveOn = V['1'] === true, bypassOn = B['1'] === true;
     const defNow = fan === 0 && hz > 30;
     const devOk = ready('hp') && ready('valve') && ready('bypass');
+    const heat = settings.heatCurve || null;
     const go = (state, text, kind) => { d.state = state; d.since = now; if (text) logEvent({ kind: kind || 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text }); };
     const write = (s, force) => {
         if (!d.live && !force) { logEvent({ kind: 'dry', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: false, text: 'would ' + s.text }); return; }
@@ -428,46 +467,61 @@ function dhwTick() {
         logEvent({ kind: 'write', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: true, text: s.text });
         pump();
     };
-    const setTo = (v) => { v = Math.max(20, Math.min(c.maxSupply, Math.round(v))); if (d.setCmd !== v) { d.setCmd = v; d.rampAt = now; write(set(v)); } };
     const modeTo = (m) => {
         if (H['2'] === m) { d.modeCmd = null; return; }
         if (d.modeCmd === m && now - (d.modeAt || 0) < MIN) return;   // sent, wait for the device
         d.modeCmd = m; d.modeAt = now; write(mode(m));
     };
+    const curveTo = (p23, p24) => {
+        if (p24 !== undefined && p24 !== null && d.p24Cmd !== p24) { d.p24Cmd = p24; write(p24w(p24)); }
+        if (d.p23Cmd !== p23) { d.p23Cmd = p23; write(p23w(p23)); }
+        d.rampAt = now;
+    };
+    const heatBack = (force) => {
+        if (!P22on) write(p22(true), force);
+        if (heat) { write(p24w(heat.p24), force); write(p23w(heat.p23), force); }
+        d.p23Cmd = null; d.p24Cmd = null;
+    };
+    const heatTxt = heat ? 'P23 ' + heat.p23 + ' / P24 ' + heat.p24 : 'no stored heating curve';
 
     // outdoor: 10-min average outside defrosts (the sensor reads 30–47 °C during / after them)
     if (ready('hp') && Number.isFinite(out) && !recentDefrost && !defNow) d.outS.push([now, out]);
     d.outS = d.outS.filter((x) => now - x[0] <= 10 * MIN);
     if (d.outS.length) d.outAvg = Math.round(d.outS.reduce((a, x) => a + x[1], 0) / d.outS.length * 10) / 10;
-    // heating lag: 30-min average of supply − heating curve while heating runs
+    // heating lag: 30-min average of supply − heating curve while heating runs on the heating values
     if (d.state === 'HEATING' && ready('hp') && !valveOn && !bypassOn && !recentDefrost && hz > 0 && d.outAvg !== null
-        && Number.isFinite(n(H['133'])) && Number.isFinite(n(H['134']))) {
-        d.lagS.push([now, sup - heatCurveAt(n(H['133']), n(H['134']), d.outAvg)]);
+        && Number.isFinite(P23) && Number.isFinite(P24) && P24 !== c.boilerP24 && P23 > 0) {
+        d.lagS.push([now, sup - heatCurveAt(P23, P24, d.outAvg)]);
     }
     d.lagS = d.lagS.filter((x) => now - x[0] <= 30 * MIN);
 
     // controller switched off / local control OFF during a cycle → back to heating
     if (d.state !== 'HEATING' && (md === 'off' || (d.live && !liveNow))) {
-        if (d.live && settings.master) { write(valve(false), true); write(bypass(false), true); write(p22(true), true); }
-        go('HEATING', 'cycle stopped (' + (md === 'off' ? 'controller Off' : 'local control OFF or controller no longer On') + ')' + (d.live && settings.master ? ': valve OFF, bypass OFF, P22 on' : ''), 'stop');
-        d.run = null; d.setCmd = null; d.lastEnd = now;
+        if (d.live && settings.master) { write(valve(false), true); write(bypass(false), true); heatBack(true); }
+        go('HEATING', 'cycle stopped (' + (md === 'off' ? 'controller Off' : 'local control OFF or controller no longer On') + ')'
+            + (d.live && settings.master ? ': valve OFF, bypass OFF, heating curve back (' + heatTxt + ')' : ''), 'stop');
+        d.run = null; d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
         context.set('dhw', d); return;
     }
     if (md === 'off') { d.why = 'controller Off'; context.set('dhw', d); return; }
     if (!devOk) { d.waitNote = 'device not connected / stale'; context.set('dhw', d); return; }
     d.waitNote = '';
+    const x = d.outAvg === null ? out : d.outAvg;
+    const cold = d.outAvg !== null && d.outAvg <= c.coldLimit;
     const target = d.outAvg === null ? null : (d.outAvg < c.frostLimit ? null : curveAt(c.curve, d.outAvg));
+    const W = target === null ? 45 : wantedSupply(c, d.outAvg);
     const elapsed = now - d.since;
     const cycleMin = (now - d.startAt) / MIN;
-    const maxDur = d.outAvg === null || d.outAvg >= -5 ? c.maxMin : d.outAvg <= -15 ? c.maxMinCold
-        : c.maxMin + (c.maxMinCold - c.maxMin) * (-5 - d.outAvg) / 10;
+    const maxDur = cold ? c.maxMinCold : c.maxMin;
+    const lastEnd = dhwLastEnd(d);
     const endCycle = (why) => {
-        go('RAMPDOWN', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min → valve to heating, set point down to the heating curve');
         if (valveOn) write(valve(false));
         if (bypassOn) write(bypass(false));
         modeTo('mute');
-        d.goal = d.outAvg === null || !Number.isFinite(n(H['133'])) ? 35 : Math.round(heatCurveAt(n(H['133']), n(H['134']), d.outAvg));
-        d.rampAt = now;
+        heatBack();
+        d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
+        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min → valve to heating, heating curve back (' + heatTxt + ')', 'done');
+        d.run = null; d.goal = null; d.want = null;
     };
 
     switch (d.state) {
@@ -482,50 +536,71 @@ function dhwTick() {
                 d.valveOnSince = 0;
             }
         } else d.valveOnSince = 0;
+        // heating curve: store the owner's values, or write them back when the pump shows the stop /
+        // boiler values outside a cycle (Node-RED stopped mid-cycle, an old version left P22 off)
+        if (ready('hp') && Number.isFinite(P23) && Number.isFinite(P24) && now - lastEnd > 2 * MIN && now - (d.curveFixAt || 0) > 2 * MIN) {
+            const foreign = !P22on || P23 === 0 || (P24 === c.boilerP24 && !(heat && heat.p24 === c.boilerP24));
+            if (foreign && heat && liveNow) {
+                d.run = null; d.live = true;
+                logEvent({ kind: 'warn', rule: DHW_ID, cloud: DHW_NAME, live: true, text: 'pump curve P22 ' + (P22on ? 'on' : 'off') + ', P23 ' + P23 + ', P24 ' + P24 + ' outside a DHW cycle → heating curve back (' + heatTxt + ')' });
+                heatBack(); d.curveFixAt = now;
+            } else if (!foreign && (!heat || heat.p23 !== P23 || heat.p24 !== P24)) {
+                settings.heatCurve = { p23: P23, p24: P24, at: now };
+                logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'heating curve stored: P23 ' + P23 + ' / P24 ' + P24 + (heat ? ' (was P23 ' + heat.p23 + ' / P24 ' + heat.p24 + ')' : '') });
+                saveSettingsFile();
+            }
+        }
+        const ivH = cold ? c.coldIntervalH : c.minIntervalH;
         const why = [];
         if (target === null) why.push(d.outAvg === null ? 'no outdoor value yet' : 'outdoor ' + d.outAvg + ' °C below the frost limit ' + c.frostLimit + ' °C (electric heater only)');
         else if (!(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
-        if (d.lastEnd && now - d.lastEnd < c.minIntervalH * 3600 * 1000) why.push('last cycle ' + Math.round((now - d.lastEnd) / MIN) + ' min ago (min ' + c.minIntervalH + ' h)');
+        if (lastEnd && now - lastEnd < ivH * 3600 * 1000) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '') + ')');
         if (defNow || recentDefrost) why.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
         if ((context.get('flag') || flag).on) why.push('defrost flag ON');
         if (valveOn) why.push('valve ON');
         if (H['1'] !== true) why.push('heat pump off');
+        if (!heat) why.push('heating curve not stored yet');
         const lag = dhwLag(d);
-        if (d.outAvg !== null && d.outAvg < c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
+        if (d.outAvg !== null && d.outAvg <= c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
         d.why = why.length ? why.join('; ') : 'start conditions met';
         d.streak = why.length ? 0 : d.streak + 1;
         if (d.streak >= HOLD) {
             d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
+            d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' }; d.p23Cmd = null; d.p24Cmd = null;
             logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
-                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C → P22 off, Silent, set point 20 (compressor stops), then valve to the tank' });
-            // d#134 (owner): no preheat — stop the compressor, switch the valve, heat the tank
-            write(p22(false)); modeTo('mute'); if (bypassOn) write(bypass(false));
-            write(set(20)); d.setCmd = 20; d.rampAt = now;
-            go('STOP', 'set point 20 (compressor stops) before the valve switch');
+                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C'
+                    + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
+            if (!P22on) write(p22(true));
+            modeTo('mute'); if (bypassOn) write(bypass(false));
+            curveTo(0);
+            go('STOP', 'curve P23 0 (curve → 20 °C, compressor stops) before the valve switch');
         }
         break;
     }
-    case 'PREHEAT': {
-        // no preheat since d#134; a cycle saved in this state (older version) goes on with the stop
-        write(set(20)); d.setCmd = 20; d.rampAt = now;
-        go('STOP', 'set point 20 (compressor stops) before the valve switch (preheat removed)');
+    case 'PREHEAT':
+    case 'RAMPDOWN': {
+        // states of the version before d#142 (only if a context survived a deploy)
+        if (valveOn) write(valve(false));
+        if (bypassOn) write(bypass(false));
+        heatBack(true); d.lastEnd = now; d.run = null;
+        go('HEATING', 'state ' + d.state + ' of an older version → heating curve back (' + heatTxt + ')', 'warn');
         break;
     }
     case 'STOP': {
-        if ((hz === 0 && elapsed >= 20 * S) || elapsed >= MIN) {
+        if ((hz === 0 && elapsed >= 20 * S) || elapsed >= 90 * S) {
             write(valve(true));
-            const want = Math.min(c.maxSupply, target === null ? 45 : target + c.supplyAdd, Math.round(ret) + c.gap);
-            d.setCmd = null; setTo(Math.max(30, want));
             if (bypassOn) write(bypass(false));
+            d.goal = Math.max(0, p23For(W, x, c.boilerP24) - (d.prot ? d.prot.cut : 0));
+            const startP23 = c.gapRamp ? Math.min(d.goal, p23For(Math.round(ret) + c.gap, x, c.boilerP24)) : d.goal;
+            curveTo(startP23, c.boilerP24);
             d.prog = { t: now, sup }; d.defTicks = 0;
-            go('DHW', 'valve to the tank, bypass OFF, set point ' + d.setCmd + ' °C (≤ return ' + ret + ' + ' + c.gap + ')');
+            go('DHW', 'valve to the tank, bypass OFF, boiler curve P24 ' + c.boilerP24 + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, c.boilerP24, x).toFixed(1)
+                + ' °C at ' + x + ' °C; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', +1 per minute while supply − return ≤ ' + c.gap : '') + ')');
         }
         d.why = 'waiting for the compressor to stop (' + hz + ' Hz)';
         break;
     }
     case 'DHW': {
-        const supTarget = Math.min(c.maxSupply, (target === null ? 45 : target) + c.supplyAdd);
-        const want = Math.min(supTarget, Math.round(ret) + c.gap);
         if (defNow) {
             d.defTicks++;
             if (d.defTicks >= 2) {
@@ -538,43 +613,66 @@ function dhwTick() {
         if (target !== null && tank >= target) { endCycle('tank at target ' + target + ' °C'); break; }
         if (cycleMin >= maxDur) { endCycle('max duration ' + Math.round(maxDur) + ' min at ' + d.outAvg + ' °C outdoor'); break; }
         if (!valveOn && elapsed >= MIN) { endCycle('valve switched to heating by someone else'); break; }
-        if (want > d.setCmd && now - d.rampAt >= MIN) setTo(d.setCmd + 1);
-        else if (want < d.setCmd && now - d.rampAt >= 30 * S) setTo(d.setCmd - 1);
-        // power: up only when the supply does not rise; back to Silent near the target
-        if (d.prog && now - d.prog.t >= 10 * MIN) {
+        // compressor protection (P3 / P4)
+        const pr = d.prot || (d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' });
+        const reasons = [];
+        if (hz >= c.protHz) reasons.push(hz + ' Hz ≥ ' + c.protHz);
+        if (amp >= c.protAmpPct / 100 * UNIT_MAX_A) reasons.push(amp + ' A ≥ ' + (c.protAmpPct / 100 * UNIT_MAX_A).toFixed(1));
+        if (dis >= c.protDischarge) reasons.push('discharge ' + dis + ' °C ≥ ' + c.protDischarge);
+        if (reasons.length) {
+            if (!pr.hotSince) pr.hotSince = now;
+            const held = now - pr.hotSince;
+            pr.reason = reasons.join(', ');
+            if (held >= 10 * MIN || (pr.steps >= 3 && held >= 3 * MIN && now - pr.at >= 3 * MIN)) {
+                endCycle('compressor protection: ' + pr.reason + ' for ' + Math.round(held / MIN) + ' min after ' + pr.steps + ' steps down — the electric heater takes over');
+                break;
+            }
+            if (held >= 3 * MIN && now - pr.at >= 3 * MIN) {
+                pr.steps++; pr.cut += 2; pr.at = now;
+                modeTo('mute');
+                logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'compressor protection: ' + pr.reason + ' for 3 min → curve P23 − 2 (step ' + pr.steps + '), Silent' });
+                d.rampAt = 0;   // apply the cut at once
+            }
+        } else pr.hotSince = 0;
+        // boiler P23: goal from the wanted supply, ramp +1 per minute while supply − return ≤ gap
+        d.goal = Math.max(0, p23For(W, x, c.boilerP24) - pr.cut);
+        const allowed = c.gapRamp ? p23For(Math.round(ret) + c.gap, x, c.boilerP24) : 40;
+        d.want = Math.min(d.goal, allowed);
+        if (d.p23Cmd === null) curveTo(d.want, c.boilerP24);
+        else if (d.want > d.p23Cmd && now - d.rampAt >= MIN) curveTo(d.p23Cmd + 1, c.boilerP24);
+        else if (d.want <= d.p23Cmd - (d.rampAt === 0 ? 1 : 2) && now - d.rampAt >= 30 * S) curveTo(d.want, c.boilerP24);
+        // power: Silent by default; Smart only when the supply does not rise (not in the cold, not
+        // after a protection step); back to Silent near the wanted supply
+        if (cold || pr.steps) { if (H['2'] !== 'mute') modeTo('mute'); }
+        else if (d.prog && now - d.prog.t >= 10 * MIN) {
             const rise = sup - d.prog.sup;
-            if (sup < want - 3 && rise < 2) {
+            if (sup < W - 3 && rise < 2) {
                 if (H['2'] === 'mute') { modeTo('smart'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Smart' }); }
                 else if (H['2'] === 'smart' && c.allowPowerful) { modeTo('strong'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Powerful' }); }
             }
             d.prog = { t: now, sup };
         }
-        if (H['2'] !== 'mute' && sup >= want - 1) modeTo('mute');
-        d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C, supply ' + sup + ' / return ' + ret + ', set point ' + d.setCmd + ' (≤ return + ' + c.gap + ', max ' + supTarget + '), ' + Math.round(cycleMin) + ' / ' + Math.round(maxDur) + ' min';
+        if (!cold && !pr.steps && H['2'] !== 'mute' && sup >= W - 1) modeTo('mute');
+        d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C, supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
+            + heatCurveAt(d.p23Cmd, c.boilerP24, x).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), ' + Math.round(cycleMin) + ' / ' + Math.round(maxDur) + ' min'
+            + (pr.steps ? ', protection ' + pr.steps + ' step(s)' : '') + (pr.hotSince ? ', hot: ' + pr.reason : '');
         break;
     }
     case 'DEFROST_DHW': {
         if (!defNow && fan > 300) { if (!d.fanOkSince) d.fanOkSince = now; } else d.fanOkSince = 0;
         if (cycleMin >= maxDur) { endCycle('max duration during a defrost'); break; }
-        if (d.fanOkSince && now - d.fanOkSince >= MIN) {
-            write(set(20)); d.setCmd = 20; d.rampAt = now;
-            go('STOP', 'defrost over → set point 20 (compressor stops), then valve to the tank again');
+        // the outdoor sensor reads high after a defrost; with the curve on that would give a low set point
+        const sensorBack = Number.isFinite(out) && d.outAvg !== null && out <= d.outAvg + 3;
+        if (d.fanOkSince && now - d.fanOkSince >= MIN && sensorBack) {
+            curveTo(0);
+            go('STOP', 'defrost over → curve P23 0 (compressor stops), then valve to the tank again');
         }
-        d.why = 'defrost during DHW: valve on heating, waiting for the fan';
-        break;
-    }
-    case 'RAMPDOWN': {
-        if (d.setCmd === null || d.setCmd <= d.goal) {
-            write(p22(true));
-            d.lastEnd = now;
-            go('HEATING', 'back to heating: P22 on (curve)', 'done');
-            d.run = null; d.setCmd = null;
-        } else if (now - d.rampAt >= MIN) setTo(Math.max(d.goal, d.setCmd - 1));
-        d.why = 'set point down to ' + d.goal + ' °C, 1 °C per minute';
+        d.why = 'defrost during DHW: valve on heating, waiting for the fan' + (sensorBack ? '' : ' and the outdoor sensor (' + out + ' °C)');
         break;
     }
     default:
-        go('HEATING', 'unknown state reset', 'warn');
+        heatBack(true);
+        go('HEATING', 'unknown state reset, heating curve back', 'warn');
     }
     context.set('dhw', d);
 }
@@ -583,7 +681,9 @@ function dhwTick() {
 if (msg.topic === 'load') {
     try {
         const s = JSON.parse(String(msg.payload || '{}'));
-        settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw) };
+        settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
+            heatCurve: s.heatCurve && Number.isFinite(s.heatCurve.p23) && Number.isFinite(s.heatCurve.p24) ? s.heatCurve : null,
+            dhwLastEnd: Number(s.dhwLastEnd) || 0 };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         if (s.modes && MODES.includes(s.modes[DHW_ID])) settings.modes[DHW_ID] = s.modes[DHW_ID];
         persist();
@@ -686,7 +786,8 @@ for (const r of RULES) {
     if (seqs[r.id]) { rt.ok = false; rt.streak = 0; rt.detail = 'running step ' + (seqs[r.id].idx + 1) + '/' + seqs[r.id].total; continue; }
     const notReady = r.roles.filter((role) => !ready(role));
     if (notReady.length) { rt.ok = false; rt.streak = 0; rt.detail = notReady.join(', ') + ' not connected / stale'; continue; }
-    const c = { hp: (st.hp && st.hp.dps) || {}, valve: (st.valve && st.valve.dps) || {}, bypass: (st.bypass && st.bypass.dps) || {}, flag: flag.on, recentDefrost };
+    const c = { hp: (st.hp && st.hp.dps) || {}, valve: (st.valve && st.valve.dps) || {}, bypass: (st.bypass && st.bypass.dps) || {}, flag: flag.on, recentDefrost,
+        dhwIdle: !context.get('dhw') || context.get('dhw').state === 'HEATING' };
     rt.ok = !!r.check(c);
     rt.detail = hpTxt(c.hp) + ', valve ' + rel(c.valve) + ', bypass ' + rel(c.bypass) + ', flag ' + (flag.on ? 'ON' : 'OFF');
     rt.streak = rt.ok ? (rt.streak || 0) + 1 : 0;

@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-09: local automations (d#123–d#141)
+### 2026-11-08 – 2026-11-10: local automations (d#123–d#142)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -43,6 +43,9 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#139 | "Delete it from the local automations." | The DHW controller status line is removed from the Automations tab; the controller is shown and set only on the Heat Pump page. | — |
 | d#140 | "Delete *Below −16 °C → Powerful* and *−15…−7 °C → Smart* (cloud conditions can never be true)." | Both rules deleted from `40`. Local rules left: DF exchange off / on and HP Er03 restart, plus the DHW controller. | Deployed 22:55 after the running DF exchange on sequence had finished. |
 | d#141 | "After *Compressor 69 Hz* add the compressor current"; "add the compressor current to the *Power, W* chart." | Card *Compressor current* (DP 112, of 9.67 A) after the Compressor Hz card; on the history power chart a dashed series *Compressor current, A* on its own right axis (same grid as W), also in the tooltip. | Checked in a browser with the data of 9 Nov (10:20: 1128 W, 3 A). |
+| plan | "Write a detailed plan, current and planned: use only the heating curve and set its values for the boiler, two curve settings; pick the boiler values; simplify the boiler automation; keep the switch to heating during a defrost in DHW; bypass ON during a defrost in heating." Then: option B, P23 ramp, and "check power reduction in frost to save the compressor; it must not run at its maximum". | [heat-pump-dhw-curve-plan.md](heat-pump-dhw-curve-plan.md): a fixed P23 / P24 pair can only give a supply that falls in warmer weather (P24 ≥ 1), so the boiler curve uses P24 12 and a P23 computed per cycle; compressor protection P1–P7. | Decisions recorded in the plan. |
+| d#142 | "Build it." | Pump test (P23 0 stops the compressor in ~50 s, restart ~50 s after P23 back; DP 125 does not follow the curve). DHW controller rebuilt on the curve: P22 always on, stop = P23 0, boiler P24 12 + computed P23 ramped within the gap, end = stored heating curve back, no DP 125 writes, no ramp-down; protection in the cold and on Hz / A / discharge; DF rules only outside a cycle; HP Er03 restart without the set point write; the P23 slider is locked during a cycle; the heating chart shows the stored heating curve then; boiler chart with the wanted-supply line and new settings. 26 model checks pass. | Deployed 13:01; heating curve stored (P23 38 / P24 4); first cycle on the curve pending. |
+| docs | "Write a detailed description of what was done, how it changed and how it works now; commit everything." | [heat-pump-boiler.md](heat-pump-boiler.md). | — |
 
 ## Instructions
 

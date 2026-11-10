@@ -58,6 +58,10 @@
 // 8. Boiler curve (d#134): model.dhwChart = tank target by outdoor temperature (curve of the
 //    DHW controller, read from flow.dhwView written by 40), start line target − hyst, tank now,
 //    controller state. The page shows heating on the left and the boiler on the right.
+// 11. d#142: boiler curve on the pump's own curve. dhwChart: wanted supply line (tank target +
+//    supplyAdd, capped in the cold), boiler P23 now, the controller's P23 / goal / curve supply /
+//    protection; during a cycle the heating chart shows the stored heating curve and the P23 slider
+//    is locked (controls.curve false).
 // 10. DHW controller panel (d#138): dhwChart also carries cfg (curve + settings, for the editor on
 //    the page), master (local control ON / OFF) and lag.
 // ==========================
@@ -212,8 +216,10 @@ function curveTarget(p23, p24, outdoor) {
 }
 
 function buildCurveChart(d) {
-    const p23 = num(d['133']);
-    const p24 = num(d['134']);
+    const dv = flow.get('dhwView');
+    const boilerActive = dhwCycle() && dv && dv.heatCurve;
+    const p23 = boilerActive ? dv.heatCurve.p23 : num(d['133']);
+    const p24 = boilerActive ? dv.heatCurve.p24 : num(d['134']);
     if (p23 === null || p24 === null) return null;
     const enabled = d['132'] === undefined ? null : String(d['132']) === '1' || d['132'] === true;
     const outdoor = num(d['103']);
@@ -240,6 +246,9 @@ function buildCurveChart(d) {
     const target = outdoor === null ? null : curveTarget(p23, p24, outdoor);
     return {
         enabled,
+        boilerActive: !!boilerActive,
+        pumpP23: num(d['133']),
+        pumpP24: num(d['134']),
         p23,
         p24,
         formula: `${CURVE_BASE_C} + ${p24 / 10} × (${p23} − outdoor)`,
@@ -327,7 +336,7 @@ function buildModel(st, now) {
         updated: new Date(now).toISOString(),
         readOnly: false,
         controls: {
-            curve: connected('hp') && num(d['133']) !== null,
+            curve: connected('hp') && num(d['133']) !== null && !dhwCycle(),
             curveMin: 20,
             curveMax: 40,
             bypass: connected('bypass') && switchValue(st.bypass) !== null
@@ -379,8 +388,15 @@ function buildModel(st, now) {
 // "Heat pump automations" (40), which writes flow.dhwView every 10 s. Same SVG frame and
 // outdoor range as the heating curve, so the two charts sit side by side on the page.
 const DHW_VIEW_STALE_MS = 2 * 60 * 1000;
-const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop before the valve switch',
-    DHW: 'heating the tank (valve on DHW)', DEFROST_DHW: 'defrost during DHW', RAMPDOWN: 'set point back down' };
+const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop (curve P23 0) before the valve switch',
+    DHW: 'heating the tank on the boiler curve', DEFROST_DHW: 'defrost during DHW (valve on heating)', RAMPDOWN: 'older version' };
+// d#142: the DHW controller runs the pump on its own curve; during a cycle the pump shows the
+// boiler / stop values, the heating chart then uses the stored heating curve (dhwView.heatCurve)
+function dhwCycle() { const v = flow.get('dhwView'); return !!(v && v.state && v.state !== 'HEATING' && v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS); }
+function wantedAt(c, t) {
+    if (t < c.frostLimit) return null;
+    return Math.min(c.maxSupply || 55, tankCurveAt(c.curve, t) + (c.supplyAdd || 4), t <= c.coldLimit ? (c.coldCap || 46) : 99);
+}
 function tankCurveAt(curve, x) {
     if (x <= curve[0][0]) return curve[0][1];
     const last = curve[curve.length - 1];
@@ -400,7 +416,9 @@ function buildDhwChart(d) {
     const pts = [];
     for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t++) pts.push({ out: t, set: t < c.frostLimit ? null : tankCurveAt(curve, t) });
     const W = 600, H = 240, L = 44, R = 10, T = 12, B = 36;
-    const values = pts.filter((p) => p.set !== null).map((p) => p.set).concat([tank].filter((x) => x !== null));
+    const wpts = pts.map((p) => ({ out: p.out, w: wantedAt(c, p.out) }));
+    const supplyNow = num(d['102']);
+    const values = pts.filter((p) => p.set !== null).map((p) => p.set).concat(wpts.filter((p) => p.w !== null).map((p) => p.w)).concat([tank].filter((x) => x !== null));
     const yMin = Math.floor((Math.min(...values) - c.hyst - 1) / 5) * 5;
     const yMax = Math.ceil((Math.max(...values) + 1) / 5) * 5;
     const x = (t) => +(L + (t - CURVE_OUT_MIN) / (CURVE_OUT_MAX - CURVE_OUT_MIN) * (W - L - R)).toFixed(1);
@@ -411,6 +429,8 @@ function buildDhwChart(d) {
     const yTicks = [];
     for (let val = yMin; val <= yMax; val += 5) yTicks.push({ label: val, y: y(val) });
     const target = outdoor === null || outdoor < c.frostLimit ? null : tankCurveAt(curve, outdoor);
+    const wanted = outdoor === null ? null : wantedAt(c, outdoor);
+    const inCycle = dhwCycle();
     const inRange = outdoor !== null && outdoor >= CURVE_OUT_MIN && outdoor <= CURVE_OUT_MAX;
     return {
         fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS,
@@ -430,9 +450,21 @@ function buildDhwChart(d) {
         frostLimit: c.frostLimit,
         nextStart: v.nextStart || 0,
         lastEnd: v.lastEnd || 0,
-        table: curve.map((p) => ({ out: p[0], set: p[1] })),
+        table: curve.map((p) => ({ out: p[0], set: p[1], w: wantedAt(c, p[0]) })),
+        wanted,
+        cold: !!v.cold,
+        inCycle,
+        p23Cmd: v.p23Cmd === undefined ? null : v.p23Cmd,
+        p24Cmd: v.p24Cmd === undefined ? null : v.p24Cmd,
+        goalP23: v.goalP23 === undefined ? null : v.goalP23,
+        curveSupply: v.curveSupply === undefined ? null : v.curveSupply,
+        boilerP23Now: outdoor === null || wanted === null ? null : Math.max(0, Math.min(40, Math.round(outdoor + (wanted - 20) / ((c.boilerP24 || 12) / 10)))),
+        prot: v.prot || null,
+        heatCurve: v.heatCurve || null,
+        supplyNow,
         svg: {
             line: line(0),
+            supplyLine: wpts.filter((p) => p.w !== null).map((p) => `${x(p.out)},${y(p.w)}`).join(' '),
             startLine: line(c.hyst),
             frostX: c.frostLimit > CURVE_OUT_MIN ? x(c.frostLimit) : null,
             xTicks,
@@ -442,7 +474,8 @@ function buildDhwChart(d) {
             top: T,
             bottom: H - B,
             now: inRange ? { x: x(outdoor), yTarget: target === null ? null : y(target), yStart: target === null ? null : y(target - c.hyst),
-                yTank: tank === null ? null : y(tank) } : null
+                yTank: tank === null ? null : y(tank), yWanted: wanted === null ? null : y(wanted),
+                ySupply: inCycle && supplyNow !== null ? y(supplyNow) : null } : null
         }
     };
 }
