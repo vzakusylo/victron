@@ -215,6 +215,9 @@ function Sync-45 { Sync-Node 'Compressor resource'              '45 Compressor r
 # 46 — Heat pump local sensors (battery sensors read locally on wake, tools/tuya-local-sensors.js)
 function Sync-46 { Sync-Node 'Heat pump local sensors'          '46 Heat pump local sensors.js'                 -BumpVersion }
 
+# 47 — Heat pump alerts (e-mail digest on errors, tools/send-mail.js)
+function Sync-47 { Sync-Node 'Heat pump alerts'                 '47 Heat pump alerts.js'                        -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------

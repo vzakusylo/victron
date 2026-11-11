@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-11: local automations (d#123–d#144)
+### 2026-11-08 – 2026-11-11: local automations (d#123–d#145)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -50,6 +50,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#143 | "Draw with a dashed line where the boiler heating is heading and the expected end time." | Controller: `plan` = tank target and expected end (least-squares tank rise over the last 6 min, at the latest the max duration). History page: dashed target line from the cycle start, dashed projection from the tank now to the target at the expected end with a label, a note under the chart, today's chart refreshed every minute. Boiler column: "heading to … °C, expected end ≈ …". Model: estimate 11.9 min vs real 8.7 min. | Deployed 14:50. |
 
 | d#144 | "Check how it works" (11 Nov), then "Yes, build it". | Check: 3 cycles normal (01:19, 18:08 and 17:42 on 10 Nov), 1 ended by the 60-min limit at 43 °C after a 10-min defrost (15:07), **4 lost to Er03** (06:56, 08:59, 11:02, 13:05). Fix in `40`: state **VALVE** — valve ON with the curve still at P23 0 for 90 s, then the boiler curve; Er03 seen in VALVE / DHW ends the cycle at once; an early abort (< 5 min) is **retried after 15 min** (max 2 in a row) instead of waiting 2 h; max duration counts **heating time only**, hard cap max + 30 min. Model: Er03 when demand comes < 60 s after the valve switch; 30+ checks pass. | Deployed 19:41 (copied with scp, the GX link drops long SSH commands). |
+| d#145 | "Add automation to send email in case of errors" (address kept only in email.json on the GX); "add to the automation logs an event when the error happened"; "add errors to the events graph as red". | `40`: pump faults (DP 15 → Er codes) and lost devices logged as **error** / **info** events; aborted DHW cycles end as **stop**. `42` / `43`: Errors filter and count, red edge. `38` / `39`: red error marks in the event lane. `47` + `tools/send-mail.js`: digest e-mail alerts (2 min gather, 15 min gap) over Gmail SMTP; `tools/set-mail-password.js` to store the app password on the GX. Tests: model (Er03 logged with the valve state, cleared, stop), alert node (digest, throttle, devices, test mail, repeats), SMTP protocol against Gmail up to the login. | Deployed 19:51. Mail needs the Gmail app password in email.json (owner). |
 
 ## Errors and incidents (8–11 Nov)
 

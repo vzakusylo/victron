@@ -80,9 +80,9 @@ function build(events) {
     return items;
 }
 function counts(items) {
-    const c = { runs: 0, ok: 0, failed: 0, test: 0, events: 0 };
+    const c = { runs: 0, ok: 0, failed: 0, test: 0, events: 0, errors: 0 };
     for (const it of items) {
-        if (it.type !== 'run') { c.events++; continue; }
+        if (it.type !== 'run') { c.events++; if (it.kind === 'error' || it.kind === 'fail') c.errors++; continue; }
         c.runs++;
         if (it.status === 'failed' || it.status === 'stopped') c.failed++;
         else if (it.status === 'ok' || it.status === 'running') c.ok++;

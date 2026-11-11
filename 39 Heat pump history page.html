@@ -7,6 +7,7 @@
   d#136: legends above the charts; pointing at (or tapping) a chart shows a cursor line, a dot
   per series and a tooltip with the time, the event and every visible value.
   d#141: compressor current (A) on the power chart, right axis.
+  d#145: pump faults (Er codes) are red marks in the event lane (counted in its legend).
   d#143: while a DHW cycle runs, today's chart shows a dashed tank target line and a dashed
   projection to the expected end (from the controller); today's chart refreshes every minute.
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-39).
@@ -141,7 +142,7 @@
         <text x="4" ng-attr-y="{{h.day.chart.t1 + 4}}">°C</text>
       </g>
       <g ng-if="h.day.chart.events">
-        <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" style="stroke:none" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
+        <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-stroke="{{e.err ? '#7a0f0d' : 'none'}}" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
       </g>
       <g ng-if="h.day.chart.plan">
         <line class="plan-target" ng-attr-x1="{{h.day.chart.plan.x0}}" ng-attr-x2="{{h.day.chart.plan.xEnd}}" ng-attr-y1="{{h.day.chart.plan.yTarget}}" ng-attr-y2="{{h.day.chart.plan.yTarget}}"></line>

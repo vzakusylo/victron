@@ -35,7 +35,8 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
 | [Boiler (DHW) control](docs/heat-pump-boiler.md) | what was done, how it changed and how the tank is heated now (d#142): curve settings, cycle, compressor protection, defrost, safety, settings |
 | [DHW on the pump's curve](docs/heat-pump-dhw-curve-plan.md) | boiler cycle on the heat pump's own curve (d#142): current vs new design, boiler curve values, compressor protection |
-| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#142), owner requests, operating instructions |
+| [Heat pump errors and e-mail alerts](docs/heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145) | pump faults as log events, red marks on the history chart, digest e-mails on errors (d#145) |
+| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#145), owner requests, operating instructions |
 
 ## Dashboard pages
 

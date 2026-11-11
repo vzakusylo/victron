@@ -32,6 +32,8 @@
 // 1. Initial version (d#121).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 9. d#145: event lane kind 'error' (red) while DP 15 reports a fault, with the Er codes; at least
+//    2.5 px wide so a short fault is visible; counted in the legend.
 // 8. d#143: chart.plan (today only, while a DHW cycle runs): dashed tank target line from the cycle
 //    start and a dashed projection from the tank now to the target at the expected end (flow.dhwView).
 // 7. d#141: compressor current (DP 112) as a third power-chart series on a right axis (A);
@@ -44,7 +46,12 @@
 //    (a series is shown only when the day has data for it).
 // ==========================
 
-const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp'];
+const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp', '15'];
+// DP 15 fault bits (same list as 34 / 40), for the red error marks of the event lane (d#145)
+const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'Er14', 'Er15', 'Er16',
+    'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',
+    'Er63', 'Er64', 'Er66', 'Er67', 'Er68', 'Er69', 'Er70'];
+const faultCodes = (v) => FAULT_LABELS.filter((_, i) => (Number(v) & (1 << i)) !== 0).join(' ');
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
@@ -246,7 +253,7 @@ function chart(rows, dv) {
     for (let h = 0; h <= 24; h += 3) xTicks.push({ label: pad(h % 24) + ':00', x: +(L + h / 24 * (W - L - R)).toFixed(1) });
 
     // event lane between the two charts: what the heat pump did, from the recorded states
-    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf' };
+    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf', error: '#da3633' };
     const xs = (s) => +(L + s / 86400 * (W - L - R)).toFixed(1);
     const events = [];
     for (let i = 0; i < rows.length; i++) {
@@ -254,16 +261,18 @@ function chart(rows, dv) {
         if (!r.ok) continue;
         const a = r.a, hz = a[K['115']], fan = a[K['116']];
         // bypass ON with a DHW set point (≥ 40) = preheat; with a heating set point = after a defrost
-        const kind = fan === 0 && hz !== null && hz > 30 ? 'defrost'
+        const flt = a[K['15']];
+        const kind = flt !== null && flt > 0 ? 'error'
+            : fan === 0 && hz !== null && hz > 30 ? 'defrost'
             : a[K.v1] === 1 ? 'dhw'
             : a[K.b1] === 1 ? (a[K['125']] !== null && a[K['125']] >= 40 ? 'preheat' : 'defrost')
             : hz !== null && hz > 0 ? 'heating' : null;
         const s1 = r.s, s2 = rows[i + 1] ? Math.min(rows[i + 1].s, r.s + MAX_DT) : r.s + 30;
         const last = events[events.length - 1];
         if (kind && last && last.kind === kind && s1 - last.s2 <= MAX_DT) last.s2 = s2;
-        else if (kind) events.push({ kind, s1, s2 });
+        else if (kind) events.push({ kind, s1, s2, codes: kind === 'error' ? faultCodes(flt) : '' });
     }
-    const evOut = events.map((e) => ({ kind: e.kind, color: EV[e.kind], x: xs(e.s1), w: Math.max(0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
+    const evOut = events.map((e) => ({ kind: e.kind === 'error' ? 'error ' + e.codes : e.kind, err: e.kind === 'error', color: EV[e.kind], x: xs(e.s1), w: Math.max(e.kind === 'error' ? 2.5 : 0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
         from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
     // d#143: where the running DHW cycle is heading — target line and the expected end
     let plan = null;

@@ -81,6 +81,9 @@
 //    defrost during DHW the same stop → valve sequence runs again.
 // 12. d#140: the two HP mode rules whose cloud conditions are never true (HP power <-16,
 //    HP smart -15..-7) are deleted (owner). Left: DF exchange off / on and HP Er03 restart.
+// 17. d#145: pump faults (DP 15 bits → Er codes) are logged as kind 'error' when they appear (with the
+//    valve / Hz / temperatures at that moment) and 'info' when they clear; heat pump, valve or bypass
+//    without data for 2 min → 'error', back → 'info'. An aborted DHW cycle ends with kind 'stop'.
 // 16. d#144 (Er03 at the valve switch, 11 Nov 06:56–13:05, 4 cycles lost): new state VALVE — valve ON
 //    with the curve still at P23 0 for VALVE_TRAVEL_S, then the boiler curve; Er03 seen in VALVE / DHW
 //    ends the cycle at once (valve back), and an early abort (< 5 min) is tried again after 15 min
@@ -413,6 +416,11 @@ function stopLive(reason) {
     context.set('seqs', all);
 }
 const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
+// DP 15 fault bits of the PW58280 controller (same list as 34)
+const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'Er14', 'Er15', 'Er16',
+    'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',
+    'Er63', 'Er64', 'Er66', 'Er67', 'Er68', 'Er69', 'Er70'];
+const FAULT_TEXT = { Er03: 'water flow failure' };
 
 // ---- DHW controller (d#130, rebuilt on the pump's curve in d#142) -------------------------
 // The pump's weather curve P22 stays ON all the time. The controller only switches the curve's
@@ -570,7 +578,7 @@ function dhwTick() {
             retryTxt = nTry <= RETRY_MAX ? '; retry in ' + RETRY_MIN + ' min (' + nTry + '/' + RETRY_MAX + ')' : '; no more retries, next after the interval';
         } else settings.dhwRetry = null;
         d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
-        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, abort ? 'warn' : 'done');
+        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, abort ? 'stop' : 'done');
         d.run = null; d.goal = null; d.want = null;
     };
 
@@ -840,6 +848,42 @@ if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
     if (ready('hp') && n(hpd['116']) === 0 && n(hpd['115']) > 30) context.set('lastDefrost', now);
 }
 const recentDefrost = now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MIN * MIN;
+
+// d#145: pump faults (DP 15, Er codes) and lost devices as events of their own (kind 'error' when they
+// appear, 'info' when they clear) — for the Automation log, the e-mail alerts (47) and the history
+{
+    const hpd = (st.hp && st.hp.dps) || {};
+    const vd = (st.valve && st.valve.dps) || {}, bd = (st.bypass && st.bypass.dps) || {};
+    const scene = 'valve ' + (vd['1'] === true ? 'DHW' : 'heating') + ', bypass ' + (bd['1'] === true ? 'ON' : 'OFF') + ', ' + hpd['115'] + ' Hz, fan ' + hpd['116']
+        + ', supply ' + hpd['102'] + ' / return ' + hpd['101'] + ' °C, tank ' + hpd['108'] + ' °C, DHW ' + ((context.get('dhw') || {}).state || '?');
+    const fl = Number(hpd['15']);
+    if (ready('hp') && Number.isFinite(fl)) {
+        const prev = context.get('faults');
+        if (prev === undefined) context.set('faults', fl);
+        else if (fl !== prev) {
+            const fs0 = context.get('faultSince') || {};
+            for (let i = 0; i < FAULT_LABELS.length; i++) {
+                const bit = 1 << i, code = FAULT_LABELS[i], desc = FAULT_TEXT[code] ? ' (' + FAULT_TEXT[code] + ')' : '';
+                if ((fl & bit) && !(prev & bit)) { fs0[code] = now; logEvent({ kind: 'error', rule: 'hp_fault', cloud: 'Heat pump fault', text: code + desc + ' appeared — ' + scene }); }
+                if (!(fl & bit) && (prev & bit)) { logEvent({ kind: 'info', rule: 'hp_fault', cloud: 'Heat pump fault', text: code + desc + ' cleared' + (fs0[code] ? ' after ' + Math.round((now - fs0[code]) / S) + ' s' : '') }); delete fs0[code]; }
+            }
+            context.set('faultSince', fs0); context.set('faults', fl);
+        }
+    }
+    const down = context.get('devDown') || {};
+    for (const [role, label] of [['hp', 'heat pump'], ['valve', 'boiler valve relay'], ['bypass', 'bypass relay']]) {
+        const ok = ready(role), r = down[role] || { since: 0, logged: false };
+        if (!ok) {
+            if (!r.since) r.since = now;
+            if (!r.logged && now - r.since >= 2 * MIN) { r.logged = true; logEvent({ kind: 'error', rule: 'hp_device', cloud: 'Device', text: label + ' not connected / no data for 2 min (state ' + ((st[role] || {}).state || '?') + ')' }); }
+        } else {
+            if (r.logged) logEvent({ kind: 'info', rule: 'hp_device', cloud: 'Device', text: label + ' connected again after ' + Math.round((now - r.since) / MIN) + ' min' });
+            r.since = 0; r.logged = false;
+        }
+        down[role] = r;
+    }
+    context.set('devDown', down);
+}
 
 // Watchdog: a sequence whose next step is overdue by STALE_MS lost its timer → drop it;
 // a write gap that never ended → release the queue.
