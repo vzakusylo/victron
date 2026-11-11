@@ -18,7 +18,7 @@ Included when present (`node_modules`, `.npm`, `.cache` and `/data/apps/overlay-
 
 How it works:
 
-- `Create backup now` writes `/data/home/nodered/grid-control-backups/grid-backup-YYYYMMDD-HHMMSS.tar.gz`; `Download` streams it via `GET /grid-backup/download?name=…`
+- `Create backup now` writes `/data/home/nodered/grid-control-backups/grid-backup-YYYYMMDD-HHMMSS.tar.gz`; `Download` streams it via `GET /grid-backup/download?name=…` (since d#147 the function node pipes the file in 256 KB chunks with `Content-Length`; before, the whole archive was read into memory, and a 46 MB backup took the GX's free RAM and froze Node-RED). The node status shows the progress: sent MB and time, `aborted` when the browser or proxy closes the connection
 - `Upload` (`POST /grid-backup/upload`) only stores a file as `uploaded-…tar.gz`; restoring is a separate step
 - restore requires typing `RESTORE`, checks the archive (manifest present, only the paths above, no `..`), creates a `pre-restore-…` safety backup, extracts to a staging folder and copies over the live paths (files with the same name are overwritten, others are kept)
 - Node-RED is restarted 5 s after a restore that included Node-RED files (option); Venus OS settings need a reboot

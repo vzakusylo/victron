@@ -3959,39 +3959,22 @@
     "type": "function",
     "z": "995ac4ed6222a706",
     "name": "Serve backup download",
-    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `27 Serve backup download.js` and the embedded `func` for \"Serve backup download\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - HTTP GET /grid-backup/download?name=<backup>.tar.gz -> streams the backup file to the browser.\n// - Also answers HTTP errors caught from the backup file nodes (msg.error from the catch node).\n// Input:\n// - msg.req.query.name (from \"GET /grid-backup/download\")\n// - msg.error + msg.res (from \"Catch backup HTTP errors\")\n// Outputs (2):\n// - output 1 -> file in \"Read backup file\" (msg.filename set, download headers set) -> http response\n// - output 2 -> http response (validation error / caught error)\n// Change notes:\n// 1. Initial version.\n// 2. Node status shows every request / error, to see whether a download reaches Node-RED\n//    (e.g. through the VRM proxy).\n// ==========================\n\nconst BACKUP_DIR = '/data/home/nodered/grid-control-backups';\nconst NAME_PATTERN = /^[A-Za-z0-9._-]+\\.tar\\.gz$/;\n\nfunction timeLabel() {\n    const now = new Date();\n    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');\n}\n\nfunction textResponse(statusCode, text) {\n    node.status({ fill: 'red', shape: 'dot', text: timeLabel() + ' ' + statusCode + ' ' + text });\n    msg.statusCode = statusCode;\n    msg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\n    msg.payload = text;\n    return [null, msg];\n}\n\nif (!msg.res) {\n    return null;\n}\n\nif (msg.error) {\n    return textResponse(500, 'Backup request failed: ' + (msg.error.message || 'unknown error'));\n}\n\nconst name = String((msg.req && msg.req.query && msg.req.query.name) || '');\n\nif (!NAME_PATTERN.test(name)) {\n    return textResponse(400, 'Invalid backup name');\n}\n\nnode.status({ fill: 'blue', shape: 'dot', text: timeLabel() + ' sending ' + name });\nmsg.filename = BACKUP_DIR + '/' + name;\nmsg.statusCode = 200;\nmsg.headers = {\n    'Content-Type': 'application/gzip',\n    'Content-Disposition': 'attachment; filename=\"' + name + '\"',\n    'Cache-Control': 'no-store'\n};\nreturn [msg, null];\n",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `27 Serve backup download.js` and the embedded `func` for \"Serve backup download\"\n//   in `flows.json` must always stay synchronized.\n// - The node needs `fs` in its Setup → Modules (`libs: [{ var: 'fs', module: 'fs' }]` in flows.json;\n//   functionExternalModules is on in the Venus OS Node-RED settings).\n// Purpose:\n// - HTTP GET /grid-backup/download?name=<backup>.tar.gz -> streams the backup file to the browser.\n// - Also answers HTTP errors caught from the backup nodes (msg.error from the catch node).\n// Input:\n// - msg.req.query.name (from \"GET /grid-backup/download\")\n// - msg.error + msg.res (from \"Catch backup HTTP errors\")\n// Outputs (2):\n// - output 1 -> not used since change 3 (the file is streamed straight to msg.res._res)\n// - output 2 -> http response (validation error / caught error)\n// Change notes:\n// 1. Initial version.\n// 2. Node status shows every request / error, to see whether a download reaches Node-RED\n//    (e.g. through the VRM proxy).\n// 3. (d#147) The file is streamed with fs.createReadStream piped into the Express response\n//    (Content-Length, back-pressure) instead of \"file in\" reading the whole archive into one Buffer\n//    for \"http response\". A 46 MB backup took the GX's free RAM and froze Node-RED for minutes.\n//    Unknown name -> 404; an aborted download closes the file; the status shows sent MB and time.\n// ==========================\n\nconst BACKUP_DIR = '/data/home/nodered/grid-control-backups';\nconst NAME_PATTERN = /^[A-Za-z0-9._-]+\\.tar\\.gz$/;\nconst CHUNK = 256 * 1024;\n\nfunction timeLabel() {\n    const now = new Date();\n    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');\n}\n\nfunction mb(bytes) {\n    return (bytes / 1048576).toFixed(1) + ' MB';\n}\n\nfunction textResponse(statusCode, text) {\n    node.status({ fill: 'red', shape: 'dot', text: timeLabel() + ' ' + statusCode + ' ' + text });\n    msg.statusCode = statusCode;\n    msg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\n    msg.payload = text;\n    return [null, msg];\n}\n\nif (!msg.res) {\n    return null;\n}\n\nif (msg.error) {\n    return textResponse(500, 'Backup request failed: ' + (msg.error.message || 'unknown error'));\n}\n\nconst name = String((msg.req && msg.req.query && msg.req.query.name) || '');\n\nif (!NAME_PATTERN.test(name)) {\n    return textResponse(400, 'Invalid backup name');\n}\n\nconst file = BACKUP_DIR + '/' + name;\nlet size = 0;\ntry {\n    const st = fs.statSync(file);\n    if (!st.isFile()) {\n        return textResponse(404, 'Backup not found: ' + name);\n    }\n    size = st.size;\n}\ncatch (e) {\n    return textResponse(404, 'Backup not found: ' + name);\n}\n\nconst res = msg.res._res;\nconst started = Date.now();\nlet sent = 0;\nlet done = false;\n\nres.status(200);\nres.set({\n    'Content-Type': 'application/gzip',\n    'Content-Length': String(size),\n    'Content-Disposition': 'attachment; filename=\"' + name + '\"',\n    'Cache-Control': 'no-store'\n});\n\nconst stream = fs.createReadStream(file, { highWaterMark: CHUNK });\nnode.status({ fill: 'blue', shape: 'dot', text: timeLabel() + ' sending ' + name + ' (' + mb(size) + ')' });\n\nstream.on('data', chunk => { sent += chunk.length; });\nstream.on('error', error => {\n    done = true;\n    node.status({ fill: 'red', shape: 'dot', text: timeLabel() + ' read error ' + name + ': ' + error.message });\n    if (!res.headersSent) {\n        res.status(500).set('Content-Type', 'text/plain; charset=utf-8').end('Backup read failed: ' + error.message);\n    }\n    else {\n        res.destroy();\n    }\n});\nres.on('finish', () => {\n    done = true;\n    node.status({ fill: 'green', shape: 'dot', text: timeLabel() + ' sent ' + name + ' ' + mb(sent) + ' in ' + Math.round((Date.now() - started) / 1000) + ' s' });\n});\nres.on('close', () => {\n    stream.destroy();\n    if (!done) {\n        node.status({ fill: 'yellow', shape: 'ring', text: timeLabel() + ' aborted ' + name + ' after ' + mb(sent) + ' of ' + mb(size) });\n    }\n});\nstream.pipe(res);\n\nreturn null;\n",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "fs",
+        "module": "fs"
+      }
+    ],
     "x": 430,
     "y": 1640,
     "wires": [
-      [
-        "backup-file-read-01"
-      ],
-      [
-        "backup-http-response-01"
-      ]
-    ]
-  },
-  {
-    "id": "backup-file-read-01",
-    "type": "file in",
-    "z": "995ac4ed6222a706",
-    "name": "Read backup file",
-    "filename": "filename",
-    "filenameType": "msg",
-    "format": "",
-    "chunk": false,
-    "sendError": false,
-    "encoding": "none",
-    "allProps": false,
-    "x": 670,
-    "y": 1640,
-    "wires": [
+      [],
       [
         "backup-http-response-01"
       ]
