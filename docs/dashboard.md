@@ -53,7 +53,7 @@ CPU (sampled over 1 s), load, memory, disks, temperature, uptime, Venus OS versi
 
 ![Backup and Restore dashboard — create, download, delete, upload and restore with safety backup](images/dashboard-backup.png)
 
-Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). See [Backup & restore](backup-restore.md).
+Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). The card **Data archive by e-mail** mails the energy and heating data (last 7 / 31 days or all history) as a `.tar.gz` attachment, by a button and every Monday 07:00. See [Backup & restore](backup-restore.md).
 
 ### Files — logs and disk usage
 

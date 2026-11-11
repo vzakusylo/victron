@@ -33,6 +33,16 @@ GNU tar also skips `supervise` folders (daemontools runtime state, root-only) at
 tar -xzf /data/home/nodered/grid-control-backups/<backup>.tar.gz -C / --exclude=data/conf/settings.xml && { [ ! -f /data/apps/dbus-serialbattery/enable.sh ] || bash /data/apps/dbus-serialbattery/enable.sh; } && reboot
 ```
 
+## Data archive by e-mail (d#146)
+
+The card **Data archive by e-mail** on the Backup tab sends the energy and heating data as one `.tar.gz` attachment to the address of the heat pump e-mail alerts (`grid-control-config/email.json` on the GX, see [Heat pump errors and e-mail alerts](heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145)). It is a data copy, not a device backup: settings, flows and drivers are not included.
+
+- **Send by e-mail now** with a period: last 7 days, last 31 days or all history.
+- **Weekly**: every Monday 07:00 (Europe/Oslo), the last 7 days. The inject *Data archive mail tick* checks every 15 min; a send that fails is retried every hour, at most 3 times, then the next Monday. The card shows the next run and the last result (button or weekly, size, number of files, or the error).
+- Contents from `/data/home/nodered/grid-control-logs`, per UTC day of the period: `heatpump/<day>/` (heat pump recorder), `automations/<day>.jsonl` (automation log), `energy-<day>.log`, `grid-control-<day>.log`, `heatpump-<day>.log` where present; per month: `energy-<month>.csv`. "All history" packs the whole folder.
+- The archive is built in `/tmp` and deleted after sending. More than 18 MB is refused (Gmail limit after encoding); then use a shorter period or a full backup download.
+- Sent with `tools/send-mail.js --attach` (installed on the GX in `/data/home/nodered/tools/`). The inject *Mail data archive now (7 days)* in the flow does the same as the button.
+
 Security note: the download and upload endpoints use Node-RED's HTTP-node security. If `httpNodeAuth` is not enabled, anyone on the LAN who can reach the Node-RED port can download a backup, and the backup contains the flow credentials.
 
 ---

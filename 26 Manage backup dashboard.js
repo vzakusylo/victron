@@ -45,6 +45,14 @@
 //    excluded like node_modules; drivers recreate their overlays with enable.sh.
 // 4. GNU tar also skips `supervise` folders (daemontools runtime state, root-only) at any depth.
 // 5. Also backs up /data/grid-control-logperm.sh (makes driver logs readable for the Driver page).
+// 6. Data archive by e-mail (d#146): action `mail` packs the energy and heating data of the last
+//    `days` days (7 / 31, or 0 = all of grid-control-logs) into /tmp/grid-data-*.tar.gz and mails it
+//    with tools/send-mail.js to the address in grid-control-config/email.json (same as the heat
+//    pump alerts). Included per UTC day: heatpump/<day>/ (recorder), automations/<day>.jsonl,
+//    energy-<day>.log, grid-control-<day>.log, heatpump-<day>.log; per month: energy-<month>.csv.
+//    The archive is deleted after sending. Weekly: topic `backup-mail-tick` (inject every 15 min)
+//    sends the last 7 days when Monday 07:00 Europe/Oslo has passed; a failed send is retried
+//    every hour, at most MAIL_TRIES times, then the next Monday. Busy -> the next tick.
 // ==========================
 
 const BACKUP_DIR = '/data/home/nodered/grid-control-backups';
@@ -93,6 +101,58 @@ const BACKUP_LABELS = {
 const NAME_PATTERN = /^[A-Za-z0-9._-]+\.tar\.gz$/;
 const BUSY_TIMEOUT_MS = 15 * 60 * 1000;
 const STATE_KEY = 'backupDashboardState';
+
+// Data archive by e-mail
+const LOGS_PARENT = '/data/home/nodered';
+const MAIL_TOOL = '/data/home/nodered/tools/send-mail.js';
+const MAIL_TZ = 'Europe/Oslo';
+const MAIL_WEEKDAY = 1;            // Monday
+const MAIL_HOUR = 7;               // 07:00 local time
+const MAIL_DAYS_AUTO = 7;
+const MAIL_DAYS_ALLOWED = [7, 31, 0];
+const MAIL_TRIES = 3;
+const MAIL_RETRY_MS = 60 * 60 * 1000;
+const MAIL_MAX_BYTES = 18 * 1024 * 1024;
+
+const pad2 = n => String(n).padStart(2, '0');
+
+// Wall-clock parts of `ts` in MAIL_TZ (the GX itself runs in UTC).
+function zoneParts(ts) {
+    const parts = {};
+    new Intl.DateTimeFormat('en-GB', { timeZone: MAIL_TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        .formatToParts(new Date(ts)).forEach(p => { parts[p.type] = p.value; });
+    return { y: Number(parts.year), mo: Number(parts.month) - 1, d: Number(parts.day), h: Number(parts.hour), mi: Number(parts.minute) };
+}
+
+function zoneText(ts) {
+    const p = zoneParts(ts);
+    const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(p.y, p.mo, p.d)).getUTCDay()];
+    return wd + ' ' + p.y + '-' + pad2(p.mo + 1) + '-' + pad2(p.d) + ' ' + pad2(p.h) + ':' + pad2(p.mi);
+}
+
+// The first Monday 07:00 (MAIL_TZ) strictly after `ts`.
+function nextMailDue(ts) {
+    const p = zoneParts(ts);
+    for (let k = 0; k <= 7; k += 1) {
+        const day = new Date(Date.UTC(p.y, p.mo, p.d + k));
+        if (day.getUTCDay() !== MAIL_WEEKDAY) {
+            continue;
+        }
+        const wall = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), MAIL_HOUR, 0);
+        const z = zoneParts(wall);
+        const offset = Date.UTC(z.y, z.mo, z.d, z.h, z.mi) - wall;     // zone offset at that moment
+        const due = wall - offset;
+        if (due > ts) {
+            return due;
+        }
+    }
+    return ts + 7 * 24 * 3600 * 1000;
+}
+
+function mailState(state) {
+    state.mail = Object.assign({ dueAt: 0, tries: 0, lastAt: 0, lastOk: null, lastText: '', lastAuto: false }, state.mail || {});
+    return state.mail;
+}
 
 function shellQuote(script) {
     return "'" + String(script).replace(/'/g, "'\\''") + "'";
@@ -221,6 +281,67 @@ function buildRestoreScript(name, restoreVenusSettings, restartNodeRed, enableDr
     ].join('\n');
 }
 
+// Packs the energy / heating data of the last `days` UTC days (0 = all of grid-control-logs) and mails it.
+function buildMailScript(days, auto, nowTs) {
+    const dayList = [];
+    const months = [];
+    for (let k = days; days > 0 && k >= 0; k -= 1) {
+        const d = new Date(nowTs - k * 24 * 3600 * 1000).toISOString();
+        dayList.push(d.slice(0, 10));
+        if (months.indexOf(d.slice(0, 7)) < 0) {
+            months.push(d.slice(0, 7));
+        }
+    }
+    const stamp = new Date(nowTs).toISOString().replace(/[-:]/g, '').slice(0, 13).replace('T', '-');
+    const period = days > 0 ? dayList[0] + ' … ' + dayList[dayList.length - 1] + ' (UTC days)' : 'all history';
+    const name = 'grid-data-' + stamp + (days > 0 ? '-' + days + 'd' : '-all') + '.tar.gz';
+    const mail = {
+        subject: 'Cerbo GX data archive: ' + (days > 0 ? 'last ' + days + ' days' : 'all history') + ' (' + zoneText(nowTs).slice(4, 14) + ')',
+        text: [
+            (auto ? 'Weekly' : 'Requested') + ' archive of the energy and heating data of the Cerbo GX.',
+            'Period: ' + period + '.',
+            '',
+            'Contents (grid-control-logs/):',
+            '- energy-YYYY-MM.csv: energy history per hour (grid, battery, PV, tariff tier)',
+            '- heatpump/YYYY-MM-DD/HH.csv(.gz): heat pump recorder, values per change',
+            '- automations/YYYY-MM-DD.jsonl: automation log (heat pump rules, DHW controller, errors)',
+            '- grid-control-YYYY-MM-DD.log, heatpump-YYYY-MM-DD.log, energy-YYYY-MM-DD.log: daily logs where present',
+            '',
+            'This is a data copy only. A full device backup (settings, flows, drivers) is made on the Backup tab.'
+        ].join('\n')
+    };
+    const lines = [
+        'T="/tmp/' + name + '"; M="/tmp/grid-data-mail.json"; G="grid-control-logs"',
+        'cd "' + LOGS_PARENT + '" || fail "Cannot open ' + LOGS_PARENT + '"',
+        'L=""',
+        'addm() { [ -e "$1" ] && L="$L $1"; return 0; }'
+    ];
+    if (days > 0) {
+        lines.push('for d in ' + dayList.join(' ') + '; do addm "$G/heatpump/$d"; addm "$G/automations/$d.jsonl"; addm "$G/energy-$d.log"; addm "$G/grid-control-$d.log"; addm "$G/heatpump-$d.log"; done');
+        lines.push('for m in ' + months.join(' ') + '; do addm "$G/energy-$m.csv"; done');
+    }
+    else {
+        lines.push('addm "$G"');
+    }
+    lines.push(
+        '[ -n "$L" ] || fail "No data files found for ' + period + '"',
+        'rm -f /tmp/grid-data-*.tar.gz',
+        // the recorder may append to the current hour while tar reads it ("file changed"): the archive is still valid
+        'tar -czf "$T" $L 2>/dev/null; tar -tzf "$T" >/dev/null 2>&1 || { rm -f "$T"; fail "Data archive could not be created"; }',
+        'SZ=$(wc -c < "$T"); echo "@@MAILSIZE $SZ"; echo "@@MAILFILES $(tar -tzf "$T" | grep -c -v /$)"',
+        '[ "$SZ" -le ' + MAIL_MAX_BYTES + ' ] || { rm -f "$T"; fail "Data archive is too large for e-mail: $SZ bytes. Use a shorter period or the Download of a full backup."; }',
+        "cat > \"$M\" <<'GRID_MAIL_EOF'",
+        JSON.stringify(mail),
+        'GRID_MAIL_EOF',
+        'R=$(node ' + MAIL_TOOL + ' --file "$M" --attach "$T" 2>&1 | tail -n 1)',
+        'rm -f "$T" "$M"',
+        'echo "@@MAIL $R"',
+        'echo "@@MAILNAME ' + name + '"',
+        'list_backups'
+    );
+    return scriptPrelude() + '\n' + lines.join('\n');
+}
+
 function parseScriptOutput(rawText) {
     const result = {
         user: '',
@@ -237,7 +358,11 @@ function parseScriptOutput(rawText) {
         restored: [],
         failed: [],
         skipped: [],
-        log: []
+        log: [],
+        mail: null,
+        mailSize: 0,
+        mailFiles: 0,
+        mailName: ''
     };
 
     String(rawText || '').split(/\r?\n/).forEach(line => {
@@ -290,6 +415,12 @@ function parseScriptOutput(rawText) {
             case 'SKIP':
             case 'SKIPPED': result.skipped.push(value); break;
             case 'LOG': result.log.push(value); break;
+            case 'MAIL':
+                try { result.mail = JSON.parse(value); } catch (e) { result.mail = { ok: false, error: value || 'no answer from send-mail.js' }; }
+                break;
+            case 'MAILSIZE': result.mailSize = Number(value) || 0; break;
+            case 'MAILFILES': result.mailFiles = Number(value) || 0; break;
+            case 'MAILNAME': result.mailName = value; break;
             default: result.log.push(line);
         }
     });
@@ -310,19 +441,31 @@ function getState() {
     };
 }
 
-function emit(state, execPayload, action) {
+function emit(state, execPayload, action, extra) {
     state.updatedAt = new Date().toISOString();
     flow.set(STATE_KEY, state);
+    const mail = mailState(state);
 
     const view = Object.assign({}, state, {
         backups: state.backups.map(backup => Object.assign({}, backup, { sizeText: formatBytes(backup.size) })),
-        contents: BACKUP_PATHS.map(path => ({ path: '/' + path, label: BACKUP_LABELS[path] || path }))
+        contents: BACKUP_PATHS.map(path => ({ path: '/' + path, label: BACKUP_LABELS[path] || path })),
+        mail: Object.assign({}, mail, {
+            nextText: mail.dueAt ? zoneText(mail.dueAt) + (mail.tries ? ' (retry ' + mail.tries + ' of ' + MAIL_TRIES + ')' : '') : '',
+            lastAtText: mail.lastAt ? zoneText(mail.lastAt) : ''
+        })
     });
 
     return [
         { topic: 'backup-state', payload: view },
-        execPayload ? { topic: 'backup-exec', backupAction: action, payload: shellQuote(execPayload) } : null
+        execPayload ? Object.assign({ topic: 'backup-exec', backupAction: action, payload: shellQuote(execPayload) }, extra || {}) : null
     ];
+}
+
+function startMail(state, days, auto) {
+    state.busy = 'mail';
+    state.busySince = nowTs;
+    state.result = { ok: true, action: 'mail', message: 'Packing and mailing the data archive (' + (days > 0 ? 'last ' + days + ' days' : 'all history') + ')...', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };
+    return emit(state, buildMailScript(days, auto, nowTs), 'mail', { mailAuto: auto, mailDays: days });
 }
 
 let state = getState();
@@ -340,6 +483,40 @@ if (msg.topic === 'backup-exec') {
     state.disk = parsed.disk || state.disk;
     state.user = parsed.user || state.user;
     state.busy = '';
+
+    if (action === 'mail') {
+        const mail = mailState(state);
+        const days = Number(msg.mailDays) || 0;
+        const ok = Boolean(!parsed.error && parsed.mail && parsed.mail.ok);
+        const what = (days > 0 ? 'last ' + days + ' days' : 'all history') + ', ' + parsed.mailFiles + ' file(s), ' + formatBytes(parsed.mailSize);
+        const error = parsed.error || (parsed.mail ? parsed.mail.error : '') || 'no answer from the mail script';
+        mail.lastAt = nowTs;
+        mail.lastOk = ok;
+        mail.lastAuto = Boolean(msg.mailAuto);
+        mail.lastText = ok ? 'sent: ' + what : 'failed: ' + error;
+        if (msg.mailAuto) {
+            if (ok || mail.tries + 1 >= MAIL_TRIES) {
+                mail.tries = 0;
+                mail.dueAt = nextMailDue(nowTs);
+            }
+            else {
+                mail.tries += 1;
+                mail.dueAt = nowTs + MAIL_RETRY_MS;
+            }
+        }
+        state.result = {
+            ok,
+            action,
+            message: ok ? 'Data archive mailed (' + what + ').' : 'Data archive mail failed: ' + error,
+            at: new Date().toISOString(),
+            included: [], restored: [], failed: [], skipped: [],
+            log: parsed.log.slice(0, 40)
+        };
+        if (!ok) {
+            node.warn('data archive mail failed: ' + error);
+        }
+        return emit(state, null, action);
+    }
 
     if (action !== 'refresh' || parsed.error) {
         let message;
@@ -377,6 +554,19 @@ if (msg.topic === 'backup-exec') {
     return emit(state, null, action);
 }
 
+if (msg.topic === 'backup-mail-tick') {
+    const mail = mailState(state);
+    if (!mail.dueAt) {
+        mail.dueAt = nextMailDue(nowTs);
+        return emit(state, null, 'refresh');
+    }
+    if (nowTs < mail.dueAt || state.busy) {
+        flow.set(STATE_KEY, state);
+        return null;
+    }
+    return startMail(state, MAIL_DAYS_AUTO, true);
+}
+
 if (msg.topic === 'backup-uploaded') {
     const name = msg.payload && msg.payload.name ? String(msg.payload.name) : '';
     state.result = {
@@ -406,6 +596,11 @@ if (msg.topic === 'backup-command' && msg.payload && typeof msg.payload === 'obj
         state.busySince = nowTs;
         state.result = { ok: true, action, message: 'Creating backup...', at: new Date().toISOString(), included: [], restored: [], failed: [], skipped: [], log: [] };
         return emit(state, buildCreateScript(), 'create');
+    }
+
+    if (action === 'mail') {
+        const days = Number(msg.payload.days);
+        return startMail(state, MAIL_DAYS_ALLOWED.indexOf(days) >= 0 ? days : MAIL_DAYS_AUTO, false);
     }
 
     if (action === 'delete') {
