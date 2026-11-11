@@ -81,6 +81,11 @@
 //    defrost during DHW the same stop → valve sequence runs again.
 // 12. d#140: the two HP mode rules whose cloud conditions are never true (HP power <-16,
 //    HP smart -15..-7) are deleted (owner). Left: DF exchange off / on and HP Er03 restart.
+// 16. d#144 (Er03 at the valve switch, 11 Nov 06:56–13:05, 4 cycles lost): new state VALVE — valve ON
+//    with the curve still at P23 0 for VALVE_TRAVEL_S, then the boiler curve; Er03 seen in VALVE / DHW
+//    ends the cycle at once (valve back), and an early abort (< 5 min) is tried again after 15 min
+//    (max 2 in a row, settings.dhwRetry); max duration counts only the DHW heating time (defrosts
+//    do not), with a hard cap of max + 30 min.
 // 15. d#143: dhwModel().plan = tank target and expected end of the running cycle (tank rise of the
 //    last 6 min, least-squares, capped by the max duration) for the dashed line on the history chart.
 // 14. d#143: the P23 start and ramp limit use the warmest of return / tank (and supply at the
@@ -422,6 +427,12 @@ const MODE_LABEL = { off: 'Off', dry: 'Test', live: 'On' };
 // held 10 min or 3 steps and hot again → end of the cycle (the electric heater takes over).
 // If Node-RED stops mid-cycle the pump still runs on a curve; on every start (and outside a cycle)
 // the heating values are written back when the pump shows the stop or boiler values.
+// d#144: valve travel, quick retry after an early abort (Er03 on 11 Nov), max duration counts DHW time only
+const VALVE_TRAVEL_S = 90;     // valve ON with the curve still at P23 0 (no demand) while the valve moves
+const EARLY_MIN = 5;           // a cycle that ends earlier (Er03, valve switched back) …
+const RETRY_MIN = 15;          // … is tried again after this, ignoring the interval …
+const RETRY_MAX = 2;           // … at most this many times in a row
+const HARD_EXTRA_MIN = 30;     // a cycle never lasts longer than max duration + this (defrosts included)
 const p23w = (v) => ({ role: 'hp', dps: 133, set: v, text: 'curve P23 ' + v });
 const p24w = (v) => ({ role: 'hp', dps: 134, set: v, text: 'curve P24 ' + v });
 function dhwState() {
@@ -447,11 +458,12 @@ function dhwModel() {
 // d#143: where the running cycle is heading: tank target and the expected end, from the tank rise
 // of the last 6 min (least-squares slope, at least 3 min of DHW), never later than the max duration
 function dhwPlan(d, c) {
-    if (!['STOP', 'DHW', 'DEFROST_DHW'].includes(d.state) || d.outAvg === null) return null;
+    if (!['STOP', 'VALVE', 'DHW', 'DEFROST_DHW'].includes(d.state) || d.outAvg === null) return null;
     const target = d.outAvg < c.frostLimit ? null : curveAt(c.curve, d.outAvg);
     if (target === null) return null;
     const cold = d.outAvg <= c.coldLimit;
-    const maxEnd = d.startAt + (cold ? c.maxMinCold : c.maxMin) * MIN;
+    const maxDur = (cold ? c.maxMinCold : c.maxMin) * MIN;
+    const maxEnd = Math.min(now + Math.max(0, maxDur - (d.dhwMs || 0)), d.startAt + maxDur + HARD_EXTRA_MIN * MIN);
     const s = d.tankS || [];
     const last = s.length ? s[s.length - 1] : null;
     let rate = null, eta = null;
@@ -539,14 +551,26 @@ function dhwTick() {
     const elapsed = now - d.since;
     const cycleMin = (now - d.startAt) / MIN;
     const maxDur = cold ? c.maxMinCold : c.maxMin;
+    // time spent heating the tank (DHW state only): defrosts and switch pauses do not count
+    if (d.state === 'DHW' && d.tickAt) d.dhwMs = (d.dhwMs || 0) + Math.min(MIN, Math.max(0, now - d.tickAt));
+    d.tickAt = now;
+    const dhwMin = (d.dhwMs || 0) / MIN;
+    const er03 = (n(H['15']) & 1) === 1;
     const lastEnd = dhwLastEnd(d);
-    const endCycle = (why) => {
+    const endCycle = (why, abort) => {
         if (valveOn) write(valve(false));
         if (bypassOn) write(bypass(false));
         modeTo('mute');
         heatBack();
+        // d#144: an early abort (Er03, valve back) is tried again after RETRY_MIN, at most RETRY_MAX times
+        let retryTxt = '';
+        if (abort && cycleMin < EARLY_MIN) {
+            const nTry = ((settings.dhwRetry && settings.dhwRetry.n) || 0) + 1;
+            settings.dhwRetry = nTry <= RETRY_MAX ? { n: nTry, at: now + RETRY_MIN * MIN } : null;
+            retryTxt = nTry <= RETRY_MAX ? '; retry in ' + RETRY_MIN + ' min (' + nTry + '/' + RETRY_MAX + ')' : '; no more retries, next after the interval';
+        } else settings.dhwRetry = null;
         d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
-        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min → valve to heating, heating curve back (' + heatTxt + ')', 'done');
+        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, abort ? 'warn' : 'done');
         d.run = null; d.goal = null; d.want = null;
     };
 
@@ -580,7 +604,10 @@ function dhwTick() {
         const why = [];
         if (target === null) why.push(d.outAvg === null ? 'no outdoor value yet' : 'outdoor ' + d.outAvg + ' °C below the frost limit ' + c.frostLimit + ' °C (electric heater only)');
         else if (!(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
-        if (lastEnd && now - lastEnd < ivH * 3600 * 1000) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '') + ')');
+        const rt = settings.dhwRetry;
+        const retryDue = !!(rt && now >= rt.at);
+        if (lastEnd && now - lastEnd < ivH * 3600 * 1000 && !retryDue) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '')
+            + (rt ? '; retry ' + rt.n + '/' + RETRY_MAX + ' at ' + new Date(rt.at).toTimeString().slice(0, 5) : '') + ')');
         if (defNow || recentDefrost) why.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
         if ((context.get('flag') || flag).on) why.push('defrost flag ON');
         if (valveOn) why.push('valve ON');
@@ -592,10 +619,10 @@ function dhwTick() {
         d.streak = why.length ? 0 : d.streak + 1;
         if (d.streak >= HOLD) {
             d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
-            d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' }; d.p23Cmd = null; d.p24Cmd = null; d.tankS = [];
+            d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' }; d.p23Cmd = null; d.p24Cmd = null; d.tankS = []; d.dhwMs = 0;
             logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
                 text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C'
-                    + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
+                    + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + (retryDue ? ' [retry ' + rt.n + '/' + RETRY_MAX + ']' : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
             if (!P22on) write(p22(true));
             modeTo('mute'); if (bypassOn) write(bypass(false));
             curveTo(0);
@@ -613,9 +640,26 @@ function dhwTick() {
         break;
     }
     case 'STOP': {
+        if (cycleMin >= maxDur + HARD_EXTRA_MIN) { endCycle('hard limit ' + (maxDur + HARD_EXTRA_MIN) + ' min'); break; }
         if ((hz === 0 && elapsed >= 20 * S) || elapsed >= 90 * S) {
             write(valve(true));
             if (bypassOn) write(bypass(false));
+            d.defTicks = 0;
+            go('VALVE', 'valve to the tank, bypass OFF; curve stays at P23 0 for ' + VALVE_TRAVEL_S + ' s while the valve moves');
+        }
+        d.why = 'waiting for the compressor to stop (' + hz + ' Hz)';
+        break;
+    }
+    case 'VALVE': {
+        // d#144: Er03 (no water flow) came ~40 s after the valve switch when the boiler curve was set at
+        // once (11 Nov 06:56–13:05): give the valve its travel time without demand first
+        if (er03) { endCycle('fault Er03 (water flow) during the valve switch', true); break; }
+        if (defNow) {
+            d.defTicks++;
+            if (d.defTicks >= 2) { write(valve(false)); if (!bypassOn) write(bypass(true)); d.fanOkSince = 0; go('DEFROST_DHW', 'defrost during the valve switch → valve to heating, bypass ON'); break; }
+        } else d.defTicks = 0;
+        if (!valveOn && elapsed >= MIN) { endCycle('valve did not switch to the tank', true); break; }
+        if (elapsed >= VALVE_TRAVEL_S * S) {
             d.goal = Math.max(0, p23For(W, x, c.boilerP24) - (d.prot ? d.prot.cut : 0));
             // d#143: after the valve switch the loop fills with tank water (seen 10 Nov 14:17: 40–42 °C), so the
             // gap is counted from the warmest of return / supply / tank; a lower start left the curve below
@@ -624,13 +668,14 @@ function dhwTick() {
             const startP23 = c.gapRamp ? Math.min(d.goal, p23For(Math.round(water) + c.gap, x, c.boilerP24)) : d.goal;
             curveTo(startP23, c.boilerP24);
             d.prog = { t: now, sup }; d.defTicks = 0;
-            go('DHW', 'valve to the tank, bypass OFF, boiler curve P24 ' + c.boilerP24 + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, c.boilerP24, x).toFixed(1)
+            go('DHW', 'valve settled, boiler curve P24 ' + c.boilerP24 + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, c.boilerP24, x).toFixed(1)
                 + ' °C at ' + x + ' °C; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', start ≤ water ' + Math.round(water) + ' + ' + c.gap + ', then +1 per minute' : '') + ')');
         }
-        d.why = 'waiting for the compressor to stop (' + hz + ' Hz)';
+        d.why = 'valve moving to the tank, curve P23 0 (' + Math.round(elapsed / S) + ' / ' + VALVE_TRAVEL_S + ' s)';
         break;
     }
     case 'DHW': {
+        if (er03) { endCycle('fault Er03 (water flow)', true); break; }
         if (defNow) {
             d.defTicks++;
             if (d.defTicks >= 2) {
@@ -641,8 +686,9 @@ function dhwTick() {
             }
         } else d.defTicks = 0;
         if (target !== null && tank >= target) { endCycle('tank at target ' + target + ' °C'); break; }
-        if (cycleMin >= maxDur) { endCycle('max duration ' + Math.round(maxDur) + ' min at ' + d.outAvg + ' °C outdoor'); break; }
-        if (!valveOn && elapsed >= MIN) { endCycle('valve switched to heating by someone else'); break; }
+        if (dhwMin >= maxDur) { endCycle('max duration ' + Math.round(maxDur) + ' min of heating at ' + d.outAvg + ' °C outdoor'); break; }
+        if (cycleMin >= maxDur + HARD_EXTRA_MIN) { endCycle('hard limit ' + (maxDur + HARD_EXTRA_MIN) + ' min with defrosts'); break; }
+        if (!valveOn && elapsed >= MIN) { endCycle('valve switched to heating by someone else', true); break; }
         // tank rise for the expected end (last 10 min)
         if (Number.isFinite(tank)) { d.tankS = (d.tankS || []).concat([[now, tank]]).filter((p) => now - p[0] <= 6 * MIN); }
         // compressor protection (P3 / P4)
@@ -687,13 +733,13 @@ function dhwTick() {
         }
         if (!cold && !pr.steps && H['2'] !== 'mute' && sup >= W - 1) modeTo('mute');
         d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C, supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
-            + heatCurveAt(d.p23Cmd, c.boilerP24, x).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), ' + Math.round(cycleMin) + ' / ' + Math.round(maxDur) + ' min'
+            + heatCurveAt(d.p23Cmd, c.boilerP24, x).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
             + (pr.steps ? ', protection ' + pr.steps + ' step(s)' : '') + (pr.hotSince ? ', hot: ' + pr.reason : '');
         break;
     }
     case 'DEFROST_DHW': {
         if (!defNow && fan > 300) { if (!d.fanOkSince) d.fanOkSince = now; } else d.fanOkSince = 0;
-        if (cycleMin >= maxDur) { endCycle('max duration during a defrost'); break; }
+        if (cycleMin >= maxDur + HARD_EXTRA_MIN) { endCycle('hard limit ' + (maxDur + HARD_EXTRA_MIN) + ' min during a defrost'); break; }
         // the outdoor sensor reads high after a defrost; with the curve on that would give a low set point
         const sensorBack = Number.isFinite(out) && d.outAvg !== null && out <= d.outAvg + 3;
         if (d.fanOkSince && now - d.fanOkSince >= MIN && sensorBack) {

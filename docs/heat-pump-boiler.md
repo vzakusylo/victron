@@ -1,6 +1,6 @@
 # Boiler (DHW tank) control: what was done and how it works now
 
-Status 2026-11-10, flow **d#143** on the Cerbo GX. The DHW tank is heated by one local controller,
+Status 2026-11-11, flow **d#144** on the Cerbo GX. The DHW tank is heated by one local controller,
 the **DHW controller** in `40 Heat pump automations.js`. It runs the heat pump on the pump's own
 weather curve and only switches the curve's values. Smart Life does not run any heat pump scene
 any more, apart from two scenes whose conditions can never be true (left on in the app, not on the
@@ -23,6 +23,7 @@ R1–R16, review of the old cloud behaviour, the d#130 design),
 | 9 Nov | d#135, d#137, d#138 | Battery sensors read locally; two bugs of d#135 fixed (node id clash with the Automation log; Tuya `data.t` in seconds made the devices look stale and stalled a ramp-down at set 49 °C with P22 off for 20 min). |
 | 9 Nov | d#138–d#139 | DHW controller panel moved to the **Heat Pump** page (Boiler column), removed from the Automations page. |
 | 9 Nov | d#140 | The two never-true HP mode rules deleted. Local rules left: DF exchange off / on, HP Er03 restart. |
+| 11 Nov | d#144 | Er03 (no water flow) ~40 s after the valve switch stopped 4 cycles (tank 42 → 33 °C): 90 s valve travel with P23 0 before the boiler curve, Er03 ends the cycle at once, retry after 15 min, max duration counts heating time only. |
 | 10 Nov | d#143 | First live cycle on the curve (14:16): the compressor stayed off for 9 min after the valve switch, because the P23 start was counted from the heating return (33 °C) while the loop already held tank water (40–42 °C) — the curve was below the water. The start and the ramp limit now use the warmest of return / supply / tank. |
 | 10 Nov | d#142 | **DHW on the pump's own curve** (owner: use only the heating curve, two settings — heating and boiler). P22 always on; stop by P23 0; boiler P24 12 with a P23 computed per cycle; P23 ramp within the supply − return gap; heating curve written back at the end; **compressor protection** in the cold and on high frequency / current / discharge. Tested on the pump (P23 0 stops the compressor) and on a model (26 checks). |
 
@@ -107,9 +108,10 @@ All of these on 3 ticks in a row (the controller ticks every 10 s):
 |---|---|---|
 | **Start** | Silent; bypass OFF if ON; **P23 0** (P22 on if it was off) | — |
 | **STOP** | waits for 0 Hz for 20 s (or at most 90 s) | ~1 min (test: 61 → 0 Hz in ~50 s) |
+| **VALVE** (d#144) | valve ON, bypass OFF; the curve **stays at P23 0 for 90 s** while the valve moves (demand during the move caused Er03 on 11 Nov) | 90 s |
 | **Valve to the tank** | valve ON; **P24 12**; **P23 start** = the lower of the boiler P23 and the P23 for "water + 5 °C" (water = the warmest of return, supply and tank: after the switch the loop holds tank water) | — |
 | **DHW** | P23 **+1 per minute** (≈ +1.2 °C supply) up to the boiler P23, but only while the curve supply stays ≤ the warmer of return / tank + 5; P23 down again if they fall | 20–40 min |
-| **End** | when the tank reaches the target, or after 60 min (30 min at ≤ −10 °C), or if the valve was switched by someone else: valve OFF, bypass OFF, Silent, **P24 / P23 of the heating curve** | one step |
+| **End** | when the tank reaches the target, or after 60 min **of heating** (30 min at ≤ −10 °C; defrosts do not count, hard cap 90 min), or on **Er03** / if the valve was switched by someone else (then a **retry after 15 min**, at most 2 in a row): valve OFF, bypass OFF, Silent, **P24 / P23 of the heating curve** | one step |
 
 After the end the pump simply follows the heating curve again; the compressor modulates down by
 itself (no set point ramp-down any more).

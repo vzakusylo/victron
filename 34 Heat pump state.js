@@ -388,7 +388,7 @@ function buildModel(st, now) {
 // "Heat pump automations" (40), which writes flow.dhwView every 10 s. Same SVG frame and
 // outdoor range as the heating curve, so the two charts sit side by side on the page.
 const DHW_VIEW_STALE_MS = 2 * 60 * 1000;
-const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop (curve P23 0) before the valve switch',
+const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop (curve P23 0) before the valve switch', VALVE: 'valve moving to the tank (curve P23 0)',
     DHW: 'heating the tank on the boiler curve', DEFROST_DHW: 'defrost during DHW (valve on heating)', RAMPDOWN: 'older version' };
 // d#142: the DHW controller runs the pump on its own curve; during a cycle the pump shows the
 // boiler / stop values, the heating chart then uses the stored heating curve (dhwView.heatCurve)

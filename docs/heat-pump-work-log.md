@@ -15,7 +15,7 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | d#121 | SA1 power meter role, history by day, warmer / colder slider (P23), bypass switch. |
 | d#122 | Boiler valve relay on Tuya 3.5 with a fixed IP (it sends no UDP beacons). |
 
-### 2026-11-08 – 2026-11-10: local automations (d#123–d#143)
+### 2026-11-08 – 2026-11-11: local automations (d#123–d#144)
 
 | Version | Owner request | What was built | Result |
 |---|---|---|---|
@@ -48,6 +48,28 @@ Language rule: everything in the repository (code, comments, docs, commit messag
 | docs | "Write a detailed description of what was done, how it changed and how it works now; commit everything." | [heat-pump-boiler.md](heat-pump-boiler.md). | — |
 | d#143 | "Check the curve and why the heating did not start" (first live cycle on the curve, 14:16). | The curve values were right (20 + 1.2 × (P23 − outdoor)). After the valve switch the loop held tank water at 40–42 °C, but the start P23 12 (from the heating return 33 °C + 5) gave 35.6 °C, so the compressor stayed off until the +1/min ramp reached 44 °C at 14:26. Fix: start and ramp limit from the warmest of return / supply / tank + gap. Model tests extended (pump restarts only when the curve is 2 °C above the water). | Cycle 14:16–14:43: tank 40 → 46 °C in 26 min, all writes confirmed. Deployed 14:50 together with the next row. |
 | d#143 | "Draw with a dashed line where the boiler heating is heading and the expected end time." | Controller: `plan` = tank target and expected end (least-squares tank rise over the last 6 min, at the latest the max duration). History page: dashed target line from the cycle start, dashed projection from the tank now to the target at the expected end with a label, a note under the chart, today's chart refreshed every minute. Boiler column: "heading to … °C, expected end ≈ …". Model: estimate 11.9 min vs real 8.7 min. | Deployed 14:50. |
+
+| d#144 | "Check how it works" (11 Nov), then "Yes, build it". | Check: 3 cycles normal (01:19, 18:08 and 17:42 on 10 Nov), 1 ended by the 60-min limit at 43 °C after a 10-min defrost (15:07), **4 lost to Er03** (06:56, 08:59, 11:02, 13:05). Fix in `40`: state **VALVE** — valve ON with the curve still at P23 0 for 90 s, then the boiler curve; Er03 seen in VALVE / DHW ends the cycle at once; an early abort (< 5 min) is **retried after 15 min** (max 2 in a row) instead of waiting 2 h; max duration counts **heating time only**, hard cap max + 30 min. Model: Er03 when demand comes < 60 s after the valve switch; 30+ checks pass. | Deployed 19:41 (copied with scp, the GX link drops long SSH commands). |
+
+## Errors and incidents (8–11 Nov)
+
+Everything that went wrong, in order, with the effect on the house and what was done.
+
+| When | What happened | Effect | Cause | Fixed in |
+|---|---|---|---|---|
+| 9 Nov 11:29 | The cloud scene B50 on started a DHW cycle during a defrost | unneeded DHW cycle | outdoor sensor reads 30–47 °C during / after a defrost, the cloud read it as "> 1 °C" | d#128 (no B50 start 15 min after a defrost), later d#130 |
+| 9 Nov 13:40 | Deploy of `40` came back with an empty node context | local control OFF for ~1 min | Node-RED drops the context of a redeployed node | d#131 (settings file read again on start) |
+| 9 Nov ~20:05 | Background PowerShell deploy corrupted "≥" in the page | wrong characters on the page | non-ASCII through a background pipe | deploys now base64-encoded |
+| 9 Nov 20:49 | DHW start delayed and the preheat did not reach the tank temperature in 25 min | slow cycle | preheat with the bypass at Silent | d#134 (no preheat) |
+| 9 Nov 21:33–21:48 | Automation log page broken | no log page (day files still written) | new nodes of d#135 reused the ids `hpl-fn-01` / `hpl-exec-01` of the log (42) | d#137 (ids `hpls-*`, deploy scripts check for duplicate ids) |
+| 9 Nov 21:33–22:03 | Heat pump, valve and bypass looked stale to `40` ("device not connected / stale") | ramp-down stood at set point 49 °C with P22 off for 20 min; no rule ran; recorder rows marked stale (gap on the day chart) | `34` took the Tuya `data.t` (seconds) as the reading time | d#138 (`data.t` only for the battery sensors) |
+| 10 Nov 14:17–14:26 | First cycle on the curve: compressor off for 9 min after the valve switch | 9 min lost | start P23 from the heating return (33 °C) while the loop held tank water (40–42 °C): curve below the water | d#143 (start / ramp from the warmest of return / supply / tank) |
+| 10 Nov 14:29 | The background wait that should deploy d#143 after the cycle ended with the session | d#143 deployed only at 14:50 | session ended | — (checked by hand) |
+| 10 Nov 17:42 | Cycle started exactly when a defrost began | valve back to heating after 20 s, 9 min of defrost inside the cycle | a coming defrost cannot be seen in advance | handled by DEFROST_DHW; d#144 no longer counts defrost time toward the limit |
+| 11 Nov 06:56, 08:59, 11:02, 13:05 | **Er03 (no water flow)** ~40 s after the valve went to the tank, every time; *HP Er03 restart* switched the valve back and power-cycled the pump | 4 cycles of 2 min, **tank 42 → 33 °C**, no DHW heating for 14 h (01:51–15:07); Er03 itself cleared ~30 s after the valve was back | the boiler curve gave demand while the valve was still moving (d#143 starts the curve above the water at once); before 11 Nov never seen | d#144 (90 s valve travel with P23 0, Er03 ends the cycle at once, retry after 15 min) |
+| 11 Nov 15:07 | Cycle ended by the 60-min limit at 43 °C (target 47.5) | tank not full | 10 min of defrost counted toward the limit | d#144 (only heating time counts) |
+| 11 Nov (afternoon) | This PC on another network (10.156.x), Tailscale on the PC without its coordination server; later on the home Wi-Fi the GX link dropped every SSH command with more than a few hundred bytes | no remote check for a while; deploys and reads had to be split | network / Wi-Fi link to the GX (wifi0), probably packet size | — (scp works; short commands; not fixed) |
+| all days | 146+ device writes on 10–11 Nov | — | — | all confirmed, no write failed |
 
 ## Instructions
 
