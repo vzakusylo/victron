@@ -2,9 +2,524 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#148 Day / Night Grid Control",
+    "label": "d#150 Day / Night Grid Control",
     "disabled": false,
     "info": ""
+  },
+  {
+    "id": "lay-g-ctrl",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Energy controller: Victron inputs → Battery + Grid Controller → MultiPlus / ESS / DVCC",
+    "style": {
+      "label": true,
+      "stroke": "#3f93cf",
+      "fill": "#3f93cf",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "pv-charger-input-01",
+      "07c74490cafdc55a",
+      "0ee582b64b26e2e7",
+      "751d13b6d943e5e5",
+      "704426f76aa6aa4c",
+      "11e303e775ec959c",
+      "dc7f2a1c3e8b09c4",
+      "f46ecea6668505f3",
+      "4c8d2e6b19f7a530",
+      "pv-charger-tag-01",
+      "87b4ad2bc3ec6903",
+      "fd95dc1c428330fb",
+      "e84b0d054ca0f956",
+      "ec0378c28791feff",
+      "dc3b8e51a09c72d4",
+      "9217554766842bb8",
+      "1d4e50f4d614e8a5",
+      "7ec26167c492e338",
+      "b2064b2168543e59",
+      "efb076ae80adc1c5",
+      "4ae3639bc75d0d14",
+      "dc9d4c2e7a1b83f6",
+      "8db34d06b6591d5e",
+      "3e6dccae307e4561",
+      "1b39f33beca11607",
+      "75f48e33343da04e",
+      "e4766632305fb432",
+      "66951950bfa6d862",
+      "70b033ccd4654b3e",
+      "c1803b5fed00bfc2",
+      "5545bd538ffe3183",
+      "233d4e08d8a8fe38",
+      "7a3e91c45d2b8f06",
+      "b85e512d33d6a7cc",
+      "902ee92400d4d4af"
+    ],
+    "x": 40,
+    "y": 40,
+    "w": 2072,
+    "h": 566
+  },
+  {
+    "id": "lay-g-hourly",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Energy pages: hourly log, daily summary, Energy / Energy Detail widgets",
+    "style": {
+      "label": true,
+      "stroke": "#62a8d8",
+      "fill": "#62a8d8",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "69795160ade5462a",
+      "e290ee7bdb1e8b5f",
+      "3e942ddd06fba83c",
+      "137dd306ca7275e6",
+      "6b9848413d671fe5",
+      "ccf75f3c42b18fad",
+      "fa6dc3252e5e9c91",
+      "e5c92ba1e1522207",
+      "182424972ce7160c",
+      "384275af4f557f0a",
+      "c45dc5b7ad338001",
+      "66c0ba36be6d13e1"
+    ],
+    "x": 40,
+    "y": 652,
+    "w": 1606,
+    "h": 278
+  },
+  {
+    "id": "lay-g-notify",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "GX notifications and daily log",
+    "style": {
+      "label": true,
+      "stroke": "#9b9b9b",
+      "fill": "#9b9b9b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "ea80f613a4a9424a",
+      "c125191024e87a94",
+      "c2f366898ad94d9e",
+      "58e14304c415b27e",
+      "76b6ca504877aa54",
+      "0af20cf90708f90d",
+      "1a26cadbd6ae5765"
+    ],
+    "x": 40,
+    "y": 976,
+    "w": 927,
+    "h": 207
+  },
+  {
+    "id": "lay-g-solar",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Solar forecast (forecast.solar, shade correction)",
+    "style": {
+      "label": true,
+      "stroke": "#e2b93b",
+      "fill": "#e2b93b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "0f01a2551ae68d2e",
+      "e6a5ce1f50c59362",
+      "0af0cfe3fe0b6ad9",
+      "04915dfb9f203f67"
+    ],
+    "x": 40,
+    "y": 1229,
+    "w": 1219,
+    "h": 96
+  },
+  {
+    "id": "lay-g-analytics",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Analytics page",
+    "style": {
+      "label": true,
+      "stroke": "#62a8d8",
+      "fill": "#62a8d8",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "e55aa7c921171c88",
+      "e1128ba95b8412c8",
+      "1a1e8c9aa390c34f",
+      "23df4673183eb88f",
+      "b4515d8f57614e49",
+      "c81df251c9407d61",
+      "b8eeb060d5bc345a"
+    ],
+    "x": 40,
+    "y": 1371,
+    "w": 628,
+    "h": 326
+  },
+  {
+    "id": "lay-g-hv",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Protection page: high-voltage settings",
+    "style": {
+      "label": true,
+      "stroke": "#d9534f",
+      "fill": "#d9534f",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "4fb37264764eecaa",
+      "f5ddbb5af3f2529d",
+      "1ad973cf841f48cb",
+      "d649c2e4d8ca5f12",
+      "5b862b2be571625a",
+      "b14e612dcff7f196",
+      "ebf4f39d0f4ebd3a"
+    ],
+    "x": 40,
+    "y": 1743,
+    "w": 2086,
+    "h": 111
+  },
+  {
+    "id": "lay-g-const",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Constants page: controller constants and tariff seasons",
+    "style": {
+      "label": true,
+      "stroke": "#8e7cc3",
+      "fill": "#8e7cc3",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "constants-inject-startup-01",
+      "constants-exec-read-01",
+      "constants-build-fn-01",
+      "constants-template-01",
+      "constants-save-fn-01",
+      "constants-file-write-01",
+      "constants-reload-01"
+    ],
+    "x": 40,
+    "y": 1900,
+    "w": 2285,
+    "h": 111
+  },
+  {
+    "id": "lay-g-files",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Files page: logs and disk usage",
+    "style": {
+      "label": true,
+      "stroke": "#9b9b9b",
+      "fill": "#9b9b9b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "2a4cce0a3d3c4f11",
+      "4a1600bd801f4f55",
+      "5a1f7d0be2c64f44",
+      "63b9b2d57b174422",
+      "7bca218a93c14789",
+      "9d2a7ed0c1bd4f21",
+      "af24074a74864f57",
+      "df94619fdb8449e7",
+      "842ce8fddd3f49b2"
+    ],
+    "x": 40,
+    "y": 2057,
+    "w": 1365,
+    "h": 376
+  },
+  {
+    "id": "lay-g-backup",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Backup page: backup / restore, download, upload, data archive mail",
+    "style": {
+      "label": true,
+      "stroke": "#5cb85c",
+      "fill": "#5cb85c",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "backup-http-download-01",
+      "backup-catch-01",
+      "backup-http-upload-01",
+      "backup-fn-download-01",
+      "backup-fn-upload-01",
+      "backup-mail-tick-01",
+      "backup-mail-now-01",
+      "backup-http-response-01",
+      "backup-fn-manage-01",
+      "backup-file-write-01",
+      "backup-template-01",
+      "backup-exec-01"
+    ],
+    "x": 40,
+    "y": 2479,
+    "w": 1307,
+    "h": 265
+  },
+  {
+    "id": "lay-g-device",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Device and Driver pages, BMS watchdog",
+    "style": {
+      "label": true,
+      "stroke": "#9b9b9b",
+      "fill": "#9b9b9b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "device-template-01",
+      "driver-template-01",
+      "device-fn-status-01",
+      "bmswd-inject-01",
+      "driver-fn-01",
+      "device-exec-01",
+      "bmswd-fn-01",
+      "driver-exec-01",
+      "bmswd-exec-01"
+    ],
+    "x": 40,
+    "y": 2790,
+    "w": 985,
+    "h": 242
+  },
+  {
+    "id": "lay-g-mcp",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Agent (MCP): /mcp endpoint and page",
+    "style": {
+      "label": true,
+      "stroke": "#8e7cc3",
+      "fill": "#8e7cc3",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "mcp-start-inject-01",
+      "mcp-http-post-01",
+      "mcp-http-get-01",
+      "mcp-page-fn-01",
+      "mcp-server-fn-01",
+      "mcp-template-01",
+      "mcp-token-exec-01",
+      "mcp-http-response-01"
+    ],
+    "x": 40,
+    "y": 3078,
+    "w": 715,
+    "h": 207
+  },
+  {
+    "id": "lay-g-hp",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump: Tuya devices (local) → state → Heat Pump page, commands",
+    "style": {
+      "label": true,
+      "stroke": "#e8743b",
+      "fill": "#e8743b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "hp-comment-01",
+      "hp-poll-inject-01",
+      "hp-tuya-pump-01",
+      "hp-tuya-valve-01",
+      "hp-tuya-meter-01",
+      "hp-topic-hp-01",
+      "hp-topic-valve-01",
+      "hp-topic-meter-01",
+      "hp-state-fn-01",
+      "hp-page-template-01",
+      "hp-cmd-fn-01",
+      "hp-tuya-bypass-01",
+      "hp-topic-bypass-01"
+    ],
+    "x": 2485,
+    "y": 40,
+    "w": 2072,
+    "h": 258
+  },
+  {
+    "id": "lay-g-hplog",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump recorder and history by day",
+    "style": {
+      "label": true,
+      "stroke": "#f0a35e",
+      "fill": "#f0a35e",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "hp-log-inject-01",
+      "hp-hist-exec-01",
+      "hp-log-fn-01",
+      "hp-hist-fn-01",
+      "hp-log-file-01",
+      "hp-log-gzip-01",
+      "hp-hist-template-01"
+    ],
+    "x": 2485,
+    "y": 344,
+    "w": 876,
+    "h": 207
+  },
+  {
+    "id": "lay-g-sensors",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Battery sensors: accumulator tank + exchange plate (local, cloud fallback)",
+    "style": {
+      "label": true,
+      "stroke": "#f0a35e",
+      "fill": "#f0a35e",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "hpc-comment-01",
+      "hpls-comment-01",
+      "hpc-inject-01",
+      "hpls-inject-01",
+      "hpc-fn-01",
+      "hpls-fn-01",
+      "hpc-exec-01",
+      "hpls-exec-01"
+    ],
+    "x": 2485,
+    "y": 597,
+    "w": 948,
+    "h": 270
+  },
+  {
+    "id": "lay-g-auto",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Heat pump automations (DHW controller, defrost, Er03) and Automation log",
+    "style": {
+      "label": true,
+      "stroke": "#e8743b",
+      "fill": "#e8743b",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "hpa-comment-01",
+      "hpa-tick-01",
+      "hpa-load-inject-01",
+      "hpa-fn-01",
+      "hpa-load-file-01",
+      "hpl-fn-01",
+      "hpa-page-01",
+      "hpa-save-file-01",
+      "hpa-logfile-01",
+      "hpl-exec-01",
+      "hpl-page-01"
+    ],
+    "x": 2485,
+    "y": 913,
+    "w": 1220,
+    "h": 334
+  },
+  {
+    "id": "lay-g-cres",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Compressor resource",
+    "style": {
+      "label": true,
+      "stroke": "#f0a35e",
+      "fill": "#f0a35e",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "cres-comment-01",
+      "cres-inject-01",
+      "cres-fn-01",
+      "cres-file-w-01",
+      "cres-file-r-01"
+    ],
+    "x": 2485,
+    "y": 1293,
+    "w": 948,
+    "h": 180
+  },
+  {
+    "id": "lay-g-alerts",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "E-mail alerts on errors",
+    "style": {
+      "label": true,
+      "stroke": "#d9534f",
+      "fill": "#d9534f",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "hpal-comment-01",
+      "hpal-tick-01",
+      "hpal-test-01",
+      "hpal-fn-01",
+      "hpal-file-01",
+      "hpal-exec-01"
+    ],
+    "x": 2485,
+    "y": 1519,
+    "w": 964,
+    "h": 180
+  },
+  {
+    "id": "lay-g-payback",
+    "type": "group",
+    "z": "995ac4ed6222a706",
+    "name": "Payback page",
+    "style": {
+      "label": true,
+      "stroke": "#5cb85c",
+      "fill": "#5cb85c",
+      "fill-opacity": "0.08",
+      "color": "#3f3f3f"
+    },
+    "nodes": [
+      "pb-comment-01",
+      "pb-tick-01",
+      "pb-fn-01",
+      "pb-exec-01",
+      "pb-page-01",
+      "pb-file-01"
+    ],
+    "x": 2485,
+    "y": 1745,
+    "w": 948,
+    "h": 253
   },
   {
     "id": "93f485839dfa27a8",
@@ -1684,13 +2199,14 @@
     "topic": "",
     "payload": "2000",
     "payloadType": "num",
-    "x": 180,
-    "y": 20,
+    "x": 872,
+    "y": 89,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "7ec26167c492e338",
@@ -1709,13 +2225,14 @@
     "topic": "",
     "payload": "2850",
     "payloadType": "num",
-    "x": 180,
-    "y": 100,
+    "x": 872,
+    "y": 185,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "8db34d06b6591d5e",
@@ -1734,13 +2251,14 @@
     "topic": "",
     "payload": "9.5",
     "payloadType": "num",
-    "x": 170,
-    "y": 60,
+    "x": 872,
+    "y": 425,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "3e6dccae307e4561",
@@ -1759,13 +2277,14 @@
     "topic": "",
     "payload": "13.5",
     "payloadType": "num",
-    "x": 180,
-    "y": 140,
+    "x": 872,
+    "y": 473,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "66951950bfa6d862",
@@ -1786,9 +2305,10 @@
     "initial": 9.5,
     "name": "",
     "onlyChanges": false,
-    "x": 830,
-    "y": 120,
-    "wires": []
+    "x": 1565,
+    "y": 89,
+    "wires": [],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "b85e512d33d6a7cc",
@@ -1809,9 +2329,10 @@
     "initial": 1950,
     "name": "",
     "onlyChanges": false,
-    "x": 780,
-    "y": 60,
-    "wires": []
+    "x": 1937,
+    "y": 89,
+    "wires": [],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "70b033ccd4654b3e",
@@ -1830,13 +2351,14 @@
     "drop": true,
     "allowrate": false,
     "outputs": 1,
-    "x": 480,
-    "y": 60,
+    "x": 1565,
+    "y": 137,
     "wires": [
       [
         "b85e512d33d6a7cc"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "902ee92400d4d4af",
@@ -1857,9 +2379,10 @@
     "initial": 0,
     "name": "DVCC Charge current Limit (A)",
     "onlyChanges": false,
-    "x": 770,
-    "y": 200,
-    "wires": []
+    "x": 1937,
+    "y": 137,
+    "wires": [],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "07c74490cafdc55a",
@@ -1879,13 +2402,14 @@
     "name": "",
     "onlyChanges": false,
     "roundValues": "1",
-    "x": 180,
-    "y": 520,
+    "x": 215,
+    "y": 137,
     "wires": [
       [
         "87b4ad2bc3ec6903"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "1d4e50f4d614e8a5",
@@ -1906,13 +2430,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 630,
-    "y": 520,
+    "x": 872,
+    "y": 137,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "0ee582b64b26e2e7",
@@ -1932,13 +2457,14 @@
     "name": "Battery SmartShunt consumed Ah",
     "onlyChanges": false,
     "roundValues": "1",
-    "x": 160,
-    "y": 640,
+    "x": 215,
+    "y": 185,
     "wires": [
       [
         "fd95dc1c428330fb"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "fd95dc1c428330fb",
@@ -1957,13 +2483,14 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 410,
-    "y": 620,
+    "x": 536,
+    "y": 185,
     "wires": [
       [
         "b2064b2168543e59"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "b2064b2168543e59",
@@ -1984,13 +2511,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 650,
-    "y": 620,
+    "x": 872,
+    "y": 233,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "e84b0d054ca0f956",
@@ -2009,13 +2537,14 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 380,
-    "y": 440,
+    "x": 536,
+    "y": 233,
     "wires": [
       [
         "efb076ae80adc1c5"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "efb076ae80adc1c5",
@@ -2036,13 +2565,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 790,
-    "y": 440,
+    "x": 872,
+    "y": 281,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "e4766632305fb432",
@@ -2056,8 +2586,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 860,
-    "y": 520,
+    "x": 1226,
+    "y": 132,
     "wires": [
       [
         "c1803b5fed00bfc2"
@@ -2083,7 +2613,8 @@
       [
         "7a3e91c45d2b8f06"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "5545bd538ffe3183",
@@ -2098,9 +2629,10 @@
     "targetType": "full",
     "statusVal": "",
     "statusType": "auto",
-    "x": 1350,
-    "y": 820,
-    "wires": []
+    "x": 1565,
+    "y": 233,
+    "wires": [],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "1b39f33beca11607",
@@ -2123,13 +2655,14 @@
     "topic": "manual-discharge",
     "payload": "{\"active\":true,\"source\":\"inject-start\"}",
     "payloadType": "json",
-    "x": 1480,
-    "y": 40,
+    "x": 872,
+    "y": 521,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "75f48e33343da04e",
@@ -2152,13 +2685,14 @@
     "topic": "manual-discharge",
     "payload": "{\"active\":false,\"source\":\"inject-stop\"}",
     "payloadType": "json",
-    "x": 1490,
-    "y": 100,
+    "x": 872,
+    "y": 569,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "ea80f613a4a9424a",
@@ -2177,13 +2711,14 @@
     "topic": "",
     "payload": "Manual test notification from Day / Night Grid Control",
     "payloadType": "str",
-    "x": 760,
-    "y": 380,
+    "x": 190,
+    "y": 1025,
     "wires": [
       [
         "58e14304c415b27e"
       ]
-    ]
+    ],
+    "g": "lay-g-notify"
   },
   {
     "id": "58e14304c415b27e",
@@ -2197,13 +2732,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1120,
-    "y": 320,
+    "x": 522,
+    "y": 1025,
     "wires": [
       [
         "1a26cadbd6ae5765"
       ]
-    ]
+    ],
+    "g": "lay-g-notify"
   },
   {
     "id": "1a26cadbd6ae5765",
@@ -2218,9 +2754,10 @@
     "initial": "",
     "name": "GX notification output",
     "onlyChanges": false,
-    "x": 1360,
-    "y": 320,
-    "wires": []
+    "x": 836,
+    "y": 1025,
+    "wires": [],
+    "g": "lay-g-notify"
   },
   {
     "id": "87b4ad2bc3ec6903",
@@ -2239,13 +2776,14 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 440,
-    "y": 520,
+    "x": 536,
+    "y": 137,
     "wires": [
       [
         "1d4e50f4d614e8a5"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "751d13b6d943e5e5",
@@ -2265,13 +2803,14 @@
     "name": "GRID CT import power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 120,
-    "y": 400,
+    "x": 215,
+    "y": 233,
     "wires": [
       [
         "e84b0d054ca0f956"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "704426f76aa6aa4c",
@@ -2279,13 +2818,14 @@
     "z": "995ac4ed6222a706",
     "name": "Grid import power override (W)",
     "links": [],
-    "x": 265,
-    "y": 400,
+    "x": 215,
+    "y": 281,
     "wires": [
       [
         "e84b0d054ca0f956"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "c1803b5fed00bfc2",
@@ -2304,13 +2844,14 @@
     "drop": true,
     "allowrate": false,
     "outputs": 1,
-    "x": 1380,
-    "y": 460,
+    "x": 1565,
+    "y": 185,
     "wires": [
       [
         "902ee92400d4d4af"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "0f01a2551ae68d2e",
@@ -2333,13 +2874,14 @@
     "topic": "solar-forecast-refresh",
     "payload": "",
     "payloadType": "date",
-    "x": 160,
-    "y": 900,
+    "x": 186,
+    "y": 1278,
     "wires": [
       [
         "e6a5ce1f50c59362"
       ]
-    ]
+    ],
+    "g": "lay-g-solar"
   },
   {
     "id": "e6a5ce1f50c59362",
@@ -2408,14 +2950,15 @@
         "type": "bool"
       }
     ],
-    "x": 400,
-    "y": 900,
+    "x": 489,
+    "y": 1283,
     "wires": [
       [
         "0af0cfe3fe0b6ad9"
       ],
       []
-    ]
+    ],
+    "g": "lay-g-solar"
   },
   {
     "id": "0af0cfe3fe0b6ad9",
@@ -2429,13 +2972,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 660,
-    "y": 900,
+    "x": 810,
+    "y": 1278,
     "wires": [
       [
         "04915dfb9f203f67"
       ]
-    ]
+    ],
+    "g": "lay-g-solar"
   },
   {
     "id": "04915dfb9f203f67",
@@ -2449,14 +2993,15 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 920,
-    "y": 900,
+    "x": 1128,
+    "y": 1278,
     "wires": [
       [
         "e4766632305fb432",
         "e55aa7c921171c88"
       ]
-    ]
+    ],
+    "g": "lay-g-solar"
   },
   {
     "id": "11e303e775ec959c",
@@ -2476,13 +3021,14 @@
     "name": "AC Loads power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 100,
-    "y": 460,
+    "x": 215,
+    "y": 329,
     "wires": [
       [
         "ec0378c28791feff"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "ec0378c28791feff",
@@ -2501,13 +3047,14 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 440,
-    "y": 580,
+    "x": 536,
+    "y": 281,
     "wires": [
       [
         "4ae3639bc75d0d14"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "4ae3639bc75d0d14",
@@ -2528,13 +3075,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 610,
-    "y": 580,
+    "x": 872,
+    "y": 329,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "c125191024e87a94",
@@ -2548,13 +3096,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1430,
-    "y": 400,
+    "x": 190,
+    "y": 1073,
     "wires": [
       [
         "76b6ca504877aa54"
       ]
-    ]
+    ],
+    "g": "lay-g-notify"
   },
   {
     "id": "76b6ca504877aa54",
@@ -2567,11 +3116,12 @@
     "createDir": true,
     "overwriteFile": "false",
     "encoding": "utf8",
-    "x": 1690,
-    "y": 400,
+    "x": 522,
+    "y": 1073,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-notify"
   },
   {
     "id": "c2f366898ad94d9e",
@@ -2590,14 +3140,15 @@
     "topic": "",
     "payload": "",
     "payloadType": "date",
-    "x": 160,
-    "y": 1000,
+    "x": 190,
+    "y": 1121,
     "wires": [
       [
         "0af20cf90708f90d"
       ]
     ],
-    "d": true
+    "d": true,
+    "g": "lay-g-notify"
   },
   {
     "id": "0af20cf90708f90d",
@@ -2610,14 +3161,15 @@
     "timer": "10",
     "oldrc": false,
     "name": "Delete logs older than 45 days",
-    "x": 460,
-    "y": 1000,
+    "x": 522,
+    "y": 1134,
     "wires": [
       [],
       [],
       []
     ],
-    "d": true
+    "d": true,
+    "g": "lay-g-notify"
   },
   {
     "id": "4fb37264764eecaa",
@@ -2636,13 +3188,14 @@
     "topic": "",
     "payload": "",
     "payloadType": "date",
-    "x": 180,
-    "y": 1120,
+    "x": 190,
+    "y": 1792,
     "wires": [
       [
         "f5ddbb5af3f2529d"
       ]
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "f5ddbb5af3f2529d",
@@ -2655,15 +3208,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read HV settings file",
-    "x": 470,
-    "y": 1120,
+    "x": 489,
+    "y": 1805,
     "wires": [
       [
         "1ad973cf841f48cb"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "1ad973cf841f48cb",
@@ -2677,8 +3231,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 760,
-    "y": 1120,
+    "x": 751,
+    "y": 1797,
     "wires": [
       [
         "e4766632305fb432",
@@ -2687,7 +3241,8 @@
       [
         "ebf4f39d0f4ebd3a"
       ]
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "ebf4f39d0f4ebd3a",
@@ -2700,11 +3255,12 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 1060,
-    "y": 1160,
+    "x": 1995,
+    "y": 1792,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "69795160ade5462a",
@@ -2718,13 +3274,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 130,
-    "y": 760,
+    "x": 183,
+    "y": 701,
     "wires": [
       [
         "4c8d2e6b19f7a530"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "3e942ddd06fba83c",
@@ -2738,15 +3295,16 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1020,
-    "y": 680,
+    "x": 183,
+    "y": 802,
     "wires": [
       [],
       [
         "6b9848413d671fe5",
         "e55aa7c921171c88"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "6b9848413d671fe5",
@@ -2760,8 +3318,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1390,
-    "y": 760,
+    "x": 508,
+    "y": 777,
     "wires": [
       [
         "ccf75f3c42b18fad"
@@ -2778,7 +3336,8 @@
       [
         "384275af4f557f0a"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "137dd306ca7275e6",
@@ -2792,14 +3351,15 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 520,
-    "y": 820,
+    "x": 508,
+    "y": 701,
     "wires": [
       [
         "c45dc5b7ad338001",
         "e55aa7c921171c88"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "c45dc5b7ad338001",
@@ -2813,8 +3373,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 830,
-    "y": 820,
+    "x": 1179,
+    "y": 706,
     "wires": [
       [
         "66c0ba36be6d13e1"
@@ -2822,7 +3382,8 @@
       [
         "6b9848413d671fe5"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "66c0ba36be6d13e1",
@@ -2835,8 +3396,8 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read selected summary file",
-    "x": 1110,
-    "y": 820,
+    "x": 1500,
+    "y": 714,
     "wires": [
       [
         "6b9848413d671fe5"
@@ -2845,7 +3406,8 @@
         "6b9848413d671fe5"
       ],
       []
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "d649c2e4d8ca5f12",
@@ -2859,13 +3421,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 540,
-    "y": 1220,
+    "x": 1025,
+    "y": 1792,
     "wires": [
       [
         "5b862b2be571625a"
       ]
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "b14e612dcff7f196",
@@ -2879,8 +3442,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1070,
-    "y": 1220,
+    "x": 1677,
+    "y": 1805,
     "wires": [
       [
         "ebf4f39d0f4ebd3a"
@@ -2891,7 +3454,8 @@
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "e55aa7c921171c88",
@@ -2905,8 +3469,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 860,
-    "y": 1080,
+    "x": 183,
+    "y": 1455,
     "wires": [
       [
         "e1128ba95b8412c8"
@@ -2926,7 +3490,8 @@
       [
         "b8eeb060d5bc345a"
       ]
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "e290ee7bdb1e8b5f",
@@ -2934,8 +3499,8 @@
     "z": "995ac4ed6222a706",
     "name": "Dashboard connect events",
     "events": "connect",
-    "x": 210,
-    "y": 820,
+    "x": 183,
+    "y": 749,
     "wires": [
       [
         "137dd306ca7275e6",
@@ -2943,7 +3508,8 @@
         "2a4cce0a3d3c4f11",
         "backup-fn-manage-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "ccf75f3c42b18fad",
@@ -2983,11 +3549,12 @@
     "outputs": 1,
     "useDifferentColor": false,
     "className": "",
-    "x": 1930,
-    "y": 720,
+    "x": 847,
+    "y": 701,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "e5c92ba1e1522207",
@@ -3002,9 +3569,10 @@
     "format": "{{msg.payload}}",
     "layout": "row-left",
     "className": "",
-    "x": 1670,
-    "y": 940,
-    "wires": []
+    "x": 847,
+    "y": 797,
+    "wires": [],
+    "g": "lay-g-hourly"
   },
   {
     "id": "182424972ce7160c",
@@ -3019,9 +3587,10 @@
     "format": "{{msg.payload}}",
     "layout": "row-left",
     "className": "",
-    "x": 1660,
-    "y": 980,
-    "wires": []
+    "x": 847,
+    "y": 845,
+    "wires": [],
+    "g": "lay-g-hourly"
   },
   {
     "id": "fa6dc3252e5e9c91",
@@ -3038,13 +3607,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1690,
-    "y": 1020,
+    "x": 847,
+    "y": 749,
     "wires": [
       [
         "c45dc5b7ad338001"
       ]
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "384275af4f557f0a",
@@ -3061,11 +3631,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1700,
-    "y": 1080,
+    "x": 847,
+    "y": 893,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-hourly"
   },
   {
     "id": "2a4cce0a3d3c4f11",
@@ -3079,13 +3650,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 530,
-    "y": 1160,
+    "x": 219,
+    "y": 2106,
     "wires": [
       [
         "4a1600bd801f4f55"
       ]
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "4a1600bd801f4f55",
@@ -3098,15 +3670,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read root files UI state file",
-    "x": 830,
-    "y": 1160,
+    "x": 577,
+    "y": 2119,
     "wires": [
       [
         "5a1f7d0be2c64f44"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "5a1f7d0be2c64f44",
@@ -3120,8 +3693,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 830,
-    "y": 1160,
+    "x": 906,
+    "y": 2141,
     "wires": [
       [
         "9d2a7ed0c1bd4f21"
@@ -3141,7 +3714,8 @@
       [
         "842ce8fddd3f49b2"
       ]
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "63b9b2d57b174422",
@@ -3154,15 +3728,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "List Node-RED files recursively",
-    "x": 1130,
-    "y": 1200,
+    "x": 1241,
+    "y": 2119,
     "wires": [
       [
         "5a1f7d0be2c64f44"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "7bca218a93c14789",
@@ -3175,15 +3750,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read selected root file",
-    "x": 1120,
-    "y": 1240,
+    "x": 1241,
+    "y": 2192,
     "wires": [
       [
         "5a1f7d0be2c64f44"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "9d2a7ed0c1bd4f21",
@@ -3198,9 +3774,10 @@
     "format": "{{msg.payload}}",
     "layout": "row-left",
     "className": "",
-    "x": 1130,
-    "y": 1120,
-    "wires": []
+    "x": 1241,
+    "y": 2252,
+    "wires": [],
+    "g": "lay-g-files"
   },
   {
     "id": "af24074a74864f57",
@@ -3217,13 +3794,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1140,
-    "y": 1160,
+    "x": 1241,
+    "y": 2300,
     "wires": [
       [
         "5a1f7d0be2c64f44"
       ]
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "df94619fdb8449e7",
@@ -3240,11 +3818,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1150,
-    "y": 1200,
+    "x": 1241,
+    "y": 2348,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "842ce8fddd3f49b2",
@@ -3257,11 +3836,12 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 1160,
-    "y": 1280,
+    "x": 1241,
+    "y": 2396,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-files"
   },
   {
     "id": "e1128ba95b8412c8",
@@ -3278,11 +3858,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1240,
-    "y": 1060,
+    "x": 508,
+    "y": 1420,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "1a1e8c9aa390c34f",
@@ -3322,11 +3903,12 @@
     "outputs": 1,
     "useDifferentColor": false,
     "className": "",
-    "x": 1270,
-    "y": 1100,
+    "x": 508,
+    "y": 1468,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "23df4673183eb88f",
@@ -3366,11 +3948,12 @@
     "outputs": 1,
     "useDifferentColor": false,
     "className": "",
-    "x": 1280,
-    "y": 1140,
+    "x": 508,
+    "y": 1516,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "b4515d8f57614e49",
@@ -3387,11 +3970,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1260,
-    "y": 1180,
+    "x": 508,
+    "y": 1564,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "5b862b2be571625a",
@@ -3408,13 +3992,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 810,
-    "y": 1320,
+    "x": 1338,
+    "y": 1792,
     "wires": [
       [
         "b14e612dcff7f196"
       ]
-    ]
+    ],
+    "g": "lay-g-hv"
   },
   {
     "id": "c81df251c9407d61",
@@ -3431,11 +4016,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1260,
-    "y": 1220,
+    "x": 508,
+    "y": 1612,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "b8eeb060d5bc345a",
@@ -3452,11 +4038,12 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1260,
-    "y": 1260,
+    "x": 508,
+    "y": 1660,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-analytics"
   },
   {
     "id": "233d4e08d8a8fe38",
@@ -3475,13 +4062,14 @@
     "drop": true,
     "allowrate": false,
     "outputs": 1,
-    "x": 1240,
-    "y": 400,
+    "x": 1565,
+    "y": 281,
     "wires": [
       [
         "c125191024e87a94"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "f46ecea6668505f3",
@@ -3501,11 +4089,12 @@
     "name": "",
     "onlyChanges": false,
     "roundValues": "2",
-    "x": 180,
-    "y": 580,
+    "x": 215,
+    "y": 425,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "dc7f2a1c3e8b09c4",
@@ -3525,13 +4114,14 @@
     "name": "DC System Power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 120,
-    "y": 340,
+    "x": 215,
+    "y": 377,
     "wires": [
       [
         "dc3b8e51a09c72d4"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "dc3b8e51a09c72d4",
@@ -3550,13 +4140,14 @@
     "drop": false,
     "allowrate": false,
     "outputs": 1,
-    "x": 440,
-    "y": 340,
+    "x": 536,
+    "y": 329,
     "wires": [
       [
         "dc9d4c2e7a1b83f6"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "dc9d4c2e7a1b83f6",
@@ -3577,13 +4168,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 790,
-    "y": 340,
+    "x": 872,
+    "y": 377,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "pv-charger-input-01",
@@ -3603,13 +4195,14 @@
     "name": "PV Charger Power",
     "onlyChanges": false,
     "roundValues": "0",
-    "x": 110,
-    "y": 280,
+    "x": 215,
+    "y": 89,
     "wires": [
       [
         "pv-charger-tag-01"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "pv-charger-tag-01",
@@ -3630,13 +4223,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 790,
-    "y": 380,
+    "x": 536,
+    "y": 89,
     "wires": [
       [
         "e4766632305fb432"
       ]
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "ui-tab-constants-01",
@@ -3673,13 +4267,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 900,
-    "y": 1400,
+    "x": 1198,
+    "y": 1949,
     "wires": [
       [
         "constants-save-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-inject-startup-01",
@@ -3698,13 +4293,14 @@
     "topic": "",
     "payload": "",
     "payloadType": "str",
-    "x": 200,
-    "y": 1400,
+    "x": 183,
+    "y": 1949,
     "wires": [
       [
         "constants-exec-read-01"
       ]
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-exec-read-01",
@@ -3717,15 +4313,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read controller constants file",
-    "x": 470,
-    "y": 1400,
+    "x": 508,
+    "y": 1962,
     "wires": [
       [
         "constants-build-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-build-fn-01",
@@ -3739,13 +4336,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 720,
-    "y": 1400,
+    "x": 858,
+    "y": 1949,
     "wires": [
       [
         "constants-template-01"
       ]
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-save-fn-01",
@@ -3759,8 +4357,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1150,
-    "y": 1400,
+    "x": 1512,
+    "y": 1954,
     "wires": [
       [
         "constants-file-write-01"
@@ -3768,7 +4366,8 @@
       [
         "constants-template-01"
       ]
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-file-write-01",
@@ -3781,13 +4380,14 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 1380,
-    "y": 1400,
+    "x": 1840,
+    "y": 1949,
     "wires": [
       [
         "constants-reload-01"
       ]
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "constants-reload-01",
@@ -3800,15 +4400,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Reload constants after save",
-    "x": 1200,
-    "y": 1460,
+    "x": 2176,
+    "y": 1962,
     "wires": [
       [
         "constants-build-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-const"
   },
   {
     "id": "4c8d2e6b19f7a530",
@@ -3821,13 +4422,14 @@
     "timer": "10",
     "oldrc": false,
     "name": "Append energy CSV",
-    "x": 400,
-    "y": 740,
+    "x": 215,
+    "y": 486,
     "wires": [
       [],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "7a3e91c45d2b8f06",
@@ -3840,15 +4442,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "Read month energy history",
-    "x": 1180,
-    "y": 600,
+    "x": 1565,
+    "y": 342,
     "wires": [
       [
         "e4766632305fb432"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-ctrl"
   },
   {
     "id": "ui-tab-backup-01",
@@ -3885,13 +4488,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 160,
-    "y": 1560,
+    "x": 1234,
+    "y": 2528,
     "wires": [
       [
         "backup-fn-manage-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-fn-manage-01",
@@ -3905,8 +4509,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 420,
-    "y": 1560,
+    "x": 964,
+    "y": 2581,
     "wires": [
       [
         "backup-template-01"
@@ -3914,7 +4518,8 @@
       [
         "backup-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-exec-01",
@@ -3927,15 +4532,16 @@
     "timer": "600",
     "oldrc": false,
     "name": "Run backup script",
-    "x": 680,
-    "y": 1560,
+    "x": 1234,
+    "y": 2589,
     "wires": [
       [
         "backup-fn-manage-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-http-download-01",
@@ -3946,13 +4552,14 @@
     "method": "get",
     "upload": false,
     "swaggerDoc": "",
-    "x": 170,
-    "y": 1640,
+    "x": 183,
+    "y": 2528,
     "wires": [
       [
         "backup-fn-download-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-fn-download-01",
@@ -3971,14 +4578,15 @@
         "module": "fs"
       }
     ],
-    "x": 430,
-    "y": 1640,
+    "x": 577,
+    "y": 2533,
     "wires": [
       [],
       [
         "backup-http-response-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-http-response-01",
@@ -3987,9 +4595,10 @@
     "name": "Backup HTTP response",
     "statusCode": "",
     "headers": {},
-    "x": 920,
-    "y": 1680,
-    "wires": []
+    "x": 964,
+    "y": 2528,
+    "wires": [],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-http-upload-01",
@@ -4000,13 +4609,14 @@
     "method": "post",
     "upload": true,
     "swaggerDoc": "",
-    "x": 170,
-    "y": 1720,
+    "x": 183,
+    "y": 2624,
     "wires": [
       [
         "backup-fn-upload-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-fn-upload-01",
@@ -4020,8 +4630,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 430,
-    "y": 1720,
+    "x": 577,
+    "y": 2599,
     "wires": [
       [
         "backup-file-write-01"
@@ -4032,7 +4642,8 @@
       [
         "backup-fn-manage-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-file-write-01",
@@ -4045,13 +4656,14 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "none",
-    "x": 680,
-    "y": 1720,
+    "x": 964,
+    "y": 2634,
     "wires": [
       [
         "backup-fn-upload-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-catch-01",
@@ -4063,13 +4675,14 @@
       "backup-file-write-01"
     ],
     "uncaught": false,
-    "x": 180,
-    "y": 1780,
+    "x": 183,
+    "y": 2576,
     "wires": [
       [
         "backup-fn-download-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "ui-tab-device-01",
@@ -4106,13 +4719,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 160,
-    "y": 1860,
+    "x": 139,
+    "y": 2839,
     "wires": [
       [
         "device-fn-status-01"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "device-fn-status-01",
@@ -4126,8 +4740,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 410,
-    "y": 1860,
+    "x": 394,
+    "y": 2844,
     "wires": [
       [
         "device-template-01"
@@ -4135,7 +4749,8 @@
       [
         "device-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "device-exec-01",
@@ -4148,15 +4763,16 @@
     "timer": "30",
     "oldrc": false,
     "name": "Read device status",
-    "x": 650,
-    "y": 1860,
+    "x": 668,
+    "y": 2852,
     "wires": [
       [
         "device-fn-status-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "bmswd-inject-01",
@@ -4174,13 +4790,14 @@
     "once": true,
     "onceDelay": "20",
     "topic": "bms-watchdog-tick",
-    "x": 190,
-    "y": 1940,
+    "x": 394,
+    "y": 2897,
     "wires": [
       [
         "bmswd-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "bmswd-fn-01",
@@ -4194,8 +4811,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 420,
-    "y": 1940,
+    "x": 668,
+    "y": 2917,
     "wires": [
       [
         "bmswd-exec-01"
@@ -4203,7 +4820,8 @@
       [
         "58e14304c415b27e"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "bmswd-exec-01",
@@ -4216,15 +4834,16 @@
     "timer": "20",
     "oldrc": false,
     "name": "Run BMS watchdog",
-    "x": 650,
-    "y": 1940,
+    "x": 916,
+    "y": 2852,
     "wires": [
       [
         "bmswd-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "ui-tab-driver-01",
@@ -4261,13 +4880,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 160,
-    "y": 2020,
+    "x": 139,
+    "y": 2887,
     "wires": [
       [
         "driver-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "driver-fn-01",
@@ -4281,8 +4901,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 420,
-    "y": 2020,
+    "x": 394,
+    "y": 2958,
     "wires": [
       [
         "driver-template-01"
@@ -4293,7 +4913,8 @@
       [
         "bmswd-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "driver-exec-01",
@@ -4306,15 +4927,16 @@
     "timer": "40",
     "oldrc": false,
     "name": "Run driver checks",
-    "x": 680,
-    "y": 2020,
+    "x": 668,
+    "y": 2983,
     "wires": [
       [
         "driver-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-device"
   },
   {
     "id": "ui-tab-mcp-01",
@@ -4351,13 +4973,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 150,
-    "y": 2100,
+    "x": 642,
+    "y": 3127,
     "wires": [
       [
         "mcp-page-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-start-inject-01",
@@ -4375,13 +4998,14 @@
     "once": true,
     "onceDelay": "5",
     "topic": "mcp-start",
-    "x": 180,
-    "y": 2140,
+    "x": 175,
+    "y": 3127,
     "wires": [
       [
         "mcp-page-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-page-fn-01",
@@ -4395,8 +5019,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 410,
-    "y": 2120,
+    "x": 420,
+    "y": 3132,
     "wires": [
       [
         "mcp-template-01"
@@ -4404,7 +5028,8 @@
       [
         "mcp-token-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-token-exec-01",
@@ -4417,15 +5042,16 @@
     "timer": "10",
     "oldrc": false,
     "name": "MCP token",
-    "x": 620,
-    "y": 2120,
+    "x": 642,
+    "y": 3188,
     "wires": [
       [
         "mcp-page-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-http-post-01",
@@ -4436,13 +5062,14 @@
     "method": "post",
     "upload": false,
     "swaggerDoc": "",
-    "x": 140,
-    "y": 2200,
+    "x": 175,
+    "y": 3175,
     "wires": [
       [
         "mcp-server-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-http-get-01",
@@ -4453,13 +5080,14 @@
     "method": "get",
     "upload": false,
     "swaggerDoc": "",
-    "x": 140,
-    "y": 2240,
+    "x": 175,
+    "y": 3223,
     "wires": [
       [
         "mcp-server-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-server-fn-01",
@@ -4473,8 +5101,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 390,
-    "y": 2220,
+    "x": 420,
+    "y": 3198,
     "wires": [
       [
         "mcp-http-response-01"
@@ -4485,7 +5113,8 @@
       [
         "driver-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-mcp"
   },
   {
     "id": "mcp-http-response-01",
@@ -4494,9 +5123,10 @@
     "name": "MCP HTTP response",
     "statusCode": "",
     "headers": {},
-    "x": 640,
-    "y": 2200,
-    "wires": []
+    "x": 642,
+    "y": 3248,
+    "wires": [],
+    "g": "lay-g-mcp"
   },
   {
     "id": "ui-tab-heatpump-01",
@@ -4524,9 +5154,10 @@
     "z": "995ac4ed6222a706",
     "name": "Heat pump (Tuya local). Enter Device ID + Local Key in each Tuya node (stored as credentials, never exported). Writes only via \"Heat pump command\".",
     "info": "Requires palette node node-red-contrib-tuya-smart-device. See docs/heat-pump.md.",
-    "x": 440,
-    "y": 2300,
-    "wires": []
+    "x": 2959,
+    "y": 89,
+    "wires": [],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-poll-inject-01",
@@ -4545,8 +5176,8 @@
     "topic": "",
     "payload": "{\"operation\":\"GET\",\"schema\":true}",
     "payloadType": "json",
-    "x": 180,
-    "y": 2380,
+    "x": 2649,
+    "y": 135,
     "wires": [
       [
         "hp-tuya-pump-01",
@@ -4554,7 +5185,8 @@
         "hp-tuya-bypass-01",
         "hp-tuya-meter-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-tuya-pump-01",
@@ -4571,8 +5203,8 @@
     "tuyaVersion": "3.3",
     "eventMode": "event-both",
     "logLevel": "log-level-error",
-    "x": 420,
-    "y": 2340,
+    "x": 2985,
+    "y": 140,
     "wires": [
       [
         "hp-topic-hp-01"
@@ -4580,7 +5212,8 @@
       [
         "hp-topic-hp-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-tuya-valve-01",
@@ -4597,8 +5230,8 @@
     "tuyaVersion": "3.5",
     "eventMode": "event-both",
     "logLevel": "log-level-error",
-    "x": 420,
-    "y": 2380,
+    "x": 2985,
+    "y": 198,
     "wires": [
       [
         "hp-topic-valve-01"
@@ -4606,7 +5239,8 @@
       [
         "hp-topic-valve-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-tuya-bypass-01",
@@ -4623,8 +5257,8 @@
     "tuyaVersion": "3.3",
     "eventMode": "event-both",
     "logLevel": "log-level-error",
-    "x": 420,
-    "y": 2420,
+    "x": 4207,
+    "y": 140,
     "wires": [
       [
         "hp-topic-bypass-01"
@@ -4632,7 +5266,8 @@
       [
         "hp-topic-bypass-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-topic-hp-01",
@@ -4653,13 +5288,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 660,
-    "y": 2340,
+    "x": 3255,
+    "y": 135,
     "wires": [
       [
         "hp-state-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-topic-valve-01",
@@ -4680,13 +5316,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 660,
-    "y": 2380,
+    "x": 3255,
+    "y": 183,
     "wires": [
       [
         "hp-state-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-topic-bypass-01",
@@ -4707,13 +5344,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 660,
-    "y": 2420,
+    "x": 4455,
+    "y": 135,
     "wires": [
       [
         "hp-state-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-state-fn-01",
@@ -4727,8 +5365,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 890,
-    "y": 2380,
+    "x": 3481,
+    "y": 148,
     "wires": [
       [
         "hp-page-template-01",
@@ -4736,7 +5374,8 @@
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-page-template-01",
@@ -4753,13 +5392,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1120,
-    "y": 2360,
+    "x": 3711,
+    "y": 135,
     "wires": [
       [
         "hp-cmd-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-log-inject-01",
@@ -4778,13 +5418,14 @@
     "topic": "",
     "payload": "",
     "payloadType": "date",
-    "x": 200,
-    "y": 2480,
+    "x": 2628,
+    "y": 393,
     "wires": [
       [
         "hp-log-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-log-fn-01",
@@ -4798,8 +5439,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 470,
-    "y": 2480,
+    "x": 2927,
+    "y": 398,
     "wires": [
       [
         "hp-log-file-01"
@@ -4807,7 +5448,8 @@
       [
         "hp-log-gzip-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-log-file-01",
@@ -4820,11 +5462,12 @@
     "createDir": true,
     "overwriteFile": "false",
     "encoding": "utf8",
-    "x": 740,
-    "y": 2480,
+    "x": 3223,
+    "y": 393,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-log-gzip-01",
@@ -4838,13 +5481,14 @@
     "winHide": false,
     "oldrc": false,
     "name": "Compress heat pump hours",
-    "x": 740,
-    "y": 2520,
+    "x": 3223,
+    "y": 454,
     "wires": [
       [],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-tuya-meter-01",
@@ -4861,8 +5505,8 @@
     "tuyaVersion": "3.3",
     "eventMode": "event-both",
     "logLevel": "log-level-error",
-    "x": 420,
-    "y": 2460,
+    "x": 2985,
+    "y": 256,
     "wires": [
       [
         "hp-topic-meter-01"
@@ -4870,7 +5514,8 @@
       [
         "hp-topic-meter-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-topic-meter-01",
@@ -4891,13 +5536,14 @@
     "from": "",
     "to": "",
     "reg": false,
-    "x": 660,
-    "y": 2460,
+    "x": 3255,
+    "y": 231,
     "wires": [
       [
         "hp-state-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-cmd-fn-01",
@@ -4911,8 +5557,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1380,
-    "y": 2560,
+    "x": 3948,
+    "y": 155,
     "wires": [
       [
         "hp-tuya-pump-01"
@@ -4926,7 +5572,8 @@
       [
         "hpa-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hp"
   },
   {
     "id": "hp-hist-exec-01",
@@ -4940,15 +5587,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Read heat pump history",
-    "x": 1640,
-    "y": 2600,
+    "x": 2628,
+    "y": 454,
     "wires": [
       [
         "hp-hist-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-hist-fn-01",
@@ -4962,13 +5610,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1880,
-    "y": 2600,
+    "x": 2927,
+    "y": 451,
     "wires": [
       [
         "hp-hist-template-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hp-hist-template-01",
@@ -4985,13 +5634,14 @@
     "resendOnRefresh": false,
     "templateScope": "local",
     "className": "",
-    "x": 1130,
-    "y": 2600,
+    "x": 3223,
+    "y": 514,
     "wires": [
       [
         "hp-cmd-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-hplog"
   },
   {
     "id": "hpa-ui-tab-01",
@@ -5019,9 +5669,10 @@
     "z": "995ac4ed6222a706",
     "name": "Heat pump automations (local replacements for all Smart Life heat pump scenes). Master switch + per-rule Off / Test / On on the Automations page; every event to a day file, shown on the Automation log page.",
     "info": "",
-    "x": 420,
-    "y": 2680,
-    "wires": []
+    "x": 2959,
+    "y": 962,
+    "wires": [],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-tick-01",
@@ -5044,13 +5695,14 @@
     "topic": "tick",
     "payload": "",
     "payloadType": "date",
-    "x": 200,
-    "y": 2720,
+    "x": 2620,
+    "y": 1008,
     "wires": [
       [
         "hpa-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-load-inject-01",
@@ -5073,13 +5725,14 @@
     "once": true,
     "onceDelay": "5",
     "topic": "load",
-    "x": 230,
-    "y": 2760,
+    "x": 2956,
+    "y": 1008,
     "wires": [
       [
         "hpa-load-file-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-load-file-01",
@@ -5093,13 +5746,14 @@
     "sendError": false,
     "encoding": "utf8",
     "allProps": false,
-    "x": 520,
-    "y": 2760,
+    "x": 3300,
+    "y": 1008,
     "wires": [
       [
         "hpa-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-fn-01",
@@ -5113,8 +5767,8 @@
     "initialize": "// On Start (d#131): reload the settings file if the context came back empty; a new node instance\n// has no timers, so drop running sequences and queued writes.\ncontext.set('needLoad', context.get('settings') === undefined);\nconst old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;\ncontext.set('seqs', {}); context.set('queue', []); context.set('pumping', false);\ncontext.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'\n    + (old.length ? '; running sequences dropped: ' + old.join(', ') : '') + (oldQ ? '; ' + oldQ + ' queued writes dropped' : '') });\n",
     "finalize": "",
     "libs": [],
-    "x": 780,
-    "y": 2720,
+    "x": 2956,
+    "y": 1099,
     "wires": [
       [
         "hpa-page-01"
@@ -5139,7 +5793,8 @@
       [
         "hpa-load-file-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-page-01",
@@ -5156,13 +5811,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1060,
-    "y": 2680,
+    "x": 3300,
+    "y": 1114,
     "wires": [
       [
         "hpa-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-save-file-01",
@@ -5175,11 +5831,12 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 1080,
-    "y": 2760,
+    "x": 3300,
+    "y": 1162,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpa-logfile-01",
@@ -5192,11 +5849,12 @@
     "createDir": true,
     "overwriteFile": "false",
     "encoding": "utf8",
-    "x": 1090,
-    "y": 2800,
+    "x": 3300,
+    "y": 1210,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpl-ui-tab-01",
@@ -5230,8 +5888,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 1090,
-    "y": 2860,
+    "x": 3300,
+    "y": 1061,
     "wires": [
       [
         "hpl-page-01"
@@ -5239,7 +5897,8 @@
       [
         "hpl-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpl-exec-01",
@@ -5253,15 +5912,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Read automation log",
-    "x": 1330,
-    "y": 2900,
+    "x": 3585,
+    "y": 1021,
     "wires": [
       [
         "hpl-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpl-page-01",
@@ -5278,13 +5938,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 1340,
-    "y": 2860,
+    "x": 3585,
+    "y": 1081,
     "wires": [
       [
         "hpl-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-auto"
   },
   {
     "id": "hpc-comment-01",
@@ -5292,9 +5953,10 @@
     "z": "995ac4ed6222a706",
     "name": "Battery sensors: Accumulator tank temp + Exchange plate — cloud read only as a FALLBACK (no local reading for 24 h); normally read locally by \"Heat pump local sensors\" (46)",
     "info": "",
-    "x": 470,
-    "y": 2840,
-    "wires": []
+    "x": 2959,
+    "y": 646,
+    "wires": [],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpc-inject-01",
@@ -5312,13 +5974,14 @@
     "once": true,
     "onceDelay": "30",
     "topic": "poll",
-    "x": 220,
-    "y": 2880,
+    "x": 2649,
+    "y": 732,
     "wires": [
       [
         "hpc-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpc-fn-01",
@@ -5332,8 +5995,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 480,
-    "y": 2880,
+    "x": 2970,
+    "y": 737,
     "wires": [
       [
         "hp-state-fn-01"
@@ -5341,7 +6004,8 @@
       [
         "hpc-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpc-exec-01",
@@ -5355,15 +6019,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Read Tuya cloud sensors",
-    "x": 750,
-    "y": 2920,
+    "x": 3273,
+    "y": 745,
     "wires": [
       [
         "hpc-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "cres-comment-01",
@@ -5371,9 +6036,10 @@
     "z": "995ac4ed6222a706",
     "name": "Compressor resource: run hours, starts, load, estimated energy since 2022-01-01 (estimate before 2026-11-08, measured after) — file grid-control-config/compressor-resource.json",
     "info": "",
-    "x": 480,
-    "y": 2980,
-    "wires": []
+    "x": 2959,
+    "y": 1342,
+    "wires": [],
+    "g": "lay-g-cres"
   },
   {
     "id": "cres-inject-01",
@@ -5391,13 +6057,14 @@
     "once": true,
     "onceDelay": "20",
     "topic": "tick",
-    "x": 230,
-    "y": 3020,
+    "x": 2649,
+    "y": 1388,
     "wires": [
       [
         "cres-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-cres"
   },
   {
     "id": "cres-fn-01",
@@ -5411,8 +6078,8 @@
     "initialize": "// On Start (d#133): read the counter file again after every node start\ncontext.set('needLoad', true); context.set('loadAsked', false); context.set('startedAt', Date.now());\n",
     "finalize": "",
     "libs": [],
-    "x": 490,
-    "y": 3020,
+    "x": 2956,
+    "y": 1393,
     "wires": [
       [
         "cres-file-w-01"
@@ -5420,7 +6087,8 @@
       [
         "cres-file-r-01"
       ]
-    ]
+    ],
+    "g": "lay-g-cres"
   },
   {
     "id": "cres-file-w-01",
@@ -5433,11 +6101,12 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 760,
-    "y": 3000,
+    "x": 3241,
+    "y": 1388,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-cres"
   },
   {
     "id": "cres-file-r-01",
@@ -5450,13 +6119,14 @@
     "sendError": false,
     "encoding": "utf8",
     "allProps": false,
-    "x": 760,
-    "y": 3040,
+    "x": 3241,
+    "y": 1436,
     "wires": [
       [
         "cres-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-cres"
   },
   {
     "id": "hpls-comment-01",
@@ -5464,9 +6134,10 @@
     "z": "995ac4ed6222a706",
     "name": "Battery sensors LOCAL (d#135): tools/tuya-local-sensors.js listens for their wake beacons (UDP 6667), connects at once, prints readings; restarted every 10 min (runs 630 s, overlap 30 s)",
     "info": "",
-    "x": 480,
-    "y": 3100,
-    "wires": []
+    "x": 2959,
+    "y": 686,
+    "wires": [],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpls-inject-01",
@@ -5489,13 +6160,14 @@
     "topic": "local",
     "payload": "tick",
     "payloadType": "str",
-    "x": 230,
-    "y": 3140,
+    "x": 2649,
+    "y": 780,
     "wires": [
       [
         "hpls-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpls-fn-01",
@@ -5509,8 +6181,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 480,
-    "y": 3140,
+    "x": 2970,
+    "y": 795,
     "wires": [
       [
         "hp-state-fn-01"
@@ -5518,7 +6190,8 @@
       [
         "hpls-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpls-exec-01",
@@ -5532,15 +6205,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Read local battery sensors",
-    "x": 760,
-    "y": 3180,
+    "x": 3273,
+    "y": 818,
     "wires": [
       [
         "hpls-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-sensors"
   },
   {
     "id": "hpal-comment-01",
@@ -5548,9 +6222,10 @@
     "z": "995ac4ed6222a706",
     "name": "E-mail alerts (d#145): errors of the heat pump automation → digest mail via tools/send-mail.js; SMTP settings + app password in grid-control-config/email.json (not in the repo)",
     "info": "",
-    "x": 480,
-    "y": 3260,
-    "wires": []
+    "x": 2959,
+    "y": 1568,
+    "wires": [],
+    "g": "lay-g-alerts"
   },
   {
     "id": "hpal-tick-01",
@@ -5568,13 +6243,14 @@
     "once": true,
     "onceDelay": "30",
     "topic": "tick",
-    "x": 220,
-    "y": 3300,
+    "x": 2609,
+    "y": 1614,
     "wires": [
       [
         "hpal-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-alerts"
   },
   {
     "id": "hpal-test-01",
@@ -5592,13 +6268,14 @@
     "once": false,
     "onceDelay": 0.1,
     "topic": "test",
-    "x": 220,
-    "y": 3340,
+    "x": 2609,
+    "y": 1662,
     "wires": [
       [
         "hpal-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-alerts"
   },
   {
     "id": "hpal-fn-01",
@@ -5612,13 +6289,14 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 470,
-    "y": 3320,
+    "x": 2865,
+    "y": 1614,
     "wires": [
       [
         "hpal-file-01"
       ]
-    ]
+    ],
+    "g": "lay-g-alerts"
   },
   {
     "id": "hpal-file-01",
@@ -5631,13 +6309,14 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 690,
-    "y": 3320,
+    "x": 3106,
+    "y": 1614,
     "wires": [
       [
         "hpal-exec-01"
       ]
-    ]
+    ],
+    "g": "lay-g-alerts"
   },
   {
     "id": "hpal-exec-01",
@@ -5651,15 +6330,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Send alert mail",
-    "x": 900,
-    "y": 3320,
+    "x": 3343,
+    "y": 1627,
     "wires": [
       [
         "hpal-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-alerts"
   },
   {
     "id": "backup-mail-tick-01",
@@ -5677,13 +6357,14 @@
     "once": true,
     "onceDelay": "45",
     "topic": "backup-mail-tick",
-    "x": 190,
-    "y": 1620,
+    "x": 577,
+    "y": 2659,
     "wires": [
       [
         "backup-fn-manage-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "backup-mail-now-01",
@@ -5706,13 +6387,14 @@
     "topic": "backup-command",
     "payload": "{\"action\":\"mail\",\"days\":7}",
     "payloadType": "json",
-    "x": 190,
-    "y": 1660,
+    "x": 577,
+    "y": 2707,
     "wires": [
       [
         "backup-fn-manage-01"
       ]
-    ]
+    ],
+    "g": "lay-g-backup"
   },
   {
     "id": "pb-ui-tab-01",
@@ -5740,9 +6422,10 @@
     "z": "995ac4ed6222a706",
     "name": "Payback (d#148): savings since the energy history starts (peak shaving, solar, battery shift) vs. equipment cost; settings in grid-control-config/payback.json",
     "info": "",
-    "x": 480,
-    "y": 3420,
-    "wires": []
+    "x": 2959,
+    "y": 1794,
+    "wires": [],
+    "g": "lay-g-payback"
   },
   {
     "id": "pb-tick-01",
@@ -5760,13 +6443,14 @@
     "once": true,
     "onceDelay": "20",
     "topic": "tick",
-    "x": 200,
-    "y": 3460,
+    "x": 2613,
+    "y": 1840,
     "wires": [
       [
         "pb-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-payback"
   },
   {
     "id": "pb-fn-01",
@@ -5780,8 +6464,8 @@
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 440,
-    "y": 3480,
+    "x": 2861,
+    "y": 1853,
     "wires": [
       [
         "pb-page-01"
@@ -5792,7 +6476,8 @@
       [
         "pb-file-01"
       ]
-    ]
+    ],
+    "g": "lay-g-payback"
   },
   {
     "id": "pb-exec-01",
@@ -5806,15 +6491,16 @@
     "winHide": false,
     "oldrc": false,
     "name": "Read payback data",
-    "x": 680,
-    "y": 3500,
+    "x": 3113,
+    "y": 1853,
     "wires": [
       [
         "pb-fn-01"
       ],
       [],
       []
-    ]
+    ],
+    "g": "lay-g-payback"
   },
   {
     "id": "pb-page-01",
@@ -5831,13 +6517,14 @@
     "resendOnRefresh": true,
     "templateScope": "local",
     "className": "",
-    "x": 680,
-    "y": 3460,
+    "x": 3113,
+    "y": 1913,
     "wires": [
       [
         "pb-fn-01"
       ]
-    ]
+    ],
+    "g": "lay-g-payback"
   },
   {
     "id": "pb-file-01",
@@ -5850,10 +6537,11 @@
     "createDir": true,
     "overwriteFile": "true",
     "encoding": "utf8",
-    "x": 700,
-    "y": 3540,
+    "x": 3113,
+    "y": 1961,
     "wires": [
       []
-    ]
+    ],
+    "g": "lay-g-payback"
   }
 ]
