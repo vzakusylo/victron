@@ -11,6 +11,7 @@
   - [Driver — battery driver, BMS and MultiPlus health](#driver--battery-driver-bms-and-multiplus-health)
   - [Device — GX device health](#device--gx-device-health)
   - [Backup — backup and restore of the whole setup](#backup--backup-and-restore-of-the-whole-setup)
+  - [Payback — savings and payback of the equipment](#payback--savings-and-payback-of-the-equipment)
   - [Files — logs and disk usage](#files--logs-and-disk-usage)
   - [Constants — controller constants and tariff seasons](#constants--controller-constants-and-tariff-seasons)
   - [Analytics dashboard](#analytics-dashboard)
@@ -54,6 +55,18 @@ CPU (sampled over 1 s), load, memory, disks, temperature, uptime, Venus OS versi
 ![Backup and Restore dashboard — create, download, delete, upload and restore with safety backup](images/dashboard-backup.png)
 
 Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). The card **Data archive by e-mail** mails the energy and heating data (last 7 / 31 days or all history) as a `.tar.gz` attachment, by a button and every Monday 07:00. See [Backup & restore](backup-restore.md).
+
+### Payback — savings and payback of the equipment
+
+Tab **Payback** (d#148; model `48 Payback model.js`, page `49 Payback page.html`). Reads the hourly energy history (`grid-control-logs/energy-YYYY-MM.csv` and the older `energy-YYYY-MM-DD.log`) once an hour and on open, and shows:
+
+- equipment cost (EUR × EUR/NOK), saved so far, what is left, % paid back and a straight-line estimate of the payback (years, month);
+- the saving split into **peak shaving** (monthly capacity step from the real grid peaks vs. from the house load), **solar** (solar kWh × energy price + grid energy charge of the hour) and **battery shift** (house load − grid import − solar, priced per hour: cheaper night import minus charge / discharge losses);
+- a table per month: days with data, peak with / without the system, step with / without, the three parts and the total, grid and load kWh.
+
+Model: all loads are behind the MultiPlus, so the AC load is what the house would import without the system (there is no export). Peak = average of the 3 highest billable hours on 3 different days, night 22–06 at the night factor (70 %). The current month counts as far as it has run. One fixed energy price is used (no hourly spot prices in the data). Not counted: backup power during outages.
+
+Settings on the page (stored in `grid-control-config/payback.json`): equipment list in EUR, EUR → NOK, energy price, grid energy charge day / night, night factor, capacity step prices. Defaults: the owner's equipment (inverter 700, Cerbo GX 300, shunts 2 × 70, battery 1000, wires and cabinet 500, solar panels 350 EUR), Elvenett household tariff 2026 (steps 160 / 233 / 331 / 496 / 638 / 803 … kr per month, grid energy 35.16 / 16.41 øre/kWh day / night incl. taxes) — check them against elvenett.no.
 
 ### Files — logs and disk usage
 

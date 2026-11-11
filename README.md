@@ -56,6 +56,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 30 s history, charts and statistics by day (local) |
 | [Automations](docs/heat-pump.md#automations-page-d123d126) | local replacements for all Smart Life heat pump scenes (B\* DHW cycles and modes, DF\* defrost, HP\*) as timed sequences with an internal defrost flag: master switch for all local automations, per rule Off / Test / On and all at once, write check (d#123–d#126) |
 | [Automation log](docs/heat-pump.md#automation-log-page-d126) | everything the local automations did, kept in a file per day: navigation by day, one entry per rule run with its steps and write results, filters (d#126). Which Smart Life scenes already run on the GX: [Migration log](docs/heat-pump.md#migration-log-smart-life--gx) |
+| [Payback](docs/dashboard.md#payback--savings-and-payback-of-the-equipment) | savings since the energy history starts: peak shaving (capacity step), solar, battery night shift minus losses; equipment cost, what is left and the estimated payback; editable equipment list, prices and capacity steps (d#148) |
 
 ## Heat Pump page (Tuya Wi-Fi heat pump)
 

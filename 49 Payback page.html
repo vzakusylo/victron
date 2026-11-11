@@ -1,0 +1,200 @@
+<!--
+  49 Payback page.html
+  Source of the ui_template "Payback page" (Payback dashboard tab).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-49).
+  Shows the model built by "Payback model" (48): equipment cost, savings so far (peak shaving,
+  solar, battery shift), what is left and the estimated payback, per month, and the settings.
+  Sends:
+    {topic:'ui', payload:{action:'open'}}                — on open
+    {topic:'ui', payload:{action:'refresh'}}             — read the data files again
+    {topic:'ui', payload:{action:'save', settings}}      — store settings (grid-control-config/payback.json)
+    {topic:'ui', payload:{action:'reset'}}               — back to the defaults
+-->
+<style>
+.pb { padding: 6px 4px; font-size: 14px; }
+.pb-title { font-size: 20px; font-weight: 700; }
+.pb-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.pb button { border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; background: rgba(127,127,127,.22); color: inherit; font-size: 13px; }
+.pb button.main { background: #1f6feb; color: #fff; }
+.pb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.pb-tile { border-radius: 10px; padding: 10px 12px; background: rgba(127,127,127,.10); }
+.pb-tile .k { font-size: 12px; opacity: .75; }
+.pb-tile .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.pb-tile .s { font-size: 12px; opacity: .75; margin-top: 2px; }
+.pb-tile.peak { border-left: 4px solid #8957e5; }
+.pb-tile.solar { border-left: 4px solid #d29922; }
+.pb-tile.shift { border-left: 4px solid #1f6feb; }
+.pb-tile.total { border-left: 4px solid #2ea043; }
+.pb-tile.left { border-left: 4px solid #da3633; }
+.pb .neg { color: #da3633; }
+.pb .pos { color: #2ea043; }
+.pb-bar { position: relative; height: 22px; border-radius: 11px; background: rgba(127,127,127,.18); overflow: hidden; margin: 4px 0 12px; }
+.pb-bar .fill { height: 100%; background: #2ea043; }
+.pb-bar .lbl { position: absolute; inset: 0; text-align: center; font-size: 12px; line-height: 22px; font-weight: 700; }
+.pb-card { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: rgba(127,127,127,.08); }
+.pb-card h3 { margin: 0 0 8px; font-size: 15px; }
+.pb table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pb th, .pb td { padding: 4px 6px; border-bottom: 1px solid rgba(127,127,127,.2); text-align: right; white-space: nowrap; }
+.pb th:first-child, .pb td:first-child { text-align: left; }
+.pb td.num, .pb th.num { font-variant-numeric: tabular-nums; }
+.pb-scroll { overflow-x: auto; }
+.pb input { background: transparent; color: inherit; border: 1px solid rgba(127,127,127,.4); border-radius: 6px; padding: 3px 6px; font-size: 13px; }
+.pb input.n { width: 80px; text-align: right; }
+.pb input.w { width: 190px; }
+.pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; align-items: center; }
+.pb-grid label { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 13px; }
+.pb .small { font-size: 12px; opacity: .75; }
+.pb ul { margin: 4px 0 0 18px; padding: 0; font-size: 12.5px; }
+.pb li { margin: 2px 0; }
+</style>
+
+<div class="pb" ng-init="pbInit()">
+  <div class="pb-title">Payback</div>
+  <div class="pb-sub">What the battery, inverter, solar panels and the controller have saved since the energy history starts ({{m.firstDay || '…'}}, {{m.daysCovered || 0}} days of data), and what is left until the equipment is paid back. Amounts in NOK incl. VAT.</div>
+
+  <div ng-if="!m.months" class="pb-card">Reading the energy history…</div>
+
+  <div ng-if="m.months">
+    <div class="pb-tiles">
+      <div class="pb-tile">
+        <div class="k">Equipment cost</div>
+        <div class="v">{{fmt(m.costNok)}} kr</div>
+        <div class="s">{{fmt(m.costEur)}} € × {{m.settings.eurNok}} NOK/€</div>
+      </div>
+      <div class="pb-tile total">
+        <div class="k">Saved so far</div>
+        <div class="v" ng-class="sign(m.saved)">{{fmt(m.saved)}} kr</div>
+        <div class="s">≈ {{fmt(m.perMonth)}} kr per month, {{fmt(m.perYear)}} kr per year</div>
+      </div>
+      <div class="pb-tile peak">
+        <div class="k">Peak shaving (capacity step)</div>
+        <div class="v" ng-class="sign(m.peak)">{{fmt(m.peak)}} kr</div>
+        <div class="s">lower kapasitetsledd step than without the battery</div>
+      </div>
+      <div class="pb-tile solar">
+        <div class="k">From the sun</div>
+        <div class="v" ng-class="sign(m.solar)">{{fmt(m.solar)}} kr</div>
+        <div class="s">{{fmt(m.solarKWh)}} kWh of solar energy</div>
+      </div>
+      <div class="pb-tile shift">
+        <div class="k">Battery: night shift − losses</div>
+        <div class="v" ng-class="sign(m.shift)">{{fmt(m.shift)}} kr</div>
+        <div class="s">cheaper night import minus charge / discharge losses</div>
+      </div>
+      <div class="pb-tile left">
+        <div class="k">Left until payback</div>
+        <div class="v">{{fmt(m.remaining)}} kr</div>
+        <div class="s" ng-if="m.yearsLeft !== null">at this pace ≈ {{m.yearsLeft}} years (≈ {{m.payDate}})</div>
+        <div class="s" ng-if="m.yearsLeft === null">no saving yet, no estimate</div>
+      </div>
+    </div>
+
+    <div class="pb-bar"><div class="fill" ng-style="{width: Math.max(0, m.paidPct) + '%'}"></div><div class="lbl">{{m.paidPct}} % paid back</div></div>
+
+    <div class="pb-card">
+      <h3>By month</h3>
+      <div class="pb-scroll">
+      <table>
+        <tr><th>Month</th><th class="num">Days</th><th class="num">Peak with / without</th><th class="num">Step with / without</th><th class="num">Peak shaving</th><th class="num">Solar kWh</th><th class="num">Solar</th><th class="num">Battery shift</th><th class="num">Total</th><th class="num">Grid / load kWh</th></tr>
+        <tr ng-repeat="r in m.months track by r.month">
+          <td>{{r.month}}<span class="small" ng-if="r.current"> · so far</span></td>
+          <td class="num">{{r.days}} / {{r.daysInMonth}}</td>
+          <td class="num">{{r.kwWith}} / {{r.kwWithout}} kW</td>
+          <td class="num">{{r.tierWith}} / {{r.tierWithout}}</td>
+          <td class="num" ng-class="sign(r.peak)">{{fmt(r.peak)}}</td>
+          <td class="num">{{r.solarKWh}}</td>
+          <td class="num" ng-class="sign(r.solar)">{{fmt(r.solar)}}</td>
+          <td class="num" ng-class="sign(r.shift)">{{fmt(r.shift)}}</td>
+          <td class="num" ng-class="sign(r.total)"><b>{{fmt(r.total)}}</b></td>
+          <td class="num">{{fmt(r.gridKWh)}} / {{fmt(r.loadKWh)}}</td>
+        </tr>
+      </table>
+      </div>
+      <div class="small" style="margin-top:6px;">Peak = average of the 3 highest billable hours on 3 different days (night 22–06 counts at {{pct(m.settings.nightFactor)}} %). "Without" is the house load as it would come from the grid without the system. Amounts in kr.</div>
+    </div>
+
+    <div class="pb-card">
+      <h3>How it is calculated</h3>
+      <ul>
+        <li>Data: hourly grid import, house (AC) load and solar from <code>grid-control-logs/energy-*.csv</code> and the older daily logs. All loads are behind the inverter, so the AC load is what the house would import without the system.</li>
+        <li><b>Peak shaving</b>: each month the capacity step from the real grid peaks vs. the step from the house load; saving = difference of the monthly step prices.</li>
+        <li><b>Solar</b>: solar kWh × (energy price + grid energy charge of that hour).</li>
+        <li><b>Battery shift</b>: (house load − grid import − solar) × price of that hour. Positive when import moves to cheaper night hours, negative for battery and inverter losses.</li>
+        <li>Energy price is one fixed value (no hourly spot prices in the data). The estimate of the time left is a straight line from the average saving per day: winter and summer months differ.</li>
+        <li>Not counted: backup power during grid outages, and price differences of hourly spot prices.</li>
+      </ul>
+      <div style="margin-top:6px;"><button ng-click="pbSend('refresh')">Read the data again</button> <span class="small">updated {{m.updated | date:'dd.MM HH:mm'}}, {{m.hoursCount}} hours</span></div>
+    </div>
+
+    <div class="pb-card">
+      <h3>Equipment and prices</h3>
+      <table style="max-width:420px;">
+        <tr><th>Equipment</th><th class="num">€</th><th></th></tr>
+        <tr ng-repeat="it in form.items">
+          <td><input class="w" ng-model="it.name"></td>
+          <td class="num"><input class="n" type="number" step="1" min="0" ng-model="it.eur"></td>
+          <td><button ng-click="form.items.splice($index, 1)">✕</button></td>
+        </tr>
+        <tr><td><button ng-click="form.items.push({name: '', eur: 0})">+ add</button></td><td class="num"><b>{{fmt(sumEur())}} €</b></td><td></td></tr>
+      </table>
+      <div class="pb-grid" style="margin-top:10px;">
+        <label>EUR → NOK <input class="n" type="number" step="0.01" ng-model="form.eurNok"></label>
+        <label>Energy price, kr/kWh <input class="n" type="number" step="0.01" ng-model="form.energyPrice"></label>
+        <label>Grid energy day 06–22, kr/kWh <input class="n" type="number" step="0.0001" ng-model="form.gridDay"></label>
+        <label>Grid energy night 22–06, kr/kWh <input class="n" type="number" step="0.0001" ng-model="form.gridNight"></label>
+        <label>Night factor for the peak <input class="n" type="number" step="0.05" min="0" max="1" ng-model="form.nightFactor"></label>
+      </div>
+      <div class="small" style="margin:10px 0 4px;">Capacity step prices, kr per month (Elvenett household tariff 2026, check elvenett.no):</div>
+      <div class="pb-grid">
+        <label ng-repeat="p in form.tierPrices track by $index">Step {{$index + 1}} ({{m.settings.tierLimitsKW[$index - 1] || 0}}–{{m.settings.tierLimitsKW[$index]}} kW) <input class="n" type="number" step="1" ng-model="form.tierPrices[$index]"></label>
+      </div>
+      <div style="margin-top:10px;"><button class="main" ng-click="pbSave()">Save</button> <button ng-click="pbReset()">Defaults</button> <span class="small">{{saveMsg}}</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(scope) {
+    scope.m = scope.m || {};
+    scope.Math = Math;
+    scope.form = null;
+    scope.saveMsg = '';
+    var editing = false;
+    function copyForm(st) {
+        if (!st) return;
+        scope.form = JSON.parse(JSON.stringify(st));
+    }
+    scope.fmt = function(v) {
+        if (v === null || v === undefined || isNaN(v)) return '–';
+        return Number(v).toLocaleString('nb-NO', { maximumFractionDigits: 0 });
+    };
+    scope.sign = function(v) { return v > 0 ? 'pos' : (v < 0 ? 'neg' : ''); };
+    scope.pct = function(f) { return Math.round((Number(f) || 0) * 100); };
+    scope.sumEur = function() {
+        return (scope.form && scope.form.items || []).reduce(function(s, it) { return s + (Number(it.eur) || 0); }, 0);
+    };
+    scope.pbSend = function(action) { scope.send({ topic: 'ui', payload: { action: action } }); };
+    scope.pbSave = function() {
+        editing = false;
+        scope.saveMsg = 'saved';
+        scope.send({ topic: 'ui', payload: { action: 'save', settings: scope.form } });
+    };
+    scope.pbReset = function() {
+        editing = false;
+        scope.saveMsg = 'defaults restored';
+        scope.send({ topic: 'ui', payload: { action: 'reset' } });
+    };
+    scope.pbInit = function() { scope.pbSend('open'); };
+    scope.$watch('form', function(n, o) { if (o && n !== o) { editing = true; scope.saveMsg = 'not saved'; } }, true);
+    scope.$watch('msg', function(msg) {
+        if (msg && msg.topic === 'model' && msg.payload) {
+            scope.m = msg.payload;
+            if (!editing) {
+                copyForm(msg.payload.settings);
+                // the watch above must not count this copy as an edit
+                setTimeout(function() { scope.$evalAsync(function() { editing = false; if (scope.saveMsg === 'not saved') scope.saveMsg = ''; }); }, 0);
+            }
+        }
+    });
+})(scope);
+</script>
