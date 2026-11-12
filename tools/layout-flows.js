@@ -49,13 +49,14 @@ const GROUPS = [
       members: ids('hp-comment-01 hp-poll-inject-01 hp-tuya-pump-01 hp-tuya-valve-01 hp-tuya-bypass-01 hp-topic-hp-01 hp-topic-valve-01 hp-topic-bypass-01 hp-state-fn-01 hp-page-template-01 hp-tuya-meter-01 hp-topic-meter-01 hp-cmd-fn-01') },
     { col: 1, id: 'lay-g-hplog', name: 'Heat pump recorder and history by day', color: '#f0a35e',
       members: (n) => /^hp-(log|hist)-/.test(n.id) },
-    { col: 1, id: 'lay-g-sensors', name: 'Battery sensors: accumulator tank + exchange plate (local, cloud fallback)', color: '#f0a35e',
+    { col: 1, id: 'lay-g-sensors', name: 'Battery sensors: accumulator tank + exchange plate (local; cloud off since d#151)', color: '#f0a35e',
       members: (n) => /^(hpls|hpc)-/.test(n.id) },
     { col: 1, id: 'lay-g-auto', name: 'Heat pump automations (DHW controller, defrost, Er03) and Automation log', color: '#e8743b',
       members: (n) => /^(hpa|hpl)-/.test(n.id) },
     { col: 1, id: 'lay-g-cres', name: 'Compressor resource', color: '#f0a35e', members: (n) => /^cres-/.test(n.id) },
     { col: 1, id: 'lay-g-alerts', name: 'E-mail alerts on errors', color: '#d9534f', members: (n) => /^hpal-/.test(n.id) },
-    { col: 1, id: 'lay-g-payback', name: 'Payback page', color: '#5cb85c', members: (n) => /^pb-/.test(n.id) }
+    { col: 1, id: 'lay-g-payback', name: 'Payback page', color: '#5cb85c', members: (n) => /^pb-/.test(n.id) },
+    { col: 1, id: 'lay-g-devices', name: 'Devices page: all Smart Life devices (local) and Victron D-Bus devices', color: '#5b9bd5', members: (n) => /^dv-/.test(n.id) }
 ];
 const OTHER = { col: 1, id: 'lay-g-other', name: 'Other', color: '#9b9b9b', members: () => false };
 

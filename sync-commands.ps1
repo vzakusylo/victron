@@ -224,6 +224,12 @@ function Sync-48 { Sync-Node 'Payback model'                    '48 Payback mode
 # 49 — Payback page (ui_template HTML)
 function Sync-49 { Sync-Template 'Payback page'                 '49 Payback page.html'                          -BumpVersion }
 
+# 50 — Devices model (Tuya devices + battery sensors on the local network, Victron D-Bus devices)
+function Sync-50 { Sync-Node 'Devices model'                    '50 Devices model.js'                           -BumpVersion }
+
+# 51 — Devices page (ui_template HTML)
+function Sync-51 { Sync-Template 'Devices page'                 '51 Devices page.html'                          -BumpVersion }
+
 # ---------------------------------------------------------------------------
 # Sync ALL nodes in one pass (single version bump)
 # ---------------------------------------------------------------------------
@@ -274,6 +280,7 @@ function Sync-All {
         @{ Name = 'Compressor resource';                 File = '45 Compressor resource.js' }
         @{ Name = 'Heat pump alerts';                    File = '47 Heat pump alerts.js' }
         @{ Name = 'Payback model';                       File = '48 Payback model.js' }
+        @{ Name = 'Devices model';                       File = '50 Devices model.js' }
     )
 
     $totalSynced = 0
@@ -295,6 +302,7 @@ function Sync-All {
         @{ Name = 'Automations page';                    File = '41 Automations page.html' }
         @{ Name = 'Automation log page';                 File = '43 Automation log page.html' }
         @{ Name = 'Payback page';                        File = '49 Payback page.html' }
+        @{ Name = 'Devices page';                        File = '51 Devices page.html' }
     )
     foreach ($entry in $templates) {
         $src = [System.IO.File]::ReadAllText((Join-Path $Root $entry.File))

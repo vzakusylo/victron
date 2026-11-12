@@ -23,12 +23,23 @@
 // - DHW controller warnings (Er03 end, valve ON outside a cycle, pump curve restored, state reset);
 // - HP Er03 restart started; compressor protection steps and ends; DHW hard limit;
 // - lost sequences / stuck write queue / unreadable settings;
-// - heat pump, valve or bypass not connected or stale for 10 min (and when it is back).
+// - heat pump, valve or bypass not connected or stale for 10 min (and when it is back);
+// - battery sensors (d#151): battery low (battery_state 'low' or <= LOW_BAT_PCT %), once per sensor
+//   per day while it stays low, and when it is OK again; no local reading for SENSOR_OFFLINE_H
+//   (and when it is read again). Checked on every tick from flow `heatPump` / `localSensors`.
 // Throttling: a digest is sent 2 min after its first alert, at most one mail per 15 min; repeated
 // identical texts are counted, not repeated. Without email.json the node shows the error and drops
 // nothing (the digest waits, max 50 lines).
 // Change notes:
 // 1. Initial version (d#145).
+// 2. d#151: low battery and offline alerts for the two battery sensors (owner: "send a mail when a
+//    sensor has a weak battery").
+// 3. d#152: the same battery / offline mails for every other battery sensor of the Smart Life account
+//    (flow `deviceBatteries` from "Devices model", 50). A sensor never read locally is reported
+//    only after SENSOR_OFFLINE_H (it may simply not have changed yet).
+// 4. d#153: sensors without a local beacon are read from the Smart Life cloud (50, source 'cloud'):
+//    the offline mail names the source, and uses the sensor's own limit (staleH, 48 h for smoke
+//    detectors that report about once a day).
 // ==========================
 
 const MAIL_FILE = '/tmp/hp-alert-mail.json';
@@ -37,10 +48,82 @@ const MIN_GAP_MS = 15 * 60 * 1000;
 const DEVICE_DOWN_MS = 10 * 60 * 1000;
 const MAX_LINES = 50;
 const WATCH = { hp: 'heat pump', valve: 'boiler valve relay', bypass: 'bypass relay' };
+const SENSORS = { acc: 'accumulator tank sensor', plate: 'exchange plate sensor' };
+const LOW_BAT_PCT = 20;
+const BAT_REPEAT_MS = 24 * 3600 * 1000;
+const SENSOR_OFFLINE_H = 24;
+const START_GRACE_MS = 30 * 60 * 1000;
 
 const now = Date.now();
 const st = context.get('st') || { pending: [], firstAt: 0, lastMailAt: 0, lastResult: null, down: {}, sentCount: 0 };
+st.bat = st.bat || {};
+st.sens = st.sens || {};
+st.started = st.started || now;
 const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+const dayTime = (t) => { const d = new Date(t); return d.getDate() + '.' + (d.getMonth() + 1) + ' ' + hhmm(t); };
+
+// battery_state 'low' / 'middle' / 'high' or a percentage -> { low, text }
+function battery(bat) {
+    if (bat === null || bat === undefined || bat === '') return null;
+    if (typeof bat === 'string' && !Number.isFinite(Number(bat))) return { low: bat.toLowerCase() === 'low', text: bat };
+    return { low: Number(bat) <= LOW_BAT_PCT, text: Number(bat) + ' %' };
+}
+
+// Battery sensors: weak battery and no local reading.
+function checkSensors() {
+    const hp = flow.get('heatPump') || {};
+    const local = flow.get('localSensors') || {};
+    for (const role of Object.keys(SENSORS)) {
+        const dev = hp[role] || {};
+        // only a battery value read on the local network counts (the cloud is off since d#151)
+        const b = dev.source === 'local' && dev.dps ? battery(dev.dps.bat) : null;
+        const rb = st.bat[role] || { low: false, at: 0 };
+        if (b && b.low) {
+            if (!rb.low || now - rb.at >= BAT_REPEAT_MS) {
+                add(SENSORS[role] + ': battery low (' + b.text + '), replace the battery' + (rb.low ? ' (still low)' : ''));
+                rb.at = now;
+            }
+            rb.low = true;
+        } else if (b && rb.low) {
+            add(SENSORS[role] + ': battery OK again (' + b.text + ')');
+            rb.low = false; rb.at = 0;
+        }
+        st.bat[role] = rb;
+        const lastLocal = Number(local[role]) || 0;
+        // never read: wait START_GRACE_MS after the first tick (the listener replays its cached readings on start)
+        const off = lastLocal ? now - lastLocal > SENSOR_OFFLINE_H * 3600 * 1000 : now - st.started >= START_GRACE_MS;
+        const rs = st.sens[role] || { off: false };
+        if (off && !rs.off) {
+            add(SENSORS[role] + ': no reading on the local network ' + (lastLocal ? 'since ' + dayTime(lastLocal) : 'since the listener started')
+                + ' — check the sensor (battery, Wi-Fi)');
+            rs.off = true;
+        } else if (!off && rs.off) {
+            add(SENSORS[role] + ': read on the local network again');
+            rs.off = false;
+        }
+        st.sens[role] = rs;
+    }
+    // d#152: the other battery sensors of the Smart Life account ("Devices model", 50)
+    for (const d of flow.get('deviceBatteries') || []) {
+        const key = 'dev:' + d.id;
+        const rb = st.bat[key] || { low: false, at: 0 };
+        if (d.battery && d.battery.low) {
+            if (!rb.low || now - rb.at >= BAT_REPEAT_MS) { add(d.name + ': battery low (' + d.battery.text + '), replace the battery' + (rb.low ? ' (still low)' : '')); rb.at = now; }
+            rb.low = true;
+        } else if (d.battery && rb.low) {
+            add(d.name + ': battery OK again (' + d.battery.text + ')');
+            rb.low = false; rb.at = 0;
+        }
+        st.bat[key] = rb;
+        const limH = Math.max(SENSOR_OFFLINE_H, Number(d.staleH) || 0);
+        const via = d.source === 'cloud' ? 'from the Smart Life cloud' : 'on the local network';
+        const off = d.lastData ? now - d.lastData > limH * 3600 * 1000 : now - st.started >= limH * 3600 * 1000;
+        const rs = st.sens[key] || { off: false };
+        if (off && !rs.off) { add(d.name + ': no reading ' + via + ' ' + (d.lastData ? 'since ' + dayTime(d.lastData) : 'for ' + limH + ' h') + ' — check the sensor (battery, Wi-Fi)'); rs.off = true; }
+        else if (!off && rs.off) { add(d.name + ': read ' + via + ' again'); rs.off = false; }
+        st.sens[key] = rs;
+    }
+}
 
 function add(text, t) {
     const line = String(text).slice(0, 300);
@@ -97,6 +180,8 @@ if (msg.topic === 'result') {
         st.down[d.role] = rec;
     }
 }
+
+if (msg.topic === 'tick') checkSensors();
 
 // digest
 if (!send && st.pending.length && now - st.firstAt >= GATHER_MS && now - st.lastMailAt >= MIN_GAP_MS) {

@@ -12,6 +12,8 @@
 //   node /data/home/nodered/tools/tuya-local-sensors.js [lifetime_s]   (default 630 s)
 // Keys: /data/home/nodered/grid-control-config/tuya-local-sensors.json (not in the repo, mode 600)
 //   { "<deviceId>": { "role": "acc" | "plate", "key": "<local key>" }, ... }
+//   plus (d#152) every sleeping battery device of grid-control-config/tuya-devices.json (made by
+//   tools/tuya-devices-setup.js) as role 'dev': raw DPs only, decoded by "Devices model" (50).
 // Last readings: /data/home/nodered/grid-control-config/tuya-local-sensors-last.json — printed
 //   again at every start (cached: true), so the page has values after a restart.
 // Output: one JSON line per event, never the keys:
@@ -59,6 +61,12 @@ function decode(dps) {
 
 const keys = readJson(KEYS, null);
 if (!keys) { out({ kind: 'error', error: 'no key file ' + KEYS }); process.exit(1); }
+// d#152: every other sleeping battery device of the account (T & H sensors, smoke detectors) from
+// tools/tuya-devices-setup.js, role 'dev'; their raw DPs are decoded by "Devices model" (50).
+const ALL = readJson(process.env.TUYA_DEVICES || DIR + 'tuya-devices.json', {});
+for (const id of Object.keys(ALL)) {
+    if (!keys[id] && ALL[id].battery && ALL[id].key) keys[id] = { role: 'dev', key: ALL[id].key, name: ALL[id].name };
+}
 let TuyAPI;
 try { TuyAPI = require(LIB); } catch (e) { out({ kind: 'error', error: 'tuyapi not found: ' + e.message }); process.exit(1); }
 
@@ -79,8 +87,12 @@ function read(id, beacon) {
         if (finished) return;
         finished = true;
         try { dev.disconnect(); } catch (e) { /* gone */ }
-        if (dps['1'] === undefined) { out({ kind: 'error', role: k.role, error: 'no temperature from ' + beacon.ip + ' (' + why + ')' }); return; }
-        const r = Object.assign({ kind: 'reading', t: Date.now(), role: k.role, id, ip: beacon.ip, version: beacon.version, dps, cached: false }, decode(dps));
+        if (k.role === 'dev' ? !Object.keys(dps).length : dps['1'] === undefined) { out({ kind: 'error', role: k.role, id, error: 'no data from ' + beacon.ip + ' (' + why + ')' }); return; }
+        // a wake does not always push every DP: keep the DPs of the last reading that this one lacks
+        const prev = last[id] && last[id].dps ? last[id].dps : {};
+        const allDps = k.role === 'dev' ? Object.assign({}, prev, dps) : dps;
+        const r = Object.assign({ kind: 'reading', t: Date.now(), role: k.role, id, ip: beacon.ip, version: beacon.version, dps: allDps, cached: false },
+            k.role === 'dev' ? { temp: null, hum: null, bat: null } : decode(dps));
         last[id] = Object.assign({}, r, { kind: undefined, cached: undefined });
         try { fs.writeFileSync(LAST, JSON.stringify(last, null, 1)); } catch (e) { /* no cache */ }
         out(r);
@@ -88,7 +100,8 @@ function read(id, beacon) {
     const take = (d) => {
         if (!d || typeof d !== 'object' || !d.dps) return;
         Object.assign(dps, d.dps);
-        if (dps['1'] !== undefined && dps['2'] !== undefined) setTimeout(() => finish('complete'), 500);
+        if (k.role === 'dev') setTimeout(() => finish('complete'), 1500);
+        else if (dps['1'] !== undefined && dps['2'] !== undefined) setTimeout(() => finish('complete'), 500);
     };
     dev.on('data', take);
     dev.on('dp-refresh', take);
