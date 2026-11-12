@@ -2,7 +2,7 @@
 
 # Control logic
 
-> Charging windows, grid setpoint & tariff seasons, HV protection, heavy load, solar forecast, energy counter & history files, force charging, output pacing
+> Charging windows, grid setpoint & tariff seasons, HV protection, day high load, solar forecast, energy counter & history files, force charging, output pacing
 
 **On this page:**
 
@@ -14,7 +14,7 @@
 - [Grid setpoint schedule](#grid-setpoint-schedule)
   - [Tariff seasons (summer / winter)](#tariff-seasons-summer--winter)
 - [High-voltage protection](#high-voltage-protection)
-- [Heavy-load setpoint suppression](#heavy-load-setpoint-suppression)
+- [Day high-load setpoint reduction](#day-high-load-setpoint-reduction)
 - [Solar forecast effect](#solar-forecast-effect)
 - [Hourly consumed-energy counter](#hourly-consumed-energy-counter)
   - [Energy history files](#energy-history-files)
@@ -79,7 +79,7 @@ Daily and monthly tracking (node status, trace `tariff`, Analytics "Capacity tar
 This is only the starting point. The controller may lower it further if:
 
 - the battery voltage is already too high
-- AC loads exceed the heavy-load threshold
+- AC loads exceed the day high-load threshold
 
 ## High-voltage protection
 
@@ -87,27 +87,24 @@ This layer exists because an external charger or MPPT may increase battery volta
 
 Default thresholds (configurable from the Protection dashboard):
 
-- limiter starts when battery voltage rises above `55.4 V`
-- limiter remains active until battery voltage falls back to `55.2 V` or below
-- the grid setpoint tapers down smoothly
-- by `55.6 V`, the voltage limiter can push the setpoint down toward `200 W`
-- voltage range accepted: `50–60 V`
-- maximum smoothing step per cycle: `100 W`
+- limiter starts when battery voltage rises above `55.2 V` (`start`)
+- limiter remains active until battery voltage falls back to `55.0 V` or below (`release`)
+- between `start` and `55.4 V` (`full`) the setpoint tapers from the season setpoint down to the measured grid import, so the battery stops being charged from the grid
+- voltage range accepted: `50–60 V`, required `full > start >= release`
+- one controller update moves the setpoint by at most `MAX_GRID_STEP_W` (`100 W`)
 
-Smoothing is used so the grid setpoint does not jump too aggressively.
+Note on the step: the controller recalculates on every sensor message (several per second) and the ESS setpoint output passes one value every 10 s, so the step limits each recalculation, not the change per 10 s.
 
-## Heavy-load setpoint suppression
+While the limiter is active, **Grid CT support** (`gridSupportW`) lowers the setpoint to `AC load − gridSupportW` (not below `MIN_GRID_SETPOINT`), so the battery carries that part of the load.
 
-Protects the Norwegian hourly tariff threshold (~2 kWh/h) during high-demand events.
+## Day high-load setpoint reduction
 
-Behavior:
+- outside the night window, when AC loads are above `DAY_HIGH_AC_LOAD_THRESHOLD_W` (`4000 W`), the grid setpoint is lowered by `DAY_HIGH_AC_LOAD_REDUCTION_W` (`100 W`)
+- not applied during force charging or manual discharge
+- shown in node status as `AC-HIGH:-100W`
+- both values are on the Constants page
 
-- activates when AC loads reach or exceed `4000 W`
-- while active: grid setpoint is capped to `1700 W` and charge current is forced to `0 A`
-- the battery covers the gap; the grid CT stays safely below 2 kW
-- releases with hysteresis when AC loads fall below `2500 W`
-- state persists across message cycles in context as `heavyLoadActive`
-- shown in node status as `HL:<load>W`
+The earlier "heavy-load suppression" (cap at 1700 W with hysteresis) was replaced by this rule in d#69; its constants are gone from the Constants page since d#154.
 
 ## Solar forecast effect
 
@@ -122,7 +119,7 @@ Behavior:
 
 Current conversion constants:
 
-- nominal battery voltage fallback: `52 V`
+- nominal battery voltage fallback: `53 V` (used only when no battery voltage is known)
 - solar-to-battery efficiency factor: `0.9`
 - forecast accepted only when same day and age ≤ `18 h`
 
@@ -185,7 +182,7 @@ Notes:
 
 - nothing is deleted any more: the 45-day cleanup (`Daily cleanup midnight` → `Delete logs older than 45 days`) is disabled so the full history is kept
 - legacy daily files (`energy-YYYY-MM-DD.log`, `summary-YYYY-MM-DD.log`) stay on disk and are still read by the Energy tab and by the controller; new hours are only written to the CSV
-- after every start/redeploy the controller reads the month's CSV + legacy logs (output 7 → `Read month energy history`) and restores today's grid kWh and the month's top-3 day peaks
+- after every start/redeploy the controller reads the month's CSV + legacy logs (output 7 → `Read month energy history`) and restores today's grid kWh and the month's top-3 day peaks; the same reply restores today's hourly rows for the Analytics page and `get_energy_today` (`Update daily summary`, d#154)
 
 ## AC Force Charging with voltage limiter
 
@@ -197,20 +194,18 @@ Default limiter thresholds (configurable from the Protection dashboard):
 - charge at maximum DVCC (`25 A`) when voltage is at or below `52 V`
 - deactivate when voltage rises back to `54 V`
 - taper from `forceChargeGridW` up to max DVCC power between `Full` and `Start` voltages
-- all limiter thresholds validated in range `50–60 V`; required: `release > start > full`
+- all limiter thresholds validated in range `40–60 V`; required: `release > start > full` (the same range in the page, the settings file and the controller; before d#154 the controller accepted only 50–60 V and silently ran on its defaults for a lower value)
 
 ## Solar generation tracking
 
-Solar generation is the sum of two sources:
+Solar generation is the PV charger power only:
 
-- **DC System Power** (`/Dc/System/Power`): negative values indicate a DC source (e.g. AC-coupled solar) pushing power onto the DC bus. Solar contribution = `max(0, −dcPowerW)`.
-- **PV Charger Power** (`/Dc/Pv/Power`): direct output of the MPPT charger in watts (always positive).
-
-The combined formula: `solarGenerationW = max(0, −dcPowerW) + pvChargerPowerW`
+- **PV Charger Power** (`/Dc/Pv/Power`): output of the MPPT charger in watts. `solarGenerationW = pvChargerPowerW`
+- **DC System Power** (`/Dc/System/Power`) is read and shown in the trace, but is not counted as solar
 
 - `solarBudget` integrates `solarGenerationW` per clock hour using the same logic as grid and AC budgets
 - `solarWh` is included in every hourly rollover message alongside `gridWh` and `acWh`
-- visible in node status as `DC <n>W | PV <n>W | Sol <n>Wh`
+- visible in node status as `PV <n>W | Sol <n>Wh`
 - shown in the Hourly Grid and AC Detail dashboard table and in analytics
 
 ## Output update pacing

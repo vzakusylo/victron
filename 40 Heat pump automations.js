@@ -102,12 +102,7 @@
 // 11. d#138: the DHW controller panel moved to the Heat Pump page (35); its requests arrive here
 //    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
 //    and is written at once after a DHW mode / settings change.
-// INIT — the node's On Start code (`initialize`, kept in flows.json; Sync-40 syncs only `func`):
-//    context.set('needLoad', context.get('settings') === undefined);
-//    const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
-//    context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
-//    context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'
-//        + (old.length ? '; running sequences dropped: ' + old.join(', ') : '') + (oldQ ? '; ' + oldQ + ' queued writes dropped' : '') });
+// INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
@@ -253,7 +248,7 @@ const runtime = ctx('runtime', {});
 ctx('log', []);
 const flag = ctx('flag', { on: false, since: 0, by: '' });
 // A new node instance (deploy of this node, Node-RED restart) has no timers, but the context is
-// kept: the node's On Start code (`initialize` in flows.json, see INIT below the header) drops
+// kept: the node's On Start code (`40 Heat pump automations.init.js`) drops
 // running sequences and queued writes and leaves a note here, which is logged once.
 const bootNote = context.get('bootNote');
 if (bootNote) { context.set('bootNote', null); logEvent({ kind: bootNote.dropped ? 'warn' : 'info', text: bootNote.text }); }

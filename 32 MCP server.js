@@ -26,15 +26,16 @@
 // Flow context:
 // - reads dashboardControllerTrace, dailySummary, dashboardLiveHour, solarForecastToday,
 //   deviceStatusState, driverDashboardState, bmsWatchdogState, highVoltageSettings,
-//   controllerConstantsOverrides, backupDashboardState, mcpToken
+//   controllerConstantsOverrides, backupDashboardState, heatPumpModel, mcpToken
 // - writes mcpState.calls (last calls, shown on the "Agent (MCP)" page)
 // Change notes:
 // 1. Initial version.
 // 2. The call log uses X-Forwarded-For / X-Real-IP (Venus proxies Node-RED, so req.ip is 127.0.0.1).
+// 3. Tool `get_heat_pump` (flow heatPumpModel, written by "Heat pump state").
 // ==========================
 
 const SERVER_NAME = 'victron-grid-control';
-const SERVER_VERSION = '1.0.0';
+const SERVER_VERSION = '1.1.0';
 const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_CALL_LOG = 30;
 const INSTRUCTIONS = [
@@ -167,6 +168,26 @@ const TOOLS = [
         run() {
             const state = flow.get('bmsWatchdogState');
             return state ? Object.assign({ ageSeconds: ageSeconds(state.checkedAt) }, state) : { available: false, note: 'Watchdog has not run yet (every 30 s).' };
+        }
+    },
+    {
+        name: 'get_heat_pump',
+        title: 'Heat pump',
+        description: 'Tuya heat pump read locally: connection state and data age of the heat pump, DHW valve relay, bypass relay and SA1 power meter; supply / return / DHW tank / outdoor temperatures, compressor Hz, load and estimated power, measured power (meter), heating and DHW set points, mode, work mode, weather curve P22-P24 with the curve target, valve / bypass state, defrost sign and decoded faults.',
+        inputSchema: NO_ARGS,
+        run() {
+            const model = flow.get('heatPumpModel');
+            if (!model) {
+                return { available: false, note: 'No heat pump data yet (Tuya nodes not connected or Node-RED just started).' };
+            }
+            const summary = Object.assign({}, model.summary);
+            delete summary.meterDps;
+            return {
+                ageSeconds: ageSeconds(model.updated),
+                devices: model.devices,
+                summary,
+                curve: model.curveChart ? pick(model.curveChart, ['enabled', 'p23', 'p24', 'formula', 'outdoor', 'target', 'reported', 'supply', 'table']) : null
+            };
         }
     },
     {

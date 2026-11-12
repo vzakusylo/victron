@@ -76,11 +76,12 @@ The controller is not a single rule. It is a stack of limits.
 
 ```mermaid
 flowchart TD
-  A[Base schedule<br/>Day 1950 W / Night 2850 W] --> E[Final grid setpoint]
+  A[Season plan<br/>summer 1950 / 2850 W, winter 4950 / 6440 W] --> E[Final grid setpoint]
     B[Battery deficit logic<br/>BMS Consumed Amphours] --> F[Final charge current]
   C[Solar forecast offset<br/>Predicted solar Ah] --> F
-  D[High-voltage limiter<br/>55.4 V start, 55.2 V release] --> E
-  G[Heavy-load cap<br/>≥ 4000 W AC → 1700 W grid] --> E
+  D[High-voltage limiter<br/>55.2 V start, 55.0 V release] --> E
+  G[Day high load<br/>above 4000 W AC: 100 W lower] --> E
+  X[Export guard<br/>floor at the minimum grid import] --> E
     F --> H[DVCC charge current limit]
 ```
 
@@ -88,9 +89,11 @@ flowchart TD
 
 The final grid setpoint is the minimum of:
 
-1. base schedule
-2. high-voltage limiter
-3. heavy-load cap (active when AC loads ≥ 4000 W)
+1. season plan (day / night setpoint of the active tariff season)
+2. high-voltage limiter and battery grid support
+3. day high-load reduction (AC loads above 4000 W outside 22–06)
+
+and never below the export-guard floor while the guard is active.
 
 Hourly imported energy is still tracked and shown in status text, but it is display-only and does not override the schedule.
 

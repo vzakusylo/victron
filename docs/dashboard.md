@@ -213,18 +213,20 @@ The live flow now also reads the battery service path `com.victronenergy.battery
 
 ## Controller Constants dashboard
 
-The `Constants` tab provides a runtime editor for all hardcoded controller constants without editing code.
+The `Constants` tab is a runtime editor for the controller constants. Every field on the page is read by the controller on its next update (since d#154; before that only the tariff season group was applied and the other groups were stored but ignored).
 
 ![Controller Constants dashboard — all constant groups, Save overrides, Reset to defaults](images/dashboard-constans.png)
 
 Groups shown:
 
 - **Capacity Tariff Season** — winter/summer start dates (MMDD), tier per season, night extra %, day margin, night billing weight, season mode, grid voltage / current headroom / max input current (read live by the controller)
-- **Grid Setpoint Limits** — min setpoint, max smoothing step
-- **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage
+- **Grid Setpoint Limits** — min setpoint, max high-voltage step per update
+- **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage (fallback when no voltage is known)
 - **Solar Forecast** — solar-to-battery efficiency, max forecast age
 - **Manual Discharge** — max discharge current, auto-stop voltage, min grid during discharge, max AC load
-- **Heavy-Load Suppression** — activation threshold, release threshold, grid cap during heavy load
+- **Day High Load** — AC load threshold and the setpoint reduction above it (replaces the old Heavy-Load Suppression group, whose three values were never used by the controller)
+
+The list of constants (label, default, range) lives in one place, `24 Build controller constants state.js`; `25` validates against it and the tests check that the controller (`01`) has the same defaults and ranges.
 
 Behavior:
 
@@ -232,6 +234,7 @@ Behavior:
 - fields showing the default value have no override stored; only changed values are persisted
 - `Save overrides` validates each field against its allowed range and writes non-default values to the JSON file
 - `Reset all to defaults` clears the file and restores all defaults on the next cycle
+- a value outside its range in the file is clamped by the controller (tiers, season mode and dates fall back to the default)
 - the status line shows `Ready — N override(s) active`
 
 ---

@@ -24,7 +24,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | Topic | What's inside |
 |---|---|
 | [Overview & architecture](docs/overview.md) | goal, signal flow, control layers |
-| [Control logic](docs/control-logic.md) | charging windows, grid setpoint & tariff seasons, HV protection, heavy load, solar forecast, energy counter & history files, force charging |
+| [Control logic](docs/control-logic.md) | charging windows, grid setpoint & tariff seasons, HV protection, day high load, solar forecast, energy counter & history files, force charging |
 | [Grid tariffs in Norway](docs/tariffs-norway.md) | bill structure, *nettleie*, *kapasitetsledd*, why hourly peaks matter |
 | [Dashboard](docs/dashboard.md) | every dashboard page with screenshots, Protection and Constants editors |
 | [Device, battery driver & BMS watchdog](docs/device-driver.md) | Device status page, BMS watchdog, Driver page and logs |
@@ -163,7 +163,7 @@ Setup: install the palette node, then enter the **Device ID, Local Key, IP and p
 1. Cerbo GX with Venus OS Large, Node-RED enabled, ESS configured, GRID CT and the battery visible on D-Bus ([assumptions](docs/limitations.md)).
 2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key / IP in the four Tuya nodes yourself. On later updates do not replace the Tuya nodes ([why](#heat-pump-page-tuya-wi-fi-heat-pump)) ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
 3. Set the tariff season, tiers and limits on the dashboard **Constants** page ([control logic](docs/control-logic.md#tariff-seasons-summer--winter)).
-4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `sync-commands.ps1`. `Sync-NN` syncs one node; `Sync-All` syncs all function nodes and the Heat Pump `ui_template`. Every sync bumps the tab label `d#<n>` ([development](docs/development.md)).
+4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `node tools/flows.js sync` (or `Sync-All` / `Sync-NN` from `sync-commands.ps1`). A sync that changes `flows.json` bumps the tab label `d#<n>`. Before a deploy run `node tools/flows.js check` and `node --test "tests/*.test.js"` ([development](docs/development.md)).
 5. Optional: set up remote access over [Tailscale](#remote-access-tailscale) for the dashboard, SSH and the MCP server away from home.
 
 ## Remote access (Tailscale)
