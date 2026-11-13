@@ -61,7 +61,7 @@
         <div class="dv-meta">{{d.link}}<span ng-if="d.ip"> · {{d.ip}}</span><span ng-if="d.ver"> · v{{d.ver}}</span><span ng-if="d.instance !== undefined && d.instance !== null"> · instance {{d.instance}}</span></div>
         <div class="dv-meta" ng-if="d.product && d.product !== d.name">{{d.product}}<span ng-if="d.firmware"> · fw {{d.firmware}}</span></div>
         <div class="dv-meta" ng-if="d.tuyaName">Smart Life: {{d.tuyaName}}</div>
-        <div class="dv-meta" ng-if="d.group !== 'victron' && d.group !== 'tuya' && d.product && d.product !== d.name">{{d.product}}</div>
+        <div class="dv-meta" ng-if="d.group !== 'victron' && d.group !== 'tuya' && d.group !== 'air' && d.product && d.product !== d.name">{{d.product}}</div>
         <div class="dv-meta" ng-if="d.group !== 'victron'">last data: {{age(d.ageS)}}</div>
         <div class="dv-vals" ng-if="d.values.length"><div ng-repeat="v in d.values"><span>{{v.k}}</span><span>{{v.v}}</span></div></div>
         <span class="dv-bat" ng-if="d.battery" ng-class="{low: d.battery.low}">battery {{d.battery.text}}{{d.battery.low ? ' — replace' : ''}}</span>
@@ -77,6 +77,7 @@
     scope.groups = [
         { id: 'tuya', title: 'Heat pump devices and sensors (Tuya, local network)' },
         { id: 'smartlife', title: 'Other Smart Life devices and sensors (local network; cloud only for sensors without a local beacon)' },
+        { id: 'air', title: 'Air quality (Qingping Air Monitor, local MQTT)' },
         { id: 'victron', title: 'Victron devices (D-Bus)' },
         { id: 'smartlife-off', title: 'Smart Life devices offline (also in the Smart Life cloud)' }
     ];

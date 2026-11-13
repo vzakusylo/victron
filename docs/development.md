@@ -13,7 +13,7 @@
 
 ## Repository contents
 
-- `NN Name.js` (`01 Battery + Grid Controller.js` … `50 Devices model.js`)  
+- `NN Name.js` (`01 Battery + Grid Controller.js` … `52 Air monitor.js`)  
   One readable source file per Node-RED function node. The node name is the file name without the number.
 
 - `NN Name.init.js` (`40 Heat pump automations.init.js`, `45 Compressor resource.init.js`)  
