@@ -1,22 +1,16 @@
 // ==========================
-// LOGIC SUMMARY / CHANGE NOTES
+// BUILD HV DASHBOARD STATE
 // ==========================
-// Sync rule:
-// - `07 Build HV dashboard state.js` and the embedded `func` for "Build HV dashboard state"
-//   in `flows.json` must always stay synchronized.
+// Source of the function node "Build HV dashboard state" in flows.json.
 // Purpose:
-// - Reads highVoltageSettings from flow context and the latest controller trace,
-//   then builds the complete UI state payload for the HV settings / diagnostics dashboard panel.
+// - Builds the payload of the Protection page: the saved settings (flow `highVoltageSettings`,
+//   already validated by 05 / 06) plus live status from the controller trace.
 // Input:
-// - msg (any) -> triggers a rebuild from flow context
-// Flow context read:
-// - `highVoltageSettings`  -> current HV protection settings
-// - `dashboardControllerTrace` -> latest controller trace for live diagnostics
+// - any msg -> rebuild; msg.hvStatus = { level, message } from "Save HV settings from dashboard"
 // Output (1):
-// - output 1 -> dashboard state payload { settings, trace } for the HV panel
-// Change notes:
-// 1. Initial version.
+// - output 1 -> topic `high-voltage-settings-ui` { payload: settings, meta: status }
 // ==========================
+// Keep equal to DEFAULT_SETTINGS in 05 / 06 and DEFAULT_HIGH_VOLTAGE_SETTINGS in 01.
 const DEFAULT_SETTINGS = {
     enabled: true,
     start: 55.2,
@@ -41,86 +35,53 @@ const DEFAULT_SETTINGS = {
     forceChargeLimiterEnabled: false,
     forceChargeLimiterStart: 53,
     forceChargeLimiterRelease: 54,
-    forceChargeLimiterFull: 52,
-    source: 'default',
-    updatedAt: ''
+    forceChargeLimiterFull: 52
 };
 
-const current = flow.get('highVoltageSettings') || DEFAULT_SETTINGS;
+const stored = flow.get('highVoltageSettings') || {};
 const status = msg.hvStatus || {};
-const trace = flow.get('dashboardControllerTrace') || null;
-const protectionEnabled = current.enabled !== false;
-const protectionRunning = protectionEnabled && Boolean(trace && trace.voltageLimitActive);
-const protectionStatusLabel = protectionEnabled ? (protectionRunning ? 'Running' : 'Idle') : 'Disabled';
-const forceChargeEnabled = current.forceChargeEnabled === true;
-const forceChargeGridW = Math.max(0, Math.round(Number(current.forceChargeGridW) || 0));
-const currentChargingPowerW = Math.max(0, Math.round(Number(trace && trace.currentChargingPowerW) || 0));
-const forceChargeRunning = forceChargeEnabled && currentChargingPowerW > 0;
-const forceChargeStatusLabel = forceChargeEnabled ? (forceChargeRunning ? 'Running' : 'Armed') : 'Disabled';
-const gridSupportMode = String(current.gridSupportMode || DEFAULT_SETTINGS.gridSupportMode);
-const adaptiveGridSupportW = Math.max(0, Math.round(Number(trace && trace.adaptiveGridSupportW) || 0));
-const plannedGridSupportW = Math.max(0, Math.round(Number(trace && trace.plannedGridSupportW) || 0));
-const remainingForecastAh = Number(trace && trace.remainingForecastAh);
-const batteryRemainingAh = trace && trace.batteryRemainingAh !== null && trace && trace.batteryRemainingAh !== undefined
-    ? Number(trace.batteryRemainingAh)
-    : null;
-const exportGuardEnabled = current.exportGuardEnabled === undefined
-    ? DEFAULT_SETTINGS.exportGuardEnabled
-    : current.exportGuardEnabled === true;
-const exportGuardTrace = trace && trace.exportGuard && typeof trace.exportGuard === 'object' ? trace.exportGuard : {};
-const exportGuardActive = Boolean(exportGuardTrace.active);
-const exportGuardBoostW = Math.max(0, Math.round(Number(exportGuardTrace.boostW) || 0));
-const gridPowerSignedW = Math.round(Number(trace && trace.gridPowerSignedW) || 0);
-const exportGuardStatusLabel = exportGuardEnabled ? (exportGuardActive ? 'Compensating' : 'Watching') : 'Disabled';
+const trace = flow.get('dashboardControllerTrace') || {};
+
+// A stored value wins, also when it is 0 or false; a missing one shows the default.
+const settings = {};
+Object.keys(DEFAULT_SETTINGS).forEach(key => {
+    const value = stored[key];
+    settings[key] = value === undefined || value === null || typeof value !== typeof DEFAULT_SETTINGS[key]
+        ? DEFAULT_SETTINGS[key]
+        : value;
+});
+
+const watts = value => Math.max(0, Math.round(Number(value) || 0));
+const currentChargingPowerW = watts(trace.currentChargingPowerW);
+const exportGuard = trace.exportGuard && typeof trace.exportGuard === 'object' ? trace.exportGuard : {};
+const remainingForecastAh = Number(trace.remainingForecastAh);
+const batteryRemainingAh = trace.batteryRemainingAh === null || trace.batteryRemainingAh === undefined
+    ? Number.NaN
+    : Number(trace.batteryRemainingAh);
 
 return {
     topic: 'high-voltage-settings-ui',
-    payload: {
-        enabled: protectionEnabled,
-        start: Number(current.start) || DEFAULT_SETTINGS.start,
-        release: Number(current.release) || DEFAULT_SETTINGS.release,
-        full: Number(current.full) || DEFAULT_SETTINGS.full,
-        gridSupportW: Math.max(0, Math.round(Number(current.gridSupportW) || 0)),
-        gridSupportMode,
-        gridSupportBatteryCapacityAh: Math.max(0, Math.round(Number(current.gridSupportBatteryCapacityAh) || 0)),
-        gridSupportReserveAh: Math.max(0, Math.round(Number(current.gridSupportReserveAh) || DEFAULT_SETTINGS.gridSupportReserveAh)),
-        gridSupportStartHour: Math.max(0, Math.round(Number(current.gridSupportStartHour) || DEFAULT_SETTINGS.gridSupportStartHour)),
-        gridSupportEndHour: Math.max(0, Math.round(Number(current.gridSupportEndHour) || DEFAULT_SETTINGS.gridSupportEndHour)),
-        gridSupportMaxDischargeA: Math.max(0, Math.round(Number(current.gridSupportMaxDischargeA) || DEFAULT_SETTINGS.gridSupportMaxDischargeA)),
-        gridSupportForecastConfidencePct: Math.max(0, Math.round(Number(current.gridSupportForecastConfidencePct) || DEFAULT_SETTINGS.gridSupportForecastConfidencePct)),
-        gridSupportSolarAssistGainPct: Math.max(0, Math.round(Number(current.gridSupportSolarAssistGainPct) || DEFAULT_SETTINGS.gridSupportSolarAssistGainPct)),
-        gridSupportWeakForecastBlockAh: Math.max(0, Math.round(Number(current.gridSupportWeakForecastBlockAh) || DEFAULT_SETTINGS.gridSupportWeakForecastBlockAh)),
-        gridSupportMinGridImportW: Math.max(200, Math.round(Number(current.gridSupportMinGridImportW) || DEFAULT_SETTINGS.gridSupportMinGridImportW)),
-        gridSupportDisableNoSun: current.gridSupportDisableNoSun === true,
-        gridSupportDisableNoSunBelowW: Math.max(0, Math.round(current.gridSupportDisableNoSunBelowW === undefined ? DEFAULT_SETTINGS.gridSupportDisableNoSunBelowW : Number(current.gridSupportDisableNoSunBelowW) || 0)),
-        exportGuardEnabled,
-        forceChargeEnabled,
-        forceChargeGridW,
-        forceChargeLimiterEnabled: current.forceChargeLimiterEnabled === true,
-        forceChargeLimiterStart: Number(current.forceChargeLimiterStart) || DEFAULT_SETTINGS.forceChargeLimiterStart,
-        forceChargeLimiterRelease: Number(current.forceChargeLimiterRelease) || DEFAULT_SETTINGS.forceChargeLimiterRelease,
-        forceChargeLimiterFull: Number(current.forceChargeLimiterFull) || DEFAULT_SETTINGS.forceChargeLimiterFull
-    },
+    payload: settings,
     meta: {
-        source: current.source || DEFAULT_SETTINGS.source,
-        updatedAt: current.updatedAt || '',
+        source: stored.source || 'default',
+        updatedAt: stored.updatedAt || '',
         level: status.level || 'info',
-        protectionStatus: protectionStatusLabel,
-        forceChargeStatus: forceChargeStatusLabel,
+        message: status.message || 'Use Save to persist protection changes.',
+        protectionStatus: settings.enabled ? (trace.voltageLimitActive ? 'Running' : 'Idle') : 'Disabled',
+        forceChargeStatus: settings.forceChargeEnabled ? (currentChargingPowerW > 0 ? 'Running' : 'Armed') : 'Disabled',
         currentChargingPowerW,
-        gridSupportW: Math.max(0, Math.round(Number(current.gridSupportW) || 0)),
-        gridSupportMode,
-        adaptiveGridSupportW,
-        plannedGridSupportW,
-        gridSupportLowSunBlocked: Boolean(trace && trace.gridSupportLowSunBlocked),
-        exportGuardStatus: exportGuardStatusLabel,
-        exportGuardActive,
-        exportGuardBoostW,
-        gridPowerSignedW,
-        solarGenerationW: Math.max(0, Math.round(Number(trace && trace.solarGenerationW) || 0)),
+        forceChargeGridW: settings.forceChargeGridW,
+        gridSupportW: settings.gridSupportW,
+        gridSupportMode: settings.gridSupportMode,
+        adaptiveGridSupportW: watts(trace.adaptiveGridSupportW),
+        plannedGridSupportW: watts(trace.plannedGridSupportW),
+        gridSupportLowSunBlocked: Boolean(trace.gridSupportLowSunBlocked),
+        exportGuardStatus: settings.exportGuardEnabled ? (exportGuard.active ? 'Compensating' : 'Watching') : 'Disabled',
+        exportGuardActive: Boolean(exportGuard.active),
+        exportGuardBoostW: watts(exportGuard.boostW),
+        gridPowerSignedW: Math.round(Number(trace.gridPowerSignedW) || 0),
+        solarGenerationW: watts(trace.solarGenerationW),
         remainingForecastAh: Number.isFinite(remainingForecastAh) ? remainingForecastAh.toFixed(1) : '0.0',
-        batteryRemainingAh: Number.isFinite(batteryRemainingAh) ? batteryRemainingAh.toFixed(1) : 'n/a',
-        forceChargeGridW,
-        message: status.message || 'Use Save to persist protection changes.'
+        batteryRemainingAh: Number.isFinite(batteryRemainingAh) ? batteryRemainingAh.toFixed(1) : 'n/a'
     }
 };

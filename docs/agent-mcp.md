@@ -7,14 +7,14 @@
 Node-RED also serves a [Model Context Protocol](https://modelcontextprotocol.io) server so an AI agent can read the live system state.
 
 - endpoint: `POST <node-red base URL>/mcp` (MCP Streamable HTTP, JSON responses; `GET` → 405). Use `https://venus.local:1881/mcp` on the home network (the GX certificate is issued to `venus.local`) or `https://<GX IP>:1881/mcp` with `curl -k`; from outside reach the LAN through a VPN such as Tailscale. The VRM remote link (`https://<id>-nodered.proxyrelayN.victronenergy.com/mcp`) does **not** work for agents: the relay answers 403 "No session. Go back to VRM and retry." to anything but a logged-in browser (tested)
-- access: a 48-hex-character token from `/dev/urandom`, stored in `/data/home/nodered/grid-control-config/mcp-token.txt` (created on first start, kept across restarts, included in the backup). Send `Authorization: Bearer <token>`, or `X-MCP-Token: <token>` if Node-RED HTTP basic auth already uses the `Authorization` header. Wrong / missing token → 401, disabled → 503, a foreign browser `Origin` → 403
-- tools (all read-only): `get_system_overview`, `get_capacity_tariff`, `get_energy_today`, `get_solar_forecast`, `get_battery_driver_status` (also triggers a fresh check), `get_device_status` (also triggers a fresh sample), `get_bms_watchdog`, `get_settings`, `list_backups`
+- access: a 48-hex-character token from `/dev/urandom`, stored in `/data/home/nodered/grid-control-config/mcp-token.txt` (created on first start, kept across restarts, included in the backup; *disable* leaves an empty file, so the server stays off after a restart too). Send `Authorization: Bearer <token>`, or `X-MCP-Token: <token>` if Node-RED HTTP basic auth already uses the `Authorization` header. Wrong / missing token → 401, disabled → 503, a foreign browser `Origin` → 403
+- tools (all read-only): `get_system_overview`, `get_capacity_tariff`, `get_energy_today`, `get_solar_forecast`, `get_battery_driver_status` (also triggers a fresh check), `get_device_status` (also triggers a fresh sample), `get_bms_watchdog`, `get_heat_pump` (heat pump temperatures, compressor, power, set points, valve / bypass, faults, device connections; d#154), `get_settings`, `list_backups`
 - the `Agent (MCP)` page shows the endpoints (`venus.local` first, the VRM link last and marked as not usable by agents), the token (show / copy / regenerate / disable), copy-ready `claude mcp add …`, `.mcp.json` and `curl` test commands, the tool list and the latest agent calls
 
 Example (Claude Code):
 
 ```
-claude mcp add --transport http victron-gx https://<id>-nodered.proxyrelayN.victronenergy.com/mcp --header "Authorization: Bearer <token>"
+claude mcp add --transport http victron-gx https://venus.local:1881/mcp --header "Authorization: Bearer <token>"
 ```
 
 Claude Code skill: `.claude/skills/victron-status/` (`SKILL.md` + `mcp-call.mjs`) reads the status through this server without registering it — it asks for the token every time, passes it only via `MCP_TOKEN`, and trusts the GX certificate from `~/.claude/victron-gx.pem` (issued to `venus.local`, so the URL is `https://venus.local:1881/mcp`).

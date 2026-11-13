@@ -5,20 +5,19 @@
 // - `04 Manage root files dashboard.js` and the embedded `func` for "Manage root files dashboard"
 //   in `flows.json` must always stay synchronized.
 // Purpose:
-// - Full file-management handler for the root-files dashboard panel.
-// - Lists, previews, deletes and refreshes log files in configured folder sections.
-// - Persists expanded/selected UI state to a JSON config file.
+// - Read-only handler of the Files page: lists the log files with sizes and disk usage,
+//   shows the selected file and remembers the selection in a JSON config file.
 // Config / paths:
 // - Config : /data/home/nodered/grid-control-config/files-dashboard-state.json
 // - Logs   : /data/home/nodered/grid-control-logs/
 // Input (msg.topic):
-// - `load-root-files-ui-state-request` -> load persisted UI state + send file list
-// - `root-files-toggle-section`         -> toggle a folder section expanded/collapsed
-// - `root-files-select-file`            -> select file and preview its content
-// - `root-files-delete-file`            -> delete file and refresh list
-// - `root-files-refresh`                -> re-scan folders and send updated list
-// Output (1):
-// - output 1 -> dashboard UI payload for the root-files panel
+// - `load-root-files-ui-state-request` (dashboard opened), `files-refresh` -> rescan the folder
+// - `load-root-files-ui-state` (exec: the saved selection)                  -> restore it, rescan
+// - `root-files-nav` { action: prev | next | select | select-section | refresh, index }
+// - `root-files-list` / `root-file-content` (exec stdout)                   -> list / file text
+// Outputs (6):
+// - 1 summary text, 2 file list, 3 file content, 4 exec "list files", 5 exec "read file",
+//   6 file node that stores the selection
 // Change notes:
 // 1. Initial version.
 // 2. Fixed the folder regex (`//+$/` was parsed as a comment, so the node never compiled).
@@ -27,9 +26,13 @@
 //    each file's size; the panel shows used / free space. Output that lacks the `@@FILES`
 //    marker (e.g. stray stderr) is ignored. Opening the dashboard always rescans the folder
 //    and keeps the selected file. Removed the duplicate folder section.
+// 3. `.gz` files are unpacked for the preview, a plain-file preview is cut at 512 KB, the file path is
+//    shell-quoted, and the state file stores only the selection (it used to hold a copy of the
+//    whole selected file and the file list, rewritten on every click).
 // ==========================
 const ROOT_PATH = '/data/home/nodered/grid-control-logs';
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/files-dashboard-state.json';
+const MAX_PREVIEW_KB = 512;
 const FOLDER_SECTIONS = [
     '/data/home/nodered/grid-control-logs'
 ];
@@ -228,11 +231,10 @@ function buildPersistMsg(state) {
     const selectedFile = state.files[state.selectedIndex] || null;
     return {
         filename: CONFIG_PATH,
+        // Only the selection: the file list is rescanned and the content re-read on every open.
         payload: JSON.stringify({
-            selectedIndex: state.selectedIndex,
             selectedPath: selectedFile ? selectedFile.path : '',
-            files: state.files,
-            content: state.content,
+            content: { path: state.content.path, name: state.content.name },
             updatedAt: new Date().toISOString()
         }, null, 2),
         encoding: 'utf8'
@@ -322,10 +324,17 @@ function startListReload(state) {
     }, null, buildPersistMsg(state));
 }
 
+// Prints at most MAX_PREVIEW_KB of a plain file (`dd`: BusyBox on the GX has no `head -c`);
+// `.gz` files (heat pump hours, a few KB) are unpacked in full.
+// The path is quoted as a shell word, so a file name can never run as a command.
 function buildReadMsg(selectedFile) {
+    const file = selectedFile ? shellQuote(selectedFile.path) : '';
+    const reader = selectedFile && /\.gz$/.test(selectedFile.path)
+        ? 'gzip -dc ' + file
+        : 'dd if=' + file + ' bs=1024 count=' + MAX_PREVIEW_KB;
     return selectedFile ? {
         topic: 'root-file-content',
-        payload: shellQuote('cat "' + selectedFile.path + '" 2>/dev/null || printf ""'),
+        payload: shellQuote(reader + ' 2>/dev/null'),
         filePath: selectedFile.path,
         fileName: selectedFile.name
     } : null;

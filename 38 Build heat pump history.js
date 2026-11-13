@@ -30,6 +30,8 @@
 // > 30 Hz, plus the bypass time after it at a heating set point).
 // Change notes:
 // 1. Initial version (d#121).
+// 10. d#154: meter power (`pw`) is ignored while the meter state letter is not C (a stale /
+//    offline meter no longer adds kWh at its last reading).
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
 // 9. d#145: event lane kind 'error' (red) while DP 15 reports a fault, with the Er codes; at least
@@ -74,6 +76,7 @@ function parse(text) {
     let hour = 0;
     let last = null;
     let hpState = 'U';
+    let meterState = 'U';
     for (const line of String(text).split(/\r?\n/)) {
         if (!line) continue;
         if (line.startsWith('#day ')) {
@@ -91,13 +94,14 @@ function parse(text) {
             idx = KEYS.map((k) => cols.indexOf(k));
             last = KEYS.map(() => null);
             hpState = 'U';
+            meterState = 'U';
             continue;
         }
         if (!idx) continue;
         const cells = line.split(',');
         const t = Number(cells[0]);
         if (!Number.isFinite(t)) continue;
-        if (cells[1]) hpState = cells[1].charAt(0);
+        if (cells[1]) { hpState = cells[1].charAt(0); meterState = cells[1].charAt(3) || 'U'; }
         for (let i = 0; i < KEYS.length; i++) {
             const c = idx[i];
             if (c > 1 && cells[c] !== undefined && cells[c] !== '') {
@@ -105,7 +109,11 @@ function parse(text) {
                 last[i] = Number.isFinite(n) ? n : null;
             }
         }
-        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a: last.slice() });
+        const a = last.slice();
+        // An empty `pw` field means "unchanged", so a meter that went stale or offline would keep
+        // its last power for hours: the power only counts while the meter letter is C.
+        if (meterState !== 'C') a[K.pw] = null;
+        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a });
     }
     order.forEach((d) => days[d].rows.sort((x, y) => x.s - y.s));
     return { days, order };
