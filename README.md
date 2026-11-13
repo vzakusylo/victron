@@ -44,8 +44,8 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 | Page | What it is for |
 |---|---|
-| Energy / Energy Detail | hourly grid / AC / solar energy, daily files |
-| [Analytics](docs/dashboard.md#analytics-dashboard) | efficiency, PV routing, forecasts, capacity-tariff card |
+| Energy | hourly grid / AC / solar energy, daily files |
+| [Analytics](docs/dashboard.md#analytics-dashboard) | efficiency, PV routing, forecasts, capacity-tariff card, energy by day |
 | [Protection](docs/dashboard.md#protection-dashboard) | high-voltage limiter, Grid CT support, force charging, export guard |
 | [Files](docs/dashboard.md#files--logs-and-disk-usage) | log files with sizes, disk used / free, file viewer |
 | [Constants](docs/dashboard.md#controller-constants-dashboard) | controller constants incl. tariff seasons, tiers and grid current |

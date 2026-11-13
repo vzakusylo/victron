@@ -285,3 +285,21 @@ test('47: daily devices mail lists offline devices and batteries to replace, onc
     assert.equal(node.run({ topic: 'tick' }, { now: at8 + 60000 }).result, null, 'once a day');
     assert.ok(node.run({ topic: 'report' }, { now: at8 + 120000 }).result, 'on demand');
 });
+test('08: the solar forecast is capped by the real output of the last 14 days', () => {
+    const node = loadNode('08 Adjust solar forecast for shade.js');
+    const raw = { '2026-11-12 12:00:00': 2000, '2026-11-12 13:00:00': 1800, '2026-11-12 15:00:00': 500 };
+    const run = () => node.run({ payload: { result: raw } }, { now: NOW }).result.payload;
+
+    // No logged days yet: the June tables alone (12:00 -> 2000 * 0.72 = 1440 W).
+    assert.equal(run().adjustedResult['2026-11-12 12:00:00'], 1440);
+
+    const days = {};
+    for (let d = 1; d <= 10; d += 1) days['2026-11-' + String(d).padStart(2, '0')] = { 12: d === 4 ? 40 : 10, 13: 20 };
+    node.context.set('observedSolar', { readOn: '2026-11-12', days });
+    const p = run();
+    assert.equal(p.adjustedResult['2026-11-12 12:00:00'], 50, 'best 12:00 hour 40 Wh x 1.25');
+    assert.equal(p.adjustedResult['2026-11-12 13:00:00'], 25);
+    assert.equal(p.adjustedResult['2026-11-12 15:00:00'], 0, 'never produced at 15:00 lately');
+    assert.equal(p.today.condition, 'low');
+    assert.equal(p.assumptions.observedDays, 10);
+});

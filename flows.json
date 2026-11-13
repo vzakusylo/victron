@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#164 Day / Night Grid Control",
+    "label": "d#165 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -1030,20 +1030,11 @@
     "className": ""
   },
   {
-    "id": "ui-tab-hourly-stats-02",
-    "type": "ui_tab",
-    "name": "Energy Detail",
-    "icon": "dashboard",
-    "order": 2,
-    "disabled": false,
-    "hidden": false
-  },
-  {
     "id": "ui-group-hourly-stats-02",
     "type": "ui_group",
-    "name": "Hourly Grid and AC Detail",
-    "tab": "ui-tab-hourly-stats-02",
-    "order": 1,
+    "name": "Energy by day",
+    "tab": "ui-tab-analytics-01",
+    "order": 3,
     "disp": true,
     "width": "18",
     "collapse": false,
@@ -2288,13 +2279,18 @@
     "type": "function",
     "z": "995ac4ed6222a706",
     "name": "Adjust solar forecast for shade",
-    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `08 Adjust solar forecast for shade.js` and the embedded `func` for \"Adjust solar forecast for shade\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - Applies per-hour shade correction factors to the raw forecast.solar hourly W forecast.\n// - Stores the adjusted per-hour map into flow context `solarForecastAdjusted`.\n// Input:\n// - msg.payload : normalized hourly forecast data (output of \"Processed info\")\n// Flow context write:\n// - `solarForecastAdjusted` -> { adjustedResult: { 'YYYY-MM-DD HH:00': W, … }, updatedAt }\n// Output (1):\n// - output 1 -> msg with adjusted forecast payload; flow context updated\n// Change notes:\n// 1. Initial version.\n// 2. Updated hourlyCapW and sunnyRangeKWh from observed sunny-day data (6 Jun 2026): 16.7 kWh total, 2.7 kW peak.\n// ==========================\nfunction localDayKey(date) {\n    return [\n        date.getFullYear(),\n        String(date.getMonth() + 1).padStart(2, '0'),\n        String(date.getDate()).padStart(2, '0')\n    ].join('-');\n}\n\nconst result = msg.payload && msg.payload.result;\nif (!result || typeof result !== 'object') {\n    node.status({ fill: 'red', shape: 'ring', text: 'no forecast data' });\n    return null;\n}\n\nconst shadeByHour = {\n    5: 0.02,\n    6: 0.04,\n    7: 0.06,\n    8: 0.10,\n    9: 0.18,\n    10: 0.30,\n    11: 0.55,\n    12: 0.72,\n    13: 0.78,\n    14: 0.62,\n    15: 0.50,\n    16: 0.42,\n    17: 0.32,\n    18: 0.22,\n    19: 0.14,\n    20: 0.08,\n    21: 0.03\n};\n\nconst hourlyCapW = {\n    5: 100,\n    6: 200,\n    7: 500,\n    8: 1000,\n    9: 1000,\n    10: 2100,\n    11: 2200,\n    12: 2800,\n    13: 2300,\n    14: 2100,\n    15: 1100,\n    16: 1000,\n    17: 600,\n    18: 200,\n    19: 150,\n    20: 80,\n    21: 20\n};\n\nconst historicalReference = {\n    sunnyPeakKW: '2.5-2.8',\n    cloudyPeakKW: '<1.0',\n    dominantWindow: '11:00-17:00',\n    extendedWindow: '05:00-21:00'\n};\n\nconst resolution = Number(msg.resolution) || 1;\nconst periodHours = resolution > 0 ? 1 / resolution : 1;\nconst adjustedResult = {};\nconst summaryByDay = {};\n\nfor (const [key, rawValue] of Object.entries(result)) {\n    const date = new Date(key);\n    const hour = date.getHours();\n    const factor = shadeByHour[hour] || 0;\n    const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;\n    const capW = hourlyCapW[hour] || 0;\n    const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;\n    const dayKey = localDayKey(date);\n\n    adjustedResult[key] = adjustedW;\n\n    if (!summaryByDay[dayKey]) {\n        summaryByDay[dayKey] = {\n            energyWh: 0,\n            peakW: 0,\n            activeHours: 0\n        };\n    }\n\n    summaryByDay[dayKey].energyWh += adjustedW * periodHours;\n    summaryByDay[dayKey].peakW = Math.max(summaryByDay[dayKey].peakW, adjustedW);\n    if (adjustedW > 0) {\n        summaryByDay[dayKey].activeHours += periodHours;\n    }\n}\n\nconst todayKey = localDayKey(new Date());\nconst today = summaryByDay[todayKey] || { energyWh: 0, peakW: 0, activeHours: 0 };\nconst todayKWh = +(today.energyWh / 1000).toFixed(2);\nconst todayPeakKW = +(today.peakW / 1000).toFixed(2);\nconst condition = todayPeakKW >= 1.0 ? 'sunny' : (todayKWh >= 2 ? 'cloudy' : 'low');\n\nmsg.topic = 'solar-forecast-adjusted';\nmsg.payload = {\n    source: 'forecast.solar',\n    location: 'Hokksund, Norway',\n    activeWindow: '05:00-21:00',\n    dominantWindow: '11:00-17:00',\n    shading: 'trees / heavy shadow',\n    rawResult: result,\n    adjustedResult,\n    summaryByDay,\n    today: {\n        energyWh: Math.round(today.energyWh),\n        energyKWh: todayKWh,\n        peakW: today.peakW,\n        peakKW: todayPeakKW,\n        activeHours: +today.activeHours.toFixed(2),\n        condition\n    },\n    assumptions: {\n        sunnyRangeKWh: '14-18',\n        cloudyKWh: '4-8',\n        shadeByHour,\n        hourlyCapW,\n        historicalReference\n    }\n};\n\nnode.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW` });\nreturn msg;",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `08 Adjust solar forecast for shade.js` and the embedded `func` for \"Adjust solar forecast for shade\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - Applies per-hour shade correction factors to the raw forecast.solar hourly W forecast.\n// - Stores the adjusted per-hour map into flow context `solarForecastAdjusted`.\n// Input:\n// - msg.payload : normalized hourly forecast data (output of \"Processed info\")\n// Flow context write:\n// - `solarForecastAdjusted` -> { adjustedResult: { 'YYYY-MM-DD HH:00': W, … }, updatedAt }\n// Output (1):\n// - output 1 -> msg with adjusted forecast payload; flow context updated\n// Change notes:\n// 1. Initial version.\n// 2. Updated hourlyCapW and sunnyRangeKWh from observed sunny-day data (6 Jun 2026): 16.7 kWh total, 2.7 kW peak.\n// 3. Seasonal cap from real output: each hour is capped at the highest actual solar Wh of that\n//    hour in the last 14 days (energy-YYYY-MM.csv, needs the `fs` module in the node setup) x 1.25.\n//    On 13 Nov 2026 the June tables forecast 4.1 kWh / 1.06 kW \"sunny\" while November days gave\n//    0-0.13 kWh, so the controller expected solar that never came. Fewer than 7 logged days ->\n//    the June tables alone, as before.\n// ==========================\nfunction localDayKey(date) {\n    return [\n        date.getFullYear(),\n        String(date.getMonth() + 1).padStart(2, '0'),\n        String(date.getDate()).padStart(2, '0')\n    ].join('-');\n}\n\nconst result = msg.payload && msg.payload.result;\nif (!result || typeof result !== 'object') {\n    node.status({ fill: 'red', shape: 'ring', text: 'no forecast data' });\n    return null;\n}\n\nconst shadeByHour = {\n    5: 0.02,\n    6: 0.04,\n    7: 0.06,\n    8: 0.10,\n    9: 0.18,\n    10: 0.30,\n    11: 0.55,\n    12: 0.72,\n    13: 0.78,\n    14: 0.62,\n    15: 0.50,\n    16: 0.42,\n    17: 0.32,\n    18: 0.22,\n    19: 0.14,\n    20: 0.08,\n    21: 0.03\n};\n\nconst hourlyCapW = {\n    5: 100,\n    6: 200,\n    7: 500,\n    8: 1000,\n    9: 1000,\n    10: 2100,\n    11: 2200,\n    12: 2800,\n    13: 2300,\n    14: 2100,\n    15: 1100,\n    16: 1000,\n    17: 600,\n    18: 200,\n    19: 150,\n    20: 80,\n    21: 20\n};\n\n// Seasonal correction from what the panels really produced. The tables above come from\n// June; with the low autumn / winter sun the trees shade the panels almost all day, so the\n// June caps overestimate November ~20x. Per hour, the forecast is capped at the highest\n// actual solar Wh of that hour in the last OBSERVED_DAYS days x OBSERVED_HEADROOM.\nconst LOG_DIR = '/data/home/nodered/grid-control-logs/';\nconst OBSERVED_DAYS = 14;\nconst OBSERVED_MIN_DAYS = 7;\nconst OBSERVED_HEADROOM = 1.25;\n\nfunction readObservedDays(now) {\n    // Cached per day in node context; tests set `observedSolar` directly.\n    const cached = context.get('observedSolar');\n    const todayKey = localDayKey(now);\n    if (cached && cached.readOn === todayKey) {\n        return cached;\n    }\n    if (typeof fs === 'undefined') {\n        return cached || null;\n    }\n    const first = new Date(now.getFullYear(), now.getMonth(), now.getDate() - OBSERVED_DAYS);\n    const months = [localDayKey(first).substring(0, 7), todayKey.substring(0, 7)];\n    const days = {};\n    Array.from(new Set(months)).forEach(month => {\n        let text = '';\n        try {\n            text = fs.readFileSync(LOG_DIR + 'energy-' + month + '.csv', 'utf8');\n        } catch (error) {\n            return;\n        }\n        text.split(/\\r?\\n/).forEach(line => {\n            const m = line.match(/^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}),[-]?\\d+,[-]?\\d+,([-]?\\d+)/);\n            if (!m || m[1] < localDayKey(first) || m[1] >= todayKey) {\n                return;\n            }\n            const day = days[m[1]] || (days[m[1]] = {});\n            day[Number(m[2])] = Math.max(0, Number(m[3]) || 0);\n        });\n    });\n    const state = { readOn: todayKey, days };\n    context.set('observedSolar', state);\n    return state;\n}\n\nfunction observedCapByHour(now) {\n    const observed = readObservedDays(now);\n    const dayKeys = observed && observed.days ? Object.keys(observed.days) : [];\n    if (dayKeys.length < OBSERVED_MIN_DAYS) {\n        return null;\n    }\n    const caps = {};\n    for (let hour = 0; hour < 24; hour += 1) {\n        const peak = dayKeys.reduce((max, key) => Math.max(max, Number(observed.days[key][hour]) || 0), 0);\n        caps[hour] = Math.round(peak * OBSERVED_HEADROOM);\n    }\n    return { caps, days: dayKeys.length };\n}\n\nconst observedCap = observedCapByHour(new Date());\n\nconst historicalReference = {\n    sunnyPeakKW: '2.5-2.8',\n    cloudyPeakKW: '<1.0',\n    dominantWindow: '11:00-17:00',\n    extendedWindow: '05:00-21:00'\n};\n\nconst resolution = Number(msg.resolution) || 1;\nconst periodHours = resolution > 0 ? 1 / resolution : 1;\nconst adjustedResult = {};\nconst summaryByDay = {};\n\nfor (const [key, rawValue] of Object.entries(result)) {\n    const date = new Date(key);\n    const hour = date.getHours();\n    const factor = shadeByHour[hour] || 0;\n    const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;\n    const tableCapW = hourlyCapW[hour] || 0;\n    const capW = observedCap ? Math.min(tableCapW, observedCap.caps[hour]) : tableCapW;\n    const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;\n    const dayKey = localDayKey(date);\n\n    adjustedResult[key] = adjustedW;\n\n    if (!summaryByDay[dayKey]) {\n        summaryByDay[dayKey] = {\n            energyWh: 0,\n            peakW: 0,\n            activeHours: 0\n        };\n    }\n\n    summaryByDay[dayKey].energyWh += adjustedW * periodHours;\n    summaryByDay[dayKey].peakW = Math.max(summaryByDay[dayKey].peakW, adjustedW);\n    if (adjustedW > 0) {\n        summaryByDay[dayKey].activeHours += periodHours;\n    }\n}\n\nconst todayKey = localDayKey(new Date());\nconst today = summaryByDay[todayKey] || { energyWh: 0, peakW: 0, activeHours: 0 };\nconst todayKWh = +(today.energyWh / 1000).toFixed(2);\nconst todayPeakKW = +(today.peakW / 1000).toFixed(2);\nconst condition = todayPeakKW >= 1.0 ? 'sunny' : (todayKWh >= 2 ? 'cloudy' : 'low');\n\nmsg.topic = 'solar-forecast-adjusted';\nmsg.payload = {\n    source: 'forecast.solar',\n    location: 'Hokksund, Norway',\n    activeWindow: '05:00-21:00',\n    dominantWindow: '11:00-17:00',\n    shading: 'trees / heavy shadow',\n    rawResult: result,\n    adjustedResult,\n    summaryByDay,\n    today: {\n        energyWh: Math.round(today.energyWh),\n        energyKWh: todayKWh,\n        peakW: today.peakW,\n        peakKW: todayPeakKW,\n        activeHours: +today.activeHours.toFixed(2),\n        condition\n    },\n    assumptions: {\n        sunnyRangeKWh: '14-18',\n        cloudyKWh: '4-8',\n        shadeByHour,\n        hourlyCapW,\n        observedCapW: observedCap ? observedCap.caps : null,\n        observedDays: observedCap ? observedCap.days : 0,\n        historicalReference\n    }\n};\n\nnode.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW | ${observedCap ? 'obs ' + observedCap.days + 'd' : 'June caps'}` });\nreturn msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "fs",
+        "module": "fs"
+      }
+    ],
     "x": 810,
     "y": 1278,
     "wires": [
@@ -2656,9 +2652,7 @@
       [
         "fa6dc3252e5e9c91"
       ],
-      [
-        "384275af4f557f0a"
-      ]
+      []
     ],
     "g": "lay-g-hourly"
   },
@@ -2925,7 +2919,7 @@
     "order": 4,
     "width": "18",
     "height": "10",
-    "format": "<style>\n.hourly-stats-table { width: 100%; border-collapse: collapse; font-size: 13px; }\n.hourly-stats-table th, .hourly-stats-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); text-align: right; }\n.hourly-stats-table th:first-child, .hourly-stats-table td:first-child { text-align: left; }\n.hourly-stats-table th:last-child, .hourly-stats-table td:last-child { text-align: center; }\n.hourly-stats-table tr.live-row { font-weight: 600; }\n.hourly-stats-table tr.pending-row td { opacity: 0.45; }\n.hourly-stats-wrap { padding: 6px 2px; overflow-x: auto; }\n.hourly-stats-caption { margin: 0; font-size: 13px; opacity: 0.85; }\n.hourly-stats-nav { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 0 0 10px 0; }\n.hourly-stats-nav-buttons { display: flex; gap: 8px; }\n.hourly-stats-nav button { border: 0; border-radius: 999px; padding: 6px 12px; background: #0094ce; color: #fff; cursor: pointer; font-size: 12px; }\n.hourly-stats-day { font-weight: 600; }\n.hourly-stats-file { margin-top: 4px; font-size: 12px; opacity: 0.7; word-break: break-all; }\n</style>\n<div class=\"hourly-stats-wrap\">\n  <div class=\"hourly-stats-nav\">\n    <div>\n      <p class=\"hourly-stats-caption\">Energy history by day</p>\n      <div class=\"hourly-stats-day\">{{msg.payload.dateKey || 'Current day'}} <span ng-if=\"msg.payload.isToday\">(today)</span></div>\n      <div class=\"hourly-stats-file\">File: {{msg.payload.fileName || 'n/a'}}</div>\n    </div>\n    <div class=\"hourly-stats-nav-buttons\">\n      <button ng-click=\"navigate('prev')\">Previous day</button>\n      <button ng-click=\"navigate('today')\">Today</button>\n      <button ng-click=\"navigate('next')\" ng-disabled=\"msg.payload.isToday\">Next day</button>\n    </div>\n  </div>\n  <table class=\"hourly-stats-table\">\n    <thead>\n      <tr>\n        <th>Hour</th>\n        <th>Grid Wh</th>\n        <th>AC Wh</th>\n        <th>Sol Wh</th>\n        <th>State</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr ng-repeat=\"row in msg.payload.rows track by $index\" ng-class=\"{'live-row': row.status === 'live', 'pending-row': row.status === 'pending'}\">\n        <td>{{row.hour}}</td>\n        <td>{{row.gridWh}}</td>\n        <td>{{row.acWh}}</td>\n        <td>{{row.solarWh || 0}}</td>\n        <td>{{row.status}}</td>\n      </tr>\n    </tbody>\n  </table>\n</div>\n<script>\n(function(scope) {\n    scope.navigate = function(action) {\n        scope.send({ topic: 'hourly-day-nav', payload: { action: action } });\n    };\n})(scope);\n</script>",
+    "format": "<style>\n.hourly-stats-table { width: 100%; border-collapse: collapse; font-size: 13px; }\n.hourly-stats-table th, .hourly-stats-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); text-align: right; }\n.hourly-stats-table th:first-child, .hourly-stats-table td:first-child { text-align: left; }\n.hourly-stats-table th:last-child, .hourly-stats-table td:last-child { text-align: center; }\n.hourly-stats-table tr.live-row { font-weight: 600; }\n.hourly-stats-table tr.pending-row td { opacity: 0.45; }\n.hourly-stats-wrap { padding: 6px 2px; overflow-x: auto; }\n.hourly-stats-caption { margin: 0; font-size: 13px; opacity: 0.85; }\n.hourly-stats-nav { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 0 0 10px 0; }\n.hourly-stats-nav-buttons { display: flex; gap: 8px; }\n.hourly-stats-nav button { border: 0; border-radius: 999px; padding: 6px 12px; background: #0094ce; color: #fff; cursor: pointer; font-size: 12px; }\n.hourly-stats-day { font-weight: 600; }\n.hourly-stats-file { margin-top: 4px; font-size: 12px; opacity: 0.7; word-break: break-all; }\n</style>\n<div class=\"hourly-stats-wrap\">\n  <div class=\"hourly-stats-nav\">\n    <div>\n      <div class=\"hourly-stats-day\">{{msg.payload.dateKey || 'Current day'}} <span ng-if=\"msg.payload.isToday\">(today)</span></div>\n    </div>\n    <div class=\"hourly-stats-nav-buttons\">\n      <button ng-click=\"navigate('prev')\">Previous day</button>\n      <button ng-click=\"navigate('today')\">Today</button>\n      <button ng-click=\"navigate('next')\" ng-disabled=\"msg.payload.isToday\">Next day</button>\n    </div>\n  </div>\n  <table class=\"hourly-stats-table\">\n    <thead>\n      <tr>\n        <th>Hour</th>\n        <th>Grid Wh</th>\n        <th>AC Wh</th>\n        <th>Sol Wh</th>\n        <th>State</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr ng-repeat=\"row in msg.payload.rows track by $index\" ng-class=\"{'live-row': row.status === 'live', 'pending-row': row.status === 'pending'}\">\n        <td>{{row.hour}}</td>\n        <td>{{row.gridWh}}</td>\n        <td>{{row.acWh}}</td>\n        <td>{{row.solarWh || 0}}</td>\n        <td>{{row.status}}</td>\n      </tr>\n    </tbody>\n  </table>\n</div>\n<script>\n(function(scope) {\n    scope.navigate = function(action) {\n        scope.send({ topic: 'hourly-day-nav', payload: { action: action } });\n    };\n})(scope);\n</script>",
     "storeOutMessages": true,
     "fwdInMessages": false,
     "resendOnRefresh": true,
@@ -2937,28 +2931,6 @@
       [
         "c45dc5b7ad338001"
       ]
-    ],
-    "g": "lay-g-hourly"
-  },
-  {
-    "id": "384275af4f557f0a",
-    "type": "ui_template",
-    "z": "995ac4ed6222a706",
-    "group": "ui-group-hourly-stats-02",
-    "name": "Selected file raw contents",
-    "order": 5,
-    "width": "18",
-    "height": "9",
-    "format": "<style>\n.hourly-file-box { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; background: #fafafa; padding: 10px; }\n.hourly-file-box-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }\n.hourly-file-box-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-bottom: 6px; }\n.hourly-file-box-status { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: #d8e8fb; color: #0f5ca8; font-weight: 600; text-transform: capitalize; }\n.hourly-file-box-size { opacity: 0.75; }\n.hourly-file-box-name { font-size: 12px; opacity: 0.75; margin-bottom: 8px; word-break: break-all; }\n.hourly-file-box-scroll { max-height: 320px; overflow-y: auto; overflow-x: auto; padding: 10px; border-radius: 8px; background: #ffffff; border: 1px solid rgba(0,0,0,0.06); }\n.hourly-file-box-scroll pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; }\n</style>\n<div class=\"hourly-file-box\">\n  <div class=\"hourly-file-box-title\">Loaded file contents</div>\n  <div class=\"hourly-file-box-meta\">\n    <div class=\"hourly-file-box-status\">{{msg.payload.status || 'idle'}}</div>\n    <div class=\"hourly-file-box-size\">Size: {{msg.payload.fileSize || 0}} bytes</div>\n  </div>\n  <div class=\"hourly-file-box-name\">{{msg.payload.fileName || 'n/a'}}</div>\n  <div class=\"hourly-file-box-scroll\">\n    <pre>{{msg.payload.rawText || 'No file contents loaded.'}}</pre>\n  </div>\n</div>",
-    "storeOutMessages": true,
-    "fwdInMessages": false,
-    "resendOnRefresh": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 847,
-    "y": 893,
-    "wires": [
-      []
     ],
     "g": "lay-g-hourly"
   },
