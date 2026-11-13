@@ -32,6 +32,13 @@
 // 1. Initial version (d#121).
 // 10. d#154: meter power (`pw`) is ignored while the meter state letter is not C (a stale /
 //    offline meter no longer adds kWh at its last reading).
+// 12. d#162: two power charts (owner: "split Power, W: compressor power, current and voltage
+//    (calculated) and the SA1 meter W, current and voltage (measured)"): chart.powers = [compressor,
+//    meter], each W / A / V. Meter V and A are decoded from the recorded raw DP 6 (column m6),
+//    only while the meter state letter is C. Replaces chart.power.
+// 11. d#160: the meter series of the power chart is named "Power meter SA1 W (current transformer
+//    on the heat pump wire)" (owner: add the SA1 meter to the Power chart; it was there as
+//    "Heat pump W (meter)").
 // 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
 // 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
 // 9. d#145: event lane kind 'error' (red) while DP 15 reports a fault, with the Er codes; at least
@@ -48,7 +55,8 @@
 //    (a series is shown only when the day has data for it).
 // ==========================
 
-const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp', '15'];
+// mv / ma (d#162) = SA1 meter voltage / current, decoded from its raw DP 6 (column `m6`)
+const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp', '15', 'mv', 'ma'];
 // DP 15 fault bits (same list as 34 / 40), for the red error marks of the event lane (d#145)
 const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'Er14', 'Er15', 'Er16',
     'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',
@@ -61,6 +69,13 @@ const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133); onl
 // d#134 (owner): compressor power = DC bus voltage (DP 114) × compressor current (DP 112)
 const compW = (amp, bus) => (amp === null ? null : Math.max(0, amp) * (bus !== null && bus > 0 ? bus : W_PER_A));
 const BUCKET_S = 120;
+// SA1 DP 6 (base64): voltage 2 B (0.1 V), current 3 B (mA), power 3 B (W) — same decode as 34
+function meterVA(s) {
+    let b;
+    try { b = Buffer.from(String(s), 'base64'); } catch (e) { return null; }
+    if (!b || b.length < 8) return null;
+    return { v: b.readUInt16BE(0) / 10, a: b.readUIntBE(2, 3) / 1000 };
+}
 const CACHE_DAYS = 60;
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -92,6 +107,7 @@ function parse(text) {
             hour = Number(m[2]);
             const cols = m[3].split(',');
             idx = KEYS.map((k) => cols.indexOf(k));
+            idx.m6 = cols.indexOf('m6');
             last = KEYS.map(() => null);
             hpState = 'U';
             meterState = 'U';
@@ -109,10 +125,16 @@ function parse(text) {
                 last[i] = Number.isFinite(n) ? n : null;
             }
         }
+        const m6 = idx.m6 > 1 ? cells[idx.m6] : undefined;
+        if (m6 !== undefined && m6 !== '') {
+            const va = meterVA(m6);
+            last[K.mv] = va ? va.v : null;
+            last[K.ma] = va ? va.a : null;
+        }
         const a = last.slice();
         // An empty `pw` field means "unchanged", so a meter that went stale or offline would keep
         // its last power for hours: the power only counts while the meter letter is C.
-        if (meterState !== 'C') a[K.pw] = null;
+        if (meterState !== 'C') { a[K.pw] = null; a[K.mv] = null; a[K.ma] = null; }
         days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a });
     }
     order.forEach((d) => days[d].rows.sort((x, y) => x.s - y.s));
@@ -219,29 +241,44 @@ function chart(rows, dv) {
     const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c'],
         ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
 
-    const powDefs = [['Compressor W (DC bus × current)', KEYS.length, '#8c564b'], ['Heat pump W (meter)', K.pw, '#9467bd']];
-    // d#141: compressor current (DP 112) on the power chart, right axis in A
-    const ampDef = ['Compressor current, A', K['112'], '#e377c2'];
-    let tMin = Infinity, tMax = -Infinity, pMax = 0, aMax = 0;
+    let tMin = Infinity, tMax = -Infinity;
     buckets.forEach((b) => {
         tempDefs.forEach(([, k]) => { const v = val(b, K[k]); if (v !== null) { tMin = Math.min(tMin, v); tMax = Math.max(tMax, v); } });
-        powDefs.forEach(([, j]) => { const v = val(b, j); if (v !== null) pMax = Math.max(pMax, v); });
-        { const v = val(b, ampDef[1]); if (v !== null) aMax = Math.max(aMax, v); }
     });
     if (!Number.isFinite(tMin)) { tMin = 0; tMax = 50; }
     const yMin = Math.floor(tMin / 10) * 10, yMax = Math.max(yMin + 10, Math.ceil(tMax / 10) * 10);
     const yT = (v) => +(T1 + (yMax - v) / (yMax - yMin) * (B1 - T1)).toFixed(1);
-    const pTop = Math.max(1000, Math.ceil(pMax / 1000) * 1000);
-    const yP = (v) => +(PB - v / pTop * (PB - PT)).toFixed(1);
-    const pTicks = [];
-    for (let v = 0; v <= pTop; v += pTop <= 2000 ? 500 : 1000) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
-    // right axis: as many steps as the W axis, so the grid lines are shared
-    const pSteps = pTicks.length - 1;
-    const aStep = Math.max(1, Math.ceil(Math.max(aMax, 1) / pSteps));
-    const aTop = aStep * pSteps;
-    const yA = (v) => +(PB - v / aTop * (PB - PT)).toFixed(1);
-    const aTicks = pTicks.map((t, i) => ({ label: i * aStep, y: t.y }));
 
+    // d#162: one power chart: W on the left axis, A on the right axis (same grid), V on its own
+    // scale (day min … max, labels in the plot)
+    function powerChart(id, title, note, wDef, aDef, vDef) {
+        let wMax = 0, aMax = 0, vMin = Infinity, vMax = -Infinity;
+        buckets.forEach((b) => {
+            const w = val(b, wDef[1]), am = val(b, aDef[1]), v = val(b, vDef[1]);
+            if (w !== null) wMax = Math.max(wMax, w);
+            if (am !== null) aMax = Math.max(aMax, am);
+            if (v !== null) { vMin = Math.min(vMin, v); vMax = Math.max(vMax, v); }
+        });
+        const top = Math.max(1000, Math.ceil(wMax / 1000) * 1000);
+        const yP = (v) => +(PB - v / top * (PB - PT)).toFixed(1);
+        const ticks = [];
+        for (let v = 0; v <= top; v += top <= 2000 ? 500 : 1000) ticks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
+        const steps = ticks.length - 1;
+        const aStep = Math.max(1, Math.ceil(Math.max(aMax, 1) / steps));
+        const aTop = aStep * steps;
+        const yA = (v) => +(PB - v / aTop * (PB - PT)).toFixed(1);
+        const aTicks = ticks.map((tk, i) => ({ label: i * aStep, y: tk.y }));
+        let vLo = null, vHi = null;
+        if (Number.isFinite(vMin)) { vLo = Math.floor(vMin / 10) * 10 - 10; vHi = Math.ceil(vMax / 10) * 10 + 10; }
+        const yV = (v) => +(PB - (v - vLo) / (vHi - vLo) * (PB - PT)).toFixed(1);
+        const series = [
+            { name: wDef[0], color: wDef[2], unit: 'W', min: 0, max: top, segs: segs(wDef[1], yP), v: vals(wDef[1], 0) },
+            { name: aDef[0], color: aDef[2], unit: 'A', min: 0, max: aTop, right: true, segs: segs(aDef[1], yA), v: vals(aDef[1], 2) }
+        ];
+        if (vLo !== null) series.push({ name: vDef[0], color: vDef[2], unit: 'V', min: vLo, max: vHi, volt: true, segs: segs(vDef[1], yV), v: vals(vDef[1], 1) });
+        return { id, title, note, viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks, aTicks, max: top, aMax: aTop,
+            vLabels: vLo === null ? null : { hi: vHi, lo: vLo, color: vDef[2] }, series: series.filter((s) => s.segs.length) };
+    }
     function segs(j, y) {
         const out = [];
         let cur = [];
@@ -306,10 +343,14 @@ function chart(rows, dv) {
         eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
         xTicks, tTicks,
         temp: tempDefs.map(([name, k, color]) => ({ name, color, unit: '°C', segs: segs(K[k], yT), v: vals(K[k], 1) })).filter((s) => s.segs.length),
-        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks, aTicks, max: pTop, aMax: aTop,
-            series: powDefs.map(([name, j, color]) => ({ name, color, unit: 'W', max: pTop, segs: segs(j, yP), v: vals(j, 0) }))
-                .concat([{ name: ampDef[0], color: ampDef[2], unit: 'A', max: aTop, right: true, segs: segs(ampDef[1], yA), v: vals(ampDef[1], 1) }])
-                .filter((s) => s.segs.length) }
+        // d#162 (owner): two power charts — compressor (calculated: DC bus V × current) and the SA1
+        // meter (measured on the heat pump wire); each W (left axis), A (right axis), V (own scale)
+        powers: [
+            powerChart('compressor', 'Compressor (calculated)', 'compressor power = DC bus voltage (DP 114) × compressor current (DP 112); the heat pump\'s own readings',
+                ['Compressor W', KEYS.length, '#8c564b'], ['Compressor current, A', K['112'], '#e377c2'], ['DC bus voltage, V', K['114'], '#7f7f7f']),
+            powerChart('meter', 'Power meter SA1 (measured)', 'SA1 current transformer on the heat pump wire: power, current and mains voltage of the whole unit',
+                ['Meter W', K.pw, '#9467bd'], ['Meter current, A', K.ma, '#17becf'], ['Mains voltage, V', K.mv, '#bcbd22'])
+        ].filter((c) => c.series.length)
     };
 }
 

@@ -103,6 +103,8 @@
 //    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
 //    and is written at once after a DHW mode / settings change.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
+// 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
+//    owner). The page sets only the two ends; a saved curve of more points still works.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
@@ -170,7 +172,7 @@ const DHW_ID = 'dhw';
 const DHW_NAME = 'DHW controller';
 const UNIT_MAX_A = 9.67;   // nameplate PW030-DKZLRS-A
 const DHW_DEFAULTS = {
-    curve: [[-15, 40], [-10, 42], [-5, 44], [0, 46], [2, 49]],   // outdoor °C → tank target °C
+    curve: [[-20, 37], [1, 50]],   // outdoor °C → tank target °C; d#161: a straight line, 40 °C at -15, 50 °C at 1
     frostLimit: -20,     // below: no DHW by the heat pump (electric heater only)
     hyst: 3,             // start when tank < target − hyst
     gap: 5,              // DHW: curve supply ≤ return + gap while the ramp runs

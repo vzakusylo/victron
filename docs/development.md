@@ -13,14 +13,14 @@
 
 ## Repository contents
 
-- `NN Name.js` (`01 Battery + Grid Controller.js` … `52 Air monitor.js`)  
+- `NN Name.js` (`01 Battery + Grid Controller.js` … `54 Air quality history.js`)  
   One readable source file per Node-RED function node. The node name is the file name without the number.
 
 - `NN Name.init.js` (`40 Heat pump automations.init.js`, `45 Compressor resource.init.js`)  
   The On Start code of that function node.
 
-- `NN Name.html` (`35`, `39`, `41`, `43`, `49`, `51`)  
-  Sources of the heat pump, automation, Payback and Devices `ui_template` pages. The other dashboard templates live only in `flows.json`.
+- `NN Name.html` (`35`, `39`, `41`, `43`, `49`, `51`, `53`, `55`)  
+  Sources of the heat pump, automation, Payback, Devices and Air quality `ui_template` pages. The other dashboard templates live only in `flows.json`.
 
 - `flows.json`  
   The Node-RED flow that runs on the Cerbo GX. Function code in it is generated from the sources.
