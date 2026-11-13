@@ -169,3 +169,42 @@ test('04: file preview unpacks .gz, is size-limited and quotes the path; the sta
     assert.equal(persisted.content.path, dir + '/a.log');
     assert.equal(persisted.files, undefined);
 });
+
+test('52 / 50: a Qingping MQTT message becomes the Air monitor card of the Devices page', () => {
+    const air = loadNode('52 Air monitor.js');
+    const ts = Math.round(NOW / 1000);
+    const payload = JSON.stringify({ type: '17', mac: '582D34701F19', timestamp: ts, sensorData: [
+        { timestamp: { value: ts - 900 }, co2: { value: 500 }, pm25: { value: 3 } },
+        { timestamp: { value: ts - 60 }, temperature: { value: 21.4 }, humidity: { value: 38.2 }, co2: { value: 612 }, pm25: { value: 4 }, pm10: { value: 5 }, tvoc: { value: 87 } }
+    ] });
+    air.run({ topic: 'qingping/582D34701F19/up', payload }, { now: NOW });
+    air.run({ topic: 'qingping/582D34701F19/up', payload: '{"type":"13"}' }, { now: NOW + 1000 });   // no readings: values stay
+    air.run({ topic: 'qingping/582D34701F19/up', payload: 'not json' }, { now: NOW + 2000 });
+    const stored = air.flow.get('airMonitor')['582D34701F19'];
+    assert.equal(stored.t, (ts - 60) * 1000);
+    assert.equal(stored.values.co2, 612);
+
+    const devices = loadNode('50 Devices model.js');
+    const card = (now) => {
+        devices.flow.set('airMonitor', air.flow.get('airMonitor'));
+        return devices.run({ topic: 'read', payload: '' }, { now }).result[0].payload.devices.find((d) => d.group === 'air');
+    };
+    const fresh = card(NOW + 5 * 60 * 1000);
+    assert.equal(fresh.online, true);
+    assert.deepEqual(fresh.values.find((v) => v.k === 'CO2'), { k: 'CO2', v: '612 ppm' });
+    assert.deepEqual(fresh.values.find((v) => v.k === 'Temperature'), { k: 'Temperature', v: '21.4 °C' });
+    assert.equal(card(NOW + 2 * 3600 * 1000).online, false);
+
+    // online by the GX receive time, not the monitor clock; other MACs get no card
+    const skewed = JSON.parse(JSON.stringify(air.flow.get('airMonitor')));
+    skewed['582D34701F19'].t -= 3600 * 1000;                      // monitor clock 1 h behind
+    skewed.AABBCCDDEEFF = { mac: 'AABBCCDDEEFF', t: NOW, seen: NOW, values: { co2: 1 } };
+    devices.flow.set('airMonitor', skewed);
+    const list = devices.run({ topic: 'read', payload: '' }, { now: NOW + 3 * 60 * 1000 }).result[0].payload.devices.filter((d) => d.group === 'air');
+    assert.equal(list.length, 1);
+    assert.equal(list[0].online, true);
+
+    const empty = loadNode('50 Devices model.js').run({ topic: 'read', payload: '' }, { now: NOW }).result[0].payload.devices.find((d) => d.group === 'air');
+    assert.equal(empty.online, false);
+    assert.match(empty.note, /developer\.qingping\.co/);
+});

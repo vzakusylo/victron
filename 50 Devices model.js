@@ -38,6 +38,11 @@
 //    detectors: they report to the Tuya cloud only) are read from the cloud by
 //    tools/tuya-cloud-sensors.js (every 30 min, only while there is no local reading for 24 h) and
 //    marked 'cloud' on their card. Smoke detectors report about once a day: online for SMOKE_STALE_H.
+// 4. d#156: Qingping Air Monitor card (group 'air') from flow `airMonitor` of "Air monitor" (52):
+//    the monitor pushes its readings to the MQTT broker of the GX. Online with a reading in the
+//    last AIR_STALE_MS.
+// 5. d#158 (review of PR #13): AIR_STALE_MS 5 min (reports every 60 s); online by the time the GX
+//    got the data (`seen`), not the monitor clock; only the known monitor MAC gets a card.
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
@@ -59,6 +64,13 @@ const SENSOR_STALE_H = 24;
 const SMOKE_STALE_H = 48;                  // smoke detectors (ywbj) report about once a day
 const LOW_BAT_PCT = 20;
 const MIN_READ_GAP_MS = 20000;
+// Qingping Air Monitor (52): reports every 60 s (retained interval command on its down topic)
+const AIR = { mac: '582D34701F19', name: 'Air monitor', product: 'Qingping Air Monitor', ip: '192.168.1.58', broker: '192.168.1.94:1883' };
+const AIR_STALE_MS = 5 * 60 * 1000;
+const AIR_VALUES = [
+    ['co2', 'CO2', 'ppm'], ['pm25', 'PM2.5', 'µg/m³'], ['pm10', 'PM10', 'µg/m³'], ['tvoc', 'tVOC', 'ppb'], ['tvoc_index', 'tVOC index', ''],
+    ['temperature', 'Temperature', '°C'], ['humidity', 'Humidity', '%'], ['noise', 'Noise', 'dB'], ['battery', 'Battery', '%']
+];
 
 // Known network data of the Tuya devices (docs/heat-pump.md); the battery sensors also report it
 // in their local readings.
@@ -285,6 +297,31 @@ function smartLifeDevices(now, meta, poll, last, cloud) {
     return out.sort((a, b) => (a.group === b.group ? a.name.localeCompare(b.name) : a.group.localeCompare(b.group)));
 }
 
+// Qingping Air Monitor: pushes its readings to the MQTT broker of the GX ("Air monitor", 52).
+function airDevices(now) {
+    // only the known monitor: any LAN client may publish to qingping/<mac>/up
+    const all = flow.get('airMonitor') || {};
+    return [AIR.mac].map((mac) => {
+        const r = all[mac] || {};
+        const v = r.values || {};
+        const t = r.t || 0;
+        // online by the time the GX got data (`seen`), so a drifting monitor clock does not matter
+        const got = r.t ? Math.max(t, r.seen || 0) : 0;
+        const online = !!got && now - got <= AIR_STALE_MS;
+        const values = [];
+        for (const row of AIR_VALUES) if (v[row[0]] !== undefined && v[row[0]] !== null) values.push({ k: row[1], v: v[row[0]] + (row[2] ? ' ' + row[2] : '') });
+        let note = '';
+        if (!t) note = 'no MQTT message yet: set a Private Access Config (self-built MQTT, ' + AIR.broker + ') on developer.qingping.co';
+        else if (!online) note = 'no reading for ' + Math.round((now - got) / 60000) + ' min';
+        return {
+            group: 'air', id: 'air-' + mac, name: mac === AIR.mac ? AIR.name : 'Qingping ' + mac, product: AIR.product, power: 'mains',
+            ip: mac === AIR.mac ? AIR.ip : '', ver: '', link: 'MQTT push to the GX (Wi-Fi)', state: online ? 'CONNECTED' : 'OFFLINE',
+            lastData: t, ageS: t ? Math.round((now - t) / 1000) : null, online, values,
+            battery: null, note
+        };
+    });
+}
+
 function victronDevices(db) {
     if (!db || db.error) return [];
     return (db.services || []).map((s) => {
@@ -319,7 +356,7 @@ const now = Date.now();
 if (msg.topic === 'read') {
     const p = parse(msg.payload);
     const smart = smartLifeDevices(now, p.meta, p.poll, p.last, p.cloud);
-    const devices = tuyaDevices(now, p.last).concat(smart, victronDevices(p.dbus));
+    const devices = tuyaDevices(now, p.last).concat(smart, airDevices(now), victronDevices(p.dbus));
     // battery sensors for the low-battery / offline mails of "Heat pump alerts" (47)
     flow.set('deviceBatteries', smart.filter((d) => d.alert).map((d) => ({ id: d.id, name: d.name, battery: d.battery, lastData: d.lastData, source: d.source, staleH: d.staleH })));
     const model = {
