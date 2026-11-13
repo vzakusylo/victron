@@ -11,6 +11,8 @@
   - [Driver — battery driver, BMS and MultiPlus health](#driver--battery-driver-bms-and-multiplus-health)
   - [Device — GX device health](#device--gx-device-health)
   - [Backup — backup and restore of the whole setup](#backup--backup-and-restore-of-the-whole-setup)
+  - [Payback — savings and payback of the equipment](#payback--savings-and-payback-of-the-equipment)
+  - [Devices — every device and sensor online](#devices--every-device-and-sensor-online)
   - [Files — logs and disk usage](#files--logs-and-disk-usage)
   - [Constants — controller constants and tariff seasons](#constants--controller-constants-and-tariff-seasons)
   - [Analytics dashboard](#analytics-dashboard)
@@ -53,7 +55,31 @@ CPU (sampled over 1 s), load, memory, disks, temperature, uptime, Venus OS versi
 
 ![Backup and Restore dashboard — create, download, delete, upload and restore with safety backup](images/dashboard-backup.png)
 
-Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). See [Backup & restore](backup-restore.md).
+Creates one `.tar.gz` with the energy history, dashboard settings, Node-RED flows / credentials and the battery driver; download, delete, upload and restore it (with an automatic `pre-restore` backup and a root SSH command for a full restore on a new device). The card **Data archive by e-mail** mails the energy and heating data (last 7 / 31 days or all history) as a `.tar.gz` attachment, by a button and every Monday 07:00. See [Backup & restore](backup-restore.md).
+
+### Payback — savings and payback of the equipment
+
+Tab **Payback** (d#148; model `48 Payback model.js`, page `49 Payback page.html`). Reads the hourly energy history (`grid-control-logs/energy-YYYY-MM.csv` and the older `energy-YYYY-MM-DD.log`) once an hour and on open, and shows:
+
+- equipment cost (EUR × EUR/NOK), saved so far, what is left, % paid back and a straight-line estimate of the payback (years, month);
+- the saving split into **peak shaving** (monthly capacity step from the real grid peaks vs. from the house load), **solar** (solar kWh × energy price + grid energy charge of the hour) and **battery shift** (house load − grid import − solar, priced per hour: cheaper night import minus charge / discharge losses);
+- a table per month: days with data, peak with / without the system, step with / without, the three parts and the total, grid and load kWh.
+
+Model: all loads are behind the MultiPlus, so the AC load is what the house would import without the system (there is no export). Peak = average of the 3 highest billable hours on 3 different days, night 22–06 at the night factor (70 %). The current month counts as far as it has run. One fixed energy price is used (no hourly spot prices in the data). Not counted: backup power during outages.
+
+Settings on the page (stored in `grid-control-config/payback.json`): equipment list in EUR, EUR → NOK, energy price, grid energy charge day / night, night factor, capacity step prices. Defaults: the owner's equipment (inverter 700, Cerbo GX 300, shunts 2 × 70, battery 1000, wires and cabinet 500, solar panels 350 EUR), Elvenett household tariff 2026 (steps 160 / 233 / 331 / 496 / 638 / 803 … kr per month, grid energy 35.16 / 16.41 øre/kWh day / night incl. taxes) — check them against elvenett.no.
+
+### Devices — every device and sensor online
+
+Tab **Devices** (d#151; model `50 Devices model.js`, page `51 Devices page.html`), refreshed every 2 min and on open. One card per device with online / offline, connection, IP and protocol, last data and key values:
+
+- **Tuya on the local network** (no cloud): heat pump, boiler valve relay, exchanger bypass, SA1 power meter (from `heatPump` / `heatPumpModel` of `34`) and the two battery sensors (from the last local readings of `tools/tuya-local-sensors.js`, `grid-control-config/tuya-local-sensors-last.json`). Mains devices are online with data in the last 5 min, battery sensors with a local reading in the last 24 h (they report on a change and periodically). Battery: `battery_state` low / middle / high or %, *low* is marked red (≤ 20 %).
+- **Victron on D-Bus**: every battery, VE.Bus, solar charger, system, meter and sensor service with product, custom name, connection, instance, firmware and a few values (one python call as user `nodered`, about 1.4 s).
+
+- **All other Smart Life devices** (d#152): every device of the Smart Life account, read on the local network only. `tools/tuya-devices-setup.js` (run once on the GX as root, again after adding or re-pairing a device; `--sweep` pings the subnets first) takes from the Tuya cloud the device list, local keys, DP map (code, scale, unit) and MAC, finds the IP in the ARP table and writes `grid-control-config/tuya-devices.json` (with keys, mode 600) and `tuya-devices-meta.json` (no keys). Mains devices (plugs, breakers, meters, relays) are read by `tools/tuya-local-poll.js` in the Devices exec every 2 min (connect, take the DPs, disconnect; protocol 3.3 / 3.4 / 3.5 found automatically and remembered in `tuya-devices-ver.json`, last readings in `tuya-devices-last.json`); sleeping battery sensors (temperature / humidity, smoke detectors) by `tools/tuya-local-sensors.js` when they wake. The devices of the heat pump nodes are not polled (one local connection per device). Devices that are offline in Smart Life too are listed in their own section with the date the cloud last saw them (at setup).
+- **Sensors without a local beacon** (d#153): some battery sensors (stair, stue, vlada and the two smoke detectors) wake for a few seconds, send their values to the Tuya cloud only and sleep again, without a UDP beacon the GX hears (one hour of listening on ports 6666 / 6667 / 7000 and the ARP table heard nothing from them while the cloud got new values; the exchange plate sensor was heard in the same hour). Only for these the Devices exec runs `tools/tuya-cloud-sensors.js`: at most every 30 min (about 6 cloud calls), only for battery sensors that were online in Smart Life at setup and have no local reading for 24 h; it writes `grid-control-config/tuya-devices-cloud.json` (values and the time the cloud got them, no keys). Their cards say *Tuya cloud (no local beacon)*; a local reading always wins. Smoke detectors report about once a day, so they count as online for 48 h.
+
+Low battery and sensors without a local reading for 24 h are also e-mailed by *Heat pump alerts* (`47`, see [Heat pump errors and e-mail alerts](heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145)).
 
 ### Files — logs and disk usage
 
@@ -187,18 +213,20 @@ The live flow now also reads the battery service path `com.victronenergy.battery
 
 ## Controller Constants dashboard
 
-The `Constants` tab provides a runtime editor for all hardcoded controller constants without editing code.
+The `Constants` tab is a runtime editor for the controller constants. Every field on the page is read by the controller on its next update (since d#154; before that only the tariff season group was applied and the other groups were stored but ignored).
 
 ![Controller Constants dashboard — all constant groups, Save overrides, Reset to defaults](images/dashboard-constans.png)
 
 Groups shown:
 
 - **Capacity Tariff Season** — winter/summer start dates (MMDD), tier per season, night extra %, day margin, night billing weight, season mode, grid voltage / current headroom / max input current (read live by the controller)
-- **Grid Setpoint Limits** — min setpoint, max smoothing step
-- **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage
+- **Grid Setpoint Limits** — min setpoint, max high-voltage step per update
+- **Battery Charging** — max charge current, restore Ah deadband, nominal battery voltage (fallback when no voltage is known)
 - **Solar Forecast** — solar-to-battery efficiency, max forecast age
 - **Manual Discharge** — max discharge current, auto-stop voltage, min grid during discharge, max AC load
-- **Heavy-Load Suppression** — activation threshold, release threshold, grid cap during heavy load
+- **Day High Load** — AC load threshold and the setpoint reduction above it (replaces the old Heavy-Load Suppression group, whose three values were never used by the controller)
+
+The list of constants (label, default, range) lives in one place, `24 Build controller constants state.js`; `25` validates against it and the tests check that the controller (`01`) has the same defaults and ranges.
 
 Behavior:
 
@@ -206,6 +234,7 @@ Behavior:
 - fields showing the default value have no override stored; only changed values are persisted
 - `Save overrides` validates each field against its allowed range and writes non-default values to the JSON file
 - `Reset all to defaults` clears the file and restores all defaults on the next cycle
+- a value outside its range in the file is clamped by the controller (tiers, season mode and dates fall back to the default)
 - the status line shows `Ready — N override(s) active`
 
 ---

@@ -29,7 +29,10 @@ If the installation is three-phase, the grid measurement source and budget logic
 - the project is tuned to one specific tariff interpretation and should be validated against the actual current network tariff
 - local GX notification injection may not work on all installed Victron node versions
 - actual charging behavior still depends on ESS mode and total system state; a DVCC limit is not itself a direct “force charge” command
-- `flows.json` may still contain legacy inject nodes or unused branches that are no longer driven by the main controller
+- `flows.json` still contains a few legacy inject nodes (the 06:00 / 22:00 ticks only trigger a recalculation)
+- all sensor inputs except PV pass a fixed 10 s delay node before the controller, so it acts on readings that are 10 s old
+- the high-voltage step limit (`MAX_GRID_STEP_W`) applies per controller update, not per 10 s output interval
+- the dashboard and the backup download / upload endpoints have no login of their own: anyone who can open the Node-RED dashboard on the LAN can use them (the MCP server has its own token)
 
 ## Recommended future improvements
 

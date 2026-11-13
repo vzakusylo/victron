@@ -9,8 +9,8 @@
 //   token, ready-to-paste client configuration, tool list and the latest agent calls.
 // Token:
 // - /data/home/nodered/grid-control-config/mcp-token.txt (48 hex chars from /dev/urandom, mode 600)
-// - created automatically on first start; `regenerate` replaces it, `disable` deletes it
-//   (the MCP server then answers 503); `enable` creates a new one
+// - created automatically on first start (no file); `regenerate` replaces it, `disable` empties
+//   the file (the MCP server then answers 503, also after a restart); `enable` creates a new one
 // - kept in flow `mcpToken` for "MCP server"
 // URLs:
 // - built from the GX LAN addresses and listening ports reported by the Device page
@@ -27,6 +27,8 @@
 //    random UUIDs when `od` is not usable, and a failure is shown on the page (`tokenError`).
 // 3. `https://venus.local:1881/mcp` is always the first endpoint (the GX certificate is issued to
 //    venus.local; IP addresses fail certificate name checks in Node-based clients).
+// 4. `disable` survives a restart: it leaves an empty token file instead of deleting it (a missing
+//    file made the next start create a new token and enable the server again). Tool get_heat_pump.
 // ==========================
 
 const TOKEN_FILE = '/data/home/nodered/grid-control-config/mcp-token.txt';
@@ -40,6 +42,7 @@ const TOOL_SUMMARY = [
     { name: 'get_battery_driver_status', text: 'driver / BMS / DVCC / MultiPlus health checks and alarms (+ refresh)' },
     { name: 'get_device_status', text: 'CPU, memory, disks, services, processes, network (+ refresh)' },
     { name: 'get_bms_watchdog', text: 'Controlling BMS watchdog state' },
+    { name: 'get_heat_pump', text: 'heat pump temperatures, compressor, power, set points, valve / bypass, faults, device connections' },
     { name: 'get_settings', text: 'HV / grid support / force charge settings and constants overrides' },
     { name: 'list_backups', text: 'backups on the device and disk space' }
 ];
@@ -55,10 +58,12 @@ const GENERATE = 'mkdir -p "' + TOKEN_FILE.replace(/\/[^/]+$/, '') + '" 2>/dev/n
     + '[ ${#T} -ge 32 ] || T=$(cat /proc/sys/kernel/random/uuid /proc/sys/kernel/random/uuid 2>/dev/null | tr -d -- "-\\n"); '
     + '(umask 077; printf "%s" "$T" > "' + TOKEN_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + TOKEN_FILE + ' as $(id -un)"';
 const SCRIPTS = {
+    // A token is created only when there is no file at all (first start). An empty file means
+    // "disabled" and stays disabled across restarts.
     // braces matter: without them `a || b && c` would regenerate the token on every load
-    load: '[ -s "' + TOKEN_FILE + '" ] || { ' + GENERATE + '; }; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"',
+    load: '[ -e "' + TOKEN_FILE + '" ] || { ' + GENERATE + '; }; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"',
     regenerate: GENERATE + '; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"',
-    disable: 'rm -f "' + TOKEN_FILE + '"; echo "@@TOKEN "'
+    disable: '(umask 077; : > "' + TOKEN_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + TOKEN_FILE + ' as $(id -un)"; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"'
 };
 
 function buildEndpoints() {
@@ -121,8 +126,12 @@ if (msg.topic === 'mcp-exec') {
     const match = output.match(/@@TOKEN ?([0-9a-fA-F]*)/);
     const errorMatch = output.match(/@@ERR (.*)/);
     flow.set('mcpToken', match ? match[1] : '');
-    flow.set('mcpTokenError', msg.mcpStep !== 'disable' && !(match && match[1])
-        ? 'Token could not be created' + (errorMatch ? ': ' + errorMatch[1] : (output.trim() ? ' (output: ' + output.trim().substring(0, 200) + ')' : ' (no output from the exec node)'))
+    const hasToken = Boolean(match && match[1]);
+    // No token is an error after `regenerate`, and after `disable` when the old one is still there.
+    const failed = msg.mcpStep === 'disable' ? hasToken : (msg.mcpStep === 'regenerate' && !hasToken);
+    flow.set('mcpTokenError', failed || errorMatch
+        ? (msg.mcpStep === 'disable' ? 'Token could not be removed' : 'Token could not be created')
+            + (errorMatch ? ': ' + errorMatch[1] : (output.trim() ? ' (output: ' + output.trim().substring(0, 200) + ')' : ' (no output from the exec node)'))
         : '');
     node.status({ fill: match && match[1] ? 'green' : 'grey', shape: 'dot', text: match && match[1] ? 'MCP enabled' : 'MCP disabled' });
     return emit();

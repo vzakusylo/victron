@@ -27,11 +27,13 @@
 //     list. A new section (header + keyframe) is written at the start of every file, after a
 //     Node-RED restart / deploy and whenever a new DP appears.
 //   - t   = seconds since the start of the hour (0…3599)
-//   - st  = connection state of heat pump / valve / bypass / power meter, one letter each:
+//   - st  = connection state of heat pump / valve / bypass / power meter / accumulator sensor /
+//           exchange plate sensor, one letter each:
 //           C connected, N connecting, D disconnected, E error, U unknown, S stale (> 180 s
 //           without data while "connected"). Files written before d#121 have 3 letters.
 //   - columns `1`, `2`, … = heat pump DP ids; `v<dp>` = valve relay DPs; `b<dp>` = bypass DPs;
-//     `m<dp>` = SA1 power meter DPs; `pw` = decoded heat pump power in W (from the meter)
+//     `m<dp>` = SA1 power meter DPs; `pw` = decoded heat pump power in W (from the meter);
+//     `a<key>` / `x<key>` = accumulator / exchange plate cloud sensors (temp, hum, bat)
 //   - empty field = same value as the previous row of the section (or not received yet in
 //     the keyframe); trailing empty fields are dropped, so an unchanged row is just `t`
 //   - values: numbers as sent by the device, booleans 1 / 0, text as is (`,` → `;`)
@@ -43,11 +45,18 @@
 // 2. Replaced by the compact hourly "hp1" delta CSV with all DPs + gzip of finished hours (d#120).
 // 3. SA1 power meter (d#121): meter DPs as `m<dp>`, decoded power as `pw`, 4th state letter.
 //    Read back by "Heat pump command" (37) + "Build heat pump history" (38) for the history page.
+// 5. d#134: battery sensors (acc, plate) count as stale only after 24 h (they report on change).
+// 4. Cloud sensors (d#132): Accumulator tank temp as `atemp` / `ahum` / `abat`, Exchange plate as
+//    `xtemp` / `xhum` / `xbat` (from 44 via 34); state letters 5 and 6. Files before d#132
+//    have 4 letters.
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
 const STALE_MS = 180 * 1000;
-const ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b'], ['meter', 'm']];
+// battery sensors report only on a change or every 40 min (d#134): stale after 24 h
+const SLEEPY_STALE_MS = 24 * 3600 * 1000;
+const SLEEPY = ['acc', 'plate'];
+const ROLES = [['hp', ''], ['valve', 'v'], ['bypass', 'b'], ['meter', 'm'], ['acc', 'a'], ['plate', 'x']];
 const STATE_LETTER = { CONNECTED: 'C', CONNECTING: 'N', DISCONNECTED: 'D', ERROR: 'E', UNKNOWN: 'U' };
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -97,7 +106,7 @@ const stateLetters = ROLES.map(([role]) => {
     const dev = st[role];
     if (!dev) return 'U';
     const letter = STATE_LETTER[dev.state] || 'U';
-    if (letter === 'C' && (!dev.lastData || nowMs - dev.lastData > STALE_MS)) return 'S';
+    if (letter === 'C' && (!dev.lastData || nowMs - dev.lastData > (SLEEPY.includes(role) ? SLEEPY_STALE_MS : STALE_MS))) return 'S';
     return letter;
 }).join('');
 

@@ -36,6 +36,8 @@
 .b-running { background: rgba(31,111,235,.30); }
 .b-setting, .b-flag { background: rgba(31,111,235,.20); }
 .b-warn { background: rgba(218,54,51,.30); }
+.b-error { background: #da3633; color: #fff; }
+.hpl-item.err { border-left: 4px solid #da3633; }
 .b-info { background: rgba(127,127,127,.2); }
 .hpl table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
 .hpl td { padding: 2px 6px; border-bottom: 1px solid rgba(127,127,127,.2); vertical-align: top; }
@@ -43,7 +45,7 @@
 .hpl .k-write, .hpl .k-start, .hpl .k-ok, .hpl .k-done { color: #2ea043; font-weight: 700; }
 .hpl .k-dry, .hpl .k-test { color: #d29922; font-weight: 700; }
 .hpl .k-flag, .hpl .k-setting, .hpl .k-step { color: #1f6feb; font-weight: 700; }
-.hpl .k-warn, .hpl .k-fail, .hpl .k-stop { color: #da3633; font-weight: 700; }
+.hpl .k-warn, .hpl .k-fail, .hpl .k-stop, .hpl .k-error { color: #da3633; font-weight: 700; }
 .hpl .small { font-size: 12px; opacity: .75; }
 </style>
 
@@ -66,11 +68,11 @@
 
   <div class="hpl-filter">
     <button ng-repeat="f in hplFilters" ng-class="{sel: hplF == f.id}" ng-click="hplSetF(f.id)">{{f.label}}</button>
-    <span class="small">runs {{msg.payload.counts.runs}} · on {{msg.payload.counts.ok}} · failed / stopped {{msg.payload.counts.failed}} · test {{msg.payload.counts.test}} · other events {{msg.payload.counts.events}}</span>
+    <span class="small"><b style="color:#da3633" ng-if="msg.payload.counts.errors">errors {{msg.payload.counts.errors}} · </b>runs {{msg.payload.counts.runs}} · on {{msg.payload.counts.ok}} · failed / stopped {{msg.payload.counts.failed}} · test {{msg.payload.counts.test}} · other events {{msg.payload.counts.events}}</span>
   </div>
   <div class="small" ng-if="msg.payload.note">{{msg.payload.note}}</div>
 
-  <div ng-repeat="it in msg.payload.items | filter:hplMatch" class="hpl-item" ng-class="{run: it.type=='run'}" ng-click="it.type=='run' && hplToggle(it)">
+  <div ng-repeat="it in msg.payload.items | filter:hplMatch" class="hpl-item" ng-class="{run: it.type=='run', err: it.kind=='error' || it.kind=='fail' || it.status=='failed' || it.status=='stopped'}" ng-click="it.type=='run' && hplToggle(it)">
     <div class="hpl-head">
       <span class="hpl-time">{{it.t | date:'HH:mm:ss'}}</span>
       <span class="hpl-badge" ng-class="'b-' + (it.type=='run' ? it.status.replace(' ', '-') : it.kind)">{{it.type=='run' ? hplStatus(it.status) : it.kind}}</span>
@@ -92,7 +94,7 @@
     scope.hplF = 'all';
     scope.hplFilters = [
         { id: 'all', label: 'All' }, { id: 'runs', label: 'Runs' }, { id: 'on', label: 'On (writes)' },
-        { id: 'failed', label: 'Failed / stopped' }, { id: 'test', label: 'Test' }, { id: 'other', label: 'Settings / flag' }
+        { id: 'errors', label: 'Errors' }, { id: 'failed', label: 'Failed / stopped' }, { id: 'test', label: 'Test' }, { id: 'other', label: 'Settings / flag' }
     ];
     var STATUS = { ok: 'executed', failed: 'failed', stopped: 'stopped', running: 'running', test: 'test', 'test running': 'test running' };
     scope.hplStatus = function (s) { return STATUS[s] || s; };
@@ -100,6 +102,7 @@
     scope.hplMatch = function (it) {
         var f = scope.hplF;
         if (f === 'all') return true;
+        if (f === 'errors') return it.type === 'run' ? (it.status === 'failed' || it.status === 'stopped') : (it.kind === 'error' || it.kind === 'fail' || it.kind === 'warn');
         if (f === 'other') return it.type !== 'run';
         if (it.type !== 'run') return false;
         if (f === 'runs') return true;

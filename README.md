@@ -24,15 +24,19 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | Topic | What's inside |
 |---|---|
 | [Overview & architecture](docs/overview.md) | goal, signal flow, control layers |
-| [Control logic](docs/control-logic.md) | charging windows, grid setpoint & tariff seasons, HV protection, heavy load, solar forecast, energy counter & history files, force charging |
+| [Control logic](docs/control-logic.md) | charging windows, grid setpoint & tariff seasons, HV protection, day high load, solar forecast, energy counter & history files, force charging |
 | [Grid tariffs in Norway](docs/tariffs-norway.md) | bill structure, *nettleie*, *kapasitetsledd*, why hourly peaks matter |
 | [Dashboard](docs/dashboard.md) | every dashboard page with screenshots, Protection and Constants editors |
 | [Device, battery driver & BMS watchdog](docs/device-driver.md) | Device status page, BMS watchdog, Driver page and logs |
-| [Backup & restore](docs/backup-restore.md) | one-file backup of history and setup, restore on a new GX |
+| [Backup & restore](docs/backup-restore.md) | one-file backup of history and setup, restore on a new GX; energy and heating data archive by e-mail weekly and by a button |
 | [Agent access (MCP)](docs/agent-mcp.md) | MCP server, Claude Code setup, `victron-status` skill, example answer; remote access in [Tailscale](#remote-access-tailscale) |
 | [Development & deployment](docs/development.md) | repository layout, flow versioning, sync and deploy workflow |
 | [Assumptions, limitations & roadmap](docs/limitations.md) | what the setup assumes, known limits, planned improvements |
 | [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
+| [Boiler (DHW) control](docs/heat-pump-boiler.md) | what was done, how it changed and how the tank is heated now (d#142): curve settings, cycle, compressor protection, defrost, safety, settings |
+| [DHW on the pump's curve](docs/heat-pump-dhw-curve-plan.md) | boiler cycle on the heat pump's own curve (d#142): current vs new design, boiler curve values, compressor protection |
+| [Heat pump errors and e-mail alerts](docs/heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145) | pump faults as log events, red marks on the history chart, digest e-mails on errors (d#145) |
+| [Heat pump work log](docs/heat-pump-work-log.md) | history of the move from Smart Life to the GX (d#123–d#153), owner requests, operating instructions |
 
 ## Dashboard pages
 
@@ -49,9 +53,11 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Device](docs/device-driver.md#device-status-dashboard) | CPU, load, memory, disks, temperature, network, ports, processes, key services |
 | [Driver](docs/device-driver.md#driver-dashboard) | dbus-serialbattery + BMS + MultiPlus health checks, BMS watchdog, logs |
 | [Agent (MCP)](docs/agent-mcp.md) | MCP server for AI agents: endpoint, token, ready-to-paste client config |
-| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 24 h charts, 30 s history, statistics by day (local) |
+| [Heat Pump](#heat-pump-page-tuya-wi-fi-heat-pump) | Tuya heat pump, valve, bypass and SA1 power meter: temperatures, power, compressor load, heating curve + warmer / colder slider, bypass switch, faults, all DPs, 30 s history, charts and statistics by day (local) |
 | [Automations](docs/heat-pump.md#automations-page-d123d126) | local replacements for all Smart Life heat pump scenes (B\* DHW cycles and modes, DF\* defrost, HP\*) as timed sequences with an internal defrost flag: master switch for all local automations, per rule Off / Test / On and all at once, write check (d#123–d#126) |
 | [Automation log](docs/heat-pump.md#automation-log-page-d126) | everything the local automations did, kept in a file per day: navigation by day, one entry per rule run with its steps and write results, filters (d#126). Which Smart Life scenes already run on the GX: [Migration log](docs/heat-pump.md#migration-log-smart-life--gx) |
+| [Devices](docs/dashboard.md#devices--every-device-and-sensor-online) | every device of the Smart Life account (heat pump devices, sensors, smoke detectors, plugs, breakers, meters) read on the local network, and every Victron D-Bus device: online / offline, IP, last data, key values, battery (d#151–d#153) |
+| [Payback](docs/dashboard.md#payback--savings-and-payback-of-the-equipment) | savings since the energy history starts: peak shaving (capacity step), solar, battery night shift minus losses; equipment cost, what is left and the estimated payback; editable equipment list, prices and capacity steps (d#148) |
 
 ## Heat Pump page (Tuya Wi-Fi heat pump)
 
@@ -102,15 +108,13 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 | Compressor / drive | 69 Hz, 3 A, DC bus 376 V, heatsink 55 °C, fan 1 608 rpm, fan 2 0 rpm |
 | Settings | heating set 35 °C, DHW set 28 °C, cooling set 20 °C, heating / DHW hysteresis 2 / 2 °C, water temp compensation 2 °C, curve P22 on, P23 32 °C, P24 4 |
 
-- **Temperatures (24 h):** a chart of supply, return, tank and outdoor, one point per minute.
-- **Power (24 h), W:** a chart of the measured heat pump power (SA1 meter) and the compressor estimate, one point per minute.
 - **History by day.** This is a table of the last 14 days, read from the history files below:
   - outdoor average (min…max), supply average, tank min…max;
   - compressor run hours (% of the time), starts and defrost signs;
   - **kWh measured by the meter** and max W, plus the compressor ≈kWh estimate;
   - bypass and DHW hours, and hours with data.
 
-  Click a day to open its chart: temperatures on top and power (W) below, as 2-minute averages. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
+  Switch days with ‹ › or the day chips (or click a row). Each day has a temperature chart with the event lane under it (heating / DHW / defrost) and a separate power chart: compressor W = DC bus voltage × compressor current, the SA1 meter W when it is reachable, and the compressor current in A (dashed, right axis, d#141); while a DHW cycle runs, today's chart shows dashed lines to the tank target and the expected end (d#143) and refreshes every minute; all as 2-minute averages. The legends sit above the charts; click a name to hide or show that series (remembered in the browser). Point at a chart (or tap it) to see a cursor line, a dot per series and a tooltip with the time, the event (heating / dhw / defrost) and every visible value (d#136). The 24 h charts *Temperatures* and *Power* were removed in d#135: the same data is here by day. It also has a collapsible hourly table (outdoor, supply, compressor minutes, kWh). Finished days are cached in memory, so the summary only re-reads today. The page only reads files.
 - **History on the GX (all data points, every 30 s).** One file per hour: `/data/home/nodered/grid-control-logs/heatpump/YYYY-MM-DD/HH.csv`. When the hour changes, finished hours are gzipped to `HH.csv.gz`. The format "hp1" is a delta CSV:
 
   ```
@@ -130,13 +134,9 @@ Example reading (8 Nov 2026, 00:57; outdoor −3 °C; Heating, Silent):
 
   To get full rows back: `node tools/heatpump-decode.js [--names] 00.csv.gz 01.csv.gz > day.csv`.
 
-![Temperatures (24 h) — supply, return, DHW tank and outdoor; the regular dips are defrost cycles](docs/images/heat-pump-temperatures.png)
+In the temperature chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
 
-In the chart, the short dips in supply and return about once an hour are most likely **defrost cycles**. At the same moments the outdoor reading jumps to 40–50 °C, most likely because the outdoor sensor sits on the outdoor unit and is warmed during defrost. Treat outdoor values during these spikes as invalid.
-
-![Power (24 h) — measured heat pump power (SA1) and the compressor estimate; here only the estimate, because the SA1 meter is not reachable yet](docs/images/heat-pump-power.png)
-
-The Power chart keeps its 24 h in memory, so it starts again after a deploy (in the screenshot at 19:16). Until the SA1 meter is reachable from the GX (see [docs/heat-pump.md](docs/heat-pump.md#devices)) only the compressor estimate is drawn.
+Until the SA1 meter is reachable from the GX (see [docs/heat-pump.md](docs/heat-pump.md#devices)) only the compressor power is drawn.
 
 ![History by day — the day table from the 30 s recorder files and the chart of one day: temperatures on top, power below](docs/images/heat-pump-history.png)
 
@@ -163,7 +163,7 @@ Setup: install the palette node, then enter the **Device ID, Local Key, IP and p
 1. Cerbo GX with Venus OS Large, Node-RED enabled, ESS configured, GRID CT and the battery visible on D-Bus ([assumptions](docs/limitations.md)).
 2. Make a backup on the **Backup** page, then install the palette node `node-red-contrib-tuya-smart-device` (Heat Pump page), import `flows.json` into Node-RED (Replace) and deploy. Adjust the Victron nodes to your devices, and enter the Tuya Device ID / Local Key / IP in the four Tuya nodes yourself. On later updates do not replace the Tuya nodes ([why](#heat-pump-page-tuya-wi-fi-heat-pump)) ([heat pump](docs/heat-pump.md#setup), [secrets](#secrets)).
 3. Set the tariff season, tiers and limits on the dashboard **Constants** page ([control logic](docs/control-logic.md#tariff-seasons-summer--winter)).
-4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `sync-commands.ps1`. `Sync-NN` syncs one node; `Sync-All` syncs all function nodes and the Heat Pump `ui_template`. Every sync bumps the tab label `d#<n>` ([development](docs/development.md)).
+4. When editing logic: change the numbered `NN *.js` source (or `35 Heat pump page.html` for the Heat Pump page), then sync it into `flows.json` with `node tools/flows.js sync` (or `Sync-All` / `Sync-NN` from `sync-commands.ps1`). A sync that changes `flows.json` bumps the tab label `d#<n>`. Before a deploy run `node tools/flows.js check` and `node --test "tests/*.test.js"` ([development](docs/development.md)).
 5. Optional: set up remote access over [Tailscale](#remote-access-tailscale) for the dashboard, SSH and the MCP server away from home.
 
 ## Remote access (Tailscale)

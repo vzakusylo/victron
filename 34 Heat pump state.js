@@ -13,12 +13,13 @@
 //   "Heat pump command" (37); this node only reads.
 // Input:
 // - msg.topic = 'hp' | 'valve' | 'bypass' | 'meter' (set by the change node in front)
+//   | 'acc' | 'plate' (battery sensors: local from 46, cloud fallback from 44)
 // - data msg  : msg.payload = { data: { dps: { ... } }, deviceId, deviceName }
 // - status msg: msg.payload = { state: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR' }
 // Output (3):
 // - output 1 -> msg.payload = page model for the "Heat pump page" ui_template
-// - output 2 -> chart points for "Heat pump temperatures" (max once per minute)
-// - output 3 -> chart points for "Heat pump power" (max once per minute)
+// - output 2, 3 -> not used since d#134 (the 24 h ui_charts were removed; the history page has
+//   the same data by day)
 // State:
 // - flow.heatPump = { hp: {...}, valve: {...}, bypass: {...}, meter: {..., reading} }
 //   meter.reading = decoded { powerW, voltageV, currentA, energyKwh, source } — the
@@ -45,16 +46,42 @@
 //    summary.power* + output 3 (24 h power chart: meter W and compressor estimate W).
 //    model.curveChart.scale lets the page draw a preview line for the "warmer / colder"
 //    slider; model.controls tells the page which commands are possible.
+// 7. Nameplate (d#133, PW030-DKZLRS-A): power ≈ DP 112 current × 220 W/A (was × DC bus
+//    voltage, ~1.7× too high); load = that power / 2130 W (nameplate max input); max frequency
+//    90 Hz. summary.resource = compressor resource counters from "Compressor resource" (45).
+// 6. Cloud sensors (d#132): roles `acc` (Accumulator tank temp) and `plate` (Exchange plate),
+//    battery Wi-Fi sensors read from the Tuya cloud by "Heat pump cloud sensors" (44), dps
+//    { temp, hum, bat }. summary.accTemp / plateTemp (fresh ≤ 10 min) and two more series on
+//    the 24 h temperature chart.
+// 9. Battery sensors local (d#134): readings from 46 (local, msg.payload.source 'local', data.t =
+//    reading time) or 44 (cloud fallback). Fresh for 24 h; device chip shows the source.
+// 8. Boiler curve (d#134): model.dhwChart = tank target by outdoor temperature (curve of the
+//    DHW controller, read from flow.dhwView written by 40), start line target − hyst, tank now,
+//    controller state. The page shows heating on the left and the boiler on the right.
+// 11. d#142: boiler curve on the pump's own curve. dhwChart: wanted supply line (tank target +
+//    supplyAdd, capped in the cold), boiler P23 now, the controller's P23 / goal / curve supply /
+//    protection; during a cycle the heating chart shows the stored heating curve and the P23 slider
+//    is locked (controls.curve false).
+// 10. DHW controller panel (d#138): dhwChart also carries cfg (curve + settings, for the editor on
+//    the page), master (local control ON / OFF) and lag.
 // ==========================
 
-const ROLES = ['hp', 'valve', 'bypass', 'meter'];
+const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
 
 const ROLE_LABELS = {
     hp: 'Heat pump',
     valve: 'Boiler valve relay (ON = DHW)',
     bypass: 'Heating exchange bypass (ON = bypass)',
-    meter: 'Power meter SA1'
+    meter: 'Power meter SA1',
+    acc: 'Accumulator tank temp',
+    plate: 'Exchange plate temp'
 };
+// battery sensors (d#134: read locally by 46 when they wake, cloud only as a fallback by 44) report
+// only on a change of 0.3 °C or on their periodic report (Exchange plate every 40 min; the
+// accumulator sensor was silent for 8 h at a steady 25.5 °C), so they count as fresh for 24 h.
+// msg.payload.data.t = time of the reading; an older reading than the one shown is ignored.
+const CLOUD_ROLES = ['acc', 'plate'];
+const CLOUD_STALE_MS = 24 * 3600 * 1000;
 
 // Heat pump DP map (code, label, unit)
 const HP_DPS = {
@@ -106,10 +133,15 @@ const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'E
 const MODE_LABELS = { smart: 'Smart', strong: 'Powerful', mute: 'Silent' };
 const WORK_MODE_LABELS = { wth: 'DHW', heat: 'Heating', cool: 'Cooling', wth_heat: 'DHW + heating', wth_cool: 'DHW + cooling' };
 
-const CHART_INTERVAL_MS = 60 * 1000;
-const COMPRESSOR_MAX_HZ = 91;     // rated max compressor frequency
-const COMPRESSOR_MAX_A = 8;       // rated max compressor current
-const FALLBACK_VOLTAGE_V = 230;   // used only while DP 114 (DC bus) has not been received
+// Nameplate PW030-DKZLRS-A (Power World EVI DC inverter, 230 V 1-phase, R32): current
+// 1.28–9.67 A, input power 0.31–2.13 kW (heating). 2.13 kW / 9.67 A = 220 W per amp at full
+// load (0.31 kW / 1.28 A = 242 W/A at minimum) — so the input power ≈ current × 220 W/A.
+// The DC bus voltage (DP 114, ~376 V) is NOT the supply voltage: current × DC bus gave up to
+// 3 kW at 8 A, above the nameplate maximum (d#133).
+const COMPRESSOR_MAX_HZ = 90;     // highest frequency seen (Smart; recorder 8–9 Nov 2026)
+const COMPRESSOR_MAX_A = 9.67;    // nameplate max current of the unit
+const UNIT_MAX_W = 2130;          // nameplate max input power (heating)
+const W_PER_A = 220;              // nameplate 2130 W / 9.67 A
 const STALE_MS = 5 * 60 * 1000;
 
 function emptyDevice() {
@@ -184,8 +216,10 @@ function curveTarget(p23, p24, outdoor) {
 }
 
 function buildCurveChart(d) {
-    const p23 = num(d['133']);
-    const p24 = num(d['134']);
+    const dv = flow.get('dhwView');
+    const boilerActive = dhwCycle() && dv && dv.heatCurve;
+    const p23 = boilerActive ? dv.heatCurve.p23 : num(d['133']);
+    const p24 = boilerActive ? dv.heatCurve.p24 : num(d['134']);
     if (p23 === null || p24 === null) return null;
     const enabled = d['132'] === undefined ? null : String(d['132']) === '1' || d['132'] === true;
     const outdoor = num(d['103']);
@@ -212,6 +246,9 @@ function buildCurveChart(d) {
     const target = outdoor === null ? null : curveTarget(p23, p24, outdoor);
     return {
         enabled,
+        boilerActive: !!boilerActive,
+        pumpP23: num(d['133']),
+        pumpP24: num(d['134']),
         p23,
         p24,
         formula: `${CURVE_BASE_C} + ${p24 / 10} × (${p23} − outdoor)`,
@@ -269,9 +306,9 @@ function buildModel(st, now) {
     const pct = (value, max) => (value === null ? null : Math.max(0, Math.min(100, Math.round(value / max * 100))));
     const freqPct = pct(freq, COMPRESSOR_MAX_HZ);
     const currentPct = pct(current, COMPRESSOR_MAX_A);
-    const loadPct = freqPct === null && currentPct === null ? null : Math.max(freqPct || 0, currentPct || 0);
-    const voltage = dcBus !== null && dcBus > 0 ? dcBus : FALLBACK_VOLTAGE_V;
-    const powerW = current === null ? null : Math.round(Math.max(0, current) * voltage);
+    // load = estimated input power / nameplate max input power (= current / 9.67 A)
+    const powerW = current === null ? null : Math.round(Math.max(0, current) * W_PER_A);
+    const loadPct = powerW === null ? null : Math.max(0, Math.min(100, Math.round(powerW / UNIT_MAX_W * 100)));
 
     const devices = ROLES.map((role) => {
         const dev = st[role];
@@ -281,20 +318,25 @@ function buildModel(st, now) {
             label: ROLE_LABELS[role],
             state: dev.state,
             ageSeconds: age,
-            stale: !dev.lastData || now - dev.lastData > STALE_MS,
-            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' ? null : switchValue(dev))
+            stale: !dev.lastData || now - dev.lastData > (CLOUD_ROLES.includes(role) ? CLOUD_STALE_MS : STALE_MS),
+            source: dev.source || null,
+            switchOn: role === 'hp' ? (typeof d['1'] === 'boolean' ? d['1'] : null) : (role === 'meter' || CLOUD_ROLES.includes(role) ? null : switchValue(dev))
         };
     });
 
     const meterFresh = st.meter.lastData && now - st.meter.lastData <= STALE_MS;
     const meter = meterFresh ? st.meter.reading : null;
     const connected = (role) => st[role].state === 'CONNECTED' && st[role].lastData && now - st[role].lastData <= STALE_MS;
+    const cloudTemp = (role) => {
+        const c = st[role];
+        return c && c.state === 'CONNECTED' && c.lastData && now - c.lastData <= CLOUD_STALE_MS ? num(c.dps.temp) : null;
+    };
 
     return {
         updated: new Date(now).toISOString(),
         readOnly: false,
         controls: {
-            curve: connected('hp') && num(d['133']) !== null,
+            curve: connected('hp') && num(d['133']) !== null && !dhwCycle(),
             curveMin: 20,
             curveMax: 40,
             bypass: connected('bypass') && switchValue(st.bypass) !== null
@@ -305,6 +347,8 @@ function buildModel(st, now) {
             ret: num(d['101']),
             tank: num(d['108']),
             outdoor: num(d['103']),
+            accTemp: cloudTemp('acc'),
+            plateTemp: cloudTemp('plate'),
             compressorHz: freq,
             fanRpm: fan,
             compressorA: current,
@@ -314,7 +358,9 @@ function buildModel(st, now) {
             compressorMaxHz: COMPRESSOR_MAX_HZ,
             compressorMaxA: COMPRESSOR_MAX_A,
             compressorPowerW: powerW,
-            compressorPowerBasis: dcBus !== null && dcBus > 0 ? 'DC bus' : '230 V',
+            compressorPowerBasis: W_PER_A + ' W/A (nameplate 9.67 A = 2.13 kW)',
+            unitMaxW: UNIT_MAX_W,
+            resource: flow.get('compressorResource') || null,
             powerW: meter ? meter.powerW : null,
             powerV: meter ? meter.voltageV : null,
             powerA: meter ? meter.currentA : null,
@@ -332,8 +378,106 @@ function buildModel(st, now) {
             defrostSign
         },
         curveChart: buildCurveChart(d),
+        dhwChart: buildDhwChart(d),
         items,
         unknown
+    };
+}
+
+// Boiler curve (d#134): tank target by outdoor temperature from the DHW controller of
+// "Heat pump automations" (40), which writes flow.dhwView every 10 s. Same SVG frame and
+// outdoor range as the heating curve, so the two charts sit side by side on the page.
+const DHW_VIEW_STALE_MS = 2 * 60 * 1000;
+const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preheat (older version)', STOP: 'compressor stop (curve P23 0) before the valve switch', VALVE: 'valve moving to the tank (curve P23 0)',
+    DHW: 'heating the tank on the boiler curve', DEFROST_DHW: 'defrost during DHW (valve on heating)', RAMPDOWN: 'older version' };
+// d#142: the DHW controller runs the pump on its own curve; during a cycle the pump shows the
+// boiler / stop values, the heating chart then uses the stored heating curve (dhwView.heatCurve)
+function dhwCycle() { const v = flow.get('dhwView'); return !!(v && v.state && v.state !== 'HEATING' && v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS); }
+function wantedAt(c, t) {
+    if (t < c.frostLimit) return null;
+    return Math.min(c.maxSupply || 55, tankCurveAt(c.curve, t) + (c.supplyAdd || 4), t <= c.coldLimit ? (c.coldCap || 46) : 99);
+}
+function tankCurveAt(curve, x) {
+    if (x <= curve[0][0]) return curve[0][1];
+    const last = curve[curve.length - 1];
+    if (x >= last[0]) return last[1];
+    for (let i = 1; i < curve.length; i++) {
+        const a = curve[i - 1], b = curve[i];
+        if (x <= b[0]) return Math.round((a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])) * 2) / 2;
+    }
+    return last[1];
+}
+function buildDhwChart(d) {
+    const v = flow.get('dhwView');
+    if (!v || !v.cfg || !Array.isArray(v.cfg.curve) || !v.cfg.curve.length) return null;
+    const c = v.cfg, curve = c.curve;
+    const tank = num(d['108']);
+    const outdoor = v.outAvg !== null && v.outAvg !== undefined ? v.outAvg : num(d['103']);
+    const pts = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t++) pts.push({ out: t, set: t < c.frostLimit ? null : tankCurveAt(curve, t) });
+    const W = 600, H = 240, L = 44, R = 10, T = 12, B = 36;
+    const wpts = pts.map((p) => ({ out: p.out, w: wantedAt(c, p.out) }));
+    const supplyNow = num(d['102']);
+    const values = pts.filter((p) => p.set !== null).map((p) => p.set).concat(wpts.filter((p) => p.w !== null).map((p) => p.w)).concat([tank].filter((x) => x !== null));
+    const yMin = Math.floor((Math.min(...values) - c.hyst - 1) / 5) * 5;
+    const yMax = Math.ceil((Math.max(...values) + 1) / 5) * 5;
+    const x = (t) => +(L + (t - CURVE_OUT_MIN) / (CURVE_OUT_MAX - CURVE_OUT_MIN) * (W - L - R)).toFixed(1);
+    const y = (val) => +(T + (yMax - Math.max(yMin, Math.min(yMax, val))) / (yMax - yMin) * (H - T - B)).toFixed(1);
+    const line = (off) => pts.filter((p) => p.set !== null).map((p) => `${x(p.out)},${y(p.set - off)}`).join(' ');
+    const xTicks = [];
+    for (let t = CURVE_OUT_MIN; t <= CURVE_OUT_MAX; t += 5) xTicks.push({ label: t, x: x(t) });
+    const yTicks = [];
+    for (let val = yMin; val <= yMax; val += 5) yTicks.push({ label: val, y: y(val) });
+    const target = outdoor === null || outdoor < c.frostLimit ? null : tankCurveAt(curve, outdoor);
+    const wanted = outdoor === null ? null : wantedAt(c, outdoor);
+    const inCycle = dhwCycle();
+    const inRange = outdoor !== null && outdoor >= CURVE_OUT_MIN && outdoor <= CURVE_OUT_MAX;
+    return {
+        fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS,
+        mode: v.mode,
+        master: v.master === undefined ? null : v.master,
+        lag: v.lag === undefined ? null : v.lag,
+        cfg: c,
+        state: v.state,
+        stateLabel: DHW_STATE_LABELS[v.state] || v.state,
+        why: v.waitNote || v.why || '',
+        since: v.since,
+        outdoor,
+        tank,
+        target,
+        start: target === null ? null : target - c.hyst,
+        hyst: c.hyst,
+        frostLimit: c.frostLimit,
+        nextStart: v.nextStart || 0,
+        lastEnd: v.lastEnd || 0,
+        table: curve.map((p) => ({ out: p[0], set: p[1], w: wantedAt(c, p[0]) })),
+        wanted,
+        cold: !!v.cold,
+        inCycle,
+        p23Cmd: v.p23Cmd === undefined ? null : v.p23Cmd,
+        p24Cmd: v.p24Cmd === undefined ? null : v.p24Cmd,
+        goalP23: v.goalP23 === undefined ? null : v.goalP23,
+        curveSupply: v.curveSupply === undefined ? null : v.curveSupply,
+        boilerP23Now: outdoor === null || wanted === null ? null : Math.max(0, Math.min(40, Math.round(outdoor + (wanted - 20) / ((c.boilerP24 || 12) / 10)))),
+        prot: v.prot || null,
+        plan: v.plan || null,
+        heatCurve: v.heatCurve || null,
+        supplyNow,
+        svg: {
+            line: line(0),
+            supplyLine: wpts.filter((p) => p.w !== null).map((p) => `${x(p.out)},${y(p.w)}`).join(' '),
+            startLine: line(c.hyst),
+            frostX: c.frostLimit > CURVE_OUT_MIN ? x(c.frostLimit) : null,
+            xTicks,
+            yTicks,
+            left: L,
+            right: W - R,
+            top: T,
+            bottom: H - B,
+            now: inRange ? { x: x(outdoor), yTarget: target === null ? null : y(target), yStart: target === null ? null : y(target - c.hyst),
+                yTank: tank === null ? null : y(tank), yWanted: wanted === null ? null : y(wanted),
+                ySupply: inCycle && supplyNow !== null ? y(supplyNow) : null } : null
+        }
     };
 }
 
@@ -355,9 +499,14 @@ if (typeof p.state === 'string' && !p.data) {
     dev.lastState = now;
 } else if (p.data && typeof p.data === 'object') {
     const dps = p.data.dps || {};
+    // reading time only for the battery sensors (46 / 44, ms). The Tuya nodes also send data.t,
+    // in SECONDS: using it made hp / valve / bypass look stale (d#135 bug, fixed in d#138).
+    const at = CLOUD_ROLES.includes(role) && Number.isFinite(p.data.t) && p.data.t > 1e12 && p.data.t <= now ? p.data.t : now;
+    if (CLOUD_ROLES.includes(role) && dev.lastData && at < dev.lastData && dev.state === 'CONNECTED') return null;
     Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
-    dev.lastData = now;
+    dev.lastData = at;
     dev.state = 'CONNECTED';
+    if (CLOUD_ROLES.includes(role)) dev.source = p.source || 'cloud';
     if (role === 'meter') dev.reading = meterReading(dev);
 } else {
     return null;
@@ -372,18 +521,4 @@ const statusText = model.summary.supply !== null
     : `${role}: ${dev.state}`;
 node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
 
-let chartMsgs = null;
-let powerMsgs = null;
-const lastChart = context.get('lastChart') || 0;
-if (role === 'hp' && dev.lastData === now && now - lastChart >= CHART_INTERVAL_MS) {
-    context.set('lastChart', now);
-    const s = model.summary;
-    chartMsgs = [
-        ['Supply', s.supply], ['Return', s.ret], ['Tank', s.tank], ['Outdoor', s.outdoor]
-    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
-    powerMsgs = [
-        ['Heat pump W (meter)', s.powerW], ['Compressor ≈W', s.compressorPowerW]
-    ].filter(([, v]) => v !== null).map(([topic, v]) => ({ topic, payload: v }));
-}
-
-return [{ payload: model }, chartMsgs, powerMsgs];
+return [{ payload: model }, null, null];

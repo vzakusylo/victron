@@ -1,0 +1,96 @@
+<!--
+  51 Devices page.html
+  Source of the ui_template "Devices page" (Devices dashboard tab).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-51).
+  Shows the model built by "Devices model" (50): every Tuya device and battery sensor on the local
+  network and every Victron device on D-Bus, online / offline, last data, key values, battery.
+  Sends:
+    {topic:'ui', payload:{action:'open'}}      — on open
+    {topic:'ui', payload:{action:'refresh'}}   — read again
+-->
+<style>
+.dv { padding: 6px 4px; font-size: 14px; }
+.dv-title { font-size: 20px; font-weight: 700; }
+.dv-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.dv button { border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; background: rgba(127,127,127,.22); color: inherit; font-size: 13px; }
+.dv-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.dv-pill { border-radius: 12px; padding: 3px 12px; font-weight: 700; font-size: 13px; background: rgba(127,127,127,.15); }
+.dv-pill.ok { background: rgba(46,160,67,.25); }
+.dv-pill.bad { background: rgba(218,54,51,.28); }
+.dv-pill.warn { background: rgba(210,153,34,.30); }
+.dv h3 { font-size: 15px; margin: 14px 0 6px; }
+.dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.dv-card { border-radius: 10px; padding: 10px 12px; background: rgba(127,127,127,.08); border-left: 4px solid rgba(127,127,127,.4); }
+.dv-card.on { border-left-color: #2ea043; }
+.dv-card.off { border-left-color: #da3633; }
+.dv-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dv-name { font-weight: 700; }
+.dv-state { font-size: 12px; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+.dv-state.on { background: rgba(46,160,67,.25); }
+.dv-state.off { background: rgba(218,54,51,.30); }
+.dv-meta { font-size: 12px; opacity: .75; margin-top: 2px; }
+.dv-vals { margin-top: 6px; font-size: 13px; }
+.dv-vals div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(127,127,127,.15); padding: 1px 0; }
+.dv-vals span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.dv-bat { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; border-radius: 10px; padding: 1px 8px; background: rgba(46,160,67,.2); }
+.dv-bat.low { background: #da3633; color: #fff; }
+.dv-note { margin-top: 6px; font-size: 12px; color: #d29922; }
+.dv .small { font-size: 12px; opacity: .75; }
+</style>
+
+<div class="dv" ng-init="dvInit()">
+  <div class="dv-title">Devices</div>
+  <div class="dv-sub">Every device and sensor of the system with its online state: all Smart Life (Tuya) devices read on the local Wi-Fi (no cloud), Victron devices on D-Bus. Updated every 2 min; battery sensors report when they wake.</div>
+
+  <div class="dv-top">
+    <span class="dv-pill" ng-class="m.online === m.total ? 'ok' : 'bad'">{{m.online || 0}} / {{m.total || 0}} online</span>
+    <span class="dv-pill warn" ng-if="m.lowBattery && m.lowBattery.length">low battery: {{m.lowBattery.join(', ')}}</span>
+    <button ng-click="dvSend('refresh')">Refresh</button>
+    <span class="small" ng-if="m.updated">updated {{m.updated | date:'HH:mm:ss'}}</span>
+  </div>
+  <div class="dv-note" ng-if="m.dbusError">D-Bus: {{m.dbusError}}</div>
+
+  <div ng-repeat="g in groups">
+    <h3>{{g.title}}</h3>
+    <div class="dv-grid">
+      <div class="dv-card" ng-repeat="d in (m.devices || []) | filter:{group: g.id} track by d.id" ng-class="d.online ? 'on' : 'off'">
+        <div class="dv-head">
+          <span class="dv-name">{{d.name}}</span>
+          <span class="dv-state" ng-class="d.online ? 'on' : 'off'">{{d.online ? 'online' : 'offline'}}</span>
+        </div>
+        <div class="dv-meta">{{d.link}}<span ng-if="d.ip"> · {{d.ip}}</span><span ng-if="d.ver"> · v{{d.ver}}</span><span ng-if="d.instance !== undefined && d.instance !== null"> · instance {{d.instance}}</span></div>
+        <div class="dv-meta" ng-if="d.product && d.product !== d.name">{{d.product}}<span ng-if="d.firmware"> · fw {{d.firmware}}</span></div>
+        <div class="dv-meta" ng-if="d.tuyaName">Smart Life: {{d.tuyaName}}</div>
+        <div class="dv-meta" ng-if="d.group !== 'victron' && d.group !== 'tuya' && d.product && d.product !== d.name">{{d.product}}</div>
+        <div class="dv-meta" ng-if="d.group !== 'victron'">last data: {{age(d.ageS)}}</div>
+        <div class="dv-vals" ng-if="d.values.length"><div ng-repeat="v in d.values"><span>{{v.k}}</span><span>{{v.v}}</span></div></div>
+        <span class="dv-bat" ng-if="d.battery" ng-class="{low: d.battery.low}">battery {{d.battery.text}}{{d.battery.low ? ' — replace' : ''}}</span>
+        <div class="dv-note" ng-if="d.note">{{d.note}}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(scope) {
+    scope.m = scope.m || {};
+    scope.groups = [
+        { id: 'tuya', title: 'Heat pump devices and sensors (Tuya, local network)' },
+        { id: 'smartlife', title: 'Other Smart Life devices and sensors (local network; cloud only for sensors without a local beacon)' },
+        { id: 'victron', title: 'Victron devices (D-Bus)' },
+        { id: 'smartlife-off', title: 'Smart Life devices offline (also in the Smart Life cloud)' }
+    ];
+    scope.age = function(s) {
+        if (s === null || s === undefined) return 'never';
+        if (s < 90) return s + ' s ago';
+        if (s < 5400) return Math.round(s / 60) + ' min ago';
+        if (s < 172800) return Math.round(s / 3600) + ' h ago';
+        return Math.round(s / 86400) + ' days ago';
+    };
+    scope.dvSend = function(action) { scope.send({ topic: 'ui', payload: { action: action } }); };
+    scope.dvInit = function() { scope.dvSend('open'); };
+    scope.$watch('msg', function(msg) {
+        if (msg && msg.topic === 'model' && msg.payload) scope.m = msg.payload;
+    });
+})(scope);
+</script>

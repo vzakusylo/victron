@@ -1,0 +1,80 @@
+// ==========================
+// LOGIC SUMMARY / CHANGE NOTES
+// ==========================
+// Sync rule:
+// - `44 Heat pump cloud sensors.js` and the embedded `func` for "Heat pump cloud sensors"
+//   in `flows.json` must always stay synchronized.
+// Purpose:
+// - Two Tuya Wi-Fi temperature sensors on battery are not reachable locally (they sleep and
+//   only report to the cloud): "Accumulator tank temp" and "Exchange plate". Their values are
+//   read from the Tuya Cloud OpenAPI by `tools/tuya-cloud-status.js` (exec node) every 2 min
+//   and passed to "Heat pump state" (34) as two more devices, roles `acc` and `plate`, so the
+//   Heat Pump page, the 24 h chart, the recorder (36) and the day chart (38) get them.
+// Input:
+// - msg.topic 'poll' (inject)  -> output 2: device ids for the exec node
+// - exec stdout (msg.topic 'cloud') -> one JSON line { ok, t, devices: { id: { temp, hum, bat, raw } } }
+// Output (2):
+// - output 1 -> "Heat pump state" (34): { topic: 'acc' | 'plate', payload: { data: { dps: { temp, hum, bat } } } }
+//               or { topic, payload: { state: 'ERROR' } } when the cloud read fails
+// - output 2 -> exec node "Read Tuya cloud sensors" (payload appended to the command)
+// Notes:
+// - dps keys are names, not Tuya DP numbers: temp (°C), hum (%), bat (%). The recorder stores
+//   them as `atemp`, `ahum`, `abat` (accumulator) and `xtemp`, `xhum`, `xbat` (exchange plate).
+// - A value that did not change in the cloud still counts as fresh data: the sensor reports
+//   only on change or every few minutes.
+// Change notes:
+// 1. Initial version (d#132).
+// 2. d#134: only a FALLBACK now. The sensors are read locally by "Heat pump local sensors" (46);
+//    the cloud is asked only for a sensor without a local reading for CLOUD_FALLBACK_H
+//    (flow.localSensors). Cloud messages carry source 'cloud'.
+// 3. d#151: cloud OFF (CLOUD_ENABLED = false), local network only. The accumulator sensor had been
+//    offline in the Tuya cloud since 2026-11-10 12:11 UTC, but the cloud kept returning its last
+//    value (25.5 °C), which looked like a fresh reading. A cloud value still in "Heat pump state"
+//    is dropped once (DISCONNECTED).
+// ==========================
+
+const SENSORS = [
+    { role: 'acc', id: 'bfe0dd97b76a98f454a8bt', name: 'Accumulator tank temp' },
+    { role: 'plate', id: 'bfe949ce996182ffb9b1zl', name: 'Exchange plate' }
+];
+
+const CLOUD_FALLBACK_H = 24;
+// d#151: the owner wants the sensors on the local network only. With CLOUD_ENABLED = false the
+// cloud is never asked; a value that still comes from the cloud is dropped once (state
+// DISCONNECTED in "Heat pump state"), so the pages show the sensor as offline until it is read
+// locally again. Set it to true to bring the cloud fallback back.
+const CLOUD_ENABLED = false;
+if (msg.topic === 'poll' && !CLOUD_ENABLED) {
+    const st = flow.get('heatPump') || {};
+    const drop = SENSORS.filter((s) => st[s.role] && st[s.role].source === 'cloud' && st[s.role].state === 'CONNECTED');
+    node.status({ fill: 'grey', shape: 'dot', text: 'cloud off: local network only' + (drop.length ? ' (dropped ' + drop.map((s) => s.role).join(', ') + ')' : '') });
+    return drop.length ? [drop.map((s) => ({ topic: s.role, payload: { state: 'DISCONNECTED' } })), null] : null;
+}
+if (msg.topic === 'poll') {
+    const local = flow.get('localSensors') || {};
+    const need = SENSORS.filter((s) => !local[s.role] || Date.now() - local[s.role] > CLOUD_FALLBACK_H * 3600 * 1000);
+    context.set('polled', need.map((s) => s.role));
+    if (!need.length) { node.status({ fill: 'grey', shape: 'dot', text: 'not needed: both sensors read locally' }); return null; }
+    return [null, { topic: 'cloud', payload: need.map((s) => s.id).join(' ') }];
+}
+const polled = context.get('polled') || SENSORS.map((s) => s.role);
+
+let j = null;
+try { j = JSON.parse(String(msg.payload || '').trim().split('\n').pop()); } catch (e) { j = null; }
+if (!j || !j.ok) {
+    const err = j ? j.error : 'no output from tools/tuya-cloud-status.js';
+    node.status({ fill: 'red', shape: 'ring', text: String(err).slice(0, 60) });
+    const last = context.get('lastErr') || 0;
+    if (Date.now() - last > 30 * 60 * 1000) { node.warn('Heat pump cloud sensors: ' + err); context.set('lastErr', Date.now()); }
+    return [SENSORS.filter((s) => polled.includes(s.role)).map((s) => ({ topic: s.role, payload: { state: 'ERROR' } })), null];
+}
+const msgs = [];
+const txt = [];
+for (const s of SENSORS.filter((x) => polled.includes(x.role))) {
+    const d = j.devices && j.devices[s.id];
+    if (!d) { msgs.push({ topic: s.role, payload: { state: 'DISCONNECTED' } }); txt.push(s.role + ' ?'); continue; }
+    msgs.push({ topic: s.role, payload: { data: { dps: { temp: d.temp, hum: d.hum, bat: d.bat } }, deviceId: s.id, deviceName: s.name, source: 'cloud' } });
+    txt.push(s.role + ' ' + d.temp + '°');
+}
+node.status({ fill: 'yellow', shape: 'dot', text: 'cloud fallback: ' + txt.join(' · ') });
+return [msgs, null];

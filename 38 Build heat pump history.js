@@ -21,18 +21,45 @@
 //   avgHz while running, defrost = entries into "fan 0 and compressor > 30 Hz"
 // - dhwH = valve relay ON (v1), bypassH = bypass relay ON (b1)
 // - kwh / maxW / avgW = measured by the SA1 meter (column `pw`), null if no meter data
-// - compKwh = compressor estimate, DP 112 A × DP 114 V (230 V fallback) — trends only
+// - compKwh = heat pump estimate, DP 112 A × 220 W/A (nameplate 9.67 A = 2.13 kW, d#133)
 // State:
 // - flow.hpDayCache = { 'YYYY-MM-DD': stats } for finished days (not today), last 60 days;
 //   "Heat pump command" (37) skips cached days when it reads the summary.
+// Event lane (d#130): chart.events = segments of heating (compressor runs), DHW (valve ON),
+// preheat (bypass ON, valve OFF, set point ≥ 40) and defrost (fan 0 while the compressor runs
+// > 30 Hz, plus the bypass time after it at a heating set point).
 // Change notes:
 // 1. Initial version (d#121).
+// 10. d#154: meter power (`pw`) is ignored while the meter state letter is not C (a stale /
+//    offline meter no longer adds kWh at its last reading).
+// 2. d#130: event lane under the temperature chart (heating / DHW / preheat / defrost).
+// 4. d#133: power estimate = A × 220 W/A (nameplate) instead of A × DC bus voltage.
+// 9. d#145: event lane kind 'error' (red) while DP 15 reports a fault, with the Er codes; at least
+//    2.5 px wide so a short fault is visible; counted in the legend.
+// 8. d#143: chart.plan (today only, while a DHW cycle runs): dashed tank target line from the cycle
+//    start and a dashed projection from the tank now to the target at the expected end (flow.dhwView).
+// 7. d#141: compressor current (DP 112) as a third power-chart series on a right axis (A);
+//    every power series carries its axis maximum `max` for the tooltip dots.
+// 6. d#136: chart.temp[].v / chart.power.series[].v = value per 2-min bucket (hover tooltip), chart.nb.
+// 5. d#134: the power panel under the event lane is removed (owner); power is a separate chart
+//    (chart.power) with compressor power = DC bus voltage (DP 114) × current (DP 112) (owner;
+//    reads ~1.7× the nameplate-based A × 220 W/A) and the meter W; the ≈kWh estimate uses it too.
+// 3. d#132: Accumulator (`atemp`) and Exchange plate (`xtemp`) cloud sensors on the day chart
+//    (a series is shown only when the day has data for it).
 // ==========================
 
-const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw'];
+const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp', '15'];
+// DP 15 fault bits (same list as 34 / 40), for the red error marks of the event lane (d#145)
+const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'Er14', 'Er15', 'Er16',
+    'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',
+    'Er63', 'Er64', 'Er66', 'Er67', 'Er68', 'Er69', 'Er70'];
+const faultCodes = (v) => FAULT_LABELS.filter((_, i) => (Number(v) & (1 << i)) !== 0).join(' ');
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
+const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133); only when DP 114 is missing
+// d#134 (owner): compressor power = DC bus voltage (DP 114) × compressor current (DP 112)
+const compW = (amp, bus) => (amp === null ? null : Math.max(0, amp) * (bus !== null && bus > 0 ? bus : W_PER_A));
 const BUCKET_S = 120;
 const CACHE_DAYS = 60;
 
@@ -49,6 +76,7 @@ function parse(text) {
     let hour = 0;
     let last = null;
     let hpState = 'U';
+    let meterState = 'U';
     for (const line of String(text).split(/\r?\n/)) {
         if (!line) continue;
         if (line.startsWith('#day ')) {
@@ -66,13 +94,14 @@ function parse(text) {
             idx = KEYS.map((k) => cols.indexOf(k));
             last = KEYS.map(() => null);
             hpState = 'U';
+            meterState = 'U';
             continue;
         }
         if (!idx) continue;
         const cells = line.split(',');
         const t = Number(cells[0]);
         if (!Number.isFinite(t)) continue;
-        if (cells[1]) hpState = cells[1].charAt(0);
+        if (cells[1]) { hpState = cells[1].charAt(0); meterState = cells[1].charAt(3) || 'U'; }
         for (let i = 0; i < KEYS.length; i++) {
             const c = idx[i];
             if (c > 1 && cells[c] !== undefined && cells[c] !== '') {
@@ -80,7 +109,11 @@ function parse(text) {
                 last[i] = Number.isFinite(n) ? n : null;
             }
         }
-        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a: last.slice() });
+        const a = last.slice();
+        // An empty `pw` field means "unchanged", so a meter that went stale or offline would keep
+        // its last power for hours: the power only counts while the meter letter is C.
+        if (meterState !== 'C') a[K.pw] = null;
+        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a });
     }
     order.forEach((d) => days[d].rows.sort((x, y) => x.s - y.s));
     return { days, order };
@@ -129,7 +162,7 @@ function stats(rows) {
             maxW = maxW === null ? pw : Math.max(maxW, pw);
         }
         if (amp !== null) {
-            const c = Math.max(0, amp) * (bus !== null && bus > 0 ? bus : 230) * dt / 3600;
+            const c = compW(amp, bus) * dt / 3600;
             compWh += c; H.compWh += c;
         }
     }
@@ -163,9 +196,12 @@ function stats(rows) {
 }
 
 // ---- day chart (SVG coordinates) ----------------------------------------
-function chart(rows) {
+// dv = flow.dhwView for today (d#143): plan of the running DHW cycle, drawn as dashed lines
+function chart(rows, dv) {
     const W = 760, L = 40, R = 12;
-    const T1 = 10, B1 = 200, T2 = 228, B2 = 300;
+    // d#134: the event lane is the bottom of the temperature chart; power has its own chart (power)
+    const T1 = 10, B1 = 200, B2 = 224;
+    const PT = 8, PB = 128;   // power chart, viewBox 0 0 760 156
     const nb = Math.ceil(86400 / BUCKET_S);
     const buckets = [];
     for (let i = 0; i < nb; i++) buckets.push(null);
@@ -175,24 +211,36 @@ function chart(rows) {
         const b = buckets[i] || (buckets[i] = KEYS.map(() => ({ s: 0, n: 0 })).concat([{ s: 0, n: 0 }]));
         KEYS.forEach((k, j) => { const v = r.a[j]; if (v !== null) { b[j].s += v; b[j].n++; } });
         const amp = r.a[K['112']], bus = r.a[K['114']];
-        if (amp !== null) { b[KEYS.length].s += Math.max(0, amp) * (bus !== null && bus > 0 ? bus : 230); b[KEYS.length].n++; }
+        if (amp !== null) { b[KEYS.length].s += compW(amp, bus); b[KEYS.length].n++; }
     });
     const val = (b, j) => (b && b[j].n ? b[j].s / b[j].n : null);
     const x = (i) => +(L + (i + 0.5) * BUCKET_S / 86400 * (W - L - R)).toFixed(1);
 
-    const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c']];
-    const powDefs = [['Heat pump W (meter)', KEYS.length - 1, '#9467bd'], ['Compressor ≈W', KEYS.length, '#8c564b']];
+    const tempDefs = [['Supply', '102', '#d62728'], ['Return', '101', '#1f77b4'], ['Tank', '108', '#ff7f0e'], ['Outdoor', '103', '#2ca02c'],
+        ['Accumulator', 'atemp', '#9467bd'], ['Exchange plate', 'xtemp', '#bcbd22']];
 
-    let tMin = Infinity, tMax = -Infinity, pMax = 0;
+    const powDefs = [['Compressor W (DC bus × current)', KEYS.length, '#8c564b'], ['Heat pump W (meter)', K.pw, '#9467bd']];
+    // d#141: compressor current (DP 112) on the power chart, right axis in A
+    const ampDef = ['Compressor current, A', K['112'], '#e377c2'];
+    let tMin = Infinity, tMax = -Infinity, pMax = 0, aMax = 0;
     buckets.forEach((b) => {
         tempDefs.forEach(([, k]) => { const v = val(b, K[k]); if (v !== null) { tMin = Math.min(tMin, v); tMax = Math.max(tMax, v); } });
         powDefs.forEach(([, j]) => { const v = val(b, j); if (v !== null) pMax = Math.max(pMax, v); });
+        { const v = val(b, ampDef[1]); if (v !== null) aMax = Math.max(aMax, v); }
     });
     if (!Number.isFinite(tMin)) { tMin = 0; tMax = 50; }
     const yMin = Math.floor(tMin / 10) * 10, yMax = Math.max(yMin + 10, Math.ceil(tMax / 10) * 10);
-    const pTop = Math.max(500, Math.ceil(pMax / 500) * 500);
     const yT = (v) => +(T1 + (yMax - v) / (yMax - yMin) * (B1 - T1)).toFixed(1);
-    const yP = (v) => +(B2 - v / pTop * (B2 - T2)).toFixed(1);
+    const pTop = Math.max(1000, Math.ceil(pMax / 1000) * 1000);
+    const yP = (v) => +(PB - v / pTop * (PB - PT)).toFixed(1);
+    const pTicks = [];
+    for (let v = 0; v <= pTop; v += pTop <= 2000 ? 500 : 1000) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
+    // right axis: as many steps as the W axis, so the grid lines are shared
+    const pSteps = pTicks.length - 1;
+    const aStep = Math.max(1, Math.ceil(Math.max(aMax, 1) / pSteps));
+    const aTop = aStep * pSteps;
+    const yA = (v) => +(PB - v / aTop * (PB - PT)).toFixed(1);
+    const aTicks = pTicks.map((t, i) => ({ label: i * aStep, y: t.y }));
 
     function segs(j, y) {
         const out = [];
@@ -205,20 +253,63 @@ function chart(rows) {
         if (cur.length > 1) out.push(cur.join(' '));
         return out;
     }
+    // d#136: value per bucket for the hover tooltip of the page (null = no data)
+    const vals = (j, dec) => buckets.map((b) => { const v = val(b, j); return v === null ? null : +v.toFixed(dec); });
     const tTicks = [];
     for (let v = yMin; v <= yMax; v += 10) tTicks.push({ label: v, y: yT(v) });
-    const pStep = pTop <= 1000 ? 250 : (pTop <= 3000 ? 500 : 1000);
-    const pTicks = [];
-    for (let v = 0; v <= pTop; v += pStep) pTicks.push({ label: v >= 1000 ? (v / 1000) + 'k' : v, y: yP(v) });
     const xTicks = [];
     for (let h = 0; h <= 24; h += 3) xTicks.push({ label: pad(h % 24) + ':00', x: +(L + h / 24 * (W - L - R)).toFixed(1) });
 
+    // event lane between the two charts: what the heat pump did, from the recorded states
+    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf', error: '#da3633' };
+    const xs = (s) => +(L + s / 86400 * (W - L - R)).toFixed(1);
+    const events = [];
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.ok) continue;
+        const a = r.a, hz = a[K['115']], fan = a[K['116']];
+        // bypass ON with a DHW set point (≥ 40) = preheat; with a heating set point = after a defrost
+        const flt = a[K['15']];
+        const kind = flt !== null && flt > 0 ? 'error'
+            : fan === 0 && hz !== null && hz > 30 ? 'defrost'
+            : a[K.v1] === 1 ? 'dhw'
+            : a[K.b1] === 1 ? (a[K['125']] !== null && a[K['125']] >= 40 ? 'preheat' : 'defrost')
+            : hz !== null && hz > 0 ? 'heating' : null;
+        const s1 = r.s, s2 = rows[i + 1] ? Math.min(rows[i + 1].s, r.s + MAX_DT) : r.s + 30;
+        const last = events[events.length - 1];
+        if (kind && last && last.kind === kind && s1 - last.s2 <= MAX_DT) last.s2 = s2;
+        else if (kind) events.push({ kind, s1, s2, codes: kind === 'error' ? faultCodes(flt) : '' });
+    }
+    const evOut = events.map((e) => ({ kind: e.kind === 'error' ? 'error ' + e.codes : e.kind, err: e.kind === 'error', color: EV[e.kind], x: xs(e.s1), w: Math.max(e.kind === 'error' ? 2.5 : 0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
+        from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
+    // d#143: where the running DHW cycle is heading — target line and the expected end
+    let plan = null;
+    const okRows = rows.filter((r) => r.ok);
+    if (dv && dv.plan && dv.at && Date.now() - dv.at <= 2 * 60 * 1000 && okRows.length) {
+        const p = dv.plan, lastS = okRows[okRows.length - 1].s, nowMs = Date.now();
+        const sOf = (ms) => Math.max(0, Math.min(86400, lastS + (ms - nowMs) / 1000));
+        const clampY = (v) => yT(Math.max(yMin, Math.min(yMax, v)));
+        const eta = new Date(p.eta);
+        plan = { x0: xs(sOf(p.startAt)), xNow: xs(lastS), yNow: p.tank === null || p.tank === undefined ? null : clampY(p.tank),
+            xEnd: xs(sOf(p.eta)), yTarget: clampY(p.target), target: p.target, rate: p.rate, byMax: !!p.byMax,
+            etaText: pad(eta.getHours()) + ':' + pad(eta.getMinutes()), state: dv.state };
+    }
+    const evCount = {};
+    events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
+
     return {
-        viewBox: '0 0 ' + W + ' 330',
-        left: L, right: W - R, t1: T1, b1: B1, t2: T2, b2: B2,
-        xTicks, tTicks, pTicks,
-        temp: tempDefs.map(([name, k, color]) => ({ name, color, segs: segs(K[k], yT) })),
-        power: powDefs.map(([name, j, color]) => ({ name, color, segs: segs(j, yP) })).filter((s) => s.segs.length)
+        viewBox: '0 0 ' + W + ' 250',
+        left: L, right: W - R, t1: T1, b1: B1, b2: B2, nb, bucketS: BUCKET_S, yMin, yMax,
+        evTop: B1 + 6, evH: 14,
+        events: evOut,
+        plan,
+        eventLegend: Object.keys(EV).map((k) => ({ kind: k, color: EV[k], count: k === 'heating' ? null : (evCount[k] || 0) })),
+        xTicks, tTicks,
+        temp: tempDefs.map(([name, k, color]) => ({ name, color, unit: '°C', segs: segs(K[k], yT), v: vals(K[k], 1) })).filter((s) => s.segs.length),
+        power: { viewBox: '0 0 ' + W + ' 156', top: PT, bottom: PB, ticks: pTicks, aTicks, max: pTop, aMax: aTop,
+            series: powDefs.map(([name, j, color]) => ({ name, color, unit: 'W', max: pTop, segs: segs(j, yP), v: vals(j, 0) }))
+                .concat([{ name: ampDef[0], color: ampDef[2], unit: 'A', max: aTop, right: true, segs: segs(ampDef[1], yA), v: vals(ampDef[1], 1) }])
+                .filter((s) => s.segs.length) }
     };
 }
 
@@ -227,7 +318,7 @@ const text = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : Strin
 const parsed = parse(text);
 const nowD = new Date();
 const today = nowD.getFullYear() + '-' + pad(nowD.getMonth() + 1) + '-' + pad(nowD.getDate());
-const cache = flow.get('hpDayCache') || {};
+const cache = flow.get('hpDayCache2') || {};
 
 if (msg.topic === 'day') {
     const d = parsed.days[msg.day];
@@ -237,9 +328,9 @@ if (msg.topic === 'day') {
     }
     const s = stats(d.rows);
     if (msg.day < today) { cache[msg.day] = s.stats; }
-    flow.set('hpDayCache', cache);
+    flow.set('hpDayCache2', cache);
     node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + d.rows.length + ' samples' });
-    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows) } };
+    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows, msg.day === today ? flow.get('dhwView') : null) } };
 }
 
 // summary
@@ -255,6 +346,6 @@ const days = parsed.order.map((day) => {
 const keep = Object.keys(cache).sort().slice(-CACHE_DAYS);
 const trimmed = {};
 keep.forEach((k) => { trimmed[k] = cache[k]; });
-flow.set('hpDayCache', trimmed);
+flow.set('hpDayCache2', trimmed);
 node.status({ fill: 'green', shape: 'dot', text: 'summary: ' + days.length + ' days' });
 return { topic: 'hpHistory', payload: { kind: 'summary', days } };

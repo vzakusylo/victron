@@ -8,6 +8,8 @@
     {topic:'ui', payload:{action:'modeAll', mode}}   — all rules at once
     {topic:'ui', payload:{action:'flag', on:false}}  — reset the internal defrost flag
     {topic:'ui', payload:{action:'refresh'}}         — on open
+  d#138: the DHW controller panel (switch, curve, settings) moved to the Heat Pump page (35).
+  d#139: its status line is removed here too; the DHW controller is only on the Heat Pump page.
 -->
 <style>
 .hpa { padding: 6px 4px; font-size: 14px; }
@@ -56,6 +58,7 @@
     <span class="note" ng-if="!msg.payload.master">OFF: no local rule writes to a device. Rules set to On or Test are still evaluated and every step is logged as "would …".</span>
     <span class="note" ng-if="msg.payload.master">ON: rules set to <b>On</b> write to the devices (queue, 1.5 s between writes, each write checked 15 s later). Rules in <b>Test</b> only log. Switch the matching Smart Life scene off before a rule goes On. Turning OFF stops running sequences.</span>
   </div>
+
 
   <div class="hpa-master">
     <span class="big">All rules</span>
@@ -108,7 +111,7 @@
     <tr ng-if="!msg.payload.log.length"><td colspan="3" class="small">nothing yet</td></tr>
   </table>
 
-  <div class="small" style="margin-top:8px">The defrost flag is internal: the cloud flag device “Voksen heating” is not used. Not included: the tap-to-run scene “Slowly cool down” that the cloud B42 off runs before P22 on, and the scene switch in “HP Er03 restart”. “HP power &lt;-16” and “HP smart -15..-7” are copied as they are in the cloud, where their set point conditions can never be true together.</div>
+  <div class="small" style="margin-top:8px">The defrost flag is internal: the cloud flag device “Voksen heating” is not used. B42 off includes the steps of the tap-to-run scene “Slowly cool down” (set 39 → 38 → 37). Not included: the scene switch in “HP Er03 restart”. The two never-true cloud scenes “HP power &lt;-16” and “HP smart -15..-7” are not run here (deleted in d#140).</div>
 </div>
 
 <script>

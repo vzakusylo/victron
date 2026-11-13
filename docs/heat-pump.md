@@ -22,11 +22,17 @@ The heat pump is today controlled by Tuya cloud scenes (DHW ladder, defrost/bypa
 
 | Role | Tuya name | Device ID | IP / protocol | Notes |
 |---|---|---|---|---|
-| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | 192.168.1.31 / 3.3 | product `5oc9wmac3bbidekc`, controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
+| Heat pump | Heating pump | `bf3f2552b6fcd2c689fzre` | 192.168.1.31 / 3.3 | product `5oc9wmac3bbidekc`, Power World PW030-DKZLRS-A (EVI DC inverter, R32, 230 V, max 9.67 A / 2.13 kW input), controller PW58280 (Powerworld/Michl, inverter 3-in-1) |
 | 3-way valve relay | Boiler | `bf894708aa7e3ac196zjzk` | 192.168.1.53 / **3.5** | DP 1: ON = DHW tank, OFF = heating. Sends **no** UDP beacons → the IP must be set in the node |
 | Heat exchanger bypass | Off Heating exchange | `bf3ff3d877d898b531cuoq` | 192.168.1.139 / 3.4 | DP 1: ON = bypass (exchanger off); plug with metering (DP 18 mA, 19 W × 10, 20 V × 10) |
-| Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | `bff533964da65dd78dlha6` | not reachable yet | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a`. It is on the other (D-Link) Wi-Fi, which the GX cannot reach — move it to the ASUS Wi-Fi, then set its IP |
+| Heat pump power meter | SA1 Wi-Fi Smart Power Transformer | `bff533964da65dd78dlha6` | **192.168.0.115 / 3.5** (d#151) | measures the whole heat pump; decoded from DPs 18 / 19 / 20 or DP 6 `phase_a`; DP 1 = energy total (kWh × 100), DP 32 = frequency (Hz × 100). It is on the other (D-Link) Wi-Fi, which the GX reaches through its `wifi0` (192.168.0.110). It sends no UDP beacons, so the IP is set in the node (found by its MAC `f8:17:2d:2c:74:b5` in `ip neigh`) |
 | (defrost flag for cloud scenes) | Voksen heating | `bf2e8c592bd8d22486nwux` | 192.168.1.148 / 3.5 | not used by the flow |
+| Accumulator tank sensor | Accumulator tank temp | `bfe0dd97b76a98f454a8bt` | not seen on the local network (MAC `d8:d6:68:60:91:4c`) | Wi-Fi temperature / humidity sensor on battery (product `lf36y5nwb8jkxwgg`, TH01 CB3S); reports only on a change; read locally on wake (d#135). **Offline since 2026-11-10 12:11 UTC** (Tuya cloud: online false, last value 25.5 °C) — check its battery and Wi-Fi |
+| Exchange plate sensor | Exchange plate | `bfe949ce996182ffb9b1zl` | 192.168.1.116 / 3.4 (only while awake) | Wi-Fi temperature sensor on battery (product `byusvumeme5iicad`); read locally on wake (d#135) |
+
+**Local read (d#135).** The two battery sensors sleep and wake on a change of 0.3 °C or on their periodic report (Exchange plate every 40 min); on wake they send a UDP beacon to port 6667 for a few seconds. Inject *Local sensors listener (10 min)* → function *Heat pump local sensors* ([`46`](../46%20Heat%20pump%20local%20sensors.js)) → exec *Read local battery sensors* (spawn mode) runs [`tools/tuya-local-sensors.js`](../tools/tuya-local-sensors.js) for 630 s, so two runs overlap by 30 s. On a beacon it connects at once (tuyapi, protocol from the beacon, 3.4 for the Exchange plate) and takes the pushed DPs: 1 = temperature × 10, 2 = humidity %, 3 = battery_state. A `get` is answered with *json obj data unvalid*; the data comes as a push. Local keys: `/data/home/nodered/grid-control-config/tuya-local-sensors.json` (mode 600, from the cloud API once; renew if a sensor is paired again). Last readings: `tuya-local-sensors-last.json`, printed again at every start. `34` takes the reading time (`data.t`) and keeps a sensor fresh for 24 h; the device chip shows *(local)* or *(cloud)* and the age. The cloud read below is only a **fallback** now: `44` asks the cloud only for a sensor without a local reading for 24 h.
+
+**Cloud sensors (d#132) — OFF since d#151.** The owner wants the sensors on the local network only: `CLOUD_ENABLED = false` in `44` (set it to `true` to bring the fallback back). The cloud had kept returning the last value of the offline accumulator sensor as if it were fresh. Earlier design: The two battery sensors are read from the Tuya Cloud OpenAPI every 2 min: inject *Cloud sensors poll (2 min)* → function *Heat pump cloud sensors* ([`44`](../44%20Heat%20pump%20cloud%20sensors.js)) → exec *Read Tuya cloud sensors* runs [`tools/tuya-cloud-status.js`](../tools/tuya-cloud-status.js) on the GX (copied to `/data/home/nodered/tools/`) → back to `44` → *Heat pump state* (`34`) as roles `acc` and `plate`. From there they show as tiles on the Heat Pump page, as two series on the 24 h temperature chart, in the recorder as columns `atemp` / `ahum` / `abat` and `xtemp` / `xhum` / `xbat`, and on the day chart of the history page. The credentials of the Tuya IoT cloud project are **not** in the repository: `/data/home/nodered/grid-control-config/tuya-cloud.json` on the GX (`{ "accessId", "accessSecret", "endpoint": "https://openapi.tuyaeu.com" }`, mode 600). Without that file the node shows the error and both sensors read *ERROR*. Calls: one status call per 2 min for both sensors (~22 000 a month) plus a token about every 2 h and the value scales once a day. Cloud project: *Home local*, Central Europe data center. First reading 9 Nov 14:54: accumulator 25.5 °C / 32 %, exchange plate 28 °C / 32 %, both batteries `high` (the sensors send `battery_state` low / middle / high, not a percentage). The exchange plate sensor reports on a change of 0.3 °C or every 40 min (`temp_sensitivity` 3, `temp_periodic_report` 40), so a flat line on the chart means no change, not a lost sensor. Caches in `/tmp` must belong to the `nodered` user (a test run as root once blocked the node: run the tool as `su -s /bin/sh nodered -c '…'`).
 
 State on 2026-11-08 (d#122): heat pump, valve and bypass **CONNECTED**; the SA1 meter shows *ERROR / DISCONNECTED* until it is on the ASUS network, so the Power tile shows "—" and the Power chart has only the compressor estimate.
 
@@ -50,11 +56,13 @@ Note: many Tuya devices accept only **one local connection**. Do not run tinytuy
 
 ## Heat Pump page
 
+**Layout (d#134):** device chips and the shared cards (outdoor, compressor Hz, compressor current in A (d#141), load, resource, fan, power, mode, faults) on top; below them two columns — **Heating** on the left (supply, return, heating set, accumulator, exchange plate, curve P22 / bypass, bypass control, heating curve with the P23 slider) and **Boiler (DHW tank)** on the right (tank, tank target, valve, DHW controller state and reason, boiler curve). The boiler curve uses the same outdoor axis as the heating curve: tank target, the start line (target − hysteresis), the frost zone (electric heater only), target and tank now. Its data comes from the DHW controller (`40` writes `flow.dhwView` every 10 s, `34` builds `model.dhwChart`); how the boiler works now: [heat-pump-boiler.md](heat-pump-boiler.md); since d#142 the boiler cycle runs on the pump's own curve (P22 always on; boiler P24 12 with a computed P23; [heat-pump-dhw-curve-plan.md](heat-pump-dhw-curve-plan.md)) and the chart also shows the wanted supply; since d#138 the **DHW controller panel** is in this column too: Off / Test / On, outdoor average and heating lag, the reason it waits, and under the chart the editable curve points and settings with Save / Reset (requests go through `37` to `40`; since d#139 the Automations tab does not show it at all). On a narrow screen (< 900 px) the columns stack.
+
 Flow nodes:
 
 - `Poll heat pump (GET, read only)` — every 30 s (was 60 s before d#114) sends `{"operation":"GET","schema":true}` to the four Tuya nodes. **Always send an explicit `operation`**: the Tuya node treats a message without it as `SET`.
 - four `tuya-smart-device` nodes → `topic = hp | valve | bypass | meter` → `Heat pump state` (`34 Heat pump state.js`)
-- `Heat pump page` (ui_template, source `35 Heat pump page.html`), `Heat pump temperatures` (24 h chart: supply, return, tank, outdoor; one point per minute) and `Heat pump power` (24 h chart, W: meter and compressor estimate)
+- `Heat pump page` (ui_template, source `35 Heat pump page.html`). The 24 h ui_charts `Heat pump temperatures` and `Heat pump power` were removed in d#135; the history page shows the same by day (temperatures with the event lane, power = DC bus × compressor current and meter W, compressor current in A on a right axis since d#141, legends that hide / show a series)
 - `Heat pump command` (`37 Heat pump command.js`): the only node that writes to the devices; also starts the history reads
 - `Read heat pump history` (exec) → `Build heat pump history` (`38`) → `Heat pump history` (ui_template, `39 Heat pump history page.html`)
 
@@ -62,13 +70,21 @@ The page shows connection state of each device, supply / return / tank / outdoor
 
 State is kept in `flow.heatPump` (raw DPs per device) and `flow.heatPumpModel` (page model).
 
-**Compressor load card (d#114, maxima d#116):**
-- rated maxima: 91 Hz and 8 A (constants `COMPRESSOR_MAX_HZ` / `COMPRESSOR_MAX_A` in `34`);
-- frequency % = DP 115 / 91, current % = DP 112 / 8, each clamped to 0–100;
-- load % = the higher of the two. Example: 69 Hz, 3 A → 76 % / 38 % → **76 %**;
-- power ≈ DP 112 (compressor current) × DP 114 (DC bus voltage; 230 V until received).
+**Nameplate (outdoor unit):** Power World **PW030-DKZLRS-A**, EVI DC inverter heat pump (Easylife series), 230 V~ 1-phase, R32 1300 g, heating 1.28–6.81 kW at input 0.31–2.13 kW and 1.57–8.40 kW at input 0.32–1.87 kW (two test conditions, not printed on the plate; probably A7/W55 and A7/W35), current 1.28–9.67 A, max pressure 4.4 MPa, 96 kg. Sold by Michl, bought 2022-01-01. Power World advertises a Panasonic twin-rotary EVI compressor for this series; the exact compressor model is only on the compressor itself (not checked).
 
-This is an estimate: power factor and drive losses are ignored, and there is no power DP.
+**Compressor load card (d#133):**
+- power ≈ DP 112 (current) × **220 W/A**: the nameplate gives 2.13 kW at 9.67 A (220 W/A) and 0.31 kW at 1.28 A (242 W/A), so the input power is close to current × 220–240 W/A;
+- load % = that power / 2130 W (nameplate max input) = current / 9.67 A. Example: 69 Hz, 3 A → ≈ 660 W → **31 %**;
+- frequency is shown against 90 Hz, the highest value recorded (Smart);
+- until d#133 the power was current × DC bus voltage (DP 114, ~376 V): that gave up to 3 kW at 8 A, above the nameplate maximum, i.e. ~1.7× too high, and the load was the higher of Hz / 91 and A / 8.
+
+Still an estimate: it assumes DP 112 is the unit's input current. Once the SA1 meter is reachable, compare its watts with current × 220 and correct `W_PER_A` (in `34`, `38`, `45`).
+
+**Compressor resource (d#133)** — function *Compressor resource* ([`45`](../45%20Compressor%20resource.js)), every 30 s, counters in `/data/home/nodered/grid-control-config/compressor-resource.json` (saved every 10 min, read again after every node start):
+- measured from 2026-11-08 01:17 (seeded from the recorder history at the first deploy): run hours, starts, defrosts, DHW run hours, equivalent full-load hours (time × current / 9.67 A), estimated kWh (current × 220 W/A), hours by frequency band (< 40, 40–70, 70–90, ≥ 90 Hz), hours with discharge (DP 104) > 95 °C;
+- before that, 2022-01-01 … 2026-11-07, an **estimate** from daily outdoor temperatures in Hokksund (Open-Meteo archive): run fraction (17 − T) / 20, clamped 0…1, plus 1 h DHW a day → **≈ 21 957 h** (≈ 4 500 h a year); starts ≈ 27 000 (26 a day in the defrost season, 8 otherwise). Rough: it assumes the house needs the full capacity at −3 °C, as on 8–9 Nov;
+- resource % = (estimated + measured hours) / **60 000 h**. That service life is an **assumption**: the compressor maker publishes none. Change `lifeH` in the counter file if a better value is known;
+- shown as the *Compressor resource* card on the Heat Pump page (hover for the split estimated / measured). First values (9 Nov 15:24): 21 993 h ≈ 36.7 %; measured 35.7 h, 47 starts, 47 defrosts, average 67 Hz and 32 % load, ≈ 24 kWh.
 
 **Power meter SA1 (d#121):**
 
@@ -105,7 +121,7 @@ On open, the `Heat pump history` template sends `{topic:'summary'}`. `37` then b
 | Temperatures | outdoor, supply, return and tank: min / average / max |
 | Compressor | run hours and %, starts, average Hz while running, defrost signs |
 | Relays | bypass hours and DHW (valve) hours |
-| Measured energy | kWh, average and max W from the meter (`pw`) |
+| Measured energy | kWh, average and max W from the meter (`pw`), counted only while the meter state letter is `C` (d#154: a stale or offline meter no longer adds kWh at its last reading) |
 | Estimate | compressor ≈kWh from A × V |
 | Data | hours with data |
 
@@ -190,43 +206,18 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 - **Safety:** every device a rule reads must be CONNECTED with data ≤ 5 min old; the conditions must hold on 3 ticks in a row (tick 10 s); then the rule rests (10–30 min).
 - **Settings** (master, modes) are kept in `/data/home/nodered/grid-control-config/heat-pump-automations.json` and read on start. A missing or broken file means master OFF, every rule at its default.
 
-**Local rules (28)** — DPs: 2 mode, 5 work mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 108 tank, 115 Hz, 116 fan, 125 set point, 132 P22; valve ON = DHW, bypass ON = exchanger bypassed. Default Test, except the rules marked *(Off)*:
+**Local rules (3, since d#140)** — DPs: 2 mode, 15 faults (bit 0 = Er03), 102 supply, 103 outdoor, 115 Hz, 116 fan, 125 set point, 132 P22; bypass ON = exchanger bypassed. The tank is heated only by the **DHW controller** ([docs/heat-pump-dhw-controller.md](heat-pump-dhw-controller.md)):
 
 | Rule | Smart Life scene (runs 7–8 Nov) | If | Then (steps) |
 |---|---|---|---|
 | `df_exchange_off` | DF exchange off (45) | fan 0, > 30 Hz, bypass OFF, supply < 27, outdoor < 14 | bypass ON, flag ON |
 | `df_exchange_on` | DF exchange on 31 (49) | bypass ON, fan > 300, supply > 27, set < 45, P22 on | bypass OFF, wait 7 min, flag OFF |
-| `df_switch_to_heating` | DF switch to heating (6) | fan 0, > 30 Hz, valve ON, outdoor < 14, flag OFF, set 40/42/46/50 | flag ON, valve OFF, bypass ON |
 | (built in) | DF safe 10min (59) | flag ON ≥ 10 min | flag OFF |
-| `b40_on` | B40 on <36 -20..-11 | tank < 36, valve OFF, supply > 35, outdoor −20…−11, bypass OFF, set < 40 | P22 off, Powerful, set 40, bypass ON |
-| `b40_switch` | B40 switch >37 | valve OFF, fan > 250, set 40, supply > 37, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 40, bypass OFF |
-| `b40_off` | B40 off >39 | outdoor −20…−11, tank > 39, fan > 300, supply > 38, set 40, valve ON | set 37, valve OFF, wait 4 s, set 37, valve OFF, P22 on |
-| `b42_on` | B42 on <41 -10..-5 | outdoor −10…−5, tank < 41, fan > 400, supply > 35, valve + bypass OFF, set < 40 | P22 off, Powerful, set 42, bypass ON |
-| `b42_switch` | B42 switch >39 | supply > 39, set 42, valve OFF, fan > 300, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 42, bypass OFF |
-| `b42_off` | B42 off >42 | tank > 42, supply > 41, valve ON, set 42 | set 41, wait 10 s, valve OFF, set 41, wait 1 min, set 39, wait 1 min, valve OFF, Silent, wait 3 min, P22 on (cloud also runs the scene *Slowly cool down* — not included) |
-| `b46_on` | B46 on <44 -4..1 (6) | tank < 44, outdoor −4…1, fan > 300, supply > 30, valve + bypass OFF, set < 40 | P22 off, Smart, set 46, bypass ON |
-| `b46_switch` | B46 switch >38 (15, 4 failed) | supply > 38, fan > 40, valve OFF, set 46, flag OFF | flag ON, set 20, wait 1 min, valve ON, set 46, bypass OFF |
-| `b46_off` | B46 off >46 -4..1 (8, 3 failed) | tank > 46, fan > 400, supply > 46, valve ON, outdoor −4…1, flag OFF, set 46 | set 45, bypass OFF, 10 s, set 45, 3 s, valve OFF, 2 s, valve OFF, then set 43 → 41 → 39 → 38 → 35 one per minute, Silent, P22 on |
-| `b50_on` | B50 on <47 >1 | tank < 47, outdoor > 1, valve OFF, flag OFF, bypass OFF, heat pump on | P22 off, set 50, bypass ON |
-| `b50_switch_warm` | B50 switch >47 >0 | valve OFF, set 50, outdoor > 0, tank < 49, flag OFF, supply > 47 | flag ON, set 20, wait 1 min, valve ON, set 50, bypass OFF |
-| `b50_switch_cold` | B50 switch >45 <1 | supply > 45, set 50, valve OFF, outdoor < 1, flag OFF, tank < 49 | same as above |
-| `b50_off` | B50 off >49 | tank > 49, valve ON | Silent, set 25, valve OFF (×3 over 30 s), flag ON 10 s, P22 on |
-| `b50_preheat_bypass` | B50 preheat exchange off | set 50, valve OFF, bypass OFF, tank < 50 | bypass ON |
-| `b42_mode_smart` | B42 mode silent-smart <44 | Silent, set 42, supply < 44 | Smart |
-| `b42_mode_smart45` *(Off)* | B42 mode silent-smart <45 | Silent, supply < 45, fan > 300, set 42 | Smart |
-| `b42_mode_silent_valve` *(Off)* | B42 mode smart-silent >6a | set 42, supply > 44, Smart, valve ON | Silent |
-| `b42_mode_powerful_silent` *(Off)* | B42 mode powerful-silent >45 | supply > 45, fan > 300, set 42, Smart or Powerful | Silent |
-| `b46_mode_silent` *(Off)* | B46 mode smart-silent >48 | Smart, set 46, supply > 48 | Silent |
-| `b50_force_heating` *(Off)* | B50 force heating mode | set 50, work mode Cooling | work mode Heating |
-| `hp_silent_0` *(Off)* | HP silent >0 | outdoor > 0, flag OFF, set < 40, valve OFF, not already Silent | Silent |
 | `hp_er03_restart` *(Off)* | HP Er03 restart | fault Er03 (water flow), valve ON | valve OFF, 30 s, valve OFF, pump OFF, 1 min, pump ON, bypass OFF, set 31, P22 on (cloud also disables the scene *zz boiler 50 on <47 >1*, already off — not included) |
-| `hp_power_m16` *(Off)* | HP power <-16 (dead) | outdoor < −16, fan > 250, set < 37 **and** > 37, Smart or Silent — never true, as in the cloud | Powerful, notify |
-| `hp_smart_m15` *(Off)* | HP smart -15..-7 (dead) | outdoor −15…−7, fan > 250, set < 35 **and** > 35, supply > 30, Powerful or Silent — never true | Smart, 15 min, notify |
-| `b_recovery_valve_off` | B recovery off | valve ON, set 33/35/36/37 | valve OFF |
 
-**Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code (`initialize` in `flows.json`, also quoted in the header of `40`; `Sync-40` only syncs `func`). A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
+**Deleted in d#134 (owner request: the DHW controller covers them):** the 23 rules B40 / B42 / B46 / B50 on / switch / off, their mode rules (B42 silent-smart <44 / <45, smart-silent >6a, powerful-silent >45, B46 smart-silent >48, B50 force heating mode), DF switch to heating (the controller handles a defrost during DHW itself), B recovery off (the controller's watchdog turns the valve OFF outside a cycle) and HP silent >0. Their conditions and steps are in git history (d#125–d#133). **Deleted in d#140 (owner):** HP power <-16 and HP smart -15..-7, whose cloud conditions can never be true (set point < 37 **and** > 37). With the DHW controller Off or Test, nothing starts a DHW cycle.
 
-**Overlapping rules (as in the cloud):** `b50_switch_warm` and `b50_switch_cold` both match at 0 < outdoor < 1 °C, and `b50_on` / `b50_preheat_bypass` both switch the bypass ON. Both scenes act in the cloud too; check this before setting them On.
+**Deploy / restart (d#127):** a new instance of the node drops running sequences and queued writes of the old one (their timers are gone) and logs it. This is the node's On Start code, source `40 Heat pump automations.init.js` (synced into `initialize`). Since d#130 a deploy of this node also comes back with an **empty context** (settings, log, flag gone; seen 9 Nov 13:40, local control was OFF for about a minute). Since d#131 the On Start code notices this and the first tick reads the settings file again (output 7 → *Read automation settings*), within a second. A watchdog also drops a sequence whose next step is more than 1 min overdue and releases a stuck write gap. A running sequence stops as soon as its rule is no longer On (On → Test or Off), and its queued writes are dropped.
 
 **No device is missing any more:** the defrost flag is internal. (The SA1 power meter is not used by any rule.) Smart Life scenes of other devices (*HOME dehum*, *HOME charger*) and the *LOG …* scenes (replaced by the Automation log) are not moved.
 
@@ -245,6 +236,12 @@ The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20A
 - **Filters:** All, Runs, On (writes), Failed / stopped, Test, Settings / flag. While the page shows today, new events appear at once.
 - Files are small (about 100–200 bytes per event). Day files older than 400 days are deleted when the page reads a day (d#127).
 
+## Errors: log events, red marks, e-mail alerts (d#145)
+
+- **Log events.** `40` watches the pump's fault word (DP 15) every 10 s: when an Er code appears it logs an event of kind **error** ("Er03 (water flow failure) appeared — valve DHW, bypass OFF, 0 Hz, fan 0, supply / return, tank, DHW state"), when it clears an **info** event with the duration. Heat pump, valve or bypass without data for 2 min → **error**, back → **info**. A DHW cycle aborted by Er03 / a valve switched back ends with kind **stop**, so its run shows as *stopped* (red). The Automation log page has an **Errors** filter and counts errors of the day; error items have a red edge.
+- **History chart.** The event lane shows the time with a pump fault in **red** ("error Er03" on hover), at least 2.5 px wide, counted in the legend.
+- **E-mail.** Function *Heat pump alerts* ([`47`](../47%20Heat%20pump%20alerts.js)) gets every automation event and the device states; alerts are: kind error / fail, DHW controller warnings and aborts, HP Er03 restart, compressor protection, hard limit, lost sequences, devices down / back. It waits 2 min so that one problem gives one mail, sends at most one mail per 15 min (repeats counted) and adds the current status. Sending: file node *Write alert mail* (`/tmp/hp-alert-mail.json`) → exec *Send alert mail* → [`tools/send-mail.js`](../tools/send-mail.js) (SMTP over TLS, port 465, Node built-ins only). Settings in `/data/home/nodered/grid-control-config/email.json` (mode 600, not in the repo): host smtp.gmail.com, `user` / `from` / `to` = the Gmail account that sends and receives the alerts, `pass` = a **Gmail app password** (Google account → Security → 2-Step Verification → App passwords). Set it on the GX with `ssh -t root@192.168.0.110 node /data/home/nodered/tools/set-mail-password.js` (input hidden), check with `node /data/home/nodered/tools/send-mail.js --check`; inject *Send test alert mail* (or `POST /inject/hpal-test-01`) sends a test mail.
+
 ## Migration log (Smart Life → GX)
 
 Which Smart Life scenes are switched off and run on the GX instead. Settings file on the GX: `/data/home/nodered/grid-control-config/heat-pump-automations.json`. **Rollback** for any step: *Turn OFF all local automations* on the Automations page and switch the listed scenes on again in Smart Life.
@@ -256,11 +253,23 @@ Which Smart Life scenes are switched off and run on the GX instead. Settings fil
 
 | 2026-11-09 11:58 | B50 on <47 >1, B50 switch >47 >0, B50 switch >45 <1, B50 off >49, B50 preheat exchange off, B50 force heating mode | 0 in the log above; 1 false start at 11:29 (see below) | `b50_on`, `b50_switch_warm`, `b50_switch_cold`, `b50_off`, `b50_preheat_bypass`, `b50_force_heating` (d#128: B50 on / preheat blocked during and 15 min after a defrost) | ON | the DHW cycle the cloud started at 11:29 is ended by the local `b50_off` (tank > 49 °C) |
 
-Still in Smart Life (2026-11-09 11:58): B40 \*, B42 \*, B recovery off, HP silent >0, HP Er03 restart, HP power <-16, HP smart -15..-7, the HOME and LOG scenes. Their GX rules stay Test or Off.
+| 2026-11-09 12:47 | HP Er03 restart, HP silent >0, B40 on <36 -20..-11, B40 switch >37, B40 off >39, B42 on <41 -10..-5, B42 switch >39, B42 off >42, B42 mode silent-smart <44, B42 mode smart-silent >6a, B42 mode powerful-silent >45, B42 mode silent-smart <45 | 0 (outdoor −5…+1 °C) | `hp_er03_restart`, `hp_silent_0`, `b40_on`, `b40_switch`, `b40_off`, `b42_on`, `b42_switch`, `b42_off`, `b42_mode_smart`, `b42_mode_smart45`, `b42_mode_silent_valve`, `b42_mode_powerful_silent` (d#129: B42 off now includes the steps of *Slowly cool down*) | ON | B40 runs at −20…−11 °C and B42 at −10…−5 °C, so they are first checked on a colder day |
+
+| 2026-11-09 13:00 | B recovery off (it was already off in Smart Life when checked; when it was switched off is not known) | 0 | `b_recovery_valve_off` | ON | — |
+
+| 2026-11-09 13:48 | — (all already off) | — | **DHW controller On** (d#130 / d#131); the 23 rules in `DHW_REPLACES` (B40 / B42 / B46 / B50 incl. mode rules, DF switch to heating, B recovery, HP silent >0) are treated as Off | ON | first cycle when the tank drops below the curve target − 3 °C (45.5 − 3 at −0.8 °C outdoor) |
+
+| 2026-11-09 21:05 | — | — | **The 23 replaced rules deleted** (d#134, owner request); left: `df_exchange_off`, `df_exchange_on`, `hp_er03_restart`, `hp_power_m16`, `hp_smart_m15` + the DHW controller | ON | the first controller cycle started 20:49 (tank 41 °C, target 45 at −2 °C) |
+
+**First local runs (2026-11-09):** 12:11 `b50_off` ended the DHW cycle (8 writes, all confirmed); 12:30 `df_exchange_off` set bypass ON and the flag; 12:39 `df_exchange_on` set bypass OFF (both writes confirmed); 12:46 it ended.
+
+Still in Smart Life (2026-11-09 13:00): HP power <-16 and HP smart -15..-7 (their conditions can never be true; their GX rules were Off and are deleted in d#140), the HOME and LOG scenes. 26 of the 28 GX rules are On, so all heat pump, valve and bypass control runs on the GX. If Node-RED or the GX stops, no scene switches the valve or the bypass; the pump keeps heating on its own curve (P22).
+
+The cloud log (Smart Life → Scene Automation → Log) no longer lists the moved scenes: local rules write to the devices over the LAN and start no cloud scene. Their runs are on the Automation log page. The LOG scenes that are still on react to the device state, so they can still appear after a local action (e.g. *LOG 50* when the set point becomes 50).
 
 **Incident 2026-11-09 11:29 (why B50 was moved too):** with the DF scenes off in the cloud, nothing set the cloud flag *Voksen heating* any more. During the defrost at 11:28 the outdoor sensor (DP 103) heated up to 3 °C and then 36 °C, so the cloud *B50 on* ("outdoor > 1") started a DHW cycle at an outdoor temperature of −1 °C (set 50, bypass ON, P22 off). The cloud flag used to block it. It also beat the local *DF exchange off* to the bypass, so no local rule ran. At 11:48 *B50 switch* moved the valve to the tank; the compressor stood still until 11:52, the normal pause after set point 20. The B50 scenes now run on the GX, where *B50 on* and *B50 preheat* do not start during a defrost or for 15 min after it.
 
-**Watch out while only part is moved:** *HP silent >0* (still in the cloud) also reads the cloud flag, which now stays OFF. During a defrost it can switch the pump to Silent. That does no harm, because the pump runs Silent most of the time anyway.
+Since 12:47 every scene that reads the cloud flag *Voksen heating* runs on the GX with the internal flag, so the cloud flag is no longer used.
 
 ## Roadmap
 
@@ -268,7 +277,8 @@ Still in Smart Life (2026-11-09 11:58): B40 \*, B42 \*, B recovery off, HP silen
 2. **Stage 1b (now, d#123–d#126)** — Automations page: master switch, per-rule Off / Test / On and all at once, internal defrost flag, all heat pump scenes as timed sequences, write check, Automation log by day; switch rule by rule On and the scene off (see above).
 3. **Stage 2** — a controller state machine in `40 Heat pump automations.js`: HEATING → DHW_PREHEAT → DHW_STOP_WAIT (set point 20, 60 s) → DHW_HEAT → back; DEFROST_HEATING / DEFROST_DHW. Defrost sign must hold 60–90 s and is ignored 3–5 min after a compressor start; bypass watchdog (≤ 20 min); safe state if a device is silent > 5 min (valve → heating, bypass off, P22 on). Dry-run first (log decisions, send nothing).
 4. **Cutover** — disable Tuya cloud scenes B…, DF…, HP silent, B46 mode, HP Er03 restart; enable sending from Node-RED. Rollback = master switch OFF on the Automations page, re-enable the scenes. Started 2026-11-09 with the DF and B46 scenes, see [Migration log](#migration-log-smart-life--gx).
-5. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06); MCP tool `get_heat_pump`.
+5. **Stage 2b (d#130, deployed Off)** — one DHW controller by outdoor curve instead of the B\* rules, with set point ramps, supply − return gap, automatic power, heating first in the cold, and an event lane on the history day chart: [heat-pump-dhw-controller.md](heat-pump-dhw-controller.md).
+6. **Stage 3** — link with the grid controller: hold DHW heating when the hourly import is close to the tier limit, prefer DHW at night (22–06). The MCP tool `get_heat_pump` (read only) is there since d#154.
 
 ---
 
