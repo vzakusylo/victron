@@ -195,6 +195,15 @@ test('52 / 50: a Qingping MQTT message becomes the Air monitor card of the Devic
     assert.deepEqual(fresh.values.find((v) => v.k === 'Temperature'), { k: 'Temperature', v: '21.4 °C' });
     assert.equal(card(NOW + 2 * 3600 * 1000).online, false);
 
+    // online by the GX receive time, not the monitor clock; other MACs get no card
+    const skewed = JSON.parse(JSON.stringify(air.flow.get('airMonitor')));
+    skewed['582D34701F19'].t -= 3600 * 1000;                      // monitor clock 1 h behind
+    skewed.AABBCCDDEEFF = { mac: 'AABBCCDDEEFF', t: NOW, seen: NOW, values: { co2: 1 } };
+    devices.flow.set('airMonitor', skewed);
+    const list = devices.run({ topic: 'read', payload: '' }, { now: NOW + 3 * 60 * 1000 }).result[0].payload.devices.filter((d) => d.group === 'air');
+    assert.equal(list.length, 1);
+    assert.equal(list[0].online, true);
+
     const empty = loadNode('50 Devices model.js').run({ topic: 'read', payload: '' }, { now: NOW }).result[0].payload.devices.find((d) => d.group === 'air');
     assert.equal(empty.online, false);
     assert.match(empty.note, /developer\.qingping\.co/);

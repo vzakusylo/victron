@@ -41,6 +41,8 @@
 // 4. d#156: Qingping Air Monitor card (group 'air') from flow `airMonitor` of "Air monitor" (52):
 //    the monitor pushes its readings to the MQTT broker of the GX. Online with a reading in the
 //    last AIR_STALE_MS.
+// 5. d#158 (review of PR #13): AIR_STALE_MS 5 min (reports every 60 s); online by the time the GX
+//    got the data (`seen`), not the monitor clock; only the known monitor MAC gets a card.
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
@@ -62,9 +64,9 @@ const SENSOR_STALE_H = 24;
 const SMOKE_STALE_H = 48;                  // smoke detectors (ywbj) report about once a day
 const LOW_BAT_PCT = 20;
 const MIN_READ_GAP_MS = 20000;
-// Qingping Air Monitor (52): the default report interval is 15 min
+// Qingping Air Monitor (52): reports every 60 s (retained interval command on its down topic)
 const AIR = { mac: '582D34701F19', name: 'Air monitor', product: 'Qingping Air Monitor', ip: '192.168.1.58', broker: '192.168.1.94:1883' };
-const AIR_STALE_MS = 45 * 60 * 1000;
+const AIR_STALE_MS = 5 * 60 * 1000;
 const AIR_VALUES = [
     ['co2', 'CO2', 'ppm'], ['pm25', 'PM2.5', 'µg/m³'], ['pm10', 'PM10', 'µg/m³'], ['tvoc', 'tVOC', 'ppb'], ['tvoc_index', 'tVOC index', ''],
     ['temperature', 'Temperature', '°C'], ['humidity', 'Humidity', '%'], ['noise', 'Noise', 'dB'], ['battery', 'Battery', '%']
@@ -297,19 +299,20 @@ function smartLifeDevices(now, meta, poll, last, cloud) {
 
 // Qingping Air Monitor: pushes its readings to the MQTT broker of the GX ("Air monitor", 52).
 function airDevices(now) {
+    // only the known monitor: any LAN client may publish to qingping/<mac>/up
     const all = flow.get('airMonitor') || {};
-    const macs = Object.keys(all);
-    if (!macs.includes(AIR.mac)) macs.unshift(AIR.mac);
-    return macs.map((mac) => {
+    return [AIR.mac].map((mac) => {
         const r = all[mac] || {};
         const v = r.values || {};
         const t = r.t || 0;
-        const online = !!t && now - t <= AIR_STALE_MS;
+        // online by the time the GX got data (`seen`), so a drifting monitor clock does not matter
+        const got = r.t ? Math.max(t, r.seen || 0) : 0;
+        const online = !!got && now - got <= AIR_STALE_MS;
         const values = [];
         for (const row of AIR_VALUES) if (v[row[0]] !== undefined && v[row[0]] !== null) values.push({ k: row[1], v: v[row[0]] + (row[2] ? ' ' + row[2] : '') });
         let note = '';
         if (!t) note = 'no MQTT message yet: set a Private Access Config (self-built MQTT, ' + AIR.broker + ') on developer.qingping.co';
-        else if (!online) note = 'no reading for ' + Math.round((now - t) / 60000) + ' min';
+        else if (!online) note = 'no reading for ' + Math.round((now - got) / 60000) + ' min';
         return {
             group: 'air', id: 'air-' + mac, name: mac === AIR.mac ? AIR.name : 'Qingping ' + mac, product: AIR.product, power: 'mains',
             ip: mac === AIR.mac ? AIR.ip : '', ver: '', link: 'MQTT push to the GX (Wi-Fi)', state: online ? 'CONNECTED' : 'OFFLINE',
