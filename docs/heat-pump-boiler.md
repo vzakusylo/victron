@@ -165,7 +165,7 @@ For comparison, the compressor since 8 Nov (55 h measured): 45 h at 40–70 Hz, 
 
 | Setting | Now | Range | Meaning |
 |---|---|---|---|
-| Tank curve | −15 → 40, −10 → 42, −5 → 44, 0 → 46, +2 → 49 | 2–8 points, 30–55 °C | tank target by outdoor |
+| Tank curve | a straight line −20 → 37, +1 → 50 (40 °C at −15; d#161) | two ends, 30–55 °C (a saved curve of 2–8 points still works) | tank target by outdoor; colder than the cold end = cold-end value, warmer than the warm end = warm-end value |
 | start below target − | 3 °C | 1–10 | hysteresis |
 | supply = target + | 4 °C | 1–10 | wanted DHW supply |
 | boiler P24 | 12 | 5–30 | slope of the boiler curve |

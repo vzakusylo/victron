@@ -2,7 +2,8 @@
   39 Heat pump history page.html
   Source of the ui_template "Heat pump history" (Heat Pump dashboard tab, below the Heat pump page).
   d#134: day switcher (previous / next, day chips), temperature chart with the event lane, a
-  separate power chart (compressor W = DC bus × current, meter W), legends that hide / show a
+  d#162: two power charts — compressor (calculated: W, A, DC bus V) and the SA1 meter (measured:
+  W, A, mains V). Before: one power chart (compressor W = DC bus × current, meter W), legends that hide / show a
   series on click. The 24 h ui_charts "Temperatures" and "Power" were removed (same data here).
   d#136: legends above the charts; pointing at (or tapping) a chart shows a cursor line, a dot
   per series and a tooltip with the time, the event and every visible value.
@@ -166,30 +167,32 @@
       <span class="hph-sub">event lane under the chart: what the heat pump did (from the valve, bypass, fan and compressor)</span>
     </div>
 
-    <div ng-if="h.day.chart.power && h.day.chart.power.series.length">
-      <h4>Power, W</h4>
+    <div ng-repeat="pc in h.day.chart.powers track by pc.id">
+      <h4 title="{{pc.note}}">{{pc.title}}</h4>
       <div class="hph-key">
-        <span ng-repeat="s in h.day.chart.power.series" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
-        <span class="note">W (left axis) and A (right axis), 2-minute averages · compressor W = DC bus voltage (DP 114) × compressor current (DP 112)</span>
+        <span ng-repeat="s in pc.series" class="k" ng-class="{off: h.hide[s.name]}" ng-click="hpToggle(s.name)" title="click to hide / show"><b ng-style="{'border-color': s.color, background: h.hide[s.name] ? 'transparent' : s.color + '33'}"></b>{{s.name}}</span>
+        <span class="note">W left axis, A right axis (dashed), V own scale (dotted, range in the plot) · 2-minute averages · {{pc.note}}</span>
       </div>
-      <div class="hph-plot" ng-mousemove="hpHover($event, 'power')" ng-click="hpHover($event, 'power')" ng-mouseleave="h.hov = null">
-      <svg viewBox="0 0 760 156" class="hph-svg power" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heat pump power by day">
+      <div class="hph-plot" ng-mousemove="hpHover($event, pc.id)" ng-click="hpHover($event, pc.id)" ng-mouseleave="h.hov = null">
+      <svg viewBox="0 0 760 156" class="hph-svg power" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{{pc.title}}">
         <g class="grid">
-          <line ng-repeat="t in h.day.chart.power.ticks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
-          <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" ng-attr-y1="{{h.day.chart.power.top}}" ng-attr-y2="{{h.day.chart.power.bottom}}"></line>
+          <line ng-repeat="t in pc.ticks" ng-attr-x1="{{h.day.chart.left}}" ng-attr-x2="{{h.day.chart.right}}" ng-attr-y1="{{t.y}}" ng-attr-y2="{{t.y}}"></line>
+          <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" ng-attr-y1="{{pc.top}}" ng-attr-y2="{{pc.bottom}}"></line>
         </g>
         <g class="axis">
-          <text ng-repeat="t in h.day.chart.power.ticks" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
-          <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" ng-attr-y="{{h.day.chart.power.bottom + 16}}" text-anchor="middle">{{t.label}}</text>
-          <text x="4" ng-attr-y="{{h.day.chart.power.top + 4}}">W</text>
-          <text ng-repeat="t in h.day.chart.power.aTicks" ng-if="hpHasRight()" ng-attr-x="{{h.day.chart.right + 3}}" ng-attr-y="{{t.y + 4}}" text-anchor="start" style="fill:#e377c2">{{t.label}}</text>
-          <text ng-if="hpHasRight()" ng-attr-x="{{h.day.chart.right + 3}}" ng-attr-y="{{h.day.chart.power.top - 1}}" text-anchor="start" style="fill:#e377c2">A</text>
+          <text ng-repeat="t in pc.ticks" ng-attr-x="{{h.day.chart.left - 5}}" ng-attr-y="{{t.y + 4}}" text-anchor="end">{{t.label}}</text>
+          <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" ng-attr-y="{{pc.bottom + 16}}" text-anchor="middle">{{t.label}}</text>
+          <text x="4" ng-attr-y="{{pc.top + 4}}">W</text>
+          <text ng-repeat="t in pc.aTicks" ng-if="hpHasRight(pc)" ng-attr-x="{{h.day.chart.right + 3}}" ng-attr-y="{{t.y + 4}}" text-anchor="start" ng-attr-style="fill:{{hpRightColor(pc)}}">{{t.label}}</text>
+          <text ng-if="hpHasRight(pc)" ng-attr-x="{{h.day.chart.right + 3}}" ng-attr-y="{{pc.top - 1}}" text-anchor="start" ng-attr-style="fill:{{hpRightColor(pc)}}">A</text>
+          <text ng-if="pc.vLabels && hpHasVolt(pc)" ng-attr-x="{{h.day.chart.right - 4}}" ng-attr-y="{{pc.top + 10}}" text-anchor="end" ng-attr-style="fill:{{pc.vLabels.color}}">{{pc.vLabels.hi}} V</text>
+          <text ng-if="pc.vLabels && hpHasVolt(pc)" ng-attr-x="{{h.day.chart.right - 4}}" ng-attr-y="{{pc.bottom - 3}}" text-anchor="end" ng-attr-style="fill:{{pc.vLabels.color}}">{{pc.vLabels.lo}} V</text>
         </g>
-        <g ng-repeat="s in h.day.chart.power.series" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}" ng-attr-stroke-dasharray="{{s.right ? '5 3' : 'none'}}"></polyline></g>
-        <line class="cursor" ng-if="h.hov.chart == 'power'" ng-attr-x1="{{h.hov.x}}" ng-attr-x2="{{h.hov.x}}" ng-attr-y1="{{h.day.chart.power.top}}" ng-attr-y2="{{h.day.chart.power.bottom}}"></line>
-        <circle class="dot" ng-if="h.hov.chart == 'power'" ng-repeat="r in h.hov.rows" ng-show="r.y !== null" ng-attr-cx="{{h.hov.x}}" ng-attr-cy="{{r.y}}" r="3.5" ng-attr-fill="{{r.color}}"></circle>
+        <g ng-repeat="s in pc.series" ng-if="!h.hide[s.name]"><polyline ng-repeat="p in s.segs track by $index" ng-attr-points="{{p}}" ng-attr-stroke="{{s.color}}" ng-attr-stroke-dasharray="{{s.volt ? '1.5 2.5' : (s.right ? '5 3' : 'none')}}"></polyline></g>
+        <line class="cursor" ng-if="h.hov.chart == pc.id" ng-attr-x1="{{h.hov.x}}" ng-attr-x2="{{h.hov.x}}" ng-attr-y1="{{pc.top}}" ng-attr-y2="{{pc.bottom}}"></line>
+        <circle class="dot" ng-if="h.hov.chart == pc.id" ng-repeat="r in h.hov.rows" ng-show="r.y !== null" ng-attr-cx="{{h.hov.x}}" ng-attr-cy="{{r.y}}" r="3.5" ng-attr-fill="{{r.color}}"></circle>
       </svg>
-      <div class="hph-tip" ng-if="h.hov.chart == 'power'" ng-style="{left: h.hov.leftPct + '%'}" ng-class="{flip: h.hov.flip}">
+      <div class="hph-tip" ng-if="h.hov.chart == pc.id" ng-style="{left: h.hov.leftPct + '%'}" ng-class="{flip: h.hov.flip}">
         <div class="tt">{{h.day.day}} {{h.hov.time}}<span ng-if="h.hov.ev"> · {{h.hov.ev}}</span></div>
         <div ng-repeat="r in h.hov.rows"><i ng-style="{background: r.color}"></i>{{r.name}} <b>{{r.v === null ? '—' : r.v}}</b> {{r.v === null ? '' : r.unit}}</div>
       </div>
@@ -230,11 +233,13 @@
         if (vx < c.left || vx > c.right) { scope.h.hov = null; return; }
         var i = Math.max(0, Math.min(c.nb - 1, Math.floor((vx - c.left) / (c.right - c.left) * c.nb)));
         var xb = c.left + (i + 0.5) / c.nb * (c.right - c.left);
-        var list = which === 'temp' ? c.temp : c.power.series;
+        var pc = which === 'temp' ? null : (c.powers || []).filter(function (p) { return p.id === which; })[0];
+        if (which !== 'temp' && !pc) return;
+        var list = which === 'temp' ? c.temp : pc.series;
         var y = which === 'temp'
             ? function (v) { return c.t1 + (c.yMax - v) / (c.yMax - c.yMin) * (c.b1 - c.t1); }
             : null;
-        var yOf = function (s, v) { return which === 'temp' ? y(v) : c.power.bottom - v / (s.max || c.power.max) * (c.power.bottom - c.power.top); };
+        var yOf = function (s, v) { var lo = s.min || 0; return which === 'temp' ? y(v) : pc.bottom - (v - lo) / ((s.max || pc.max) - lo) * (pc.bottom - pc.top); };
         var rows = [];
         list.forEach(function (s) {
             if (scope.h.hide[s.name] || !s.v) return;
@@ -247,9 +252,15 @@
         scope.h.hov = { chart: which, x: xb, leftPct: xb / 760 * 100, flip: xb > 520, rows: rows, ev: ev,
             time: pad2(Math.floor(sec / 3600)) + ':' + pad2(Math.floor(sec % 3600 / 60)) };
     };
-    scope.hpHasRight = function () {
-        var p = scope.h.day && scope.h.day.chart && scope.h.day.chart.power;
+    scope.hpHasRight = function (p) {
         return !!(p && p.series.some(function (s) { return s.right && !scope.h.hide[s.name]; }));
+    };
+    scope.hpRightColor = function (p) {
+        var s = p && p.series.filter(function (x) { return x.right; })[0];
+        return s ? s.color : 'currentColor';
+    };
+    scope.hpHasVolt = function (p) {
+        return !!(p && p.series.some(function (s) { return s.volt && !scope.h.hide[s.name]; }));
     };
     scope.hpToggle = function (name) {
         scope.h.hide[name] = !scope.h.hide[name];

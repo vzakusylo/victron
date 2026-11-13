@@ -13,6 +13,7 @@
   - [Backup — backup and restore of the whole setup](#backup--backup-and-restore-of-the-whole-setup)
   - [Payback — savings and payback of the equipment](#payback--savings-and-payback-of-the-equipment)
   - [Devices — every device and sensor online](#devices--every-device-and-sensor-online)
+  - [Air quality — day charts of the Qingping Air Monitor](#air-quality--day-charts-of-the-qingping-air-monitor)
   - [Files — logs and disk usage](#files--logs-and-disk-usage)
   - [Constants — controller constants and tariff seasons](#constants--controller-constants-and-tariff-seasons)
   - [Analytics dashboard](#analytics-dashboard)
@@ -84,8 +85,15 @@ Report interval: the portal allows 10 min at least, so the monitor is set to 60 
 
 Security: the GX broker accepted LAN clients without a password before this feature (GX setting *MQTT on LAN*). The same broker serves the Venus `W/…` write topics, so any device on the LAN can change ESS / grid setpoint and current limits. Safer: GX security profile *Secured* (password-protected MQTT) with a username / password in the Qingping config and on `air-broker-01`, or a separate broker for `qingping/#` only. Not changed yet.
 
-Low battery and sensors without a local reading for 24 h are also e-mailed by *Heat pump alerts* (`47`, see [Heat pump errors and e-mail alerts](heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145)).
+Low battery and sensors without a local reading for 24 h are also e-mailed by *Heat pump alerts* (`47`, see [Heat pump errors and e-mail alerts](heat-pump.md#errors-log-events-red-marks-e-mail-alerts-d145)).
 
+**Daily devices mail** (d#163): every day at 08:00 *Heat pump alerts* (`47`) mails the state of all devices from the Devices list: offline devices, batteries to replace (low), batteries getting low (≤ 35 % or *middle*), battery sensors quiet for over 12 h (they count as offline after 24 h, smoke detectors 48 h), and how many devices are online. Devices that are offline in Smart Life too are only named in one line. The mail goes out every day, also when everything is fine. Inject *Send devices report now* sends it at once.
+
+### Air quality — day charts of the Qingping Air Monitor
+
+Tab **Air quality** (d#159; history `54 Air quality history.js`, page `53 Air quality page.html`). Every reading of the Qingping Air Monitor (one a minute, see [Devices](#devices--every-device-and-sensor-online)) is written by *Air monitor* (`52`) to a day file on the GX: `grid-control-logs/air/YYYY-MM-DD.csv`, line `HH:MM:SS,co2,pm25,pm10,tvoc,temperature,humidity` (ppm, µg/m³, µg/m³, ppb, °C, %RH; local time of the GX; about 60 KB a day). A reading the monitor sends again (its history message repeats the realtime one) is written once; after a Node-RED restart a repeat can land in the file twice, and the page counts it once.
+
+The page shows one day: charts of CO2 (green < 800, yellow 800–1200, red > 1200 ppm), PM2.5 / PM10 (WHO-style bands 15 / 35 µg/m³), tVOC, temperature and humidity (green 30–60 %), as 5-minute averages, with min / average / max of the day and the value under the mouse. Navigation: *Older* / *Newer*, *Today* and a list of every day with a file. Today is read again every 2 min.
 ### Files — logs and disk usage
 
 ![Files dashboard — log files with sizes, disk used and free, selected file contents](images/dashboard-files.png)
