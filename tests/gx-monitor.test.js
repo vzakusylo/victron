@@ -66,6 +66,10 @@ test('monitor: a stale or disconnected device, a pump fault and a stopped servic
     assert.deepEqual(levelOf(evaluate(input), 'device valve'), ['FAIL']);
 
     input = healthy();
+    input.devices.bypass.lastData = 0;   // connected, but nothing received yet: the automations treat it as stale
+    assert.match(format(evaluate(input)), /FAIL\s+device bypass\s+connected, no data yet/);
+
+    input = healthy();
     input.devices.hp.state = 'DISCONNECTED';
     assert.deepEqual(levelOf(evaluate(input), 'device hp'), ['FAIL']);
 

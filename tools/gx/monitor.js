@@ -46,7 +46,7 @@ function evaluate(input, limits) {
         const d = devices[role];
         if (!d) add('FAIL', 'device ' + role, 'no state');
         else if (d.state !== 'CONNECTED') add('FAIL', 'device ' + role, d.state);
-        else if (!(age(d.lastData) <= L.deviceStaleMin)) add('FAIL', 'device ' + role, 'no data for ' + age(d.lastData) + ' min');
+        else if (!d.lastData || !(age(d.lastData) <= L.deviceStaleMin)) add('FAIL', 'device ' + role, d.lastData ? 'no data for ' + age(d.lastData) + ' min' : 'connected, no data yet');
         else add('OK', 'device ' + role, 'connected, data ' + age(d.lastData) + ' min ago');
     }
 
