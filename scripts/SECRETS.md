@@ -13,7 +13,7 @@ each change**; there is no timer or background service.
 | Item | Recorded state |
 | --- | --- |
 | GX | `einstein`, Node.js `v20.18.2` |
-| Trusted SSH | `root@<gx-tailscale-host>` (Tailscale), `root@<gx-alternate-lan-host>` (LAN) |
+| Trusted SSH | `root@<gx-tailscale-host>` (Tailscale), `root@<gx-lan-host>` (LAN); real values are kept in the git-ignored `.secrets/` notes |
 | SSH identity on the PC | `$HOME\.ssh\id_ed25519_cerbo`; stays on the PC, not in GitHub Secrets |
 | Node-RED supervisor | `/service/node-red-venus` |
 | Actual deployed flow | `d#179 Day / Night Grid Control`, 269 nodes; newer than this checkout's portable template |
@@ -150,8 +150,8 @@ this file backup is not a replacement for device recovery.
      -GxHost root@<gx-tailscale-host> -SshKey "$HOME\.ssh\id_ed25519_cerbo"
    ```
 
-   `<gx-tailscale-host>` is the verified GX Tailscale address; its verified LAN address
-   is `<gx-alternate-lan-host>`. This remains a manual command, not a scheduled job.
+   Use the verified Tailscale or LAN host from your private `.secrets/` notes. This
+   remains a manual command, not a scheduled job.
 
 Uploads go **only to GitHub.com / vzakusylo/victron**. The scripts temporarily
 ignore enterprise token environment variables, use the GitHub.com account in
@@ -424,8 +424,8 @@ scp -i "$HOME\.ssh\id_ed25519_cerbo" -o IdentitiesOnly=yes `
   root@<gx-tailscale-host>:/data/home/nodered/tools/
 ```
 
-Check the exit code before continuing. Use the verified LAN address
-`<gx-alternate-lan-host>` only if that is the intended reachable GX. Do not disable host-key
+Check the exit code before continuing. Use the verified LAN host
+(`<gx-lan-host>`) only if that is the intended reachable GX. Do not disable host-key
 verification. The helpers require Node.js; the recorded GX uses version 20.
 
 ### Step 1: validate all files without restarting
