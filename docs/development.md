@@ -31,6 +31,9 @@
 - `tools/deploy-version.js`
   Adds source commit labels to a separate deployment payload, without deploying it or changing the tracked flow.
 
+- `tools/gx/`
+  The deploy scripts: `live-snapshot.js` (what the GX runs), `compare.js` (difference from a commit, deploy plan), `deploy.js` (selective deploy, dry run by default), `verify.js` (check after a deploy). Step-by-step guide: [Deploying to the Cerbo GX](gx-deploy.md).
+
 - `tests/`  
   Unit tests that run the function-node sources outside Node-RED (`tests/harness.js`: fake context / flow stores, fixed clock). No dependencies: `node --test "tests/*.test.js"`.
 
@@ -121,7 +124,8 @@ Recommended workflow when editing the logic:
    node --test "tests/*.test.js"
    ```
    The same two commands run on every pull request (`.github/workflows/check.yml`).
-4. make a backup (the **Backup** page, or a copy of `flows.json` and `flows_cred.json` on the GX), then deploy. The way used for this installation: a script on the GX reads the live flow from the Node-RED admin API (`GET /flows`), replaces only the changed nodes (same node ids) and posts it back with deploy type `nodes`. The Tuya keys stay in place and only the changed nodes restart. A full *Import → Replace* also works, but do not replace the Tuya nodes that already have keys ([why](../README.md#heat-pump-page-tuya-wi-fi-heat-pump)). Do not deploy the heat pump automation nodes while a DHW cycle runs. Rollback = put the two saved files back and restart Node-RED.
+4. deploy with the scripts in `tools/gx/`, following [Deploying to the Cerbo GX](gx-deploy.md): snapshot, compare, plan, dry run, deploy, verify. They do what the rest of this step describes.
+   Make a backup (the **Backup** page, or a copy of `flows.json` and `flows_cred.json` on the GX), then deploy. The way used for this installation: a script on the GX reads the live flow from the Node-RED admin API (`GET /flows`), replaces only the changed nodes (same node ids) and posts it back with deploy type `nodes`. The Tuya keys stay in place and only the changed nodes restart. A full *Import → Replace* also works, but do not replace the Tuya nodes that already have keys ([why](../README.md#heat-pump-page-tuya-wi-fi-heat-pump)). Do not deploy the heat pump automation nodes while a DHW cycle runs. Rollback = put the two saved files back and restart Node-RED.
    Save the untouched original `GET /flows` response as `original-live.json`
    before replacing any nodes. Assemble the selective payload from a separate
    copy: a repo version tab has a bumped `d#` but no live deployment metadata.
