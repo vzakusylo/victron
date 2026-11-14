@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Камера Tapo C500</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#1d2433; --muted:#6b7385; --line:#dfe2e8; --accent:#1f6feb; --bad:#c62828; --ok:#2e7d32; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1b2027; --text:#e6e9ef; --muted:#9aa3b2; --line:#2c333d; --accent:#4c8dff; --bad:#ef5350; --ok:#66bb6a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.4 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:16px; display:grid; gap:16px; grid-template-columns: minmax(0,1fr) 300px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  h1 { font-size:18px; margin:0 0 10px; } h2 { font-size:15px; margin:0 0 10px; color:var(--muted); font-weight:600; }
+  #live { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; object-fit:contain; display:block; }
+  .pad { display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(3,64px); gap:6px; justify-content:center; }
+  button { font:inherit; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:8px; cursor:pointer; padding:6px 10px; }
+  button:hover { border-color:var(--accent); } button:active { background:var(--accent); color:#fff; }
+  .pad button { font-size:22px; padding:0; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  input[type=text] { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); min-width:0; flex:1; }
+  .muted { color:var(--muted); font-size:13px; } .bad { color:var(--bad); } .ok { color:var(--ok); }
+  ul { list-style:none; padding:0; margin:0; } li { display:flex; gap:6px; align-items:center; padding:4px 0; border-bottom:1px solid var(--line); }
+  li span { flex:1; } label { font-size:13px; color:var(--muted); }
+  .ev { display:grid; grid-template-columns:160px 1fr; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .ev img { width:160px; border-radius:6px; display:block; } .ev b { font-weight:600; }
+  #chat { display:grid; gap:6px; max-height:360px; overflow:auto; }
+  .msg { padding:8px 10px; border-radius:8px; white-space:pre-wrap; }
+  .msg.u { background:var(--bg); justify-self:end; max-width:85%; }
+  .msg.a { border:1px solid var(--line); max-width:95%; }
+  .msg .steps { color:var(--muted); font-size:12px; margin-top:4px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1>Кухня · Tapo C500</h1>
+    <img id="live" src="/live.mjpg" alt="Видео с камеры">
+    <div class="row">
+      <button id="hd">Снимок</button>
+      <span id="msg" class="muted"></span>
+    </div>
+    <div class="muted" id="state" style="margin-top:10px">…</div>
+    <div class="row"><label><input type="checkbox" id="boxes"> рамки детектора</label><span id="now" class="muted"></span></div>
+    <h2 style="margin-top:16px">Чат с ИИ (управляет камерой)</h2>
+    <div id="chat"></div>
+    <div class="row"><input id="q" type="text" placeholder="Например: что видно? / поверни влево и посмотри, есть ли кто у машины"><button id="ask">Отправить</button><button id="creset" title="Новый разговор">↺</button></div>
+    <h2 style="margin-top:16px">События <span id="vis" class="muted"></span></h2>
+    <div class="row"><label><input type="checkbox" id="pause"> пауза детектора</label></div>
+    <div id="events"></div>
+    <h2 style="margin-top:16px">События за день</h2>
+    <div class="row"><button id="dprev" title="Предыдущий день">◀</button><input id="dday" type="date"><button id="dnext" title="Следующий день">▶</button><button id="dtoday">Сегодня</button>
+      <select id="dkind"><option value="all">все</option><option value="video">видео</option><option value="sound">звук</option></select><button id="dsum">Сводка ИИ</button></div>
+    <div id="dstat" class="muted" style="margin-top:8px"></div>
+    <div id="dhours" style="display:flex;gap:2px;align-items:flex-end;height:60px;margin-top:8px"></div>
+    <div class="muted" style="display:flex;justify-content:space-between;font-size:11px"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
+    <p id="dtext" style="white-space:pre-wrap"></p>
+    <div id="dlog"></div>
+  </section>
+  <aside class="card">
+    <h2>Поворот</h2>
+    <div class="pad">
+      <button data-d="upleft">↖</button><button data-d="up">↑</button><button data-d="upright">↗</button>
+      <button data-d="left">←</button><button id="stop" title="Стоп">■</button><button data-d="right">→</button>
+      <button data-d="downleft">↙</button><button data-d="down">↓</button><button data-d="downright">↘</button>
+    </div>
+    <div class="row"><label>Шаг <input id="secs" type="range" min="0.1" max="2" step="0.1" value="0.4"></label><span id="secsv" class="muted">0.4 с</span></div>
+    <div class="row"><label>Скорость <input id="speed" type="range" min="0.1" max="1" step="0.1" value="0.5"></label><span id="speedv" class="muted">0.5</span></div>
+    <h2 style="margin-top:16px">Позиции</h2>
+    <ul id="presets"><li class="muted">…</li></ul>
+    <div class="row"><input id="pname" type="text" placeholder="Название, например «дверь»"><button id="psave">Запомнить</button></div>
+    <p class="muted">Стрелки клавиатуры тоже поворачивают камеру.</p>
+    <h2 style="margin-top:16px">Письма о событиях</h2>
+    <div class="row"><label><input type="checkbox" id="al-on"> отправлять письма (через Cerbo GX)</label></div>
+    <div class="row" id="al-labels"></div>
+    <div class="row"><label>Не чаще чем раз в <input id="al-cd" type="number" min="1" max="240" style="width:60px"> мин</label></div>
+    <div class="row"><button id="al-save">Сохранить</button><button id="al-test">Тестовое письмо</button></div>
+    <p id="al-msg" class="muted"></p>
+  </aside>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const msg = (t, cls = 'muted') => { $('msg').className = cls; $('msg').textContent = t; };
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ ok: false, error: 'HTTP ' + r.status }));
+  if (!j.ok) throw new Error(j.error || 'error');
+  return j;
+}
+async function move(dir) {
+  try { await api('/api/move', { dir, seconds: +$('secs').value, speed: +$('speed').value }); msg('Повернул: ' + dir); }
+  catch (e) { msg(e.message, 'bad'); }
+}
+document.querySelectorAll('[data-d]').forEach((b) => b.onclick = () => move(b.dataset.d));
+$('stop').onclick = () => api('/api/stop', {}).then(() => msg('Стоп')).catch((e) => msg(e.message, 'bad'));
+const keys = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+addEventListener('keydown', (e) => { if (keys[e.key] && e.target.tagName !== 'INPUT') { e.preventDefault(); move(keys[e.key]); } });
+for (const id of ['secs', 'speed']) $(id).oninput = () => $(id + 'v').textContent = $(id).value + (id === 'secs' ? ' с' : '');
+$('hd').onclick = async () => {
+  msg('Снимаю…');
+  try { const j = await api('/api/snapshot/hd', {}); $('msg').innerHTML = 'Сохранён: <a href="/snapshots/' + j.file + '" target="_blank">' + j.file + '</a>'; $('msg').className = 'ok'; }
+  catch (e) { msg(e.message, 'bad'); }
+};
+async function loadPresets() {
+  const ul = $('presets');
+  try {
+    const { presets } = await api('/api/presets');
+    ul.innerHTML = presets.length ? '' : '<li class="muted">Нет сохранённых позиций</li>';
+    for (const p of presets) {
+      const li = document.createElement('li');
+      const s = document.createElement('span'); s.textContent = p.name;
+      const go = document.createElement('button'); go.textContent = 'Перейти';
+      go.onclick = () => api('/api/presets/goto', { token: p.token }).then(() => msg('Позиция: ' + p.name)).catch((e) => msg(e.message, 'bad'));
+      const rm = document.createElement('button'); rm.textContent = '✕'; rm.title = 'Удалить';
+      rm.onclick = () => confirmRemove(p);
+      li.append(s, go, rm); ul.append(li);
+    }
+  } catch (e) { ul.innerHTML = ''; const li = document.createElement('li'); li.className = 'bad'; li.textContent = e.message; ul.append(li); }
+}
+function confirmRemove(p) {
+  if (!window.confirm('Удалить позицию «' + p.name + '»?')) return;
+  api('/api/presets/remove', { token: p.token }).then(loadPresets).catch((e) => msg(e.message, 'bad'));
+}
+$('psave').onclick = async () => {
+  const name = $('pname').value.trim(); if (!name) return;
+  try { await api('/api/presets/save', { name }); $('pname').value = ''; msg('Запомнил: ' + name, 'ok'); loadPresets(); }
+  catch (e) { msg(e.message, 'bad'); }
+};
+async function poll() {
+  try {
+    const s = await api('/api/status');
+    const st = s.stream.live ? `<span class="ok">видео есть</span>, ${s.stream.fps} к/с` : `<span class="bad">нет видео</span> ${s.stream.error || ''}`;
+    const p = s.ptz ? ` · поворот ${s.ptz.pan?.toFixed(2)} / наклон ${s.ptz.tilt?.toFixed(2)}${s.ptz.moving === 'MOVING' ? ' (движется)' : ''}` : (s.ptz_error ? ` · <span class="bad">ONVIF: ${s.ptz_error}</span>` : '');
+    $('state').innerHTML = st + p;
+  } catch (e) { $('state').textContent = e.message; }
+}
+$('boxes').onchange = () => { $('live').src = '/live.mjpg' + ($('boxes').checked ? '?boxes=1' : ''); };
+$('pause').onchange = () => api('/api/events/pause', { paused: $('pause').checked }).catch((e) => msg(e.message, 'bad'));
+const ru = { sound:'громкий звук', person:'человек', car:'машина', truck:'грузовик', bus:'автобус', bicycle:'велосипед', motorcycle:'мотоцикл', dog:'собака', cat:'кошка', bird:'птица', horse:'лошадь', sheep:'овца', cow:'корова' };
+const tr = (l) => ru[l] || l;
+function bubble(cls, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text;
+  $('chat').append(d); $('chat').scrollTop = $('chat').scrollHeight; return d;
+}
+const toolRu = { move:'поворот', goto_preset:'позиция', list_presets:'список позиций', save_preset:'запомнить позицию', look:'смотрю', recent_events:'события' };
+async function ask() {
+  const text = $('q').value.trim() || 'Что видно на кадре?';
+  $('q').value = ''; bubble('u', text);
+  const b = bubble('a muted', 'Думаю…'); $('ask').disabled = true;
+  try {
+    const j = await api('/api/chat', { text });
+    b.className = 'msg a'; b.textContent = j.answer;
+    if (j.steps.length) {
+      const s = document.createElement('div'); s.className = 'steps';
+      s.textContent = j.steps.map((x) => (toolRu[x.tool] || x.tool) + (x.args && Object.keys(x.args).length ? ' ' + JSON.stringify(x.args) : '')).join(' → ') + ' · ' + j.seconds + ' с';
+      b.append(s);
+    }
+  } catch (e) { b.className = 'msg a bad'; b.textContent = e.message; }
+  $('ask').disabled = false;
+}
+$('ask').onclick = ask; $('q').onkeydown = (e) => { if (e.key === 'Enter') ask(); };
+$('creset').onclick = () => api('/api/chat', { reset: true }).then(() => { $('chat').innerHTML = ''; });
+async function loadEvents() {
+  try {
+    const j = await api('/api/events');
+    $('vis').textContent = j.vision ? '· ИИ-описание включено' : '· модель ИИ ещё не загружена';
+    $('pause').checked = j.paused;
+    $('now').textContent = (j.current.length ? 'В кадре: ' + j.current.map((d) => tr(d.label) + ' ' + d.conf).join(', ') : 'В кадре: никого')
+      + (j.audio.level != null ? ' · звук ' + j.audio.level + ' dB (фон ' + (j.audio.background ?? '…') + ')' : (j.audio.error ? ' · звук: ' + j.audio.error : ''));
+    const box = $('events'); box.innerHTML = '';
+    if (!j.events.length) { box.innerHTML = '<p class="muted">Пока событий нет.</p>'; return; }
+    for (const ev of j.events) box.append(evRow(ev));
+  } catch (e) { $('events').textContent = e.message; }
+}
+function evRow(ev) {
+      const div = document.createElement('div'); div.className = 'ev';
+      const a = document.createElement('a'); a.href = '/events/' + ev.id + '.jpg'; a.target = '_blank';
+      const img = document.createElement('img'); img.loading = 'lazy'; img.src = '/events/' + ev.id + '.jpg'; a.append(img);
+      const t = document.createElement('div');
+      const h = document.createElement('b'); h.textContent = ev.time.replace('T', ' ') + ' — ' + ev.labels.map(tr).join(', ');
+      const p = document.createElement('div'); p.className = ev.description ? '' : 'muted'; p.textContent = ev.description || 'описание готовится…';
+      t.append(h, p);
+      if (ev.sound) { const au = document.createElement('audio'); au.controls = true; au.preload = 'none'; au.src = '/events/' + ev.sound.wav; au.style.width = '100%'; t.append(au); }
+      if (ev.mail) { const m = document.createElement('div'); m.className = ev.mail.ok ? 'ok' : 'bad'; m.textContent = ev.mail.ok ? '✉ письмо отправлено' : '✉ ошибка: ' + ev.mail.error; t.append(m); }
+      div.append(a, t); return div;
+}
+const AL = ['person', 'car', 'truck', 'bicycle', 'dog', 'cat'];
+const alMsg = (t, cls = 'muted') => { $('al-msg').className = cls; $('al-msg').textContent = t; };
+function showLast(last) {
+  if (last && last.time) alMsg('Последнее письмо ' + last.time + ': ' + (last.ok ? 'отправлено' : 'ошибка — ' + last.error), last.ok ? 'ok' : 'bad');
+}
+async function loadAlerts() {
+  try {
+    const j = await api('/api/alerts');
+    $('al-on').checked = j.config.enabled; $('al-cd').value = j.config.cooldown_min;
+    const box = $('al-labels'); box.innerHTML = '';
+    for (const l of AL) {
+      const lab = document.createElement('label'); const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = l; cb.checked = j.config.labels.includes(l);
+      lab.append(cb, ' ' + tr(l)); box.append(lab);
+    }
+    showLast(j.last);
+  } catch (e) { alMsg(e.message, 'bad'); }
+}
+$('al-save').onclick = async () => {
+  const labels = [...document.querySelectorAll('#al-labels input:checked')].map((c) => c.value);
+  try { const j = await api('/api/alerts', { enabled: $('al-on').checked, labels, cooldown_min: +$('al-cd').value }); alMsg('Сохранено', 'ok'); }
+  catch (e) { alMsg(e.message, 'bad'); }
+};
+$('al-test').onclick = async () => {
+  alMsg('Отправляю через GX…');
+  try { const j = await api('/api/alerts/test', {}); showLast(j.result); } catch (e) { alMsg(e.message, 'bad'); }
+};
+async function loadDay() {
+  try {
+    const j = await api('/api/day?date=' + $('dday').value);
+    $('dstat').textContent = j.total ? 'Всего ' + j.total + ': ' + Object.entries(j.counts).map(([k, v]) => tr(k) + ' ' + v).join(', ') : 'За этот день событий нет';
+    const max = Math.max(1, ...j.hours); const box = $('dhours'); box.innerHTML = '';
+    const kind = $('dkind').value;
+    const list = j.events.filter((e) => kind === 'all' || (kind === 'sound') === e.labels.includes('sound')).reverse();
+    const log = $('dlog'); log.innerHTML = '';
+    if (!list.length) log.innerHTML = '<p class="muted">Нет событий этого типа.</p>';
+    for (const ev of list) log.append(evRow(ev));
+    j.hours.forEach((n, h) => { const b = document.createElement('div'); b.title = h + ':00 — ' + n; b.style.cssText = 'flex:1;background:var(--accent);border-radius:2px;min-height:1px;height:' + Math.round(58 * n / max) + 'px;opacity:' + (n ? 1 : .25); box.append(b); });
+  } catch (e) { $('dstat').textContent = e.message; }
+}
+$('dday').value = new Date().toLocaleDateString('sv-SE'); $('dday').onchange = () => { $('dtext').textContent = ''; loadDay(); };
+function shiftDay(n) { const d = new Date($('dday').value + 'T12:00'); d.setDate(d.getDate() + n); $('dday').value = d.toLocaleDateString('sv-SE'); $('dday').onchange(); }
+$('dprev').onclick = () => shiftDay(-1); $('dnext').onclick = () => shiftDay(1);
+$('dtoday').onclick = () => { $('dday').value = new Date().toLocaleDateString('sv-SE'); $('dday').onchange(); };
+$('dkind').onchange = loadDay;
+$('dsum').onclick = async () => { $('dtext').textContent = 'Думаю…'; try { $('dtext').textContent = (await api('/api/day/summary', { date: $('dday').value })).summary; } catch (e) { $('dtext').textContent = e.message; } };
+loadDay(); setInterval(loadDay, 60000);
+loadPresets(); poll(); setInterval(poll, 3000); loadEvents(); setInterval(loadEvents, 4000); loadAlerts();
+</script>
+</body>
+</html>

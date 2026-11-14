@@ -1,0 +1,11 @@
+.venv/
+config/camera.json
+snapshots/
+events/
+logs/
+__pycache__/
+*.pt
+models/
+config/
+*.lnk.disabled
+ollama-pull.log
