@@ -28,6 +28,9 @@
 - `tools/flows.js`  
   `sync` (sources → `flows.json`, bumps `d#<n>`), `check` (sync, syntax, wiring, outputs, Tuya secrets), `bump`, `version`.
 
+- `tools/deploy-version.js`
+  Adds source commit labels to a separate deployment payload, without deploying it or changing the tracked flow.
+
 - `tests/`  
   Unit tests that run the function-node sources outside Node-RED (`tests/harness.js`: fake context / flow stores, fixed clock). No dependencies: `node --test "tests/*.test.js"`.
 
@@ -48,6 +51,18 @@ Flow versioning rule:
 - the Node-RED tab label in `flows.json` uses `d#<n>` as the live flow version marker
 - every change to `flows.json` must increment that marker by 1 (`sync` does it; after a manual edit run `node tools/flows.js bump`)
 - this makes it visible in Node-RED which exported flow revision is currently loaded
+
+At deployment, also record the **full source commit SHA** for the dashboard and
+Node-RED automations. `tools/deploy-version.js` shows 12-character versions in the
+dashboard page titles, browser title and Node-RED tab label, alongside `d#<n>`.
+Full SHAs are stored in a marked JSON block in the version tab's `info`.
+It preserves the existing code revision instead of incrementing `d#` again.
+
+These are the source commits of the last deployment of each component, not a
+claim that every file of a selectively updated GX matches one checkout.
+A UI-only deployment retains the previous automation SHA, and vice versa.
+For existing live code whose source was never recorded, the label explicitly
+says `unrecorded`; never fill it with the current HEAD by assumption.
 
 Function nodes cannot import code from each other, so a few tables exist in more than one source. They must stay equal, and the tests fail when they do not:
 
@@ -107,8 +122,29 @@ Recommended workflow when editing the logic:
    ```
    The same two commands run on every pull request (`.github/workflows/check.yml`).
 4. make a backup (the **Backup** page, or a copy of `flows.json` and `flows_cred.json` on the GX), then deploy. The way used for this installation: a script on the GX reads the live flow from the Node-RED admin API (`GET /flows`), replaces only the changed nodes (same node ids) and posts it back with deploy type `nodes`. The Tuya keys stay in place and only the changed nodes restart. A full *Import → Replace* also works, but do not replace the Tuya nodes that already have keys ([why](../README.md#heat-pump-page-tuya-wi-fi-heat-pump)). Do not deploy the heat pump automation nodes while a DHW cycle runs. Rollback = put the two saved files back and restart Node-RED.
+   Before `POST /flows`, stamp the already assembled selective payload:
+   ```powershell
+   # Commit and verify the source changes first; this SHA must identify those sources.
+   $SourceCommit = git rev-parse HEAD
+   node .\tools\deploy-version.js .\prepared-live-patch.json .\versioned-live-patch.json --dashboard $SourceCommit --automations $SourceCommit
+   ```
+   Pass only `--dashboard` for a UI-only change or only `--automations` for a
+   logic-only change. The output must be a new file; input and tracked
+   `flows.json` are not overwritten. The module also exports
+   `stampDeployment(payload, { dashboard: sha, automations: sha })` for the
+   deployment script. It accepts a flow array or a v2 `{ rev, flows }` envelope,
+   preserving `rev`, node IDs, logic, wiring and private credential references.
+   Use the v2 revision in the guarded POST; abort and rebuild on a concurrent
+   live revision change. Include the stamped tab/UI configuration fields in
+   the selective deployment, not just function code. Dashboard configuration
+   changes can restart UI widgets, so keep the existing safe deployment window.
+   This preparation does not perform a POST or prove that deployment succeeded.
+   Secret-file-only workflows that do not deploy UI or automation sources leave
+   these labels unchanged.
 5. verify:
-   - the tab label shows the new `d#<n>`
+   - the live tab label shows the expected `d#<n>` and source SHA labels
+   - the dashboard page title shows the same source labels; re-read the live
+     flow's metadata and compare full SHAs with the deployed sources
    - battery voltage input is updating
    - GRID CT import power is updating
    - status text shows correct hour range and `Wh`
