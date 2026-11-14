@@ -1,0 +1,11 @@
+[Unit]
+Description=Ollama (user) for camera-ai
+
+[Service]
+ExecStart=/usr/bin/ollama serve
+Environment=OLLAMA_HOST=127.0.0.1:11434
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

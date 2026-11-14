@@ -1,0 +1,31 @@
+name: camera-ai
+
+on:
+  pull_request:
+    paths: ["camera-ai/**", ".github/workflows/camera-ai.yml"]
+  push:
+    branches: [master]
+    paths: ["camera-ai/**", ".github/workflows/camera-ai.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: camera-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Compile
+        run: python -m compileall -q camera_ai app.py setup_camera.py run_hidden.py
+      - name: Event logic test
+        run: python tests/test_events.py
+      - name: Deploy scripts
+        run: bash -n deploy/update.sh
