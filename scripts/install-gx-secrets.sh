@@ -86,15 +86,20 @@ for f in $CONFIG_FILES; do if [ -e "$CONFIG_DIR/$f" ]; then cp -p "$CONFIG_DIR/$
 for f in $NODE_RED_FILES; do if [ -e "$NODE_RED_DIR/$f" ]; then cp -p "$NODE_RED_DIR/$f" "$BACKUP/node-red/$f"; fi; done
 for f in $TOOL_FILES; do if [ -e "$TOOLS_DIR/$f" ]; then cp -p "$TOOLS_DIR/$f" "$BACKUP/tools/$f"; fi; done
 
+# Venus OS (BusyBox) has no install(1): copy, then set the owner and mode.
+place() {
+    cp "$2" "$3" && chown nodered:nodered "$3" && chmod "$1" "$3"
+}
+
 CHANGED=1
 for f in $TOOL_FILES; do
-    install -m 644 -o nodered -g nodered "$STAGE/tools/$f" "$TOOLS_DIR/$f"
+    place 644 "$STAGE/tools/$f" "$TOOLS_DIR/$f"
 done
 for f in $CONFIG_FILES; do
-    install -m 600 -o nodered -g nodered "$STAGE/secrets/$f" "$CONFIG_DIR/$f"
+    place 600 "$STAGE/secrets/$f" "$CONFIG_DIR/$f"
 done
 for f in $NODE_RED_FILES; do
-    install -m 600 -o nodered -g nodered "$STAGE/secrets/$f" "$NODE_RED_DIR/$f"
+    place 600 "$STAGE/secrets/$f" "$NODE_RED_DIR/$f"
 done
 
 node "$TOOLS_DIR/reload-victron-secrets.js" check

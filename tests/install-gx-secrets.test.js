@@ -21,11 +21,14 @@ cat > "$ROOT/bin/svstat" <<'MOCK'
 #!/bin/sh
 echo "service: \${MOCK_STATE:-down} 1 seconds"
 MOCK
+# The GX has no install(1); the installer must not depend on it.
 cat > "$ROOT/bin/install" <<'MOCK'
 #!/bin/sh
-while [ "$#" -gt 2 ]; do shift; done
-if [ -n "\${FAIL_INSTALL:-}" ] && [ "$(basename "$1")" = "$FAIL_INSTALL" ]; then exit 1; fi
-cp "$1" "$2"
+exit 127
+MOCK
+cat > "$ROOT/bin/chown" <<'MOCK'
+#!/bin/sh
+if [ -n "\${FAIL_INSTALL:-}" ] && [ "$(basename "$2")" = "$FAIL_INSTALL" ]; then exit 1; fi
 MOCK
 cat > "$ROOT/bin/node" <<'MOCK'
 #!/bin/sh
