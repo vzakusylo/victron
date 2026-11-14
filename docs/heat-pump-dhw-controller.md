@@ -158,6 +158,8 @@ Node `36` stores `motion_state`, `motion_report_ms`, `motion_at_ms`,
 DP 108 in the existing hourly `hp1` dataset. Timestamp columns retain exact event
 times even though the recorder samples every 30 seconds. The JSONL sensor event
 log also remains available. Unknown motion is recorded as unknown, not clear.
+An excluded or unavailable tank-drop measurement uses the literal `unknown`,
+because an empty delta field would carry the previous value forward.
 
 While assistance is enabled:
 
@@ -185,6 +187,8 @@ heating priority, fault/aborted-cycle blocks, valve travel, supply/current/
 discharge protections and maximum cycle duration remain enforced. A demand can
 wait for these gates; “immediate” means requesting the existing safe cycle,
 not switching a running compressor's valve directly.
+Valve and bypass DP 1 must both be actual booleans for a forced cycle;
+connection/freshness alone does not establish a known relay position.
 
 **Stop forced DHW** needs no confirmation: it disables new early starts,
 cancels queued commands belonging to the forced cycle, and returns that cycle
@@ -199,6 +203,14 @@ ordinary minimum interval is counted from the cycle end, just as for other
 completed cycles. Test mode writes nothing and changes no real-cycle cooldown.
 Missing measurements remain non-numeric rather than being interpreted as zero
 in ordinary-cycle comparisons.
+If a required device disconnects or becomes stale, the forced safety stop is
+latched and its queued writes are cancelled before the controller waits.
+Restoration is deferred until the devices are reachable; recovery does not
+resume the cancelled cycle. An unknown bypass is retained rather than assumed
+Off. The operator can still disable future early starts while restoration waits.
+Unconfirmed dashboard commands time out after 60 seconds with an explicit
+message and re-enable the control for retry, even if the reported flag never
+changes; acknowledgement or page destruction cancels that timer.
 
 Rollout: synchronize the numbered sources, test, and selectively update nodes
 `34`, `35`, `36`, `37`, `40` (including On Start), `46`, and the local-listener

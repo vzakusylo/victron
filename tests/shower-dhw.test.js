@@ -64,6 +64,20 @@ test('recorder includes exact motion time and shower demand in the existing delt
     assert.equal(values.shower_control_ms, String(NOW));
     assert.equal(values.shower_demand, '1');
     assert.equal(values.shower_drop_c, '1');
+    node.flow.get('dhwView').shower.dropC = null;
+    const delta = node.run({}, { now: NOW + 30000 }).result[0].payload.trim().split(',');
+    assert.equal(delta[columns.indexOf('shower_drop_c')], 'unknown', 'empty delta cells must not carry an old drop across an excluded period');
+});
+
+test('recorder clears the tank-drop field when the shower model disappears', () => {
+    const node = loadNode('36 Record heat pump data.js');
+    node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: NOW, dps: { 108: 49 } } });
+    node.flow.set('dhwView', { at: NOW, shower: { dropC: 2 } });
+    const first = node.run({}, { now: NOW }).result[0].payload.trim().split('\n');
+    const columns = first[0].split('cols=')[1].split(',');
+    node.flow.set('dhwView', undefined);
+    const delta = node.run({}, { now: NOW + 30000 }).result[0].payload.trim().split(',');
+    assert.equal(delta[columns.indexOf('shower_drop_c')], 'unknown');
 });
 
 test('fresh motion and the first 1 C tank fall start immediately despite cycle interval and hysteresis', () => {
@@ -163,6 +177,60 @@ test('missing tank or safety measurements never become a zero-temperature forced
         node.run({ topic: 'tick' }, { now: NOW + 1000 });
         assert.equal(node.context.get('dhw').state, 'HEATING', String(dp));
         assert.match(node.context.get('dhw').why, /valid tank|valid cycle/, String(dp));
+    }
+});
+
+test('forced starts require boolean valve and bypass readings, not just a fresh connection', () => {
+    for (const role of ['valve', 'bypass']) {
+        for (const value of [null, undefined, 0, 'false']) {
+            const { node, tick } = controller({ motion: false });
+            tick(NOW, { 108: 50 });
+            node.context.get('shower').demand = { id: 'pending-relay', type: 'drop', until: NOW + MIN, reason: 'tank drop' };
+            node.flow.get('heatPump').hp.dps[108] = 49;
+            node.flow.get('heatPump')[role].dps[1] = value;
+            node.run({ topic: 'tick' }, { now: NOW + 1000 });
+            assert.equal(node.context.get('dhw').state, 'HEATING', role + ': ' + value);
+            assert.match(node.context.get('dhw').why, /valid cycle measurements/);
+        }
+    }
+});
+
+test('an invalid relay reading stops an active forced cycle and preserves an unknown bypass', () => {
+    for (const role of ['valve', 'bypass']) {
+        const { node, tick } = controller();
+        tick();
+        node.flow.get('heatPump')[role].dps[1] = null;
+        const call = node.run({ topic: 'tick' }, { now: NOW + 1000 });
+        assert.equal(node.context.get('dhw').state, 'HEATING', role);
+        assert.equal(node.context.get('settings').dhwBlock, null);
+        if (role === 'bypass') {
+            assert.ok(!node.context.get('queue').some(e => e.role === 'bypass' && e.set === false));
+            assert.ok(!call.sent.some(arr => arr?.[3]?.payload?.set === false));
+        }
+    }
+});
+
+test('a disconnected or stale forced cycle cancels queued writes and latches restoration until recovery', () => {
+    for (const role of ['hp', 'valve', 'bypass']) {
+        const { node, tick } = controller();
+        const first = tick(), run = node.context.get('dhw').run;
+        delete node.flow.get('heatPump').hp.dps[102];
+        node.flow.get('heatPump')[role].state = role === 'valve' ? 'CONNECTED' : 'DISCONNECTED';
+        if (role === 'valve') node.flow.get('heatPump').valve.lastData = NOW - 10 * MIN;
+        node.context.get('queue').push({ run, rule: 'dhw', role: 'valve', dps: 1, set: true, text: 'old valve ON' });
+        node.run({ topic: 'tick' }, { now: NOW + 10000 });
+        assert.equal(node.context.get('dhw').showerSafetyStopRequested, true, role);
+        assert.equal(node.flow.get('dhwView').shower.state, 'stopping');
+        assert.ok(!node.context.get('queue').some(e => e.run === run));
+        node.context.get('queue').push({ run, rule: 'dhw', role: 'valve', dps: 1, set: true, text: 'late old write' });
+        first.timers.find(timer => timer.ms === 1500).cb();
+        assert.ok(!first.sent.some(arr => arr?.[4]?.payload?.set === true), 'cancelled run cannot dispatch a late write');
+        const recovered = tick(NOW + 20000);
+        assert.equal(node.context.get('dhw').state, 'HEATING');
+        assert.equal(node.context.get('dhw').showerSafetyStopRequested, false);
+        assert.equal(node.context.get('settings').dhwBlock, null);
+        assert.ok(recovered.sent.some(arr => arr?.[4]?.payload?.set === false) ||
+            node.context.get('queue').some(e => e.role === 'valve' && e.set === false));
     }
 });
 
@@ -346,11 +414,55 @@ test('UI stop is immediate without confirmation and the command bridge preserves
     const source = fs.readFileSync(path.join(__dirname, '..', '35 Heat pump page.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
     const messages = [];
     const scope = { msg: { payload: { dhwChart: { cfg: {}, shower: { enabled: true } } } },
-        $watch() {}, send: msg => messages.push(msg) };
-    new Function('scope', 'confirm', 'setTimeout', source)(scope, () => { throw new Error('Stop must not ask for confirmation'); }, () => {});
+        $watch() {}, $on() {}, send: msg => messages.push(msg) };
+    new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {});
     scope.hpShowerForce(false);
     assert.deepEqual(messages[0], { topic: 'ui', payload: { action: 'dhwShowerForce', on: false } });
     const bridge = loadNode('37 Heat pump command.js');
     assert.equal(bridge.run(messages[0]).result[3].payload.on, false);
     assert.equal(bridge.run({ topic: 'ui', payload: { action: 'dhwShowerForce', on: 'false' } }).result, null);
+});
+
+test('lost shower commands time out independently of model changes, allow retry, and cancel on acknowledgement', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '35 Heat pump page.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+    for (const on of [true, false]) {
+        const timers = [], cleared = [], messages = [], watchers = new Map(), handlers = new Map();
+        const scope = { msg: { payload: { dhwChart: { shower: { enabled: !on, minDeficitC: 1 } } } },
+            $watch: (name, fn) => watchers.set(name, fn), $on: (name, fn) => handlers.set(name, fn),
+            $apply: fn => fn(), send: msg => messages.push(msg) };
+        new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => true,
+            (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, id => cleared.push(id));
+        scope.hpShowerForce(on);
+        assert.equal(scope.hp.showerSent, on);
+        watchers.get('msg.payload.dhwChart.cfg.showerForce')(!on);
+        assert.equal(scope.hp.showerSent, on, 'unchanged reported boolean must not count as an acknowledgement');
+        assert.equal(timers[0].ms, 60000);
+        timers[0].fn();
+        assert.equal(scope.hp.showerSent, null);
+        assert.match(scope.hp.showerError, /not confirmed.*Retry/);
+        scope.hpShowerForce(on);
+        assert.equal(messages.length, 2);
+        assert.equal(scope.hp.showerError, '');
+        scope.msg.payload.dhwChart.shower.enabled = on;
+        watchers.get('msg.payload.dhwChart.cfg.showerForce')(on);
+        assert.equal(scope.hp.showerSent, null);
+        assert.ok(cleared.includes(2));
+        timers[1].fn();
+        assert.equal(scope.hp.showerError, '', 'a stale timeout must not overwrite an acknowledged request');
+        scope.hpShowerForce(!on);
+        handlers.get('$destroy')();
+        assert.ok(cleared.includes(3));
+        timers[2].fn();
+        assert.equal(scope.hp.showerSent, null);
+    }
+});
+
+test('the operator can disable new forced starts while a safety restoration is waiting', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '35 Heat pump page.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+    const messages = [];
+    const scope = { msg: { payload: { dhwChart: { shower: { enabled: true, state: 'stopping' } } } },
+        $watch() {}, $on() {}, send: msg => messages.push(msg) };
+    new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {});
+    scope.hpShowerForce(false);
+    assert.equal(messages[0].payload.on, false);
 });

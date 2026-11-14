@@ -279,12 +279,13 @@
       <div ng-if="msg.payload.dhwChart" class="hpw-curve">
         <div class="hpw-ctl" ng-if="msg.payload.dhwChart.shower">
           <span class="big">Shower / hot-water preparation</span>
-          <button ng-class="{on: msg.payload.dhwChart.shower.enabled}" ng-disabled="hp.showerSent !== null || msg.payload.dhwChart.shower.state === 'stopping'"
+          <button ng-class="{on: msg.payload.dhwChart.shower.enabled}" ng-disabled="hp.showerSent !== null || (msg.payload.dhwChart.shower.state === 'stopping' && !msg.payload.dhwChart.shower.enabled)"
             ng-click="hpShowerForce(!msg.payload.dhwChart.shower.enabled)"
             title="Stop disables early starts and ends only a running forced cycle. The ordinary DHW controller remains enabled.">
-            {{msg.payload.dhwChart.shower.state === 'stopping' ? 'Stopping forced DHW' : msg.payload.dhwChart.shower.enabled ? 'Stop forced DHW' : 'Enable early shower starts'}}
+            {{msg.payload.dhwChart.shower.enabled ? 'Stop forced DHW' : msg.payload.dhwChart.shower.state === 'stopping' ? 'Stopping forced DHW' : 'Enable early shower starts'}}
           </button>
           <span class="lbl">{{msg.payload.dhwChart.shower.state}}<span ng-if="hp.showerSent !== null"> · request sent</span></span>
+          <span class="lbl" ng-if="hp.showerError" style="color:#da3633">{{hp.showerError}}</span>
           <span class="lbl" ng-if="msg.payload.dhwChart.shower.motionAt">last local motion {{msg.payload.dhwChart.shower.motionAt | date:'HH:mm:ss'}}</span>
           <span class="lbl" ng-if="msg.payload.dhwChart.shower.dropC !== null">tank drop {{msg.payload.dhwChart.shower.dropC}} °C in 3 min</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.expectedAt">
@@ -400,6 +401,7 @@
     // DHW controller (d#138, moved here from the Automations tab)
     scope.hp.dhw = null; scope.hp.dhwDirty = false; scope.hp.dhwModeSent = null; scope.hp.dhwSaved = false;
     scope.hp.showerSent = null;
+    scope.hp.showerError = '';
     // d#161: the editor holds only the two ends of the boiler curve (first and last point)
     function dhwCopy() {
         var c = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart && scope.msg.payload.dhwChart.cfg;
@@ -465,14 +467,29 @@
         scope.hp.dhwModeSent = m; scope.hp.dhwModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
     };
+    var showerTimer = null;
+    var showerRequest = 0;
+    function clearShowerPending() {
+        if (showerTimer !== null) clearTimeout(showerTimer);
+        showerTimer = null; scope.hp.showerSent = null; showerRequest++;
+    }
     scope.$watch('msg.payload.dhwChart.cfg.showerForce', function (value) {
-        if (scope.hp.showerSent !== null && (value === scope.hp.showerSent || Date.now() - scope.hp.showerAt > 60000)) scope.hp.showerSent = null;
+        if (scope.hp.showerSent !== null && value === scope.hp.showerSent) clearShowerPending();
     });
+    scope.$on('$destroy', clearShowerPending);
     scope.hpShowerForce = function (on) {
         var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
-        if (!d || !d.shower || d.shower.state === 'stopping' || d.shower.enabled === on) return;
+        if (!d || !d.shower || scope.hp.showerSent !== null || (d.shower.state === 'stopping' && on) || d.shower.enabled === on) return;
         if (on && !confirm('Enable early shower / hot-water starts?\nThey require at least ' + d.shower.minDeficitC + ' °C below target and may bypass the cycle interval and ordinary hysteresis. Temperature targets, defrost, faults and heating priority remain enforced.')) return;
-        scope.hp.showerSent = on; scope.hp.showerAt = Date.now();
+        scope.hp.showerSent = on; scope.hp.showerError = '';
+        var request = ++showerRequest;
+        showerTimer = setTimeout(function () {
+            if (request !== showerRequest || scope.hp.showerSent === null) return;
+            scope.$apply(function () {
+                showerTimer = null; scope.hp.showerSent = null;
+                scope.hp.showerError = 'Shower request was not confirmed within 60 seconds. Retry.';
+            });
+        }, 60000);
         scope.send({ topic: 'ui', payload: { action: 'dhwShowerForce', on: on } });
     };
     // Heating power controller (d#166–d#167)

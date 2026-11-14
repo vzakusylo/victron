@@ -108,13 +108,14 @@ values.motion_at_ms = cell(motion.lastMotionAt || 0);
 values.motion_source = cell(motion.source || '');
 const dhwView = flow.get('dhwView') || {};
 const shower = dhwView.shower;
+// Empty delta cells mean unchanged, so a cleared measurement needs a real token.
+values.shower_drop_c = shower && Number.isFinite(shower.dropC) ? cell(shower.dropC) : 'unknown';
 if (shower) {
     values.shower_control_ms = cell(dhwView.at || 0);
     values.shower_state = cell(shower.state);
     values.shower_force = cell(shower.enabled);
     values.shower_demand = cell(shower.requested);
     values.shower_expected_ms = cell(shower.expectedAt || 0);
-    values.shower_drop_c = cell(shower.dropC);
 }
 
 const stateLetters = ROLES.map(([role]) => {
