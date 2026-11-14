@@ -2,7 +2,7 @@
 // The monitor's judgement on states seen on the GX on 14 Nov 2026 and on the failures it must catch.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { evaluate, format } = require('../tools/gx/monitor.js');
+const { evaluate, format, tai64nMs } = require('../tools/gx/monitor.js');
 
 const MIN = 60000;
 const NOW = new Date(2026, 10, 14, 20, 30).getTime();
@@ -106,4 +106,11 @@ test('monitor: controllers not On, master off, a cold tank, new log errors and a
     for (const check of ['local control', 'heating', 'tank', 'version', 'Node-RED log']) assert.deepEqual(levelOf(result, check), ['WARN'], check);
     assert.ok(levelOf(result, 'DHW').includes('WARN'));
     assert.match(format(result), /2 x \[function:Heat pump automations\]/);
+});
+
+test('monitor: log times come from the multilog TAI64N stamp, not from the local text date', () => {
+    // a line of the GX log: the text says 18:31:02 (local, CET), the stamp is 17:31:02 UTC
+    const line = '@400000006af89ae01f481074 14 Nov 18:31:02 - [error] [tuya-smart-device:Heating pump] connectDevice()';
+    assert.equal(new Date(tai64nMs(line)).toISOString(), '2026-11-14T17:31:02.000Z');
+    assert.equal(tai64nMs('14 Nov 18:31:02 - [error] no stamp'), null);
 });

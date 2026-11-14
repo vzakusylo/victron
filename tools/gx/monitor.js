@@ -98,11 +98,20 @@ function evaluate(input, limits) {
     return { status: ['OK', 'WARN', 'FAIL'][worst], exitCode: worst, checks: out };
 }
 
+// multilog stamps every line with TAI64N ("@" + 16 hex digits of seconds + 8 of nanoseconds). It is absolute
+// time; the text date after it is the local time of Node-RED, which an SSH shell (no time zone) would read as UTC.
+function tai64nMs(line) {
+    const m = /^@([0-9a-f]{16})[0-9a-f]{8}/.exec(line);
+    if (!m) return null;
+    const seconds = BigInt('0x' + m[1]) - (1n << 62n) - 10n;
+    return Number(seconds) * 1000;
+}
+
 function format(result) {
     return result.checks.map((c) => c.level.padEnd(5) + c.check.padEnd(16) + c.text).join('\n') + '\nSTATUS: ' + result.status;
 }
 
-module.exports = { evaluate, format, LIMITS };
+module.exports = { evaluate, format, tai64nMs, LIMITS };
 
 // ---- collection on the GX (read-only) ----------------------------------------------
 async function collect() {
@@ -145,17 +154,16 @@ async function collect() {
     const view = value(await get('/context/flow/' + tab.id + '/dhwView'));
     input.view = view && { at: view.at, heat: view.heat, shower: view.shower && { enabled: view.shower.enabled, state: view.shower.state } };
 
-    // Node-RED log: multilog lines "@<tai64> 14 Nov 18:56:15 - [error] [type:name] text"
+    // Node-RED log: multilog lines "@<tai64n> 14 Nov 18:56:15 - [error] [type:name] text"
     input.logErrors = [];
     try {
         const groups = {};
-        const year = new Date(now).getFullYear();
         for (const line of fs.readFileSync('/var/log/node-red-venus/current', 'utf8').split('\n')) {
-            const m = /^\S+ (\d+ \w+ \d\d:\d\d:\d\d) - \[error\] (\[[^\]]+\])?/.exec(line);
+            const m = /^\S+ \d+ \w+ \d\d:\d\d:\d\d - \[error\] (\[[^\]]+\])?/.exec(line);
             if (!m) continue;
-            const at = Date.parse(m[1] + ' ' + year);
-            if (Number.isFinite(at) && now - at > LIMITS.logWindowMin * MIN) continue;
-            const key = m[2] || 'other';
+            const at = tai64nMs(line);
+            if (at !== null && now - at > LIMITS.logWindowMin * MIN) continue;
+            const key = m[1] || 'other';
             groups[key] = (groups[key] || 0) + 1;
         }
         input.logErrors = Object.keys(groups).map((source) => ({ source, count: groups[source] }));
@@ -163,9 +171,10 @@ async function collect() {
 
     // Automation log: one JSON object per line, one file per day.
     input.events = [];
-    for (const offset of [1, 0]) {
-        const day = new Date(now - offset * 24 * 60 * MIN);
-        const name = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0') + '.jsonl';
+    // The files are named by the local date of Node-RED; this shell is in UTC, so read the days around now.
+    // The row time below limits the result to the window.
+    for (const offset of [1, 0, -1]) {
+        const name = new Date(now - offset * 24 * 60 * MIN).toISOString().slice(0, 10) + '.jsonl';
         let text;
         try { text = fs.readFileSync(home + '/grid-control-logs/automations/' + name, 'utf8'); } catch { continue; }
         for (const line of text.split('\n')) {
