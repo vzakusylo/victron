@@ -24,6 +24,27 @@ foreach ($name in $Files.Keys) {
         $contents[$file] = [Text.Encoding]::UTF8.GetBytes($value)
     }
     else {
+        if ($value.StartsWith('{', [StringComparison]::Ordinal)) {
+            try { $manifest = ConvertFrom-Json -InputObject $value -ErrorAction Stop }
+            catch { throw "Invalid chunk manifest for $name." }
+            if ($manifest.format -ne 'victron-chunks-v1' -or ($manifest.parts -isnot [long] -and $manifest.parts -isnot [int]) -or
+                $manifest.parts -lt 1 -or $manifest.parts -gt 999 -or $manifest.sha256 -notmatch '^[0-9a-f]{64}$') {
+                throw "Invalid chunk manifest for $name."
+            }
+            $builder = [Text.StringBuilder]::new()
+            for ($i = 1; $i -le $manifest.parts; $i++) {
+                $partName = '{0}_PART_{1:000}' -f $name, $i
+                $part = [Environment]::GetEnvironmentVariable($partName)
+                if ([string]::IsNullOrWhiteSpace($part)) { throw "Required chunk missing: $partName." }
+                $null = $builder.Append($part)
+            }
+            try { $decoded = [Convert]::FromBase64String($builder.ToString()) }
+            catch { throw "Invalid chunk encoding for $name." }
+            $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($decoded)).ToLowerInvariant()
+            if ($hash -ne $manifest.sha256) { throw "Chunk checksum mismatch for $name." }
+            $contents[$file] = $decoded
+            continue
+        }
         $prefixed = $value.StartsWith('base64:', [StringComparison]::Ordinal)
         if ($prefixed) { $value = $value.Substring(7) }
         try { $contents[$file] = [Convert]::FromBase64String($value) }
