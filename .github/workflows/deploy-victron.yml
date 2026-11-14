@@ -1,0 +1,116 @@
+name: Deploy Victron secrets
+
+# Manual only. Reads the SECRETFILE_* GitHub secrets, rebuilds the private files and
+# installs them on the Cerbo GX over Tailscale + SSH. See scripts/SECRETS.md.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "check = rebuild files and validate only; install = overwrite private files on the GX; install-and-reload = install, then restart Node-RED"
+        type: choice
+        options: [check, install, install-and-reload]
+        default: check
+      confirm:
+        description: "For install actions type: overwrite-gx-private-files"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency: deploy-victron
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: victron-gx
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require explicit confirmation for install actions
+        if: inputs.action != 'check'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "overwrite-gx-private-files" ]; then
+            echo "::error::Type overwrite-gx-private-files in 'confirm' to overwrite the GX files."
+            exit 1
+          fi
+
+      - name: Rebuild private files from GitHub secrets
+        shell: pwsh
+        env:
+          SECRETFILE_TUYA_CLOUD_JSON: ${{ secrets.SECRETFILE_TUYA_CLOUD_JSON }}
+          SECRETFILE_TUYA_DEVICES_JSON: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_001: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_001 }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_002: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_002 }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_003: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_003 }}
+          SECRETFILE_TUYA_LOCAL_SENSORS_JSON: ${{ secrets.SECRETFILE_TUYA_LOCAL_SENSORS_JSON }}
+          SECRETFILE_TUYA_NODES_JSON: ${{ secrets.SECRETFILE_TUYA_NODES_JSON }}
+          SECRETFILE_EMAIL_JSON: ${{ secrets.SECRETFILE_EMAIL_JSON }}
+          SECRETFILE_MCP_TOKEN_TXT: ${{ secrets.SECRETFILE_MCP_TOKEN_TXT }}
+          SECRETFILE_FLOWS_CRED_JSON: ${{ secrets.SECRETFILE_FLOWS_CRED_JSON }}
+          SECRETFILE__CONFIG_RUNTIME_JSON: ${{ secrets.SECRETFILE__CONFIG_RUNTIME_JSON }}
+          SECRETFILE__CONFIG_USERS_JSON: ${{ secrets.SECRETFILE__CONFIG_USERS_JSON }}
+          SECRETFILE_SETTINGS_USER_JS: ${{ secrets.SECRETFILE_SETTINGS_USER_JS }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'bundle/secrets'
+          ./scripts/place-secrets.ps1 -SecretsDir $dir -Files @{
+            SECRETFILE_TUYA_CLOUD_JSON = 'tuya-cloud.json'
+            SECRETFILE_TUYA_DEVICES_JSON = 'tuya-devices.json'
+            SECRETFILE_TUYA_LOCAL_SENSORS_JSON = 'tuya-local-sensors.json'
+            SECRETFILE_TUYA_NODES_JSON = 'tuya-nodes.json'
+            SECRETFILE_EMAIL_JSON = 'email.json'
+            SECRETFILE_MCP_TOKEN_TXT = 'mcp-token.txt'
+            SECRETFILE_FLOWS_CRED_JSON = 'flows_cred.json'
+            SECRETFILE__CONFIG_RUNTIME_JSON = '.config.runtime.json'
+            SECRETFILE__CONFIG_USERS_JSON = '.config.users.json'
+            SECRETFILE_SETTINGS_USER_JS = 'settings-user.js'
+          }
+          $tools = Join-Path $env:RUNNER_TEMP 'bundle/tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          Copy-Item tools/victron-secrets.js, tools/reload-victron-secrets.js $tools
+          tar -C (Join-Path $env:RUNNER_TEMP 'bundle') -cf (Join-Path $env:RUNNER_TEMP 'bundle.tar') secrets tools
+          if ($LASTEXITCODE) { throw 'Could not create the deployment archive.' }
+          Write-Output 'Rebuilt 10 private files; contents are not printed.'
+
+      - name: Connect to the tailnet
+        if: inputs.action != 'check'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install files on the GX
+        if: inputs.action != 'check'
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
+          GX_SSH_KNOWN_HOSTS: ${{ secrets.GX_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$GX_SSH_KEY" > "$RUNNER_TEMP/ssh/key"
+          printf '%s\n' "$GX_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/ssh/key" "$RUNNER_TEMP/ssh/known_hosts"
+          SSH="ssh -i $RUNNER_TEMP/ssh/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts -o ConnectTimeout=15"
+          # The script reads the archive from stdin, so copy the script and pipe the archive separately.
+          scp -i "$RUNNER_TEMP/ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" -o ConnectTimeout=15 \
+            scripts/install-gx-secrets.sh "$GX_SSH_HOST:/tmp/install-gx-secrets.sh"
+          $SSH "$GX_SSH_HOST" 'sh /tmp/install-gx-secrets.sh' < "$RUNNER_TEMP/bundle.tar"
+          $SSH "$GX_SSH_HOST" 'rm -f /tmp/install-gx-secrets.sh'
+
+      - name: Reload Node-RED
+        if: inputs.action == 'install-and-reload'
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+        run: |
+          ssh -i "$RUNNER_TEMP/ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" -o ConnectTimeout=15 \
+            "$GX_SSH_HOST" 'node /data/home/nodered/tools/reload-victron-secrets.js reload'
+
+      - name: Remove local key material
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh" "$RUNNER_TEMP/bundle" "$RUNNER_TEMP/bundle.tar"

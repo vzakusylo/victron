@@ -1,12 +1,90 @@
-# Victron secret files: storage, synchronization and restoration
+# Victron secrets: what is needed, how to get and update them, how deploy uses them
 
 Scope: **only `vzakusylo/victron`**, not camera-ai.
 Secret values never go into Git commits or this document.
 
-Private files on the PC / Cerbo GX are the source of truth. GitHub Actions secrets
-are encrypted copies, not a readable vault or a two-way sync. Synchronization does
-not deploy or change anything on the GX. The selected mode is **manual, after
-each change**; there is no timer or background service.
+**GitHub Secrets is the source for deployment.** The manual workflow
+[`Deploy Victron secrets`](../.github/workflows/deploy-victron.yml) reads the
+secrets below inside GitHub Actions, rebuilds the private files, installs them on
+the Cerbo GX and optionally restarts Node-RED. GitHub cannot show a secret's value
+again, so the values are written by the scripts in this document from the live GX
+(or a private local copy) and are only ever read by Actions.
+Updating the secrets is **manual, after each change**; there is no timer.
+
+## Quick reference
+
+### 1. Required secrets
+
+| Group | Secret names | Purpose |
+| --- | --- | --- |
+| Private files (14 entries for 11 files) | `SECRETFILE_TUYA_CLOUD_JSON`, `SECRETFILE_TUYA_DEVICES_JSON` (+ `_PART_001`..`_PART_003`), `SECRETFILE_TUYA_LOCAL_SENSORS_JSON`, `SECRETFILE_TUYA_NODES_JSON`, `SECRETFILE_EMAIL_JSON`, `SECRETFILE_MCP_TOKEN_TXT`, `SECRETFILE_FLOWS_CRED_JSON`, `SECRETFILE__CONFIG_RUNTIME_JSON`, `SECRETFILE__CONFIG_USERS_JSON`, `SECRETFILE_SETTINGS_USER_JS`, `SECRETFILE_VENUS_SETTINGS_JS` | Content of the private files; see the file table below. The vendor `venus-settings.js` is only a reference backup and is never deployed |
+| GX access for deploy | `GX_SSH_HOST`, `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS` | `root@<gx-tailscale-host>`, a **dedicated** private SSH key authorized on the GX, and the pinned host-key line for that host |
+| Network for deploy | `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` | Tailscale OAuth client allowed to create ephemeral nodes tagged `tag:ci`; the tailnet policy must let `tag:ci` reach the GX on SSH |
+
+`CLAUDE_CODE_OAUTH_TOKEN` belongs to a different workflow and is not used here.
+Not covered by the secrets: the full `flows.json`, palette modules, drivers and
+the energy history. Keep the [full GX backup](../docs/backup-restore.md) too.
+
+### 2. How to get the values
+
+| Secret | Where the value comes from |
+| --- | --- |
+| `SECRETFILE_*` | Collected from the live GX by `scripts/sync-secrets.ps1 -FromGx` (below); the script never prints them |
+| `GX_SSH_KEY` | Create a new key pair only for CI: `ssh-keygen -t ed25519 -f "$HOME\.ssh\id_ed25519_victron_ci" -N '""'`; append the `.pub` to `/root/.ssh/authorized_keys` on the GX. Do not reuse your personal key |
+| `GX_SSH_HOST` | `root@` + the GX Tailscale name/address from your private notes |
+| `GX_SSH_KNOWN_HOSTS` | From a machine that already trusts the GX: the matching line of `~/.ssh/known_hosts`, or `ssh-keyscan -t ed25519 <host>` verified against the fingerprint on the GX. Never accept an unverified fingerprint |
+| `TS_OAUTH_*` | Tailscale admin console → Settings → OAuth clients, scope *Auth Keys: write*, tag `tag:ci`; add `tag:ci` to `tagOwners` and an ACL rule allowing it to reach the GX on port 22 |
+
+### 3. How to set or update them
+
+Use the GitHub.com account in `gh`; values are piped from files or the
+clipboard, not typed in chat or committed:
+
+```powershell
+Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+$env:GH_HOST = 'github.com'
+# All SECRETFILE_* values, refreshed from the live GX (manual, after each GX change):
+pwsh -NoProfile -File .\scripts\sync-secrets.ps1 -FromGx `
+  -GxHost 'root@<gx-tailscale-host>' -SshKey "$HOME\.ssh\id_ed25519_cerbo"
+# Deploy-access secrets (one-time, or when the key/host changes):
+Get-Content "$HOME\.ssh\id_ed25519_victron_ci" -Raw | gh secret set GX_SSH_KEY --repo vzakusylo/victron
+'root@<gx-tailscale-host>' | gh secret set GX_SSH_HOST --repo vzakusylo/victron
+Get-Content .\.secrets\gx-known-hosts -Raw | gh secret set GX_SSH_KNOWN_HOSTS --repo vzakusylo/victron
+gh secret set TS_OAUTH_CLIENT_ID --repo vzakusylo/victron   # paste at the hidden prompt
+gh secret set TS_OAUTH_SECRET --repo vzakusylo/victron      # paste at the hidden prompt
+gh secret list --repo vzakusylo/victron                     # names and times only
+```
+
+Order matters: update the secrets **after** you changed and tested the live GX
+files, otherwise a later deploy restores the older copy. Obsolete secrets and
+chunks are not deleted automatically; remove them with `gh secret delete`.
+
+### 4. How deploy takes the secrets
+
+Run **Actions → Deploy Victron secrets → Run workflow** (or
+`gh workflow run deploy-victron.yml -f action=check`):
+
+| `action` | Effect |
+| --- | --- |
+| `check` (default) | Rebuilds the 10 deployable files from the secrets and verifies the chunk checksums. Touches nothing on the GX |
+| `install` | Also copies them and `tools/victron-secrets.js` / `tools/reload-victron-secrets.js` to the GX, backs up the previous files to `/data/home/nodered/.node-red/backup-pre-secret-deploy-<timestamp>`, validates them with the `check` command and restores the backup on failure |
+| `install-and-reload` | As `install`, then restarts Node-RED with `reload-victron-secrets.js reload` (brief controller interruption) |
+
+Install actions overwrite the GX private files with the GitHub copies and require
+typing `overwrite-gx-private-files` in `confirm`. The job uses the
+`victron-gx` environment: add required reviewers in *Settings → Environments* for
+an approval step. A GitHub-hosted runner reaches the GX only through Tailscale.
+The workflow was written and syntax-checked but **has not been run against the
+live GX**; start with `check`, then `install`.
+
+The scripts used are listed below; the rest of this document is the detailed
+reference and audit record.
+
+## Reference: synchronization and restoration
+
+Private files on the PC / Cerbo GX are the working source; GitHub Secrets are the
+encrypted copies the deploy reads. The running GX does not contact GitHub: it
+reads its private files after the deploy installs them.
 
 ## Completed deployment: 2026-11-14
 
@@ -30,11 +108,11 @@ versions were intentionally changed. A first activation exposed Node-RED's
 empty-IP substitution behavior and was rolled back; the corrected activation
 preserves automatic discovery and was then verified.
 
-GitHub Secrets are used here as **file backups**. The running GX does not contact
-GitHub to obtain passwords: it reads its private files. Restoring GitHub secrets
-requires a trusted Actions step that materializes those files, followed by an
-explicit deployment/restoration. No automatic restore/deploy workflow was
-installed, and ordinary CI jobs were not given credentials.
+GitHub Secrets are the **deployment source and file backup**. The running GX does
+not contact GitHub to obtain passwords: it reads its private files, which the
+`Deploy Victron secrets` workflow (or a manual restore) installs. Ordinary CI jobs
+were not given credentials; only the manually started `victron-gx` deploy job reads
+them.
 
 ## Scripts and responsibilities
 
@@ -50,6 +128,8 @@ installed, and ordinary CI jobs were not given credentials.
 | [`tests/secret-files.test.ps1`](../tests/secret-files.test.ps1) | Synthetic upload/restore tests; GitHub uploads are mocked |
 | [`tests/victron-secrets.test.js`](../tests/victron-secrets.test.js) | Synthetic runtime-loading, mapping, validation and discovery tests |
 | [`tests/reload-victron-secrets.test.js`](../tests/reload-victron-secrets.test.js) | Synthetic file validation and supervisor/health tests; no real service is restarted |
+| [`scripts/install-gx-secrets.sh`](install-gx-secrets.sh) | Runs on the GX during deploy: checks the archive, backs up, installs 10 files + 2 helpers, validates, rolls back on failure |
+| [`.github/workflows/deploy-victron.yml`](../.github/workflows/deploy-victron.yml) | Manual deploy: reads the secrets, rebuilds files, installs them over Tailscale/SSH, optional reload |
 | [`tools/flows.js`](../tools/flows.js) | Existing portable-template/source synchronization check |
 
 These links contain the full persistent script sources. The deleted temporary
@@ -186,9 +266,9 @@ gh secret list --repo github.com/vzakusylo/victron
 
 ## Place files from secrets in a trusted Actions job
 
-The following is an example step, **not an installed workflow**. Run it only
-after checking out a reviewed revision of this repository in a trusted job.
-It reconstructs all 11 recorded files; no file contents should be printed:
+The deploy workflow uses this same step (without `venus-settings.js`, which is a
+vendor reference backup). The block below reconstructs all 11 recorded files for
+other trusted jobs; no file contents should be printed:
 
 ```yaml
 - name: Place Victron private files
