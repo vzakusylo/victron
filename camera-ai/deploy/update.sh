@@ -15,7 +15,6 @@ if [ ! -d "$SRC/.git" ]; then
   git clone --quiet --filter=blob:none --sparse --branch "$BRANCH" "$REPO_URL" "$SRC"
   git -C "$SRC" sparse-checkout set camera-ai
 fi
-old=$(git -C "$SRC" rev-parse HEAD)
 git -C "$SRC" fetch --quiet origin "$BRANCH"
 new=$(git -C "$SRC" rev-parse FETCH_HEAD)
 deployed=$(cat "$APP/.deployed" 2>/dev/null || true)
