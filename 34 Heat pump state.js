@@ -383,6 +383,7 @@ function buildModel(st, now) {
         },
         curveChart: buildCurveChart(d),
         dhwChart: buildDhwChart(d),
+        heatCtl: buildHeatCtl(),
         items,
         unknown
     };
@@ -396,6 +397,12 @@ const DHW_STATE_LABELS = { HEATING: 'heating (valve on heating)', PREHEAT: 'preh
     DHW: 'heating the tank on the boiler curve', DEFROST_DHW: 'defrost during DHW (valve on heating)', RAMPDOWN: 'older version' };
 // d#142: the DHW controller runs the pump on its own curve; during a cycle the pump shows the
 // boiler / stop values, the heating chart then uses the stored heating curve (dhwView.heatCurve)
+// d#166: heating power controller of 40 (mode Silent ⇄ Smart by the supply lag), from flow.dhwView.heat
+function buildHeatCtl() {
+    const v = flow.get('dhwView');
+    if (!v || !v.heat) return null;
+    return Object.assign({ fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS, master: v.master === undefined ? null : v.master }, v.heat);
+}
 function dhwCycle() { const v = flow.get('dhwView'); return !!(v && v.state && v.state !== 'HEATING' && v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS); }
 // exact = no rounding (chart lines, d#161: a straight line instead of 0.5 °C steps); the
 // controller (40) and the table use the target rounded to 0.5 °C

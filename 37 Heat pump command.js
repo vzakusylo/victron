@@ -109,11 +109,13 @@ case 'day': {
     return [null, null, { topic: 'day', day, payload: "'" + script + "'" }];
 }
 case 'ui': {
-    const okMode = p.action === 'mode' && p.id === 'dhw' && ['off', 'dry', 'live'].includes(p.mode);
+    const okMode = p.action === 'mode' && (p.id === 'dhw' || p.id === 'heat') && ['off', 'dry', 'live'].includes(p.mode);
     const okSet = p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object' && Array.isArray(p.cfg.curve);
-    if (!okMode && !okSet) return refuse('ui: only the DHW controller mode / settings');
-    node.status({ fill: 'blue', shape: 'dot', text: 'DHW controller ' + (okMode ? 'mode → ' + p.mode : 'settings') });
-    return [null, null, null, { topic: 'ui', payload: okMode ? { action: 'mode', id: 'dhw', mode: p.mode } : { action: 'dhwSet', cfg: p.cfg } }];
+    const okHeat = p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object' && !Array.isArray(p.cfg);
+    if (!okMode && !okSet && !okHeat) return refuse('ui: only the DHW / heating controller mode / settings');
+    const who = (okMode ? p.id : okHeat ? 'heat' : 'dhw') === 'heat' ? 'Heating controller' : 'DHW controller';
+    node.status({ fill: 'blue', shape: 'dot', text: who + ' ' + (okMode ? 'mode → ' + p.mode : 'settings') });
+    return [null, null, null, { topic: 'ui', payload: okMode ? { action: 'mode', id: p.id, mode: p.mode } : { action: p.action, cfg: p.cfg } }];
 }
 default:
     return refuse('unknown topic ' + msg.topic);

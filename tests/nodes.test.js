@@ -303,3 +303,32 @@ test('08: the solar forecast is capped by the real output of the last 14 days', 
     assert.equal(p.today.condition, 'low');
     assert.equal(p.assumptions.observedDays, 10);
 });
+
+test('40: heating power controller steps Silent → Smart while the supply lags, and down when it rises too fast', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    const hp = (sup, ret, mode) => ({ 1: true, 2: mode, 101: ret, 102: sup, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 });
+    const setDev = (now, dps) => node.flow.set('heatPump', {
+        hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+        bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+    node.context.set('settings', { master: true, modes: { heat: 'live' } });
+    const writes = (call) => call.sent.filter((m) => m && m[0] === null && m[1] && m[1].payload && m[1].payload.operation === 'SET').map((m) => m[1].payload);
+    let all = [];
+    for (let i = 0; i <= 62; i++) {
+        const now = T0 + i * 10000;
+        setDev(now, hp(33, 30, 'mute'));
+        all = all.concat(writes(node.run({ topic: 'tick' }, { now })));
+    }
+    assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'smart' }], 'one step up to Smart');
+    const view = node.flow.get('dhwView').heat;
+    assert.equal(view.lag, -3);
+    assert.equal(view.gap, 3);
+    // Smart now, supply − return 6 °C (> gapMax + 1) → after the step time one step down
+    all = [];
+    for (let i = 63; i <= 130; i++) {
+        const now = T0 + i * 10000;
+        setDev(now, hp(36, 30, 'smart'));
+        all = all.concat(writes(node.run({ topic: 'tick' }, { now })));
+    }
+    assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'mute' }], 'one step down to Silent');
+});

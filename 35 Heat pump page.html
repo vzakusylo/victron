@@ -223,6 +223,26 @@
           <tr><th>Outdoor °C</th><td ng-repeat="r in msg.payload.curveChart.table" class="num">{{r.out}}</td></tr>
           <tr><th>Set point °C</th><td ng-repeat="r in msg.payload.curveChart.table" class="num">{{r.set}}</td></tr>
         </table>
+        <div class="hpw-ctl hpw-dhw" ng-if="msg.payload.heatCtl">
+          <span class="big">Heating power controller</span>
+          <span><button ng-repeat="m in ['off','dry','live']" ng-class="{sel: msg.payload.heatCtl.mode == m, on: m == 'live'}" ng-disabled="hp.heatModeSent !== null" ng-click="hpHeatMode(m)">{{hpModeLabel(m)}}</button></span>
+          <span class="lbl" ng-if="hp.heatModeSent !== null">sent, waiting for the controller…</span>
+          <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
+          <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
+          <span class="lbl" ng-if="!msg.payload.heatCtl.fresh"> · controller data is old</span>
+          <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
+          <div class="row" ng-if="hp.heat">
+            <label title="supply this far below the set point → one mode step up">up if lag &gt; <input type="number" step="0.5" ng-model="hp.heat.lagUp" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="supply this far above the set point → one step down">down if above set &gt; <input type="number" step="0.5" ng-model="hp.heat.overC" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="wanted supply − return: smooth rise">supply − return <input type="number" step="0.5" ng-model="hp.heat.gapMin" ng-change="hp.heatDirty=true"> … <input type="number" step="0.5" ng-model="hp.heat.gapMax" ng-change="hp.heatDirty=true"> °C</label>
+            <label>step every ≥ <input type="number" ng-model="hp.heat.stepMin" ng-change="hp.heatDirty=true"> min</label>
+            <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
+            <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
+            <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
+            <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
+          </div>
+          <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts: supply lags the set point and supply − return &lt; {{msg.payload.heatCtl.cfg.gapMax}} °C → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}}; supply above the set point, supply − return &gt; {{msg.payload.heatCtl.cfg.gapMax + 1}} °C or high current → one step down. One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
+        </div>
       </div>
     </section>
     <section class="hpw-col">
@@ -410,6 +430,31 @@
         if (!confirm(text)) return;
         scope.hp.dhwModeSent = m; scope.hp.dhwModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
+    };
+    // Heating power controller (d#166)
+    scope.hp.heat = null; scope.hp.heatDirty = false; scope.hp.heatModeSent = null;
+    function heatCopy() { var c = scope.msg && scope.msg.payload && scope.msg.payload.heatCtl && scope.msg.payload.heatCtl.cfg; return c ? JSON.parse(JSON.stringify(c)) : null; }
+    scope.$watch('msg.payload.heatCtl.cfg', function () { if (!scope.hp.heatDirty) { scope.hp.heat = heatCopy(); } }, true);
+    scope.$watch('msg.payload.heatCtl.mode', function (m) { if (scope.hp.heatModeSent !== null && (m === scope.hp.heatModeSent || Date.now() - scope.hp.heatModeAt > 60000)) scope.hp.heatModeSent = null; });
+    scope.hpHeatReset = function () { scope.hp.heatDirty = false; scope.hp.heat = heatCopy(); };
+    scope.hpHeatSave = function () {
+        var c = scope.hp.heat;
+        if (!c) return;
+        var cfg = { allowPowerful: !!c.allowPowerful };
+        ['lagUp', 'overC', 'gapMin', 'gapMax', 'stepMin', 'ampPct'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
+        scope.hp.heatDirty = false;
+        scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
+    };
+    scope.hpHeatMode = function (m) {
+        var d = scope.msg && scope.msg.payload && scope.msg.payload.heatCtl;
+        if (!d || d.mode === m) return;
+        var text = m === 'live'
+            ? 'Turn the heating power controller ON?\nIt switches the pump mode Silent / Smart by the supply lag while local control is ON.'
+            : 'Set the heating power controller to ' + scope.hpModeLabel(m) + '?';
+        if (!confirm(text)) return;
+        scope.hp.heatModeSent = m; scope.hp.heatModeAt = Date.now();
+        scope.send({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: m } });
     };
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }
