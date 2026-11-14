@@ -33,6 +33,7 @@ function Invoke-FailingStep {
     try { & $code | Out-Null } catch { $failed = $true }
     Assert $failed 'Invalid deployment input was accepted.'
     Assert (-not (Test-Path (Join-Path $env:RUNNER_TEMP 'bundle.tar'))) 'Invalid input produced a deployment archive.'
+    $global:LASTEXITCODE = 0
 }
 # Linux CI uses real chmod; Windows tests substitute only the unavailable permission tool.
 if ($IsWindows) { function chmod { $global:LASTEXITCODE = 0 } }
