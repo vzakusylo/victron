@@ -9,6 +9,7 @@ Related: [Development & deployment](development.md) (rules, versioning) · [Secr
 - [The three things that get deployed](#the-three-things-that-get-deployed)
 - [Which script is for what](#which-script-is-for-what)
 - [Step by step](#step-by-step)
+- [Monitoring](#monitoring)
 - [Reading the comparison report](#reading-the-comparison-report)
 - [What the deploy script checks](#what-the-deploy-script-checks)
 - [Rollback](#rollback)
@@ -33,6 +34,8 @@ The repository `flows.json` is a portable template: its Tuya nodes have no keys 
 | [`tools/gx/compare.js`](../tools/gx/compare.js) | PC | no | Compares a snapshot with `flows.json` of the work tree or of a commit. Shows what differs and why (`--show`, `--history`). With `--plan` writes the deploy plan |
 | [`tools/gx/deploy.js`](../tools/gx/deploy.js) | GX (as root) | only with `DRY=0` | Executes a plan: downloads the commit, checks, backs up, replaces tool files, posts the changed nodes with the source commit label, reads back. Dry run by default |
 | [`tools/gx/verify.js`](../tools/gx/verify.js) | GX (piped over SSH) | no | After a deploy: label and recorded commits, DHW state and wait reason, master switch, errors in the Node-RED log since the deploy |
+| [`tools/gx/monitor.js`](../tools/gx/monitor.js) | GX (piped over SSH, or installed) | no | Health of the automations at any time: service, version label, devices, pump fault, tank, DHW and heating state, log errors, aborted cycles. One line per check, `STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2 |
+| [`scripts/gx-monitor.ps1`](../scripts/gx-monitor.ps1) | PC | no | Runs the monitor over SSH; `-Drift` adds the comparison of the live code with `origin/master`; `-Watch <s>` repeats and prints on a change; `-Json` for other tools |
 | [`tools/deploy-version.js`](../tools/deploy-version.js) | used by `deploy.js` | no | Adds ` [git <sha12>]` to the tab label and the dashboard page names and stores the full commit SHA in the tab `info` |
 | [`tools/flows.js`](../tools/flows.js) | PC | repository only | `sync` copies the numbered sources into `flows.json` and bumps `d#`; `check` verifies it. Always before a commit |
 | [`scripts/install-gx-secrets.sh`](../scripts/install-gx-secrets.sh) | GX, started by the workflow | yes | Installs the private files with Node-RED stopped. Part of the secret workflow, not of a code deploy |
@@ -130,6 +133,43 @@ Take a new snapshot and compare once more: `code differs (0)` is the proof that 
 ### 8. Write it down
 
 Add a row to the [work log](heat-pump-work-log.md) (time, `d#`, commit, backup directory).
+
+## Monitoring
+
+Read-only, any time, also between deploys:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key            # health now
+git fetch; pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key -Drift   # + GX code vs origin/master
+pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key -Watch 300          # every 5 min, prints on a change
+```
+
+```text
+OK   service         Node-RED up for 355 min
+OK   version         d#180 Day / Night Grid Control [git 97c023b52bca]
+OK   device hp       connected, data 0 min ago
+OK   heat pump       no fault, supply 37 / return 32 °C, 69 Hz, mode mute
+OK   tank            42 °C
+OK   automations     ticking
+OK   DHW             idle: last cycle 20 min ago (min 1 h)
+OK   heating         Silent, target 36 °C, lag 0.8: collecting data
+OK   Node-RED log    no errors in the last 30 min (known: 4 x [tuya-smart-device:SA1 power meter (heat pump)])
+WARN automation log  4 error(s), 2 aborted DHW cycle(s) in 24 h; last 18:56 UTC: end of DHW (fault Er03 (water flow)) …
+WARN drift           1 node(s) differ in code, 0 only on the GX, 0 only in the repository (vs origin/master)
+STATUS: WARN
+```
+
+| Level | Meaning | Checks |
+|---|---|---|
+| `FAIL` (exit 2) | Needs action now | Node-RED down; heat pump, valve or bypass disconnected or silent for 5 min; pump fault code; DHW blocked after an aborted cycle (allow it again on the Heat Pump page); automations not ticking for 2 min; a DHW cycle longer than 150 min |
+| `WARN` (exit 1) | Look at it | Master switch off; DHW or heating controller not On; tank below 38 °C; Node-RED log errors in the last 30 min; errors or aborted DHW cycles in the automation log of the last 24 h; no recorded source commit; `-Drift`: the live code differs from the commit |
+| `INFO` | Normal, but worth knowing | Node-RED started less than 10 min ago; a DHW cycle is running; DHW has no outdoor average yet (after a deploy or around a defrost) |
+
+- The SA1 power meter errors are listed as *known* and do not raise the status (the meter has never connected, see the work log).
+- Times in the output are UTC: an SSH shell on the GX has no time zone, Node-RED logs local time.
+- The limits are in `LIMITS` at the top of `tools/gx/monitor.js`; `tests/gx-monitor.test.js` holds the cases.
+- `-Json` prints the collected values and the findings for another tool. Exit code 3 means the GX could not be read at all.
+- For an unattended check on the PC, schedule the first command (Task Scheduler) and act on a non-zero exit code. Nothing runs on the GX between calls and nothing is stored there.
 
 ## Reading the comparison report
 

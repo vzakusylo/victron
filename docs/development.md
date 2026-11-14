@@ -32,7 +32,7 @@
   Adds source commit labels to a separate deployment payload, without deploying it or changing the tracked flow.
 
 - `tools/gx/`
-  The deploy scripts: `live-snapshot.js` (what the GX runs), `compare.js` (difference from a commit, deploy plan), `deploy.js` (selective deploy, dry run by default), `verify.js` (check after a deploy). Step-by-step guide: [Deploying to the Cerbo GX](gx-deploy.md).
+  The deploy scripts: `live-snapshot.js` (what the GX runs), `compare.js` (difference from a commit, deploy plan), `deploy.js` (selective deploy, dry run by default), `verify.js` (check after a deploy), `monitor.js` (health at any time; `scripts/gx-monitor.ps1` runs it from the PC). Step-by-step guide: [Deploying to the Cerbo GX](gx-deploy.md).
 
 - `tests/`  
   Unit tests that run the function-node sources outside Node-RED (`tests/harness.js`: fake context / flow stores, fixed clock). No dependencies: `node --test "tests/*.test.js"`.
