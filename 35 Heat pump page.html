@@ -256,6 +256,8 @@
       <div class="hpw-chips" ng-if="msg.payload.summary">
         <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.valveToDhw}">Valve: {{msg.payload.summary.valveToDhw === null ? '—' : (msg.payload.summary.valveToDhw ? 'DHW (boiler)' : 'Heating')}}</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart" ng-class="{'hpw-warn': msg.payload.dhwChart.state !== 'HEATING', 'hpw-bad': msg.payload.dhwChart.mode !== 'live'}">Controller {{hpModeLabel(msg.payload.dhwChart.mode)}} · {{msg.payload.dhwChart.stateLabel}} since {{msg.payload.dhwChart.since | date:'HH:mm'}}</span>
+        <span class="hpw-chip hpw-warn" ng-if="msg.payload.dhwChart.progress !== null">progress {{msg.payload.dhwChart.progress}} % ({{msg.payload.dhwChart.startTank}} → {{msg.payload.dhwChart.target}} °C)</span>
+        <span class="hpw-chip" ng-if="msg.payload.dhwChart.planned > 0">next cycle planned {{msg.payload.dhwChart.planned | date:'HH:mm'}} (after a defrost)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.defrost && msg.payload.dhwChart.defrost.next">next defrost ≈ {{msg.payload.dhwChart.defrost.next | date:'HH:mm'}} (every ~{{msg.payload.dhwChart.defrost.intervalMin}} min)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">next start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
       </div>
@@ -342,6 +344,8 @@
               <th>Min interval</th><td><input type="number" step="0.5" ng-model="hp.dhw.minIntervalH" ng-change="hp.dhwDirty = true"> h</td></tr>
             <tr title="No cycle starts when the next defrost is expected within this time (forecast from the last defrost intervals); after a defrost the cycle waits until the supply is back at the heating set point minus the second value. 0 = off.">
               <th>Defrost</th><td>no start <input type="number" ng-model="hp.dhw.defrostLead" ng-change="hp.dhwDirty = true"> min before one; after it supply ≥ heating set − <input type="number" step="0.5" ng-model="hp.dhw.supplyReady" ng-change="hp.dhwDirty = true"> °C</td></tr>
+            <tr title="A defrost after this share of the way from the start tank to the target ends the cycle; the next cycle is planned the given time later (only if the tank is still below target − start). 0 % = always continue after the defrost.">
+              <th>Defrost in a cycle</th><td>end at ≥ <input type="number" ng-model="hp.dhw.defrostEndPct" ng-change="hp.dhwDirty = true"> %, next in <input type="number" ng-model="hp.dhw.defrostNextMin" ng-change="hp.dhwDirty = true"> min</td></tr>
             <tr title="Longest DHW cycle; the second value applies at or below the cold limit. The cycle ends earlier when the tank reaches its target.">
               <th>Max duration</th><td><input type="number" ng-model="hp.dhw.maxMin" ng-change="hp.dhwDirty = true"> min, <input type="number" ng-model="hp.dhw.maxMinCold" ng-change="hp.dhwDirty = true"> min in the cold</td></tr>
             <tr title="If the compressor runs at or above any of these for 3 minutes, the controller lowers P23 by 2 (less supply, less load). 9.67 A is the nameplate current.">
@@ -419,7 +423,7 @@
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
         var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp };
-        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);

@@ -119,6 +119,8 @@
 //    owner's curve; Off / DHW cycle end the boost (owner's P23 back).
 // 23. d#172: the curve boost is in °C of the curve's set point (+1 °C per step, maxBoost 4 °C) and is written as P23 and,
 //    above P23 40, P24 (curveCoeffs); the DHW cycle uses the same: a boiler goal above P23 40 raises its P24.
+// 24. d#173: progress of a DHW cycle = % of the way from the start tank to the target (page + why); a defrost after
+//    defrostEndPct (30 %) ends the cycle and plans the next one defrostNextMin (60) later (settings.dhwRetry n 0).
 // 21. d#170: defrosts are ignored by the curve following: the heating controller pauses (keeps its samples, shifts
 //    them over the pause) during a defrost, the quiet time and until the supply is back at set − supplyReady; the DHW
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
@@ -214,12 +216,14 @@ const DHW_DEFAULTS = {
     protDischarge: 90,   // … or discharge (DP 104) °C, held 3 min → P23 − 2
     allowPowerful: false,
     defrostLead: 20,     // d#169: no DHW start when the next defrost is expected within … min
-    supplyReady: 1       // d#169: after a defrost start DHW only when supply ≥ heating set − … °C
+    supplyReady: 1,      // d#169: after a defrost start DHW only when supply ≥ heating set − … °C
+    defrostEndPct: 30,   // d#173: a defrost after this % of the way to the target ends the cycle …
+    defrostNextMin: 60   // … and the next one is planned this many min later
 };
 const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], supplyAdd: [1, 10], maxSupply: [45, 55],
     boilerP24: [5, 30], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180], coldLimit: [-25, 5],
     coldCap: [40, 55], coldIntervalH: [0, 12], lagC: [1, 10], protHz: [50, 90], protAmpPct: [50, 100], protDischarge: [70, 110],
-    defrostLead: [0, 60], supplyReady: [0, 5] };
+    defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240] };
 // raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
 function dhwCfg(raw, base) {
     const c = Object.assign(JSON.parse(JSON.stringify(DHW_DEFAULTS)), JSON.parse(JSON.stringify(base || {})));
@@ -254,6 +258,11 @@ function heatCurveAt(p23, p24, x) { return Math.max(20, Math.min(60, 20 + p24 / 
 // boiler curve (d#142): P23 that makes the pump's curve give supply `w` at outdoor `x` with P24 `p24`
 // d#172: P23 / P24 that make the pump's curve give at least w at outdoor x: P23 first (slope p24), and once P23 would
 // pass 40 P23 40 with a steeper P24 (≤ 30)
+// d#173: % of the way from the tank at the cycle start to the target (0…100), null when unknown
+function dhwProgress(start, tank, target) {
+    if (![start, tank, target].every(Number.isFinite) || target <= start) return null;
+    return Math.max(0, Math.min(100, Math.round((tank - start) / (target - start) * 100)));
+}
 function curveCoeffs(w, x, p24) {
     const p23 = Math.ceil(x + (w - 20) / (p24 / 10) - 1e-9);
     if (p23 <= 40) return { p23: Math.max(0, p23), p24 };
@@ -520,6 +529,8 @@ function dhwModel() {
         p23Cmd: d.p23Cmd, p24Cmd: d.p24Cmd, goalP23: d.goal, curveSupply: d.p23Cmd !== null && d.p24Cmd !== null && out !== null ? +heatCurveAt(d.p23Cmd, d.p24Cmd, out).toFixed(1) : null,
         prot: d.prot, heatCurve: s.heatCurve || null, plan: dhwPlan(d, c),
         startTank: d.startTank, startAt: d.startAt, lastEnd,
+        progress: ['STOP', 'VALVE', 'DHW', 'DEFROST_DHW'].includes(d.state) && out !== null ? dhwProgress(d.startTank, n(((st.hp && st.hp.dps) || {})['108']), out < c.frostLimit ? null : curveAt(c.curve, out)) : null,
+        planned: s.dhwRetry && !s.dhwRetry.n ? s.dhwRetry.at : 0,
         nextStart: lastEnd ? lastEnd + (cold ? c.coldIntervalH : c.minIntervalH) * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c, defrost: defrostForecast() };
 }
 // d#143: where the running cycle is heading: tank target and the expected end, from the tank rise
@@ -690,8 +701,10 @@ function dhwTick() {
         else if (!(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
         const rt = settings.dhwRetry;
         const retryDue = !!(rt && now >= rt.at);
+        // d#173: a planned cycle that is not needed any more (tank still ≥ target − hyst) is dropped
+        if (retryDue && !rt.n && target !== null && tank >= target - c.hyst) { settings.dhwRetry = null; saveSettingsFile(); }
         if (lastEnd && now - lastEnd < ivH * 3600 * 1000 && !retryDue) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '')
-            + (rt ? '; retry ' + rt.n + '/' + RETRY_MAX + ' at ' + new Date(rt.at).toTimeString().slice(0, 5) : '') + ')');
+            + (rt ? (rt.n ? '; retry ' + rt.n + '/' + RETRY_MAX : '; planned ' + (rt.why || '')) + ' at ' + new Date(rt.at).toTimeString().slice(0, 5) : '') + ')');
         if (defNow || recentDefrost) why.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
         else {
             // d#169: after a defrost the heating loop first gets back to its set point
@@ -715,7 +728,7 @@ function dhwTick() {
             d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' }; d.p23Cmd = null; d.p24Cmd = null; d.p24Goal = null; d.tankS = []; d.dhwMs = 0;
             logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
                 text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C'
-                    + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + (retryDue ? ' [retry ' + rt.n + '/' + RETRY_MAX + ']' : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
+                    + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + (retryDue ? (rt.n ? ' [retry ' + rt.n + '/' + RETRY_MAX + ']' : ' [planned ' + (rt.why || '') + ']') : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
             if (!P22on) write(p22(true));
             modeTo('mute'); if (bypassOn) write(bypass(false));
             curveTo(0);
@@ -774,6 +787,16 @@ function dhwTick() {
         if (defNow) {
             d.defTicks++;
             if (d.defTicks >= 2) {
+                // d#173: a defrost after ≥ defrostEndPct of the way to the target ends the cycle; the next one is planned
+                // defrostNextMin later (it starts then only if the tank is still below target − hyst)
+                const pg = dhwProgress(d.startTank, tank, target);
+                if (pg !== null && c.defrostEndPct > 0 && pg >= c.defrostEndPct) {
+                    endCycle('defrost at ' + pg + ' % of the way ' + d.startTank + ' → ' + target + ' °C');
+                    settings.dhwRetry = { n: 0, at: now + c.defrostNextMin * MIN, why: 'after the defrost' };
+                    saveSettingsFile();
+                    logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, live: d.live, text: 'next DHW cycle planned at ' + new Date(now + c.defrostNextMin * MIN).toTimeString().slice(0, 5) + ' (in ' + c.defrostNextMin + ' min, if the tank is still below target − ' + c.hyst + ')' });
+                    break;
+                }
                 write(valve(false)); if (!bypassOn) write(bypass(true));
                 d.fanOkSince = 0; d.tankS = [];   // d#170: the tank-rise forecast restarts after the defrost
                 go('DEFROST_DHW', 'defrost during DHW → valve to heating, bypass ON (the tank is not cooled)');
@@ -830,7 +853,7 @@ function dhwTick() {
             d.prog = { t: now, sup };
         }
         if (!cold && !pr.steps && H['2'] !== 'mute' && sup >= W - 1) modeTo('mute');
-        d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C, supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
+        d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C (' + (dhwProgress(d.startTank, tank, target) === null ? '?' : dhwProgress(d.startTank, tank, target)) + ' %), supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
             + heatCurveAt(d.p23Cmd, d.p24Cmd || c.boilerP24, x).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
             + (pr.steps ? ', protection ' + pr.steps + ' step(s)' : '') + (pr.hotSince ? ', hot: ' + pr.reason : '');
         break;

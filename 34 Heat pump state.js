@@ -460,6 +460,9 @@ function buildDhwChart(d) {
         master: v.master === undefined ? null : v.master,
         lag: v.lag === undefined ? null : v.lag,
         defrost: v.defrost || null,   // d#169: next defrost forecast of 40
+        progress: v.progress === undefined ? null : v.progress,   // d#173: % of the way to the tank target
+        planned: v.planned || 0,
+        startTank: v.startTank === undefined ? null : v.startTank,
         cfg: c,
         state: v.state,
         stateLabel: DHW_STATE_LABELS[v.state] || v.state,
