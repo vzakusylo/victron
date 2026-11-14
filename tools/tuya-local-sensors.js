@@ -7,6 +7,8 @@
 // sensor at once (tuyapi, protocol version from the beacon) and takes the DPs it pushes:
 //   DP 1 temperature × 10 (°C), DP 2 humidity (%), DP 3 battery_state (low / middle / high).
 // Tested 2026-11-09: connect in ~0.4 s, DP 1 / 2 pushed within 2 s.
+// PIR sensors with a known IP and protocol are also checked on TCP 6668 every second:
+// the toilet sensor is 192.168.1.66 / 3.4 and sends no observed discovery beacon.
 //
 // Usage (on the GX, exec node "Read local battery sensors" in spawn mode, restarted every 10 min):
 //   node /data/home/nodered/tools/tuya-local-sensors.js [lifetime_s]   (default 630 s)
@@ -23,10 +25,12 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const dgram = require('dgram');
+const net = require('net');
 
 const DIR = '/data/home/nodered/grid-control-config/';
 const KEYS = process.env.TUYA_LOCAL_KEYS || DIR + 'tuya-local-sensors.json';
 const LAST = process.env.TUYA_LOCAL_LAST || DIR + 'tuya-local-sensors-last.json';
+const EVENT_DIR = process.env.TUYA_EVENT_DIR || '/data/home/nodered/grid-control-logs/sensor-events/';
 const LIB = process.env.TUYAPI || '/data/home/nodered/.node-red/node_modules/tuyapi';
 const LIFE_MS = (Number(process.argv[2]) || 630) * 1000;
 const COLLECT_MS = 6000;      // stay connected at most this long (battery)
@@ -65,7 +69,9 @@ if (!keys) { out({ kind: 'error', error: 'no key file ' + KEYS }); process.exit(
 // tools/tuya-devices-setup.js, role 'dev'; their raw DPs are decoded by "Devices model" (50).
 const ALL = readJson(process.env.TUYA_DEVICES || DIR + 'tuya-devices.json', {});
 for (const id of Object.keys(ALL)) {
-    if (!keys[id] && ALL[id].battery && ALL[id].key) keys[id] = { role: 'dev', key: ALL[id].key, name: ALL[id].name };
+    if (!keys[id] && ALL[id].battery && ALL[id].key) keys[id] = {
+        role: 'dev', key: ALL[id].key, name: ALL[id].name, ip: ALL[id].ip, version: ALL[id].version
+    };
 }
 let TuyAPI;
 try { TuyAPI = require(LIB); } catch (e) { out({ kind: 'error', error: 'tuyapi not found: ' + e.message }); process.exit(1); }
@@ -77,7 +83,23 @@ for (const id of Object.keys(last)) {
 }
 
 const busy = {};
-function read(id, beacon) {
+// The 10-minute listener runs overlap. Share the wake cooldown so only one reader connects.
+function claim(id) {
+    const file = '/tmp/tuya-local-read-' + encodeURIComponent(id) + '.lock';
+    try {
+        try {
+            if (Date.now() - fs.statSync(file).mtimeMs >= QUIET_MS) fs.unlinkSync(file);
+        } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        fs.closeSync(fs.openSync(file, 'wx', 0o600));
+        return file;
+    } catch (e) {
+        if (e.code !== 'EEXIST') out({ kind: 'error', id, error: 'sensor read lock: ' + e.message });
+        return null;
+    }
+}
+
+function read(id, beacon, lock) {
+    if (!lock && !claim(id)) return;
     const k = keys[id];
     busy[id] = Date.now();
     const dps = {};
@@ -95,6 +117,14 @@ function read(id, beacon) {
             k.role === 'dev' ? { temp: null, hum: null, bat: null } : decode(dps));
         last[id] = Object.assign({}, r, { kind: undefined, cached: undefined });
         try { fs.writeFileSync(LAST, JSON.stringify(last, null, 1)); } catch (e) { /* no cache */ }
+        if (k.role === 'dev') {
+            const d = new Date(r.t), pad = (v) => String(v).padStart(2, '0');
+            try {
+                fs.mkdirSync(EVENT_DIR, { recursive: true });
+                fs.appendFileSync(EVENT_DIR + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.jsonl',
+                    JSON.stringify({ t: r.t, id, name: k.name || '', dps, source: 'local' }) + '\n');
+            } catch (e) { out({ kind: 'error', role: k.role, id, error: 'sensor event log: ' + e.message }); }
+        }
         out(r);
     };
     const take = (d) => {
@@ -121,4 +151,33 @@ sock.on('message', (m) => {
 });
 sock.on('error', (e) => { out({ kind: 'error', error: 'udp 6667: ' + e.message }); process.exit(1); });
 sock.bind(6667);
+const probing = new Set();
+const pirIds = Object.keys(ALL).filter((id) => keys[id] && keys[id].role === 'dev' && keys[id].ip && keys[id].version &&
+    Object.values(ALL[id].dps || {}).some((dp) => dp.code === 'pir_state'));
+setInterval(() => {
+    for (const id of pirIds) {
+        if (probing.has(id) || (busy[id] && Date.now() - busy[id] < QUIET_MS)) continue;
+        const lock = claim(id);
+        if (!lock) continue;
+        probing.add(id);
+        const socket = net.createConnection({ host: keys[id].ip, port: 6668 });
+        let settled = false;
+        const finish = (connected) => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            probing.delete(id);
+            if (connected) read(id, { ip: keys[id].ip, version: keys[id].version }, lock);
+            else {
+                try { fs.unlinkSync(lock); } catch (e) {
+                    if (e.code !== 'ENOENT') out({ kind: 'error', id, error: 'sensor probe lock: ' + e.message });
+                }
+            }
+        };
+        socket.setTimeout(250);
+        socket.on('connect', () => finish(true));
+        socket.on('timeout', () => finish(false));
+        socket.on('error', () => finish(false));
+    }
+}, 1000);
 setTimeout(() => process.exit(0), LIFE_MS);
