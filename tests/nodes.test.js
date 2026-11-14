@@ -524,3 +524,16 @@ test('40: a boosted curve is not stored as the owner curve when the pump goes st
     assert.deepEqual([node.context.get('settings').heatCurve.p23, node.context.get('settings').heatCurve.p24], [38, 4]);
     assert.equal(node.context.get('heat').boost, 1, 'the boost is still known');
 });
+test('50: a mains device without an IP at setup but read by MAC shows no "IP not found" note (d#178)', () => {
+    const node = loadNode('50 Devices model.js');
+    const meta = { box: { name: 'Smart air box', category: 'jqbj', ip: '', mac: 'c4:82:e1:54:6f:39', cloudOnline: true, battery: false, node: false, dps: { 22: { code: 'co2_value', scale: 0 } } },
+        lost: { name: 'Lost plug', category: 'cz', ip: '', mac: 'aa:bb:cc:dd:ee:ff', cloudOnline: true, battery: false, node: false, dps: {} } };
+    const poll = { box: { t: NOW - 60000, ip: '192.168.1.149', version: '3.3', dps: { 22: 612 } } };
+    const text = '@@META\n' + JSON.stringify(meta) + '\n@@POLL\n' + JSON.stringify(poll) + '\n';
+    const devices = node.run({ topic: 'read', payload: text }, { now: NOW }).result[0].payload.devices;
+    const box = devices.find((d) => d.id === 'box'), lost = devices.find((d) => d.id === 'lost');
+    assert.equal(box.ip, '192.168.1.149');
+    assert.equal(box.note, '');
+    assert.deepEqual(box.values, [{ k: 'CO2', v: '612 ppm' }]);
+    assert.match(lost.note, /IP not found/);
+});
