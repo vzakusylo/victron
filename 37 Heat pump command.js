@@ -110,6 +110,11 @@ case 'day': {
     return [null, null, { topic: 'day', day, payload: "'" + script + "'" }];
 }
 case 'ui': {
+    if (p.action === 'dhwShowerForce') {
+        if (typeof p.on !== 'boolean') return refuse('shower force must be a boolean');
+        node.status({ fill: 'blue', shape: 'dot', text: 'Shower early starts ' + (p.on ? 'enabled' : 'stopped') });
+        return [null, null, null, { topic: 'ui', payload: { action: p.action, on: p.on } }];
+    }
     const okMode = p.action === 'mode' && (p.id === 'dhw' || p.id === 'heat') && ['off', 'dry', 'live'].includes(p.mode);
     const okSet = p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object' && Array.isArray(p.cfg.curve);
     const okHeat = p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object' && !Array.isArray(p.cfg);

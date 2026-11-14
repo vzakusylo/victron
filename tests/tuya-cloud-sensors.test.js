@@ -12,11 +12,12 @@ const ID = 'test-motion-sensor';
 const NOW = Date.parse('2026-11-14T13:00:00Z');
 const meta = { [ID]: { name: 'Motion Sensor', battery: true, cloudOnline: true, dps: { 101: { code: 'pir_state' } } } };
 
-async function run(pages, { previous = {}, files = new Map(), now = NOW, rawEvents = false } = {}) {
+async function run(pages, { previous = {}, files = new Map(), now = NOW, localReading = null, rawEvents = false } = {}) {
     files = new Map(files);
     files.set(DIR + 'tuya-cloud.json', JSON.stringify({ accessId: 'test-id', accessSecret: 'test-secret', endpoint: 'https://example.invalid' }));
     files.set(DIR + 'tuya-devices-meta.json', JSON.stringify(meta));
     files.set(DIR + 'tuya-devices-cloud.json', JSON.stringify({ at: 0, devices: { [ID]: previous } }));
+    files.set(DIR + 'tuya-local-sensors-last.json', JSON.stringify(localReading ? { [ID]: localReading } : {}));
     const requests = [];
     const diagnostics = [];
     let page = 0;
@@ -155,6 +156,15 @@ test('failed or broken pagination does not append partial history or advance its
     }
 });
 
+test('battery-only local wakes do not suppress PIR history fallback, but real PIR reports do', async () => {
+    const fallback = await run([{ hasMore: false, logs: [{ code: 'pir_state', eventTime: NOW, value: 'pir' }] }], {
+        localReading: { t: NOW, pirSeenAt: 0, reportedDps: { 102: 'high' } }
+    });
+    assert.equal(fallback.events.length, 1);
+    const local = await run([], { localReading: { t: NOW, pirSeenAt: NOW, reportedDps: { 101: 'pir' } } });
+    assert.equal(local.requests.length, 0);
+});
+
 test('setup recognizes a sleeping PIR sensor and preserves its known endpoint while asleep', async () => {
     const files = new Map();
     const setup = fs.readFileSync(path.join(__dirname, '..', 'tools', 'tuya-devices-setup.js'), 'utf8');
@@ -191,7 +201,7 @@ test('setup recognizes a sleeping PIR sensor and preserves its known endpoint wh
     assert.equal(JSON.parse(files.get(DIR + 'tuya-devices.json'))[ID].version, '3.4');
 });
 
-test('known-IP PIR listener reads local DPs on wake without a beacon and shares the wake cooldown', async () => {
+test('known-IP PIR listener waits for PIR after a battery-first packet and shares the wake cooldown', async () => {
     const { EventEmitter } = require('node:events');
     const files = new Map([
         [DIR + 'tuya-local-sensors.json', '{}'],
@@ -204,15 +214,17 @@ test('known-IP PIR listener reads local DPs on wake without a beacon and shares 
     function worker() {
         const timers = [];
         let tick;
+        let device;
         const messages = [];
         class Device extends EventEmitter {
             constructor(options) {
                 super();
                 assert.equal(options.ip, '192.0.2.66');
                 assert.equal(options.version, '3.4');
+                device = this;
             }
             connect() { return Promise.resolve(); }
-            get() { return Promise.resolve({ dps: { 101: 'pir', 102: 'high' } }); }
+            get() { return Promise.resolve({ dps: { 102: 'high' } }); }
             disconnect() {}
         }
         vm.runInNewContext(source, {
@@ -250,15 +262,19 @@ test('known-IP PIR listener reads local DPs on wake without a beacon and shares 
             setInterval: (fn) => { tick = fn; },
             setTimeout: (fn, delay) => { timers.push({ fn, delay }); }
         });
-        return { tick: () => tick(), timers, messages };
+        return { tick: () => tick(), timers, messages, emitPir: () => device.emit('data', { dps: { 101: 'pir' } }) };
     }
     const first = worker();
     first.tick();
     await new Promise(setImmediate);
+    assert.ok(!first.timers.some(timer => timer.delay === 1500), 'a battery packet must not end the PIR collection early');
+    first.emitPir();
     first.timers.find((timer) => timer.delay === 1500).fn();
     const reading = first.messages.find((message) => message.kind === 'reading');
     assert.equal(reading.dps['101'], 'pir');
     assert.equal(reading.dps['102'], 'high');
+    assert.equal(reading.pirSeenAt, NOW);
+    assert.equal(reading.reportedDps['101'], 'pir');
     const event = [...files.entries()].find(([file]) => file.startsWith(EVENTS));
     assert.equal(JSON.parse(event[1]).source, 'local');
     assert.equal(JSON.parse(event[1]).dps['101'], 'pir');

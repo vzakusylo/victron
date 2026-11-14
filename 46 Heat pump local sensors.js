@@ -33,6 +33,7 @@ const SENSORS = {
     bfe0dd97b76a98f454a8bt: { role: 'acc', name: 'Accumulator tank temp' },
     bfe949ce996182ffb9b1zl: { role: 'plate', name: 'Exchange plate' }
 };
+const MOTION_ID = 'bfaf117b85c74f0e4cyniz';
 
 if (msg.topic === 'local' && (msg.payload === undefined || msg.payload === '' || typeof msg.payload === 'number' || msg.payload === 'tick')) {
     return [null, { topic: 'local', payload: '' }];
@@ -52,7 +53,20 @@ for (const ln of lines) {
         if (Date.now() - last > 30 * 60 * 1000) { node.warn('Heat pump local sensors: ' + (j.role ? j.role + ': ' : '') + j.error); context.set('lastErr', Date.now()); }
         continue;
     }
-    if (j.kind !== 'reading' || !SENSORS[j.id] || !Number.isFinite(j.t)) continue;
+    if (j.kind !== 'reading' || !Number.isFinite(j.t)) continue;
+    if (j.id === MOTION_ID) {
+        const value = j.reportedDps && j.reportedDps['101'];
+        // Cached/merged DPs can contain an old 'pir' after a battery-only report.
+        if (j.cached || value === undefined) continue;
+        if (!['pir', 'none'].includes(value)) { node.warn('Motion sensor reported an unsupported PIR state'); continue; }
+        const previous = flow.get('bathroomMotion') || {};
+        if (j.t <= (previous.t || 0)) continue;
+        if (j.t > Date.now() + 5000) { node.warn('Motion sensor reading is in the future'); continue; }
+        flow.set('bathroomMotion', { id: j.id, t: j.t, seen: Date.now(), value, source: 'local',
+            lastMotionAt: value === 'pir' ? j.t : previous.lastMotionAt || 0 });
+        continue;
+    }
+    if (!SENSORS[j.id]) continue;
     const s = SENSORS[j.id];
     if (lastT[s.role] && j.t <= lastT[s.role]) continue;
     lastT[s.role] = j.t;

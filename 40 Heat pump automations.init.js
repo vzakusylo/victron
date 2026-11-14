@@ -10,3 +10,6 @@ context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node st
 // Treat the start as a defrost: no outdoor samples, no DHW start and no heating mode step for DEFROST_QUIET_MIN.
 context.set('lastDefrost', Date.now());
 const d0 = context.get('dhw'); if (d0 && d0.state === 'HEATING') { d0.outS = []; d0.outAvg = null; context.set('dhw', d0); }
+// Do not replay an old temperature slope or pending shower request after a restart.
+const shower = context.get('shower');
+if (shower) { shower.samples = []; shower.episode = null; shower.demand = null; context.set('shower', shower); }

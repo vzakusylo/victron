@@ -41,7 +41,9 @@ const cfg = readJson(DIR + 'tuya-cloud.json', null);
 const ids = Object.keys(meta).filter((id) => {
     const m = meta[id] || {};
     const l = local[id];
-    return m.battery && !m.node && m.cloudOnline && !HEAT_PUMP_SENSORS.includes(m.name) && !(l && l.t && Date.now() - l.t < LOCAL_FRESH_MS);
+    const pirDp = Object.keys(m.dps || {}).find((dp) => m.dps[dp].code === 'pir_state');
+    const localT = l && (pirDp ? l.pirSeenAt || (['pir', 'none'].includes((l.reportedDps || {})[pirDp]) ? l.t : 0) : l.t);
+    return m.battery && !m.node && m.cloudOnline && !HEAT_PUMP_SENSORS.includes(m.name) && !(localT && Date.now() - localT < LOCAL_FRESH_MS);
 });
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');

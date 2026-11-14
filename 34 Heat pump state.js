@@ -463,6 +463,7 @@ function buildDhwChart(d) {
         progress: v.progress === undefined ? null : v.progress,   // d#173: % of the way to the tank target
         planned: v.planned || 0,
         blocked: v.blocked || null,   // d#174: DHW blocked after an aborted cycle
+        shower: v.shower || null,
         startTank: v.startTank === undefined ? null : v.startTank,
         cfg: c,
         state: v.state,
