@@ -132,3 +132,90 @@ On the **Heat Pump** tab, Boiler column (since d#138; before on the Automations 
 - **Q3 gap supply − return:** 5 °C.
 - **Q4 interval:** at most one DHW cycle per 2 h, at any time of day; in severe frost heating must keep working (R16, section 3.7).
 - **Q5 tank volume / electric heater:** not known yet (only needed for an efficiency estimate).
+
+## 5. Shower / hot-water preparation (14 Nov 2026)
+
+This is an **opt-in extension of the existing DHW controller**, not another valve or
+heat-pump controller. The Heat Pump page has **Enable early shower starts** and
+**Stop forced DHW**. Normal DHW remains enabled when this assistance is stopped.
+
+Evidence reviewed: 18,960 recorder samples from 8–14 Nov, tank temperatures
+32–50 °C reported in whole degrees, and 14 positive PIR reports from 14 Nov
+(including deliberate test passes). No rapid-drop candidate overlapped those
+PIR reports. **There is not yet a confirmed shower schedule.** Successful tank
+warmup cycles had a median duration of about 27.5 minutes, so the default
+preparation lead is 30 minutes (editable from 5 to 90 minutes).
+
+The entrance PIR is read locally; node `46` accepts only newly reported DP 101
+`pir` / `none`, not cached or merged values. A battery-only report cannot replay
+old motion. The latest positive timestamp survives a later `none` report.
+The local reader waits for the PIR packet even when the battery packet arrives
+first. Cloud history remains a fallback when no recent actual local PIR report
+exists; historical cloud messages do not trigger immediate heating.
+
+Node `36` stores `motion_state`, `motion_report_ms`, `motion_at_ms`,
+`motion_source`, and the shower state/demand/expected-time/drop values alongside
+DP 108 in the existing hourly `hp1` dataset. Timestamp columns retain exact event
+times even though the recorder samples every 30 seconds. The JSONL sensor event
+log also remains available. Unknown motion is recorded as unknown, not clear.
+An excluded or unavailable tank-drop measurement uses the literal `unknown`,
+because an empty delta field would carry the previous value forward.
+
+While assistance is enabled:
+
+- A fresh local motion within 15 minutes plus the first 1 °C tank fall requests
+  DHW on the next control tick. Without motion, the temperature must fall by at
+  least 2 °C within three minutes. Slow ordinary cooling does not force a cycle.
+- Samples around valve changes (five minutes), bypass operation, defrost,
+  recovery, stale readings and missing safety measurements are excluded.
+- A motion-correlated drop of at least 2 °C becomes a **possible hot-water-use**
+  observation, not a claim that a person showered. Up to 64 observations from
+  the last 14 days are retained in the existing automation settings file.
+- A preparation window requires observations within 30 minutes of each other
+  on at least three distinct days. Weekdays and weekends are learned separately.
+  The controller prepares before the median time of a learned window; several
+  reports from one day do not establish a schedule. Served-window identifiers
+  survive settings reloads to avoid repeating the same preheat.
+
+The owner explicitly permitted these demands to bypass **only the minimum cycle
+interval and the normal tank hysteresis**, including the cold-weather interval.
+Early starts require the tank to be **at least 1 °C below its existing target**
+(owner-selected minimum deficit after review); no temperature target is raised.
+This prevents a full valve/STOP sequence for a fractional-degree deficit.
+Master control and DHW must be On. Defrost scheduling/recovery,
+heating priority, fault/aborted-cycle blocks, valve travel, supply/current/
+discharge protections and maximum cycle duration remain enforced. A demand can
+wait for these gates; “immediate” means requesting the existing safe cycle,
+not switching a running compressor's valve directly.
+Valve and bypass DP 1 must both be actual booleans for a forced cycle;
+connection/freshness alone does not establish a known relay position.
+
+**Stop forced DHW** needs no confirmation: it disables new early starts,
+cancels queued commands belonging to the forced cycle, and returns that cycle
+to heating on the next tick when its devices are reachable. Ordinary cycles
+are not stopped. The bypass is retained if a defrost is active or its state is
+unknown. A stop request cannot be retracted by rapidly re-enabling assistance.
+Loss of valid safety measurements stops only the forced cycle, with an explicit
+warning and safe valve/mode restoration; it does **not** set the ordinary
+`dhwBlock` or require **Allow DHW again**. Genuine Er03/valve failures still use
+the existing abort block. After an operator or missing-measurement stop, the
+ordinary minimum interval is counted from the cycle end, just as for other
+completed cycles. Test mode writes nothing and changes no real-cycle cooldown.
+Missing measurements remain non-numeric rather than being interpreted as zero
+in ordinary-cycle comparisons.
+If a required device disconnects or becomes stale, the forced safety stop is
+latched and its queued writes are cancelled before the controller waits.
+Restoration is deferred until the devices are reachable; recovery does not
+resume the cancelled cycle. An unknown bypass is retained rather than assumed
+Off. The operator can still disable future early starts while restoration waits.
+Unconfirmed dashboard commands time out after 60 seconds with an explicit
+message and re-enable the control for retry, even if the reported flag never
+changes; acknowledgement or page destruction cancels that timer.
+
+Rollout: synchronize the numbered sources, test, and selectively update nodes
+`34`, `35`, `36`, `37`, `40` (including On Start), `46`, and the local-listener
+exec command **only after the running DHW cycle and write queue have finished**.
+Install both reader scripts first, then restart the local-listener exec with
+`node -- .../tuya-local-sensors.js 630` so it uses the new report fields.
+Preserve the live flow's file-secret references and private device configuration.
+Assistance defaults Off; enabling it is a separate dashboard action.

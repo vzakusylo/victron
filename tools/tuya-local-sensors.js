@@ -70,7 +70,8 @@ if (!keys) { out({ kind: 'error', error: 'no key file ' + KEYS }); process.exit(
 const ALL = readJson(process.env.TUYA_DEVICES || DIR + 'tuya-devices.json', {});
 for (const id of Object.keys(ALL)) {
     if (!keys[id] && ALL[id].battery && ALL[id].key) keys[id] = {
-        role: 'dev', key: ALL[id].key, name: ALL[id].name, ip: ALL[id].ip, version: ALL[id].version
+        role: 'dev', key: ALL[id].key, name: ALL[id].name, ip: ALL[id].ip, version: ALL[id].version,
+        pirDp: Object.keys(ALL[id].dps || {}).find((dp) => ALL[id].dps[dp].code === 'pir_state')
     };
 }
 let TuyAPI;
@@ -113,8 +114,9 @@ function read(id, beacon, lock) {
         // a wake does not always push every DP: keep the DPs of the last reading that this one lacks
         const prev = last[id] && last[id].dps ? last[id].dps : {};
         const allDps = k.role === 'dev' ? Object.assign({}, prev, dps) : dps;
-        const r = Object.assign({ kind: 'reading', t: Date.now(), role: k.role, id, ip: beacon.ip, version: beacon.version, dps: allDps, cached: false },
+        const r = Object.assign({ kind: 'reading', t: Date.now(), role: k.role, id, ip: beacon.ip, version: beacon.version, dps: allDps, reportedDps: dps, cached: false },
             k.role === 'dev' ? { temp: null, hum: null, bat: null } : decode(dps));
+        if (k.pirDp) r.pirSeenAt = ['pir', 'none'].includes(dps[k.pirDp]) ? r.t : (last[id] && last[id].pirSeenAt) || 0;
         last[id] = Object.assign({}, r, { kind: undefined, cached: undefined });
         try { fs.writeFileSync(LAST, JSON.stringify(last, null, 1)); } catch (e) { /* no cache */ }
         if (k.role === 'dev') {
@@ -130,7 +132,7 @@ function read(id, beacon, lock) {
     const take = (d) => {
         if (!d || typeof d !== 'object' || !d.dps) return;
         Object.assign(dps, d.dps);
-        if (k.role === 'dev') setTimeout(() => finish('complete'), 1500);
+        if (k.role === 'dev' && (!k.pirDp || ['pir', 'none'].includes(dps[k.pirDp]))) setTimeout(() => finish('complete'), 1500);
         else if (dps['1'] !== undefined && dps['2'] !== undefined) setTimeout(() => finish('complete'), 500);
     };
     dev.on('data', take);

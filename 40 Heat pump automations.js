@@ -229,12 +229,15 @@ const DHW_DEFAULTS = {
     defrostEndPct: 30,   // d#173: a defrost after this % of the way to the target ends the cycle …
     defrostNextMin: 60,  // … and the next one is planned this many min later
     afterDefrost: true,  // d#176: in the defrost season (a defrost < 3 h ago) start only right after one …
-    afterDefrostWinMin: 30   // … within this many min after the supply recovered
+    afterDefrostWinMin: 30,  // … within this many min after the supply recovered
+    showerForce: false,     // opt-in: early demand bypasses only the interval / tank hysteresis
+    showerLeadMin: 30       // observed median successful warmup is about 28 min
 };
 const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], supplyAdd: [1, 10], maxSupply: [45, 55],
     boilerP24: [5, 30], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180], coldLimit: [-25, 5],
     coldCap: [40, 55], coldIntervalH: [0, 12], lagC: [1, 10], protHz: [50, 90], protAmpPct: [50, 100], protDischarge: [70, 110],
-    defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240], afterDefrostWinMin: [5, 120] };
+    defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240], afterDefrostWinMin: [5, 120],
+    showerLeadMin: [5, 90] };
 // raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
 function dhwCfg(raw, base) {
     const c = Object.assign(JSON.parse(JSON.stringify(DHW_DEFAULTS)), JSON.parse(JSON.stringify(base || {})));
@@ -247,6 +250,7 @@ function dhwCfg(raw, base) {
     if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
     if (typeof r.gapRamp === 'boolean') c.gapRamp = r.gapRamp;
     if (typeof r.afterDefrost === 'boolean') c.afterDefrost = r.afterDefrost;
+    if (typeof r.showerForce === 'boolean') c.showerForce = r.showerForce;
     if (Array.isArray(r.curve) && r.curve.length >= 2 && r.curve.length <= 8) {
         const pts = r.curve.map((p) => [Number(p[0]), Number(p[1])]);
         const okPts = pts.every((p, i) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && p[0] >= -30 && p[0] <= 20
@@ -359,7 +363,7 @@ function modeOf(id) {
     const r = ruleById(id);
     return (r && r.def) || 'dry';
 }
-function dhwCfgNow() { const s = context.get('settings') || settings; return s.dhw || dhwCfg({}); }
+function dhwCfgNow() { const s = context.get('settings') || settings; return dhwCfg(s.dhw); }
 function ready(role) {
     const dev = st[role];
     return !!(dev && dev.state === 'CONNECTED' && dev.lastData && now - dev.lastData <= FRESH_MS);
@@ -425,12 +429,19 @@ function pump() {
     if (!q.length) return;
     context.set('pumping', true); context.set('pumpAt', Date.now());
     const item = q.shift(); context.set('queue', q);
-    if (!item.force && modeOf(item.rule) !== 'live') {
+    if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
+        logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (forced cycle cancelled)' });
+    } else if (!item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
     } else if ((context.get('settings') || {}).master) {
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
         node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
         setTimeout(() => {
+            if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
+                logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+                    text: item.text + ' — verification superseded by forced-cycle stop' });
+                return;
+            }
             const dev = (flow.get('heatPump') || {})[item.role];
             const v = dev && dev.dps ? dev.dps[item.dps] : undefined;
             const good = String(v) === String(item.set);
@@ -524,6 +535,102 @@ const RETRY_MAX = 2;           // … at most this many times in a row
 const HARD_EXTRA_MIN = 30;     // a cycle never lasts longer than max duration + this (defrosts included)
 const p23w = (v) => ({ role: 'hp', dps: 133, set: v, text: 'curve P23 ' + v });
 const p24w = (v) => ({ role: 'hp', dps: 134, set: v, text: 'curve P24 ' + v });
+const SHOWER_HISTORY_MS = 14 * 24 * 3600 * 1000;
+const SHOWER_MIN_DEFICIT_C = 1;
+function dhwMeasurement(value) {
+    return value === null || value === undefined || value === '' || typeof value === 'boolean' ? NaN : n(value);
+}
+function showerState() {
+    return ctx('shower', { samples: [], lastValve: null, valveAt: now, episode: null, demand: null, dropC: null });
+}
+function cancelShowerWrites(run) {
+    if (!run) return;
+    const q = context.get('queue') || [];
+    for (let i = q.length - 1; i >= 0; i--) if (q[i].run === run) q.splice(i, 1);
+    context.set('queue', q);
+    context.set('cancelledShowerRuns', (context.get('cancelledShowerRuns') || []).concat(run).slice(-4));
+}
+function showerForecast() {
+    const history = (settings.showerHistory || []).filter(e => !e.cancelled && e.at <= now && now - e.at <= SHOWER_HISTORY_MS)
+        .map(e => { const date = new Date(e.at); return { minute: date.getHours() * 60 + date.getMinutes(),
+            weekend: [0, 6].includes(date.getDay()), day: dayKey(e.at) }; });
+    let best = null;
+    for (let ahead = 0; ahead < 7; ahead++) {
+        const date = new Date(now); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() + ahead);
+        const weekend = [0, 6].includes(date.getDay());
+        const points = history.filter(e => e.weekend === weekend);
+        for (const seed of points) {
+            const origin = seed.minute;
+            // Circular minutes keep usage around midnight in the same cluster.
+            const distance = e => ((e.minute - origin + 2160) % 1440) - 720;
+            const cluster = points.filter(e => Math.abs(distance(e)) <= 30);
+            const days = new Set(cluster.map(e => e.day)).size;
+            if (days < 3) continue;
+            const offsets = cluster.map(distance).sort((a, b) => a - b);
+            const center = (origin + offsets[Math.floor(offsets.length / 2)] + 1440) % 1440;
+            const expected = new Date(date); expected.setMinutes(center);
+            const at = expected.getTime();
+            if (at < now - 15 * MIN) continue;
+            if (!best || at < best.at) best = { at, days, weekend };
+        }
+    }
+    return best;
+}
+function showerModel(d, c) {
+    const s = showerState(), forecast = showerForecast(), motion = flow.get('bathroomMotion') || {};
+    const requested = !!(c.showerForce && s.demand && s.demand.until > now);
+    const active = !!(d.showerStart && d.state !== 'HEATING');
+    return { enabled: !!c.showerForce, requested, active,
+        state: active ? (c.showerForce && !d.showerStopRequested && !d.showerSafetyStopRequested ? d.live ? 'heating' : 'test' : 'stopping') : !c.showerForce ? 'paused' : requested ? 'requested' : forecast ? 'armed' : 'learning',
+        motionAt: motion.lastMotionAt || 0, motionReportAt: motion.t || 0, motionValue: motion.value || 'unknown',
+        expectedAt: forecast ? forecast.at : 0, evidenceDays: forecast ? forecast.days : 0,
+        observations: (settings.showerHistory || []).filter(e => !e.cancelled).length,
+        dropC: s.dropC, reason: active ? d.showerStart.reason : requested ? s.demand.reason : '',
+        leadMin: c.showerLeadMin || DHW_DEFAULTS.showerLeadMin, minDeficitC: SHOWER_MIN_DEFICIT_C };
+}
+function observeShower(d, c, tank, valveOn, bypassOn, defNow, devOk) {
+    const s = showerState(), motion = flow.get('bathroomMotion') || {};
+    if (s.lastValve !== valveOn) { s.lastValve = valveOn; s.valveAt = now; }
+    const last = s.samples[s.samples.length - 1];
+    const stable = devOk && Number.isFinite(tank) && !bypassOn && !defNow && !recentDefrost && !defRecovering
+        && now - s.valveAt >= 5 * MIN && (!last || now - last[0] <= MIN);
+    s.samples = s.samples.filter(p => now - p[0] <= 3 * MIN);
+    if (!stable) { s.samples = []; s.episode = null; s.dropC = null; }
+    else {
+        const peak = Math.max(tank, ...s.samples.map(p => p[1]));
+        const fell = !!last && tank < last[1];
+        s.dropC = peak - tank;
+        const motionRecent = motion.source === 'local' && motion.lastMotionAt > 0
+            && now >= motion.lastMotionAt && now - motion.lastMotionAt <= 15 * MIN;
+        if (s.episode && now - s.episode.lastFall > 10 * MIN) s.episode = null;
+        if (fell && s.dropC >= 1) {
+            if (!s.episode) s.episode = { at: now, peak, low: tank, lastFall: now, motionAt: motionRecent ? motion.lastMotionAt : 0 };
+            s.episode.low = Math.min(s.episode.low, tank); s.episode.lastFall = now;
+            const history = settings.showerHistory || [];
+            if (!s.episode.cancelled && s.episode.motionAt && s.episode.peak - s.episode.low >= 2 && !history.some(e => e.at === s.episode.at)) {
+                settings.showerHistory = history.filter(e => now - e.at <= SHOWER_HISTORY_MS).concat({
+                    at: s.episode.at, motionAt: s.episode.motionAt, dropC: s.episode.peak - s.episode.low, cancelled: false
+                }).slice(-64);
+                saveSettingsFile();
+                logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'recorded motion-correlated tank drop; possible hot-water use, not a confirmed shower' });
+            }
+            if (c.showerForce && d.state === 'HEATING' && (motionRecent || s.dropC >= 2)) {
+                s.demand = { id: 'draw:' + s.episode.at, at: now, evidenceAt: s.episode.at, type: 'drop', until: now + 20 * MIN,
+                    reason: motionRecent ? 'local motion + tank falling' : 'tank fell at least 2 °C within 3 min' };
+            }
+        }
+        s.samples.push([now, tank]);
+    }
+    if (!c.showerForce || (s.demand && (s.demand.until <= now || s.demand.id === (settings.showerLastStart || {}).id))) s.demand = null;
+    const forecast = showerForecast();
+    if (c.showerForce && !s.demand && forecast && forecast.at - now <= (c.showerLeadMin || 30) * MIN && d.state === 'HEATING') {
+        const id = 'forecast:' + forecast.at;
+        if (id !== (settings.showerLastStart || {}).id) s.demand = { id, at: now, type: 'preheat', until: forecast.at + 15 * MIN,
+            reason: 'learned hot-water window on ' + forecast.days + ' distinct days' };
+    }
+    context.set('shower', s);
+    return s.demand;
+}
 function dhwState() {
     return ctx('dhw', { state: 'HEATING', since: now, run: null, live: false, lastEnd: 0, p23Cmd: null, p24Cmd: null, rampAt: 0,
         startAt: 0, startTank: null, streak: 0, outS: [], outAvg: null, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
@@ -544,7 +651,7 @@ function dhwModel() {
         startTank: d.startTank, startAt: d.startAt, lastEnd,
         progress: ['STOP', 'VALVE', 'DHW', 'DEFROST_DHW'].includes(d.state) && out !== null ? dhwProgress(d.startTank, n(((st.hp && st.hp.dps) || {})['108']), out < c.frostLimit ? null : curveAt(c.curve, out)) : null,
         planned: s.dhwRetry && !s.dhwRetry.n ? s.dhwRetry.at : 0,
-        blocked: s.dhwBlock || null,
+        blocked: s.dhwBlock || null, shower: showerModel(d, c),
         nextStart: lastEnd ? lastEnd + (cold ? c.coldIntervalH : c.minIntervalH) * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c, defrost: defrostForecast() };
 }
 // d#143: where the running cycle is heading: tank target and the expected end, from the tank rise
@@ -597,9 +704,9 @@ function dhwTick() {
     const md = modeOf(DHW_ID);
     const liveNow = md === 'live' && settings.master;
     const H = (st.hp && st.hp.dps) || {}, V = (st.valve && st.valve.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
-    const sup = n(H['102']), ret = n(H['101']), tank = n(H['108']), out = n(H['103']), hz = n(H['115']), fan = n(H['116']);
-    const amp = n(H['112']), dis = n(H['104']);
-    const P23 = n(H['133']), P24 = n(H['134']), P22on = String(H['132']) === '1';
+    const sup = dhwMeasurement(H['102']), ret = dhwMeasurement(H['101']), tank = dhwMeasurement(H['108']), out = dhwMeasurement(H['103']), hz = dhwMeasurement(H['115']), fan = dhwMeasurement(H['116']);
+    const amp = dhwMeasurement(H['112']), dis = dhwMeasurement(H['104']);
+    const P23 = dhwMeasurement(H['133']), P24 = dhwMeasurement(H['134']), P22on = String(H['132']) === '1';
     const valveOn = V['1'] === true, bypassOn = B['1'] === true;
     const defNow = fan === 0 && hz > 30;
     const devOk = ready('hp') && ready('valve') && ready('bypass');
@@ -636,18 +743,29 @@ function dhwTick() {
     d.outS = d.outS.filter((x) => now - x[0] <= 10 * MIN);
     if (d.outS.length) d.outAvg = Math.round(d.outS.reduce((a, x) => a + x[1], 0) / d.outS.length * 10) / 10;
     // heating lag: 30-min average of supply − heating curve while heating runs on the heating values
-    if (d.state === 'HEATING' && ready('hp') && !valveOn && !bypassOn && !recentDefrost && !defRecovering && hz > 0 && d.outAvg !== null
+    if (d.state === 'HEATING' && ready('hp') && Number.isFinite(sup) && !valveOn && !bypassOn && !recentDefrost && !defRecovering && hz > 0 && d.outAvg !== null
         && Number.isFinite(P23) && Number.isFinite(P24) && P24 !== c.boilerP24 && P23 > 0) {
         d.lagS.push([now, sup - heatCurveAt(P23, P24, d.outAvg)]);
     }
     d.lagS = d.lagS.filter((x) => now - x[0] <= 30 * MIN);
+    const showerMeasurementsOk = [sup, ret, hz, fan, out, amp, dis, P23, P24, dhwMeasurement(H['15'])].every(Number.isFinite)
+        && ['0', '1'].includes(String(H['132'])) && typeof V['1'] === 'boolean' && typeof B['1'] === 'boolean';
+    const showerDemand = observeShower(d, c, tank, valveOn, bypassOn, defNow, devOk && showerMeasurementsOk);
+    if (d.showerStart && (!devOk || !showerMeasurementsOk || !Number.isFinite(tank))) {
+        cancelShowerWrites(d.run);
+        if (!d.showerSafetyStopRequested) {
+            logEvent({ kind: 'warn', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
+                text: 'forced cycle safety stop pending: device unavailable or invalid cycle measurements; queued writes cancelled' });
+        }
+        d.showerSafetyStopRequested = true;
+    }
 
     // controller switched off / local control OFF during a cycle → back to heating
     if (d.state !== 'HEATING' && (md === 'off' || (d.live && !liveNow))) {
         if (d.live && settings.master) { write(valve(false), true); write(bypass(false), true); heatBack(true); }
         go('HEATING', 'cycle stopped (' + (md === 'off' ? 'controller Off' : 'local control OFF or controller no longer On') + ')'
             + (d.live && settings.master ? ': valve OFF, bypass OFF, heating curve back (' + heatTxt + ')' : ''), 'stop');
-        d.run = null; d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
+        d.run = null; d.showerStart = null; d.showerStopRequested = false; d.showerSafetyStopRequested = false; d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
         context.set('dhw', d); return;
     }
     if (md === 'off') { d.why = 'controller Off'; context.set('dhw', d); return; }
@@ -666,10 +784,10 @@ function dhwTick() {
     const dhwMin = (d.dhwMs || 0) / MIN;
     const er03 = (n(H['15']) & 1) === 1;
     const lastEnd = dhwLastEnd(d);
-    const endCycle = (why, abort) => {
-        if (valveOn) write(valve(false));
-        if (bypassOn) write(bypass(false));
-        modeTo('mute');
+    const endCycle = (why, abort, forceRestore, eventKind) => {
+        if (valveOn || forceRestore) write(valve(false));
+        if ((bypassOn || forceRestore) && !(forceRestore && (defNow || defRecovering || !Number.isFinite(fan) || !Number.isFinite(hz) || typeof B['1'] !== 'boolean'))) write(bypass(false));
+        if (forceRestore) write(mode('mute')); else modeTo('mute');
         heatBack();
         // d#174 (owner): an aborted cycle (Er03, the 3-way valve switched back from outside or did not switch) blocks
         // new DHW starts until "Allow DHW again" on the Heat Pump page; no automatic retries (the d#144 retry is gone)
@@ -680,9 +798,30 @@ function dhwTick() {
             retryTxt = '; DHW blocked until allowed again on the Heat Pump page';
         }
         d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
-        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, abort ? 'stop' : 'done');
-        d.run = null; d.goal = null; d.want = null;
+        go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, eventKind || (abort ? 'stop' : 'done'));
+        d.run = null; d.goal = null; d.want = null; d.showerStart = null; d.showerStopRequested = false; d.showerSafetyStopRequested = false;
     };
+    if (d.showerStart && (!c.showerForce || d.showerStopRequested)) {
+        if (d.live) {
+            d.run = now + ':dhw-shower-stop';
+            endCycle('forced shower cycle stopped by operator' + (defNow || defRecovering ? '; bypass retained for defrost recovery' : ''), false, true);
+        } else {
+            go('HEATING', 'simulated shower cycle stopped', 'stop');
+            d.run = null; d.showerStart = null; d.showerStopRequested = false; d.showerSafetyStopRequested = false;
+        }
+        context.set('dhw', d); return;
+    }
+    if (d.showerStart && d.showerSafetyStopRequested) {
+        cancelShowerWrites(d.run);
+        if (d.live) {
+            d.run = now + ':dhw-shower-safety-stop';
+            endCycle('forced cycle lost valid cycle measurements or device availability', false, true, 'warn');
+        } else {
+            go('HEATING', 'simulated shower cycle lost valid cycle measurements', 'warn');
+            d.run = null; d.showerStart = null; d.showerStopRequested = false; d.showerSafetyStopRequested = false;
+        }
+        context.set('dhw', d); return;
+    }
 
     switch (d.state) {
     case 'HEATING': {
@@ -711,14 +850,19 @@ function dhwTick() {
             }
         }
         const ivH = cold ? c.coldIntervalH : c.minIntervalH;
+        const forced = !!(c.showerForce && showerDemand && showerDemand.until > now);
         const why = [];
+        if (!Number.isFinite(tank)) why.push('no valid tank temperature');
         if (target === null) why.push(d.outAvg === null ? 'no outdoor value yet' : 'outdoor ' + d.outAvg + ' °C below the frost limit ' + c.frostLimit + ' °C (electric heater only)');
-        else if (!(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
+        else if (Number.isFinite(tank)) {
+            if (forced && target - tank < SHOWER_MIN_DEFICIT_C) why.push('tank deficit ' + (target - tank).toFixed(1) + ' °C < shower minimum ' + SHOWER_MIN_DEFICIT_C + ' °C (target ' + target + ')');
+            else if (!forced && !(tank < target - c.hyst)) why.push('tank ' + tank + ' °C ≥ ' + (target - c.hyst) + ' °C (target ' + target + ' − ' + c.hyst + ')');
+        }
         const rt = settings.dhwRetry;
         const retryDue = !!(rt && now >= rt.at);
         // d#173: a planned cycle that is not needed any more (tank still ≥ target − hyst) is dropped
         if (retryDue && !rt.n && target !== null && tank >= target - c.hyst) { settings.dhwRetry = null; saveSettingsFile(); }
-        if (lastEnd && now - lastEnd < ivH * 3600 * 1000 && !retryDue) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '')
+        if (lastEnd && now - lastEnd < ivH * 3600 * 1000 && !retryDue && !forced) why.push('last cycle ' + Math.round((now - lastEnd) / MIN) + ' min ago (min ' + ivH + ' h' + (cold ? ', cold' : '')
             + (rt ? (rt.n ? '; retry ' + rt.n + '/' + RETRY_MAX : '; planned ' + (rt.why || '')) + ' at ' + new Date(rt.at).toTimeString().slice(0, 5) : '') + ')');
         if (defNow || recentDefrost) why.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
         else {
@@ -741,16 +885,23 @@ function dhwTick() {
         if (valveOn) why.push('valve ON');
         if (settings.dhwBlock) why.push('blocked: the last cycle was aborted at ' + new Date(settings.dhwBlock.at).toTimeString().slice(0, 5) + ' (' + settings.dhwBlock.why + ') — allow DHW again on the Heat Pump page');
         if (H['1'] !== true) why.push('heat pump off');
+        if (forced && !showerMeasurementsOk) why.push('shower start needs valid cycle measurements');
+        if (forced && dhwMeasurement(H['15']) !== 0) why.push('shower start blocked by heat pump fault');
         if (!heat) why.push('heating curve not stored yet');
         const lag = dhwLag(d);
         if (d.outAvg !== null && d.outAvg <= c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
         d.why = why.length ? why.join('; ') : 'start conditions met';
-        d.streak = why.length ? 0 : d.streak + 1;
+        d.streak = why.length ? 0 : forced && showerDemand.type === 'drop' ? HOLD : d.streak + 1;
         if (d.streak >= HOLD) {
             d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
+            d.showerStart = forced ? Object.assign({}, showerDemand) : null;
+            d.showerStopRequested = false;
+            d.showerSafetyStopRequested = false;
+            if (forced && d.live) { settings.showerLastStart = { id: showerDemand.id, at: now }; showerState().demand = null; saveSettingsFile(); }
             d.prot = { steps: 0, hotSince: 0, at: 0, cut: 0, reason: '' }; d.p23Cmd = null; d.p24Cmd = null; d.p24Goal = null; d.tankS = []; d.dhwMs = 0;
             logEvent({ kind: d.live ? 'start' : 'test', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live,
-                text: (d.live ? 'start' : 'test, would start') + ': tank ' + tank + ' °C < target ' + target + ' − ' + c.hyst + ' at outdoor ' + d.outAvg + ' °C'
+                text: (d.live ? 'start' : 'test, would start') + (forced ? ' [shower: ' + showerDemand.reason + '; interval overridden]' : '')
+                    + ': tank ' + tank + (forced ? ' °C ≤ target ' + target + ' − ' + SHOWER_MIN_DEFICIT_C : ' °C < target ' + target + ' − ' + c.hyst) + ' at outdoor ' + d.outAvg + ' °C'
                     + ' → wanted supply ' + W + ' °C' + (cold ? ' (cold: Silent only, max ' + c.coldCap + ' °C)' : '') + (retryDue ? (rt.n ? ' [retry ' + rt.n + '/' + RETRY_MAX + ']' : ' [planned ' + (rt.why || '') + ']') : '') + '; curve P23 0 (compressor stops), then valve to the tank' });
             if (!P22on) write(p22(true));
             modeTo('mute'); if (bypassOn) write(bypass(false));
@@ -869,7 +1020,7 @@ function dhwTick() {
         if (cold || pr.steps) { if (H['2'] !== 'mute') modeTo('mute'); }
         else if (d.prog && now - d.prog.t >= 10 * MIN) {
             const rise = sup - d.prog.sup;
-            if (sup < W - 3 && rise < 2) {
+            if (Number.isFinite(sup) && Number.isFinite(d.prog.sup) && sup < W - 3 && rise < 2) {
                 if (H['2'] === 'mute') { modeTo('smart'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Smart' }); }
                 else if (H['2'] === 'smart' && c.allowPowerful) { modeTo('strong'); logEvent({ kind: 'step', rule: DHW_ID, cloud: DHW_NAME, run: d.run, live: d.live, text: 'supply rose only ' + rise + ' °C in 10 min → Powerful' }); }
             }
@@ -1097,7 +1248,9 @@ if (msg.topic === 'load') {
             dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(s.heat),
             dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || '') } : null,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
-            defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [] };
+            defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
+            showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
+            showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
@@ -1114,6 +1267,26 @@ if (msg.topic === 'load') {
 // ---- ui -----------------------------------------------------------------------
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
+    if (p.action === 'dhwShowerForce') {
+        if (typeof p.on !== 'boolean') { node.warn('Heat pump automations: bad shower force value'); return null; }
+        settings.dhw = dhwCfg({ showerForce: p.on }, settings.dhw);
+        if (!p.on) {
+            const s = showerState(); s.demand = null; s.samples = [];
+            if (s.episode) s.episode.cancelled = true;
+            const d = dhwState();
+            if (d.showerStart) {
+                d.showerStopRequested = true;
+                cancelShowerWrites(d.run);
+                for (const e of settings.showerHistory || []) if (e.at === d.showerStart.evidenceAt) e.cancelled = true;
+            }
+            context.set('shower', s);
+        }
+        persist();
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: p.on ? 'shower early starts enabled; existing safety gates retained'
+            : 'shower early starts disabled; any running forced cycle will return to heating on the next tick' });
+        publishView();
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
     if (p.action === 'master' && typeof p.on === 'boolean') {
         settings.master = p.on;
         persist();

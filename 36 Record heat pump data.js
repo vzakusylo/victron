@@ -101,6 +101,22 @@ if (meter && meter.reading && meter.reading.powerW !== null && meter.reading.pow
     && meter.lastData && nowMs - meter.lastData <= STALE_MS) {
     values.pw = cell(meter.reading.powerW);
 }
+const motion = flow.get('bathroomMotion') || {};
+values.motion_state = cell(motion.value || 'unknown');
+values.motion_report_ms = cell(motion.t || 0);
+values.motion_at_ms = cell(motion.lastMotionAt || 0);
+values.motion_source = cell(motion.source || '');
+const dhwView = flow.get('dhwView') || {};
+const shower = dhwView.shower;
+// Empty delta cells mean unchanged, so a cleared measurement needs a real token.
+values.shower_drop_c = shower && Number.isFinite(shower.dropC) ? cell(shower.dropC) : 'unknown';
+if (shower) {
+    values.shower_control_ms = cell(dhwView.at || 0);
+    values.shower_state = cell(shower.state);
+    values.shower_force = cell(shower.enabled);
+    values.shower_demand = cell(shower.requested);
+    values.shower_expected_ms = cell(shower.expectedAt || 0);
+}
 
 const stateLetters = ROLES.map(([role]) => {
     const dev = st[role];

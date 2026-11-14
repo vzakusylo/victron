@@ -252,7 +252,7 @@
       <div class="hpw-col-title">Boiler (DHW tank)</div>
       <div class="hpw-cards hpw-wrap" ng-if="msg.payload.summary">
         <div class="hpw-card"><div class="k">DHW tank</div><div class="v">{{msg.payload.summary.tank}}<span class="u">°C</span></div></div>
-        <div class="hpw-card" ng-if="msg.payload.dhwChart"><div class="k">Tank target</div><div class="v">{{msg.payload.dhwChart.target === null ? '—' : msg.payload.dhwChart.target}}<span class="u">°C</span></div><div class="s">start below {{msg.payload.dhwChart.start === null ? '—' : msg.payload.dhwChart.start}} °C</div></div>
+        <div class="hpw-card" ng-if="msg.payload.dhwChart"><div class="k">Tank target</div><div class="v">{{msg.payload.dhwChart.target === null ? '—' : msg.payload.dhwChart.target}}<span class="u">°C</span></div><div class="s">ordinary start below {{msg.payload.dhwChart.start === null ? '—' : msg.payload.dhwChart.start}} °C</div></div>
         <div class="hpw-card" ng-if="msg.payload.summary.dhwSetpoint !== null"><div class="k">DHW set (pump)</div><div class="v">{{msg.payload.summary.dhwSetpoint}}<span class="u">°C</span></div></div>
       </div>
       <div class="hpw-chips" ng-if="msg.payload.summary">
@@ -262,7 +262,7 @@
         <span class="hpw-chip hpw-bad" ng-if="msg.payload.dhwChart.blocked">DHW blocked since {{msg.payload.dhwChart.blocked.at | date:'HH:mm'}}: {{msg.payload.dhwChart.blocked.why}} <button ng-click="hpDhwResume()">Allow DHW again</button></span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.planned > 0">next cycle planned {{msg.payload.dhwChart.planned | date:'HH:mm'}} (after a defrost)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.defrost && msg.payload.dhwChart.defrost.next">next defrost ≈ {{msg.payload.dhwChart.defrost.next | date:'HH:mm'}} (every ~{{msg.payload.dhwChart.defrost.intervalMin}} min)</span>
-        <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">next start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
+        <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">ordinary start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
       </div>
       <div class="hpw-ctl" ng-if="msg.payload.dhwChart">
         <span class="big">DHW controller</span>
@@ -273,12 +273,31 @@
         <span class="lbl" ng-if="msg.payload.dhwChart.mode != 'live'" style="color:#da3633">Not On: the heat pump does not heat the tank (electric heater only).</span>
         <span class="lbl" ng-if="msg.payload.dhwChart.inCycle && msg.payload.dhwChart.p23Cmd !== null" style="flex-basis:100%">boiler curve now: P24 {{msg.payload.dhwChart.p24Cmd}} / P23 <b>{{msg.payload.dhwChart.p23Cmd}}</b> → goal {{msg.payload.dhwChart.goalP23}} · curve supply ≈ <b>{{msg.payload.dhwChart.curveSupply}} °C</b>, wanted {{msg.payload.dhwChart.wanted}} °C<span ng-if="msg.payload.dhwChart.prot && msg.payload.dhwChart.prot.steps" style="color:#da3633"> · compressor protection: {{msg.payload.dhwChart.prot.steps}} step(s) down ({{msg.payload.dhwChart.prot.reason}})</span></span>
         <span class="lbl" ng-if="msg.payload.dhwChart.plan" style="flex-basis:100%">heading to <b>{{msg.payload.dhwChart.plan.target}} °C</b>, expected end ≈ <b>{{msg.payload.dhwChart.plan.eta | date:'HH:mm'}}</b><span ng-if="msg.payload.dhwChart.plan.rate !== null"> (tank +{{msg.payload.dhwChart.plan.rate}} °C/min)</span><span ng-if="msg.payload.dhwChart.plan.byMax"> at the latest (max duration)</span></span>
-        <span class="lbl" ng-if="msg.payload.dhwChart.cold">cold (≤ {{msg.payload.dhwChart.cfg.coldLimit}} °C): Silent only, supply ≤ {{msg.payload.dhwChart.cfg.coldCap}} °C, max {{msg.payload.dhwChart.cfg.maxMinCold}} min, every {{msg.payload.dhwChart.cfg.coldIntervalH}} h</span>
+        <span class="lbl" ng-if="msg.payload.dhwChart.cold">cold (≤ {{msg.payload.dhwChart.cfg.coldLimit}} °C): Silent only, supply ≤ {{msg.payload.dhwChart.cfg.coldCap}} °C, max {{msg.payload.dhwChart.cfg.maxMinCold}} min, ordinary interval {{msg.payload.dhwChart.cfg.coldIntervalH}} h</span>
         <span class="lbl" style="flex-basis:100%">{{msg.payload.dhwChart.why}}</span>
       </div>
       <div ng-if="msg.payload.dhwChart" class="hpw-curve">
+        <div class="hpw-ctl" ng-if="msg.payload.dhwChart.shower">
+          <span class="big">Shower / hot-water preparation</span>
+          <button ng-class="{on: msg.payload.dhwChart.shower.enabled}" ng-disabled="hp.showerSent !== null || (msg.payload.dhwChart.shower.state === 'stopping' && !msg.payload.dhwChart.shower.enabled)"
+            ng-click="hpShowerForce(!msg.payload.dhwChart.shower.enabled)"
+            title="Stop disables early starts and ends only a running forced cycle. The ordinary DHW controller remains enabled.">
+            {{msg.payload.dhwChart.shower.enabled ? 'Stop forced DHW' : msg.payload.dhwChart.shower.state === 'stopping' ? 'Stopping forced DHW' : 'Enable early shower starts'}}
+          </button>
+          <span class="lbl">{{msg.payload.dhwChart.shower.state}}<span ng-if="hp.showerSent !== null"> · request sent</span></span>
+          <span class="lbl" ng-if="hp.showerError" style="color:#da3633">{{hp.showerError}}</span>
+          <span class="lbl" ng-if="msg.payload.dhwChart.shower.motionAt">last local motion {{msg.payload.dhwChart.shower.motionAt | date:'HH:mm:ss'}}</span>
+          <span class="lbl" ng-if="msg.payload.dhwChart.shower.dropC !== null">tank drop {{msg.payload.dhwChart.shower.dropC}} °C in 3 min</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.expectedAt">
+            possible hot-water window {{msg.payload.dhwChart.shower.expectedAt | date:'EEE HH:mm'}} · prepare {{msg.payload.dhwChart.shower.leadMin}} min early · {{msg.payload.dhwChart.shower.evidenceDays}} distinct days
+          </span>
+          <span class="lbl" style="flex-basis:100%" ng-if="!msg.payload.dhwChart.shower.expectedAt">Learning: no repeating motion-correlated water-use window on 3 distinct days yet ({{msg.payload.dhwChart.shower.observations}} observations). A toilet visit alone is not a shower.</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.reason">{{msg.payload.dhwChart.shower.reason}}</span>
+          <span class="lbl" style="flex-basis:100%">Early starts require at least {{msg.payload.dhwChart.shower.minDeficitC}} °C below target. They may bypass the cycle interval and ordinary hysteresis, not the target, defrost, faults or heating priority. DHW controller On and local control On are still required.</span>
+          <span class="lbl" style="flex-basis:100%">Stopping a forced cycle keeps ordinary DHW enabled; its normal interval still applies after the cycle ends. Missing measurements stop only the forced cycle, without a manual DHW reset.</span>
+        </div>
         <h4>Boiler curve (DHW controller {{hpModeLabel(msg.payload.dhwChart.mode)}})</h4>
-        <div class="hpw-sub">Tank target by outdoor temperature (10-min average without defrosts); a cycle starts below target − {{msg.payload.dhwChart.hyst}} °C. During a cycle the pump runs on its own curve with P24 {{msg.payload.dhwChart.cfg.boilerP24}} and a P23 that gives the wanted supply (tank target + {{msg.payload.dhwChart.cfg.supplyAdd}} °C){{msg.payload.dhwChart.boilerP23Now !== null ? ' — now P23 ' + msg.payload.dhwChart.boilerP23Now : ''}}. Set the two ends of the curve and the settings below the chart; the table shows the result.
+        <div class="hpw-sub">Tank target by outdoor temperature (10-min average without defrosts); an ordinary cycle starts below target − {{msg.payload.dhwChart.hyst}} °C. During a cycle the pump runs on its own curve with P24 {{msg.payload.dhwChart.cfg.boilerP24}} and a P23 that gives the wanted supply (tank target + {{msg.payload.dhwChart.cfg.supplyAdd}} °C){{msg.payload.dhwChart.boilerP23Now !== null ? ' — now P23 ' + msg.payload.dhwChart.boilerP23Now : ''}}. Set the two ends of the curve and the settings below the chart; the table shows the result.
           <span ng-if="msg.payload.dhwChart.target !== null">Now: outdoor {{msg.payload.dhwChart.outdoor}} °C → target {{msg.payload.dhwChart.target}} °C · start below {{msg.payload.dhwChart.start}} °C · tank {{msg.payload.dhwChart.tank === null ? '—' : msg.payload.dhwChart.tank}} °C</span>
           <span ng-if="msg.payload.dhwChart.target === null && msg.payload.dhwChart.outdoor !== null">Outdoor {{msg.payload.dhwChart.outdoor}} °C is below the frost limit {{msg.payload.dhwChart.frostLimit}} °C: electric heater only.</span>
           <span ng-if="!msg.payload.dhwChart.fresh"> · controller data is old (automations node not running?)</span>
@@ -345,6 +364,8 @@
               <th>Cold limit</th><td><input type="number" ng-model="hp.dhw.coldLimit" ng-change="hp.dhwDirty = true"> °C: supply ≤ <input type="number" ng-model="hp.dhw.coldCap" ng-change="hp.dhwDirty = true"> °C, every <input type="number" step="0.5" ng-model="hp.dhw.coldIntervalH" ng-change="hp.dhwDirty = true"> h, heating first</td></tr>
             <tr title="Shortest time between the end of one DHW cycle and the start of the next.">
               <th>Min interval</th><td><input type="number" step="0.5" ng-model="hp.dhw.minIntervalH" ng-change="hp.dhwDirty = true"> h</td></tr>
+            <tr ng-if="msg.payload.dhwChart.shower" title="Preheat lead for learned hot-water windows. A pattern needs motion-correlated tank drops on at least 3 distinct days.">
+              <th>Shower preparation</th><td><input type="number" min="5" max="90" ng-model="hp.dhw.showerLeadMin" ng-change="hp.dhwDirty = true"> min early</td></tr>
             <tr title="No cycle starts when the next defrost is expected within this time (forecast from the last defrost intervals); after a defrost the cycle waits until the supply is back at the heating set point minus the second value. 0 = off.">
               <th>Defrost</th><td>no start <input type="number" ng-model="hp.dhw.defrostLead" ng-change="hp.dhwDirty = true"> min before one; after it supply ≥ heating set − <input type="number" step="0.5" ng-model="hp.dhw.supplyReady" ng-change="hp.dhwDirty = true"> °C</td></tr>
             <tr title="A defrost after this share of the way from the start tank to the target ends the cycle; the next cycle is planned the given time later (only if the tank is still below target − start). 0 % = always continue after the defrost.">
@@ -379,6 +400,8 @@
     scope.hp = { p23: null, dirty: false, curveSent: null, bypassSent: null };
     // DHW controller (d#138, moved here from the Automations tab)
     scope.hp.dhw = null; scope.hp.dhwDirty = false; scope.hp.dhwModeSent = null; scope.hp.dhwSaved = false;
+    scope.hp.showerSent = null;
+    scope.hp.showerError = '';
     // d#161: the editor holds only the two ends of the boiler curve (first and last point)
     function dhwCopy() {
         var c = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart && scope.msg.payload.dhwChart.cfg;
@@ -428,7 +451,7 @@
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
         var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp, afterDefrost: !!c.afterDefrost };
-        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);
@@ -443,6 +466,31 @@
         if (!confirm(text)) return;
         scope.hp.dhwModeSent = m; scope.hp.dhwModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
+    };
+    var showerTimer = null;
+    var showerRequest = 0;
+    function clearShowerPending() {
+        if (showerTimer !== null) clearTimeout(showerTimer);
+        showerTimer = null; scope.hp.showerSent = null; showerRequest++;
+    }
+    scope.$watch('msg.payload.dhwChart.cfg.showerForce', function (value) {
+        if (scope.hp.showerSent !== null && value === scope.hp.showerSent) clearShowerPending();
+    });
+    scope.$on('$destroy', clearShowerPending);
+    scope.hpShowerForce = function (on) {
+        var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
+        if (!d || !d.shower || scope.hp.showerSent !== null || (d.shower.state === 'stopping' && on) || d.shower.enabled === on) return;
+        if (on && !confirm('Enable early shower / hot-water starts?\nThey require at least ' + d.shower.minDeficitC + ' °C below target and may bypass the cycle interval and ordinary hysteresis. Temperature targets, defrost, faults and heating priority remain enforced.')) return;
+        scope.hp.showerSent = on; scope.hp.showerError = '';
+        var request = ++showerRequest;
+        showerTimer = setTimeout(function () {
+            if (request !== showerRequest || scope.hp.showerSent === null) return;
+            scope.$apply(function () {
+                showerTimer = null; scope.hp.showerSent = null;
+                scope.hp.showerError = 'Shower request was not confirmed within 60 seconds. Retry.';
+            });
+        }, 60000);
+        scope.send({ topic: 'ui', payload: { action: 'dhwShowerForce', on: on } });
     };
     // Heating power controller (d#166–d#167)
     scope.hp.heat = null; scope.hp.heatDirty = false; scope.hp.heatModeSent = null;
