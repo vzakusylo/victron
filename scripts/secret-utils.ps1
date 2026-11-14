@@ -2,7 +2,7 @@
 function Set-FileSecret {
     param([string]$Repo, [string]$Name, [string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { throw "Empty content for $Name; not uploaded." }
-    if ([Text.Encoding]::UTF8.GetByteCount($Value) -gt 48KB) {
+    if ([Text.Encoding]::UTF8.GetByteCount($Value) -gt 32000) {
         throw "$Name exceeds the GitHub secret size limit; not uploaded."
     }
     $saved = @{}

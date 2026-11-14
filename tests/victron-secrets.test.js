@@ -42,6 +42,17 @@ test('existing credential-based flows need no new files', (t) => {
     assert.deepEqual(f.options.environment, {});
 });
 
+test('empty IP remains literal so runtime UDP discovery does not receive an unresolved reference', (t) => {
+    const f = fixture(t);
+    f.original[0].deviceIp = '';
+    const prepared = prepareFlows(f.original);
+    assert.equal(prepared[0].deviceIp, '');
+    f.write('flows.json', prepared);
+    f.write('tuya-nodes.json', { 'hp-01': { deviceId: 'synthetic', deviceIp: '', tuyaVersion: '3.5' } });
+    assert.equal(loadEnvironment(f.options), true);
+    assert.equal(f.options.environment.VICTRON_HP_01_DEVICEIP, '');
+});
+
 test('missing keys, invalid connection settings and partial migrations fail without changing environment', (t) => {
     const f = fixture(t);
     f.write('tuya-devices.json', {});
@@ -76,6 +87,19 @@ test('private mapping preserves deployed IP/version and rejects ambiguous cloud 
     assert.deepEqual(prepareNodeSettings(flows, devices), {
         'hp-01': { deviceId: 'synthetic', deviceIp: '192.168.1.53', tuyaVersion: '3.5' }
     });
+
     assert.throws(() => prepareNodeSettings(flows, {}), /Unique/);
     assert.throws(() => prepareNodeSettings(flows, { ...devices, second: devices.synthetic }), /Unique/);
+});
+
+test('verified Smart Life aliases map the valve and meter dashboard labels', () => {
+    const flows = [
+        { id: 'hp-tuya-valve-01', type: 'tuya-smart-device', deviceName: 'Boiler valve relay', tuyaVersion: '3.5' },
+        { id: 'hp-tuya-meter-01', type: 'tuya-smart-device', deviceName: 'SA1 power meter (heat pump)', tuyaVersion: '3.5' }
+    ];
+    const mapping = prepareNodeSettings(flows, {
+        valve: { name: 'Boiler' }, meter: { name: 'SA1-Wi-Fi Smart Power Transformer' }
+    });
+    assert.equal(mapping['hp-tuya-valve-01'].deviceId, 'valve');
+    assert.equal(mapping['hp-tuya-meter-01'].deviceId, 'meter');
 });

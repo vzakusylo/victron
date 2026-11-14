@@ -48,8 +48,9 @@ try {
 
     # Mock uploads so tests never touch GitHub or use real secrets.
     $global:uploadCount = 0
+    $global:uploadedValues = @{}
     function global:gh {
-        $null = $input | Out-Null
+        $global:uploadedValues[$args[2]] = $input -join ''
         Assert ($env:GH_HOST -eq 'github.com' -and -not $env:GH_TOKEN) 'Incorrect authentication host.'
         $global:uploadCount++
         $global:LASTEXITCODE = 0
@@ -65,6 +66,26 @@ try {
     Assert-Fails { & "$scripts\push-secrets.ps1" -SecretsDir $source }
     Assert ($global:uploadCount -eq 1) 'Name collision uploaded partial data.'
     Remove-Item -LiteralPath "$source\test-json"
+    $large = [byte[]]::new(50000)
+    for ($i = 0; $i -lt $large.Length; $i++) { $large[$i] = $i % 256 }
+    [IO.File]::WriteAllBytes("$source\large.bin", $large)
+    & "$scripts\push-secrets.ps1" -SecretsDir $source
+    foreach ($name in $global:uploadedValues.Keys) {
+        Assert ($global:uploadedValues[$name].Length -le 32000) 'Upload exceeded verified API size.'
+        [Environment]::SetEnvironmentVariable($name, $global:uploadedValues[$name], 'Process')
+    }
+    & "$scripts\place-secrets.ps1" -SecretsDir $destination `
+        -Files @{ SECRETFILE_LARGE_BIN = 'large.bin' }
+    Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes("$destination\large.bin")) `
+        -eq [Convert]::ToBase64String($large)) 'Chunked byte round trip failed.'
+    $env:SECRETFILE_LARGE_BIN_PART_001 = 'AAAA'
+    Assert-Fails { & "$scripts\place-secrets.ps1" -SecretsDir $destination `
+        -Files @{ SECRETFILE_LARGE_BIN = 'large.bin' } }
+    Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes("$destination\large.bin")) `
+        -eq [Convert]::ToBase64String($large)) 'Corrupt chunks overwrote existing file.'
+    Remove-Item Env:SECRETFILE_LARGE_BIN_PART_002
+    Assert-Fails { & "$scripts\place-secrets.ps1" -SecretsDir $destination `
+        -Files @{ SECRETFILE_LARGE_BIN = 'large.bin' } }
     function global:gh { $null = $input | Out-Null; $global:LASTEXITCODE = 1 }
     Assert-Fails { & "$scripts\push-secrets.ps1" -SecretsDir $source }
     Assert ($env:GH_TOKEN -eq 'synthetic-enterprise-token') 'Failure did not restore environment.'
@@ -75,5 +96,9 @@ finally {
     [Environment]::SetEnvironmentVariable('GH_TOKEN', $savedToken, 'Process')
     [Environment]::SetEnvironmentVariable('GH_HOST', $savedHost, 'Process')
     Remove-Item Function:\gh -ErrorAction SilentlyContinue
+    foreach ($name in @('SECRETFILE_LARGE_BIN', 'SECRETFILE_LARGE_BIN_PART_001', 'SECRETFILE_LARGE_BIN_PART_002',
+        'SECRETFILE_LARGE_BIN_PART_003')) {
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
     Remove-Item -LiteralPath $temp -Recurse -Force
 }

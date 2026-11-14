@@ -5,6 +5,11 @@ const path = require('path');
 
 const CONFIG_DIR = '/data/home/nodered/grid-control-config';
 const FIELDS = ['deviceId', 'deviceKey', 'deviceIp', 'tuyaVersion'];
+// Verified Smart Life names differ from the dashboard labels for these nodes.
+const DEVICE_NAMES = {
+    'hp-tuya-valve-01': 'Boiler',
+    'hp-tuya-meter-01': 'SA1-Wi-Fi Smart Power Transformer'
+};
 
 function variable(nodeId, field) {
     return 'VICTRON_' + nodeId.replace(/[^a-z0-9]/gi, '_').toUpperCase() + '_' + field.toUpperCase();
@@ -21,7 +26,9 @@ function prepareFlows(flows) {
             const name = variable(node.id, field);
             if (variables.has(name)) throw new Error('Tuya environment variable name collision.');
             variables.add(name);
-            node[field] = '${' + name + '}';
+            // Node-RED leaves an empty environment reference unresolved. An
+            // unconfigured IP must remain empty so TuyAPI uses discovery.
+            node[field] = field === 'deviceIp' && !node.deviceIp ? '' : '${' + name + '}';
         }
         node.storeAsCreds = false;
         delete node.credentials;
@@ -38,7 +45,10 @@ function readJson(file, label) {
 function prepareNodeSettings(flows, devices) {
     const settings = {};
     for (const node of flows.filter((n) => n.type === 'tuya-smart-device')) {
-        const matches = Object.entries(devices).filter(([, device]) => device.name === node.deviceName);
+        let matches = Object.entries(devices).filter(([, device]) => device.name === node.deviceName);
+        if (!matches.length && DEVICE_NAMES[node.id]) {
+            matches = Object.entries(devices).filter(([, device]) => device.name === DEVICE_NAMES[node.id]);
+        }
         if (matches.length !== 1) throw new Error('Unique private device-name mapping required for node ' + node.id + '.');
         settings[node.id] = { deviceId: matches[0][0], deviceIp: node.deviceIp || '',
             tuyaVersion: node.tuyaVersion };
@@ -60,7 +70,8 @@ function loadEnvironment(options = {}) {
     const versions = readJson(path.join(dir, 'tuya-nodes.json'), 'Tuya node configuration');
     const values = {};
     for (const node of nodes) {
-        if (node.storeAsCreds || FIELDS.some((field) => node[field] !== '${' + variable(node.id, field) + '}')) {
+        if (node.storeAsCreds || FIELDS.some((field) =>
+            !(field === 'deviceIp' && node[field] === '') && node[field] !== '${' + variable(node.id, field) + '}')) {
             throw new Error('Incomplete file-secret configuration for node ' + node.id + '.');
         }
         const setting = versions[node.id];
