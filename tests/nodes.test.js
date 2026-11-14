@@ -465,3 +465,22 @@ test('40: a DHW cycle ended by the valve switched from outside blocks new cycles
     node.run({ topic: 'ui', payload: { action: 'dhwResume' } }, { now: T0 + 3 * 3600000 + 60000 });
     assert.equal(node.context.get('settings').dhwBlock, null);
 });
+
+test('40: a supply stuck flat below its point in Silent gets a kick Smart → Silent', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 },
+        heat: { lagUp: 1.5, overC: 1, gapMax: 2, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 10, kickSec: 60 } });
+    node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    const sets = [];
+    let mode = 'mute';
+    let t = T0;
+    for (let i = 0; i < 75; i++, t += 10000) {
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: t, dps: { 1: true, 2: mode, 101: 30, 102: 33, 103: -5, 108: 47, 115: 50, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 } },
+            valve: { state: 'CONNECTED', lastData: t, dps: { 1: false } }, bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now: t }).sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') { sets.push([Math.round((t - T0) / 1000), m[1].payload.set]); if (m[1].payload.dps === 2) mode = m[1].payload.set; } });
+    }
+    // gap 3 > gapMax 2: the heating controller does not step up; the kick does (10 min), then back after 60 s
+    assert.deepEqual(sets.map((x) => x[1]), ['smart', 'mute']);
+    assert.ok(sets[1][0] - sets[0][0] >= 60 && sets[1][0] - sets[0][0] <= 70);
+});

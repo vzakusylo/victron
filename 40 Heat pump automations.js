@@ -123,6 +123,8 @@
 //    defrostEndPct (30 %) ends the cycle and plans the next one defrostNextMin (60) later (settings.dhwRetry n 0).
 // 25. d#174 (owner): an aborted DHW cycle (Er03, valve switched back from outside / did not switch) sets settings.dhwBlock:
 //    no new DHW start until 'Allow DHW again' on the Heat Pump page (ui action dhwResume); the d#144 retries are removed.
+// 26. d#175: stuck supply kick (kickTick): supply flat (≤ 0.5 °C) for kickMin below its point − 1 in Silent with the
+//    compressor running → Smart for kickSec, then Silent; heating (heating controller) and DHW cycles (DHW controller).
 // 21. d#170: defrosts are ignored by the curve following: the heating controller pauses (keeps its samples, shifts
 //    them over the pause) during a defrost, the quiet time and until the supply is back at set − supplyReady; the DHW
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
@@ -281,8 +283,9 @@ function wantedSupply(c, x) {
 // ---- heating power controller (d#166) ---------------------------------------------------
 const HEAT_ID = 'heat';
 const HEAT_NAME = 'Heating power controller';
-const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4 };
-const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMax: [2, 10], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8] };
+const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4,
+    kickMin: 10, kickSec: 60 };   // d#175: supply stuck kickMin below its point → Smart for kickSec, then Silent (0 = off)
+const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMax: [2, 10], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8], kickMin: [0, 60], kickSec: [20, 300] };
 const HEAT_WINDOW_MIN = 10;
 const HEAT_LADDER = ['mute', 'smart', 'strong'];
 const MODE_NAME = { mute: 'Silent', smart: 'Smart', strong: 'Powerful' };
@@ -888,6 +891,7 @@ function heatModel() {
     const h = heatState(), c = (context.get('settings') || settings).heat || heatCfg({});
     const H = (st.hp && st.hp.dps) || {};
     return { mode: modeOf(HEAT_ID), cfg: c, lag: h.lag, gap: h.gap, why: h.why, decision: h.decision, lastStep: h.lastStep,
+        kick: (() => { const k = context.get('kick') || {}; return { phase: k.phase || null, last: k.last || 0, why: k.why || '' }; })(),
         pumpMode: MODE_NAME[H['2']] || H['2'] || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
 }
 function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() })); }
@@ -953,6 +957,7 @@ function heatTick() {
     const amps = h.samples.map((x) => x[3]).filter((x) => x !== null);
     const a = { lag: full ? h.lag : null, gap: full ? h.gap : null, amp: amps.length ? Math.max(...amps.slice(-6)) : null };
     const dec = heatDecide(c, a);
+    h.decStep = dec.step;   // d#175: the kick waits while the controller itself wants to step
     const cur = HEAT_LADDER.indexOf(H['2']);
     const top = c.allowPowerful ? 2 : 1;
     const boost = h.boost || 0;
@@ -1004,6 +1009,61 @@ function heatTick() {
         }
     }
     context.set('heat', h);
+}
+
+// ---- stuck supply kick (d#175) ---------------------------------------------------
+// Sometimes the supply stays flat below its point in Silent although the compressor runs; a short Smart wakes it up
+// (owner: Silent → Smart → Silent and the supply rises). Heating: point = the owner's curve (heating controller On);
+// DHW cycle: point = the boiler curve now (DHW controller On). Not during a defrost / the recovery, the bypass or a
+// stopped compressor; at most one kick per 2 × kickMin.
+function kickTick() {
+    const c = settings.heat || heatCfg({});
+    const k = ctx('kick', { s: [], phase: null, at: 0, last: 0, run: null, why: '' });
+    const H = (st.hp && st.hp.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
+    const d = context.get('dhw') || {}, h = context.get('heat') || {};
+    const inDhw = d.state === 'DHW';
+    const owner = inDhw ? DHW_ID : HEAT_ID;
+    const live = modeOf(owner) === 'live' && settings.master;
+    const send1 = (m, text) => {
+        const s = mode(m);
+        if (live) {
+            const q = context.get('queue') || [];
+            q.push({ rule: owner, cloud: inDhw ? DHW_NAME : HEAT_NAME, run: k.run, role: s.role, dps: s.dps, set: s.set, text: s.text });
+            context.set('queue', q);
+            logEvent({ kind: 'write', rule: owner, cloud: inDhw ? DHW_NAME : HEAT_NAME, run: k.run, live: true, text: text + ' → ' + s.text });
+            pump();
+        } else logEvent({ kind: 'dry', rule: owner, cloud: inDhw ? DHW_NAME : HEAT_NAME, run: k.run, live: false, text: text + ' → would ' + s.text });
+    };
+    // second half of a kick: back to Silent after kickSec (also when the conditions changed meanwhile)
+    if (k.phase === 'smart') {
+        if (now - k.at >= c.kickSec * S) {
+            k.phase = null; k.s = [];
+            // the heating controller may have chosen Smart itself meanwhile: then it stays
+            const hh = context.get('heat') || {};
+            if (hh.modeAt > k.at && hh.modeCmd === 'smart') logEvent({ kind: 'step', rule: owner, cloud: HEAT_NAME, run: k.run, live, text: 'kick over, Smart stays (heating controller)' });
+            else send1('mute', 'kick over after ' + c.kickSec + ' s');
+        }
+        context.set('kick', k); return;
+    }
+    const sup = H['102'] === null ? NaN : Number(H['102']);
+    const point = inDhw ? (Number.isFinite(d.p23Cmd) && Number.isFinite(d.outAvg) ? heatCurveAt(d.p23Cmd, d.p24Cmd || 12, d.outAvg) : NaN)
+        : (Number.isFinite(h.target) ? h.target : NaN);
+    const ok = c.kickMin > 0 && modeOf(owner) !== 'off' && ready('hp') && H['1'] === true && H['2'] === 'mute' && n(H['115']) > 0
+        && n(H['116']) > 0 && B['1'] !== true && !recentDefrost && !defRecovering && (inDhw || d.state === 'HEATING' || !d.state)
+        && Number.isFinite(sup) && Number.isFinite(point) && sup < point - 1
+        && (inDhw || ((h.decStep || 0) <= 0 && now - (h.lastStep || 0) >= c.kickMin * MIN))
+        && !(inDhw && ((d.outAvg !== null && d.outAvg <= dhwCfgNow().coldLimit) || (d.prot && d.prot.steps)));   // DHW keeps Silent in the cold / after protection
+    if (!ok) { k.s = []; k.why = ''; context.set('kick', k); return; }
+    k.s.push([now, sup]);
+    k.s = k.s.filter((x) => now - x[0] <= c.kickMin * MIN);
+    const span = now - k.s[0][0], vals = k.s.map((x) => x[1]);
+    const flat = Math.max(...vals) - Math.min(...vals) <= 0.5;
+    k.why = flat ? 'supply ' + sup + ' °C flat for ' + Math.round(span / MIN) + ' / ' + c.kickMin + ' min, point ' + point.toFixed(1) + ' °C' : '';
+    if (flat && span >= (c.kickMin - 0.5) * MIN && now - k.last >= 2 * c.kickMin * MIN) {
+        k.run = now + ':kick'; k.phase = 'smart'; k.at = now; k.last = now;
+        send1('smart', 'supply stuck at ' + sup + ' °C for ' + c.kickMin + ' min below its point ' + point.toFixed(1) + ' °C (' + (inDhw ? 'DHW' : 'heating') + ') — kick');
+    }
+    context.set('kick', k);
 }
 
 // ---- load ---------------------------------------------------------------------
@@ -1224,6 +1284,7 @@ for (const r of RULES) {
 }
 dhwTick();
 heatTick();
+kickTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
 publishView();
 persist();

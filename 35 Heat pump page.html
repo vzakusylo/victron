@@ -231,6 +231,7 @@
           <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
           <span class="lbl" ng-if="!msg.payload.heatCtl.fresh"> · controller data is old</span>
           <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.kick.phase || msg.payload.heatCtl.kick.why || msg.payload.heatCtl.kick.last">stuck-supply kick: <b ng-if="msg.payload.heatCtl.kick.phase">Smart now</b> {{msg.payload.heatCtl.kick.why}}<span ng-if="msg.payload.heatCtl.kick.last"> · last kick {{msg.payload.heatCtl.kick.last | date:'HH:mm'}}</span></span>
           <div class="row" ng-if="hp.heat">
             <label title="supply this far below the set point → one mode step up">up if lag &gt; <input type="number" step="0.5" ng-model="hp.heat.lagUp" ng-change="hp.heatDirty=true"> °C</label>
             <label title="supply this far above the set point → one step down">down if above set &gt; <input type="number" step="0.5" ng-model="hp.heat.overC" ng-change="hp.heatDirty=true"> °C</label>
@@ -239,6 +240,7 @@
             <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
             <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
             <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
           </div>
@@ -450,7 +452,7 @@
         var c = scope.hp.heat;
         if (!c) return;
         var cfg = { allowPowerful: !!c.allowPowerful };
-        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
