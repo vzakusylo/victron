@@ -83,15 +83,18 @@ tar -xf "$STAGE/archive.tar" -C "$STAGE"
 BACKUP=$(mktemp -d "$NODE_RED_DIR/backup-pre-secret-deploy-XXXXXX")
 mkdir -p "$BACKUP/config" "$BACKUP/node-red" "$BACKUP/tools" "$CONFIG_DIR" "$TOOLS_DIR"
 chmod 700 "$BACKUP"
-for f in $CONFIG_FILES; do if [ -e "$CONFIG_DIR/$f" ]; then cp -p "$CONFIG_DIR/$f" "$BACKUP/config/$f"; fi; done
-for f in $NODE_RED_FILES; do if [ -e "$NODE_RED_DIR/$f" ]; then cp -p "$NODE_RED_DIR/$f" "$BACKUP/node-red/$f"; fi; done
-for f in $TOOL_FILES; do if [ -e "$TOOLS_DIR/$f" ]; then cp -p "$TOOLS_DIR/$f" "$BACKUP/tools/$f"; fi; done
+# Back up regular files only: a symlink is not followed (its target is not ours to copy or restore).
+is_plain() { [ -f "$1" ] && [ ! -L "$1" ]; }
+for f in $CONFIG_FILES; do if is_plain "$CONFIG_DIR/$f"; then cp -p "$CONFIG_DIR/$f" "$BACKUP/config/$f"; fi; done
+for f in $NODE_RED_FILES; do if is_plain "$NODE_RED_DIR/$f"; then cp -p "$NODE_RED_DIR/$f" "$BACKUP/node-red/$f"; fi; done
+for f in $TOOL_FILES; do if is_plain "$TOOLS_DIR/$f"; then cp -p "$TOOLS_DIR/$f" "$BACKUP/tools/$f"; fi; done
 
 # Venus OS (BusyBox) has no install(1). Set the owner and mode on the staged file (root-only
-# directory on the same filesystem), then rename it: a rename replaces a symlink at the
-# destination instead of writing through it, and the secret never has the old file mode.
+# directory on the same filesystem), remove the destination, then move the file in. Nothing is
+# written through a symlink left at the destination (mv alone would move INTO a symlinked
+# directory), a real directory there stops the install, and the secret never has the old mode.
 place() {
-    chown nodered:nodered "$2" && chmod "$1" "$2" && mv -f "$2" "$3"
+    chown nodered:nodered "$2" && chmod "$1" "$2" && rm -f "$3" && mv -f "$2" "$3"
 }
 
 CHANGED=1

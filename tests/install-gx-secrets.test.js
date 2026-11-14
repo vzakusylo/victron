@@ -108,6 +108,18 @@ test "$(cat "$VICTRON_HOME/grid-control-config/email.json")" = new-email.json
 `);
 });
 
+test('GX secret installer replaces a destination symlinked to a directory', () => {
+    runFixture(`
+mkdir "$ROOT/outdir"
+rm "$VICTRON_HOME/grid-control-config/email.json"
+ln -s "$ROOT/outdir" "$VICTRON_HOME/grid-control-config/email.json"
+sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1
+test -z "$(ls -A "$ROOT/outdir")"
+test ! -L "$VICTRON_HOME/grid-control-config/email.json"
+test "$(cat "$VICTRON_HOME/grid-control-config/email.json")" = new-email.json
+`);
+});
+
 test('GX secret installer rollback does not write through a symlinked destination', () => {
     runFixture(`
 printf outside > "$ROOT/outside"
