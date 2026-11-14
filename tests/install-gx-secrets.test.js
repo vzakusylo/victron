@@ -96,6 +96,31 @@ test -z "$(find "$VICTRON_HOME" -type d -name '.secrets-stage.*')"
 `);
 });
 
+test('GX secret installer replaces a symlinked destination instead of writing through it', () => {
+    runFixture(`
+printf outside > "$ROOT/outside"
+rm "$VICTRON_HOME/grid-control-config/email.json"
+ln -s "$ROOT/outside" "$VICTRON_HOME/grid-control-config/email.json"
+sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1
+test "$(cat "$ROOT/outside")" = outside
+test ! -L "$VICTRON_HOME/grid-control-config/email.json"
+test "$(cat "$VICTRON_HOME/grid-control-config/email.json")" = new-email.json
+`);
+});
+
+test('GX secret installer rollback does not write through a symlinked destination', () => {
+    runFixture(`
+printf outside > "$ROOT/outside"
+rm "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+ln -s "$ROOT/outside" "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+export FAIL_INSTALL=email.json
+if sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1; then exit 1; fi
+test "$(cat "$ROOT/outside")" = outside
+test ! -L "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+grep -q "restoring previous files" "$ROOT/log"
+`);
+});
+
 test('GX secret installer rejects unexpected archive files', () => {
     runFixture(`
 printf unexpected > "$ROOT/bundle/secrets/flows_cred.json"
