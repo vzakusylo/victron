@@ -484,3 +484,26 @@ test('40: a supply stuck flat below its point in Silent gets a kick Smart → Si
     assert.deepEqual(sets.map((x) => x[1]), ['smart', 'mute']);
     assert.ok(sets[1][0] - sets[0][0] >= 60 && sets[1][0] - sets[0][0] <= 70);
 });
+
+test('40: in the defrost season DHW starts only in the window right after a defrost', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    const M = 60000;
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('lastDefrost', T0 - 80 * M);
+    node.context.set('recoveredAt', T0 - 60 * M);   // window closed 30 min ago
+    const tick = (now, over) => {
+        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 36, 103: 3, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+        return node.context.get('dhw');
+    };
+    let d;
+    for (let i = 0; i < 6; i++) d = tick(T0 + i * 10000);
+    assert.equal(d.state, 'HEATING');
+    assert.match(d.why, /defrost season: start only within 30 min/);
+    for (let i = 0; i < 6; i++) d = tick(T0 + M + i * 10000, { 116: 0 });          // defrost
+    for (let i = 0; i < 6; i++) d = tick(T0 + 20 * M + i * 10000);                 // recovered → window open
+    assert.equal(d.state, 'STOP', 'started right after the defrost');
+});

@@ -349,6 +349,8 @@
               <th>Defrost</th><td>no start <input type="number" ng-model="hp.dhw.defrostLead" ng-change="hp.dhwDirty = true"> min before one; after it supply ≥ heating set − <input type="number" step="0.5" ng-model="hp.dhw.supplyReady" ng-change="hp.dhwDirty = true"> °C</td></tr>
             <tr title="A defrost after this share of the way from the start tank to the target ends the cycle; the next cycle is planned the given time later (only if the tank is still below target − start). 0 % = always continue after the defrost.">
               <th>Defrost in a cycle</th><td>end at ≥ <input type="number" ng-model="hp.dhw.defrostEndPct" ng-change="hp.dhwDirty = true"> %, next in <input type="number" ng-model="hp.dhw.defrostNextMin" ng-change="hp.dhwDirty = true"> min</td></tr>
+            <tr title="In the defrost season (a defrost in the last 3 h) a cycle starts only in this window after the supply recovered from a defrost, so it runs between two defrosts.">
+              <th>After defrost</th><td><label><input type="checkbox" ng-model="hp.dhw.afterDefrost" ng-change="hp.dhwDirty = true"> start only within <input type="number" ng-model="hp.dhw.afterDefrostWinMin" ng-change="hp.dhwDirty = true"> min after a defrost</label></td></tr>
             <tr title="Longest DHW cycle; the second value applies at or below the cold limit. The cycle ends earlier when the tank reaches its target.">
               <th>Max duration</th><td><input type="number" ng-model="hp.dhw.maxMin" ng-change="hp.dhwDirty = true"> min, <input type="number" ng-model="hp.dhw.maxMinCold" ng-change="hp.dhwDirty = true"> min in the cold</td></tr>
             <tr title="If the compressor runs at or above any of these for 3 minutes, the controller lowers P23 by 2 (less supply, less load). 9.67 A is the nameplate current.">
@@ -425,8 +427,8 @@
         if (!c) return;
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
-        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp };
-        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp, afterDefrost: !!c.afterDefrost };
+        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);

@@ -125,6 +125,9 @@
 //    no new DHW start until 'Allow DHW again' on the Heat Pump page (ui action dhwResume); the d#144 retries are removed.
 // 26. d#175: stuck supply kick (kickTick): supply flat (≤ 0.5 °C) for kickMin below its point − 1 in Silent with the
 //    compressor running → Smart for kickSec, then Silent; heating (heating controller) and DHW cycles (DHW controller).
+// 27. d#176 (owner): min interval 1 h; in the defrost season (a defrost < 3 h ago) a DHW cycle starts only within
+//    afterDefrostWinMin (30) after the supply recovered from a defrost, so the cycle runs between two defrosts; in the
+//    cold the heating-first check (heating lags its curve → no DHW) stays.
 // 21. d#170: defrosts are ignored by the curve following: the heating controller pauses (keeps its samples, shifts
 //    them over the pause) during a defrost, the quiet time and until the supply is back at set − supplyReady; the DHW
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
@@ -208,7 +211,7 @@ const DHW_DEFAULTS = {
     supplyAdd: 4,        // wanted DHW supply = tank target + supplyAdd
     maxSupply: 55,       // wanted supply cap
     boilerP24: 12,       // boiler curve coefficient (1.2 °C per °C); P23 is computed per cycle
-    minIntervalH: 2,     // at most one DHW cycle per … h
+    minIntervalH: 1,     // at most one DHW cycle per … h (d#176: 1 h, owner)
     maxMin: 60,          // max DHW cycle …
     maxMinCold: 30,      // … at outdoor ≤ coldLimit
     coldLimit: -10,      // at or below: Silent only, supply ≤ coldCap, coldIntervalH, maxMinCold, heating first
@@ -222,12 +225,14 @@ const DHW_DEFAULTS = {
     defrostLead: 20,     // d#169: no DHW start when the next defrost is expected within … min
     supplyReady: 1,      // d#169: after a defrost start DHW only when supply ≥ heating set − … °C
     defrostEndPct: 30,   // d#173: a defrost after this % of the way to the target ends the cycle …
-    defrostNextMin: 60   // … and the next one is planned this many min later
+    defrostNextMin: 60,  // … and the next one is planned this many min later
+    afterDefrost: true,  // d#176: in the defrost season (a defrost < 3 h ago) start only right after one …
+    afterDefrostWinMin: 30   // … within this many min after the supply recovered
 };
 const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], supplyAdd: [1, 10], maxSupply: [45, 55],
     boilerP24: [5, 30], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180], coldLimit: [-25, 5],
     coldCap: [40, 55], coldIntervalH: [0, 12], lagC: [1, 10], protHz: [50, 90], protAmpPct: [50, 100], protDischarge: [70, 110],
-    defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240] };
+    defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240], afterDefrostWinMin: [5, 120] };
 // raw values that are missing or out of range keep the value of `base` (default: DHW_DEFAULTS)
 function dhwCfg(raw, base) {
     const c = Object.assign(JSON.parse(JSON.stringify(DHW_DEFAULTS)), JSON.parse(JSON.stringify(base || {})));
@@ -239,6 +244,7 @@ function dhwCfg(raw, base) {
     }
     if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
     if (typeof r.gapRamp === 'boolean') c.gapRamp = r.gapRamp;
+    if (typeof r.afterDefrost === 'boolean') c.afterDefrost = r.afterDefrost;
     if (Array.isArray(r.curve) && r.curve.length >= 2 && r.curve.length <= 8) {
         const pts = r.curve.map((p) => [Number(p[0]), Number(p[1])]);
         const okPts = pts.every((p, i) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && p[0] >= -30 && p[0] <= 20
@@ -719,6 +725,11 @@ function dhwTick() {
             if (defRecovering) why.push('after the defrost supply ' + sup + ' °C not back yet (heating set ' + H['125'] + ' − ' + c.supplyReady
                 + (Number.isFinite(Number(context.get('preDefSupply'))) ? ', before the defrost ' + context.get('preDefSupply') : '') + ') — heating first');
         }
+        // d#176: in the defrost season a cycle starts only in the window right after a defrost (supply recovered)
+        const lastDefA = context.get('lastDefrost') || 0, recAt = context.get('recoveredAt') || 0;
+        if (c.afterDefrost && lastDefA && now - lastDefA < 3 * 3600 * 1000 && !defNow && !recentDefrost && !defRecovering
+            && !(recAt > lastDefA && now - recAt <= c.afterDefrostWinMin * MIN))
+            why.push('defrost season: start only within ' + c.afterDefrostWinMin + ' min after a defrost' + (recAt > lastDefA ? ' (window closed ' + new Date(recAt + c.afterDefrostWinMin * MIN).toTimeString().slice(0, 5) + ')' : ''));
         const fc = defrostForecast();
         if (fc && fc.next && c.defrostLead > 0 && fc.next - now < c.defrostLead * MIN)
             why.push('defrost expected ≈ ' + new Date(fc.next).toTimeString().slice(0, 5) + ' (every ~' + fc.intervalMin + ' min) — DHW after it');
@@ -1190,6 +1201,7 @@ if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
     context.set('inDefrost', inDef);
 }
 const recentDefrost = now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MIN * MIN;
+// d#176: recoveredAt = when the recovery after the last defrost ended (start window for DHW)
 // d#170: the supply drop of a defrost and its recovery are not a lag of the curve. From a defrost until the
 // supply is back at the heating set − supplyReady (at most 60 min after it) the heating controller and the
 // DHW "heating lags" check ignore supply − curve; the heating controller keeps its samples from before.
@@ -1282,6 +1294,8 @@ for (const r of RULES) {
         runStep(r, token);
     }
 }
+if (context.get('defRecPrev') && !defRecovering && !recentDefrost) context.set('recoveredAt', now);
+context.set('defRecPrev', defRecovering || recentDefrost);
 dhwTick();
 heatTick();
 kickTick();
