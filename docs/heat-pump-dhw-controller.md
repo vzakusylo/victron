@@ -177,8 +177,10 @@ While assistance is enabled:
 
 The owner explicitly permitted these demands to bypass **only the minimum cycle
 interval and the normal tank hysteresis**, including the cold-weather interval.
-The tank must still be below its existing target; no temperature target is
-raised. Master control and DHW must be On. Defrost scheduling/recovery,
+Early starts require the tank to be **at least 1 °C below its existing target**
+(owner-selected minimum deficit after review); no temperature target is raised.
+This prevents a full valve/STOP sequence for a fractional-degree deficit.
+Master control and DHW must be On. Defrost scheduling/recovery,
 heating priority, fault/aborted-cycle blocks, valve travel, supply/current/
 discharge protections and maximum cycle duration remain enforced. A demand can
 wait for these gates; “immediate” means requesting the existing safe cycle,
@@ -189,8 +191,14 @@ cancels queued commands belonging to the forced cycle, and returns that cycle
 to heating on the next tick when its devices are reachable. Ordinary cycles
 are not stopped. The bypass is retained if a defrost is active or its state is
 unknown. A stop request cannot be retracted by rapidly re-enabling assistance.
-Loss of valid safety measurements during a forced cycle aborts and blocks DHW
-until the existing **Allow DHW again** action is used. Test mode writes nothing.
+Loss of valid safety measurements stops only the forced cycle, with an explicit
+warning and safe valve/mode restoration; it does **not** set the ordinary
+`dhwBlock` or require **Allow DHW again**. Genuine Er03/valve failures still use
+the existing abort block. After an operator or missing-measurement stop, the
+ordinary minimum interval is counted from the cycle end, just as for other
+completed cycles. Test mode writes nothing and changes no real-cycle cooldown.
+Missing measurements remain non-numeric rather than being interpreted as zero
+in ordinary-cycle comparisons.
 
 Rollout: synchronize the numbered sources, test, and selectively update nodes
 `34`, `35`, `36`, `37`, `40` (including On Start), `46`, and the local-listener

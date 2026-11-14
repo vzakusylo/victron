@@ -99,6 +99,17 @@ test('disabled assistance and already hot tanks do not force a cycle', () => {
     assert.equal(hot.node.context.get('dhw').state, 'HEATING');
 });
 
+test('early preparation requires at least a 1 C deficit at the exact boundary', () => {
+    for (const [tank, expected] of [[49.01, 'HEATING'], [49, 'STOP'], [48.99, 'STOP']]) {
+        const { node, tick } = controller({ motion: false });
+        node.context.get('shower').demand = { id: 'preheat-boundary', type: 'preheat', until: NOW + 10 * MIN, reason: 'learned window' };
+        for (let i = 0; i < 8 && node.context.get('dhw').state === 'HEATING'; i++) tick(NOW + i * 10000, { 108: tank });
+        assert.equal(node.context.get('dhw').state, expected, String(tank));
+        if (expected === 'HEATING') assert.match(node.context.get('dhw').why, /shower minimum 1/);
+        assert.equal(node.flow.get('dhwView').shower.minDeficitC, 1);
+    }
+});
+
 test('hot deployment supplies opt-in defaults without replacing existing settings', () => {
     const { node, tick } = controller();
     delete node.context.get('settings').dhw.showerForce;
@@ -260,10 +271,63 @@ test('lost measurements abort a forced cycle without sending stale boiler writes
     node.context.get('queue').push({ run, rule: 'dhw', role: 'valve', dps: 1, set: true, text: 'old valve ON' });
     tick(NOW + 10000, { 108: null, 116: null }, false, true);
     assert.equal(node.context.get('dhw').state, 'HEATING');
-    assert.ok(node.context.get('settings').dhwBlock);
+    assert.equal(node.context.get('settings').dhwBlock, null);
+    assert.equal(node.context.get('settings').modes.dhw, 'live');
+    assert.equal(node.context.get('settings').dhwLastEnd, NOW + 10000);
+    assert.ok(node.context.get('log').some(e => e.kind === 'warn' && e.text.includes('lost valid cycle measurements')));
     assert.ok(!node.context.get('queue').some(e => e.run === run));
     assert.ok(node.context.get('queue').some(e => e.role === 'valve' && e.set === false));
     assert.ok(!node.context.get('queue').some(e => e.role === 'bypass' && e.set === false));
+    node.run({ topic: 'ui', payload: { action: 'dhwShowerForce', on: false } }, { now: NOW + 11000 });
+    const resumeAt = NOW + 60 * MIN + 10000;
+    for (let i = 0; i < 8 && node.context.get('dhw').state === 'HEATING'; i++) tick(resumeAt + i * 10000, { 108: 46 });
+    assert.equal(node.context.get('dhw').state, 'STOP', 'ordinary DHW resumes after its normal interval without a manual reset');
+    assert.equal(node.context.get('dhw').showerStart, null);
+});
+
+test('ordinary DHW never escalates power without a valid supply reading', () => {
+    for (const mode of ['mute', 'smart']) {
+        for (const supply of [undefined, null, '']) {
+            const { node, tick } = controller({ enabled: false, motion: false });
+            node.context.get('settings').dhw.allowPowerful = true;
+            Object.assign(node.context.get('dhw'), { state: 'DHW', live: true, run: 'ordinary', since: NOW - MIN,
+                startAt: NOW - 12 * MIN, p23Cmd: 30, p24Cmd: 12, rampAt: NOW, dhwMs: 12 * MIN,
+                prog: { t: NOW - 10 * MIN, sup: 40 }, showerStart: null });
+            const call = tick(NOW, { 2: mode, 102: supply }, true);
+            assert.equal(node.context.get('dhw').state, 'DHW');
+            assert.ok(!call.sent.some(arr => arr?.some?.(msg => msg?.payload?.operation === 'SET' && msg.payload.dps === 2)));
+            assert.ok(!node.context.get('queue').some(e => e.role === 'hp' && e.dps === 2));
+            assert.ok(Number.isNaN(node.context.get('dhw').prog.sup));
+        }
+    }
+});
+
+test('heating-lag history excludes a missing supply instead of interpreting it as zero', () => {
+    for (const supply of [undefined, null]) {
+        const { node, tick } = controller({ enabled: false, motion: false });
+        tick(NOW, { 102: supply });
+        assert.deepEqual(node.context.get('dhw').lagS, []);
+    }
+});
+
+test('genuine Er03 still blocks a forced DHW cycle until allowed again', () => {
+    const { node, tick } = controller();
+    tick();
+    node.context.get('dhw').state = 'DHW';
+    tick(NOW + 10000, { 15: 1 }, true);
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.match(node.context.get('settings').dhwBlock.why, /Er03/);
+});
+
+test('lost measurements during Test-mode shower DHW never affect the real cooldown', () => {
+    const { node, tick } = controller({ mode: 'dry' });
+    tick();
+    const lastEnd = node.context.get('settings').dhwLastEnd;
+    const call = tick(NOW + 10000, { 108: null });
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.equal(node.context.get('settings').dhwLastEnd, lastEnd);
+    assert.equal(node.context.get('settings').dhwBlock, null);
+    assert.ok(!call.sent.some(arr => arr?.some?.(msg => msg?.payload?.operation === 'SET')));
 });
 
 test('stop of a Test-mode forced cycle performs no real write or real-cycle cooldown update', () => {

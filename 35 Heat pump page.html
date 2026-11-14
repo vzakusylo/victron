@@ -292,7 +292,8 @@
           </span>
           <span class="lbl" style="flex-basis:100%" ng-if="!msg.payload.dhwChart.shower.expectedAt">Learning: no repeating motion-correlated water-use window on 3 distinct days yet ({{msg.payload.dhwChart.shower.observations}} observations). A toilet visit alone is not a shower.</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.reason">{{msg.payload.dhwChart.shower.reason}}</span>
-          <span class="lbl" style="flex-basis:100%">Early starts may bypass the cycle interval and ordinary hysteresis, not the tank target, defrost, faults or heating priority. DHW controller On and local control On are still required.</span>
+          <span class="lbl" style="flex-basis:100%">Early starts require at least {{msg.payload.dhwChart.shower.minDeficitC}} °C below target. They may bypass the cycle interval and ordinary hysteresis, not the target, defrost, faults or heating priority. DHW controller On and local control On are still required.</span>
+          <span class="lbl" style="flex-basis:100%">Stopping a forced cycle keeps ordinary DHW enabled; its normal interval still applies after the cycle ends. Missing measurements stop only the forced cycle, without a manual DHW reset.</span>
         </div>
         <h4>Boiler curve (DHW controller {{hpModeLabel(msg.payload.dhwChart.mode)}})</h4>
         <div class="hpw-sub">Tank target by outdoor temperature (10-min average without defrosts); an ordinary cycle starts below target − {{msg.payload.dhwChart.hyst}} °C. During a cycle the pump runs on its own curve with P24 {{msg.payload.dhwChart.cfg.boilerP24}} and a P23 that gives the wanted supply (tank target + {{msg.payload.dhwChart.cfg.supplyAdd}} °C){{msg.payload.dhwChart.boilerP23Now !== null ? ' — now P23 ' + msg.payload.dhwChart.boilerP23Now : ''}}. Set the two ends of the curve and the settings below the chart; the table shows the result.
@@ -470,7 +471,7 @@
     scope.hpShowerForce = function (on) {
         var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
         if (!d || !d.shower || d.shower.state === 'stopping' || d.shower.enabled === on) return;
-        if (on && !confirm('Enable early shower / hot-water starts?\nThey may bypass the cycle interval and ordinary hysteresis. Temperature targets, defrost, faults and heating priority remain enforced.')) return;
+        if (on && !confirm('Enable early shower / hot-water starts?\nThey require at least ' + d.shower.minDeficitC + ' °C below target and may bypass the cycle interval and ordinary hysteresis. Temperature targets, defrost, faults and heating priority remain enforced.')) return;
         scope.hp.showerSent = on; scope.hp.showerAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'dhwShowerForce', on: on } });
     };
