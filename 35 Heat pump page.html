@@ -257,6 +257,7 @@
         <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.valveToDhw}">Valve: {{msg.payload.summary.valveToDhw === null ? '—' : (msg.payload.summary.valveToDhw ? 'DHW (boiler)' : 'Heating')}}</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart" ng-class="{'hpw-warn': msg.payload.dhwChart.state !== 'HEATING', 'hpw-bad': msg.payload.dhwChart.mode !== 'live'}">Controller {{hpModeLabel(msg.payload.dhwChart.mode)}} · {{msg.payload.dhwChart.stateLabel}} since {{msg.payload.dhwChart.since | date:'HH:mm'}}</span>
         <span class="hpw-chip hpw-warn" ng-if="msg.payload.dhwChart.progress !== null">progress {{msg.payload.dhwChart.progress}} % ({{msg.payload.dhwChart.startTank}} → {{msg.payload.dhwChart.target}} °C)</span>
+        <span class="hpw-chip hpw-bad" ng-if="msg.payload.dhwChart.blocked">DHW blocked since {{msg.payload.dhwChart.blocked.at | date:'HH:mm'}}: {{msg.payload.dhwChart.blocked.why}} <button ng-click="hpDhwResume()">Allow DHW again</button></span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.planned > 0">next cycle planned {{msg.payload.dhwChart.planned | date:'HH:mm'}} (after a defrost)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.defrost && msg.payload.dhwChart.defrost.next">next defrost ≈ {{msg.payload.dhwChart.defrost.next | date:'HH:mm'}} (every ~{{msg.payload.dhwChart.defrost.intervalMin}} min)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">next start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
@@ -463,6 +464,10 @@
         if (!confirm(text)) return;
         scope.hp.heatModeSent = m; scope.hp.heatModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: m } });
+    };
+    scope.hpDhwResume = function () {
+        if (!confirm('Allow DHW cycles again?\nThe last cycle was aborted (Er03 or the 3-way valve switched from outside). Check the valve first.')) return;
+        scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });
     };
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }

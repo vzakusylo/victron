@@ -121,6 +121,8 @@
 //    above P23 40, P24 (curveCoeffs); the DHW cycle uses the same: a boiler goal above P23 40 raises its P24.
 // 24. d#173: progress of a DHW cycle = % of the way from the start tank to the target (page + why); a defrost after
 //    defrostEndPct (30 %) ends the cycle and plans the next one defrostNextMin (60) later (settings.dhwRetry n 0).
+// 25. d#174 (owner): an aborted DHW cycle (Er03, valve switched back from outside / did not switch) sets settings.dhwBlock:
+//    no new DHW start until 'Allow DHW again' on the Heat Pump page (ui action dhwResume); the d#144 retries are removed.
 // 21. d#170: defrosts are ignored by the curve following: the heating controller pauses (keeps its samples, shifts
 //    them over the pause) during a defrost, the quiet time and until the supply is back at set − supplyReady; the DHW
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
@@ -531,6 +533,7 @@ function dhwModel() {
         startTank: d.startTank, startAt: d.startAt, lastEnd,
         progress: ['STOP', 'VALVE', 'DHW', 'DEFROST_DHW'].includes(d.state) && out !== null ? dhwProgress(d.startTank, n(((st.hp && st.hp.dps) || {})['108']), out < c.frostLimit ? null : curveAt(c.curve, out)) : null,
         planned: s.dhwRetry && !s.dhwRetry.n ? s.dhwRetry.at : 0,
+        blocked: s.dhwBlock || null,
         nextStart: lastEnd ? lastEnd + (cold ? c.coldIntervalH : c.minIntervalH) * 3600 * 1000 : 0, lag: dhwLag(d), cfg: c, defrost: defrostForecast() };
 }
 // d#143: where the running cycle is heading: tank target and the expected end, from the tank rise
@@ -657,13 +660,14 @@ function dhwTick() {
         if (bypassOn) write(bypass(false));
         modeTo('mute');
         heatBack();
-        // d#144: an early abort (Er03, valve back) is tried again after RETRY_MIN, at most RETRY_MAX times
+        // d#174 (owner): an aborted cycle (Er03, the 3-way valve switched back from outside or did not switch) blocks
+        // new DHW starts until "Allow DHW again" on the Heat Pump page; no automatic retries (the d#144 retry is gone)
         let retryTxt = '';
-        if (abort && cycleMin < EARLY_MIN) {
-            const nTry = ((settings.dhwRetry && settings.dhwRetry.n) || 0) + 1;
-            settings.dhwRetry = nTry <= RETRY_MAX ? { n: nTry, at: now + RETRY_MIN * MIN } : null;
-            retryTxt = nTry <= RETRY_MAX ? '; retry in ' + RETRY_MIN + ' min (' + nTry + '/' + RETRY_MAX + ')' : '; no more retries, next after the interval';
-        } else settings.dhwRetry = null;
+        settings.dhwRetry = null;
+        if (abort) {
+            settings.dhwBlock = { at: now, why };
+            retryTxt = '; DHW blocked until allowed again on the Heat Pump page';
+        }
         d.lastEnd = now; settings.dhwLastEnd = now; saveSettingsFile();
         go('HEATING', 'end of DHW (' + why + '): tank ' + d.startTank + ' → ' + tank + ' °C after ' + Math.round(cycleMin) + ' min (' + Math.round(dhwMin) + ' min heating) → valve to heating, heating curve back (' + heatTxt + ')' + retryTxt, abort ? 'stop' : 'done');
         d.run = null; d.goal = null; d.want = null;
@@ -717,6 +721,7 @@ function dhwTick() {
             why.push('defrost expected ≈ ' + new Date(fc.next).toTimeString().slice(0, 5) + ' (every ~' + fc.intervalMin + ' min) — DHW after it');
         if ((context.get('flag') || flag).on) why.push('defrost flag ON');
         if (valveOn) why.push('valve ON');
+        if (settings.dhwBlock) why.push('blocked: the last cycle was aborted at ' + new Date(settings.dhwBlock.at).toTimeString().slice(0, 5) + ' (' + settings.dhwBlock.why + ') — allow DHW again on the Heat Pump page');
         if (H['1'] !== true) why.push('heat pump off');
         if (!heat) why.push('heating curve not stored yet');
         const lag = dhwLag(d);
@@ -1008,6 +1013,8 @@ if (msg.topic === 'load') {
         settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
             heatCurve: s.heatCurve && Number.isFinite(s.heatCurve.p23) && Number.isFinite(s.heatCurve.p24) ? s.heatCurve : null,
             dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(s.heat),
+            dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || '') } : null,
+            dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [] };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
@@ -1058,6 +1065,14 @@ if (msg.topic === 'ui') {
         persist();
         const after = JSON.stringify(settings.heat);
         logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
+        publishView();
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'dhwResume') {
+        const b = settings.dhwBlock;
+        settings.dhwBlock = null;
+        persist();
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'DHW allowed again' + (b ? ' (blocked since ' + new Date(b.at).toTimeString().slice(0, 5) + ': ' + b.why + ')' : '') });
         publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }

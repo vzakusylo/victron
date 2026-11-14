@@ -462,6 +462,7 @@ function buildDhwChart(d) {
         defrost: v.defrost || null,   // d#169: next defrost forecast of 40
         progress: v.progress === undefined ? null : v.progress,   // d#173: % of the way to the tank target
         planned: v.planned || 0,
+        blocked: v.blocked || null,   // d#174: DHW blocked after an aborted cycle
         startTank: v.startTank === undefined ? null : v.startTank,
         cfg: c,
         state: v.state,

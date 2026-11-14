@@ -443,3 +443,25 @@ test('40: a defrost after 30 % of a DHW cycle ends it and plans the next one 60 
     assert.equal(rt.n, 0);
     assert.equal(rt.at, T0 + 10000 + 60 * 60000);
 });
+
+test('40: a DHW cycle ended by the valve switched from outside blocks new cycles until allowed again', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('dhw', { state: 'DHW', since: T0 - 5 * 60000, run: 'r', live: true, lastEnd: 0, p23Cmd: 30, p24Cmd: 12, rampAt: T0,
+        startAt: T0 - 5 * 60000, startTank: 40, streak: 0, outS: [[T0, 3]], outAvg: 3, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
+        valveOnSince: 0, goal: 30, want: 30, prot: null, curveFixAt: 0, why: '', waitNote: '', tankS: [], dhwMs: 4 * 60000 });
+    const tick = (now, valveOn) => {
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps: { 1: true, 2: 'mute', 101: 40, 102: 45, 103: 3, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 } },
+            valve: { state: 'CONNECTED', lastData: now, dps: { 1: valveOn } }, bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+    };
+    tick(T0, false);                                     // valve OFF in DHW (≥ 1 min in the state) → aborted
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.ok(node.context.get('settings').dhwBlock, 'blocked');
+    for (let i = 1; i < 6; i++) tick(T0 + 3 * 3600000 + i * 10000, false);   // 3 h later, tank cold
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.match(node.context.get('dhw').why, /blocked: the last cycle was aborted/);
+    node.run({ topic: 'ui', payload: { action: 'dhwResume' } }, { now: T0 + 3 * 3600000 + 60000 });
+    assert.equal(node.context.get('settings').dhwBlock, null);
+});
