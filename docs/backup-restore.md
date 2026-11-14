@@ -6,6 +6,13 @@
 
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
 
+For the separate encrypted GitHub Secrets copies of 11 Victron private files,
+manual GX-to-GitHub synchronization, file-backed Tuya credentials and the
+2026-11-14 migration/rollback record, see
+[Victron secret file instructions](../scripts/SECRETS.md).
+Those copies do not replace this full-device backup or restore the flow,
+history, palette modules and drivers.
+
 Included when present (`node_modules`, `.npm`, `.cache` and `/data/apps/overlay-fs` are excluded — the latter is Venus OS's own root-filesystem overlay; drivers recreate their overlays with `enable.sh`):
 
 - `/data/home/nodered/grid-control-logs` — energy history (monthly CSV + legacy daily logs) and notification logs
