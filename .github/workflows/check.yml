@@ -35,3 +35,4 @@ jobs:
         run: |
           ./tests/secret-files.test.ps1
           ./tests/deploy-secrets.test.ps1
+          ./tests/setup-ci-access.test.ps1

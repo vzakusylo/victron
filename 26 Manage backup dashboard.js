@@ -10,6 +10,7 @@
 // Backup contents (each path only when it exists; paths are relative to `/`):
 // - data/home/nodered/grid-control-logs     energy history (monthly CSV + legacy daily logs), notification logs
 // - data/home/nodered/grid-control-config   dashboard settings (HV settings, controller constants, ...)
+// - data/home/nodered/tools                 tool scripts run on the GX (d#181)
 // - data/home/nodered/.node-red/*           Node-RED flows, credentials, settings, context, library
 //                                           (node_modules / .npm / .cache are excluded)
 // - data/apps                               installed drivers/apps incl. dbus-serialbattery (code + config.ini)
@@ -58,6 +59,7 @@
 const BACKUP_DIR = '/data/home/nodered/grid-control-backups';
 const MANIFEST_PATH = 'data/home/nodered/grid-control-config/backup-manifest.txt';
 const NODE_RED_DIR = 'data/home/nodered/.node-red';
+const TOOLS_DIR = 'data/home/nodered/tools';
 const VENUS_SETTINGS_PATH = 'data/conf/settings.xml';
 // Venus OS keeps only /data across firmware updates, so drivers live in /data/apps/<name> and are
 // (re)registered by their own enable.sh (dbus-serialbattery: /data/apps/dbus-serialbattery/enable.sh).
@@ -73,6 +75,9 @@ const EXPANDED_DIRS = {
 const BACKUP_PATHS = [
     'data/home/nodered/grid-control-logs',
     'data/home/nodered/grid-control-config',
+    // d#181: scripts run by exec nodes and by settings-user.js (tools/victron-secrets.js), and the deploy /
+    // check scripts in tools/gx. Without them a restored Node-RED cannot load its file secrets.
+    TOOLS_DIR,
     NODE_RED_DIR,
     DRIVERS_DIR,
     'data/etc/dbus-serialbattery',
@@ -87,6 +92,7 @@ const BACKUP_PATHS = [
 const BACKUP_LABELS = {
     'data/home/nodered/grid-control-logs': 'Energy history and logs',
     'data/home/nodered/grid-control-config': 'Dashboard settings (HV, constants)',
+    'data/home/nodered/tools': 'Tool scripts (sensors, mail, secrets loader, deploy / check)',
     'data/home/nodered/.node-red': 'Node-RED flows, credentials, settings, context',
     'data/apps': 'Drivers and apps incl. dbus-serialbattery (code + config.ini)',
     'data/etc/dbus-serialbattery': 'dbus-serialbattery (legacy install path)',

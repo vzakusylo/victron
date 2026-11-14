@@ -21,11 +21,14 @@ cat > "$ROOT/bin/svstat" <<'MOCK'
 #!/bin/sh
 echo "service: \${MOCK_STATE:-down} 1 seconds"
 MOCK
+# The GX has no install(1); the installer must not depend on it.
 cat > "$ROOT/bin/install" <<'MOCK'
 #!/bin/sh
-while [ "$#" -gt 2 ]; do shift; done
-if [ -n "\${FAIL_INSTALL:-}" ] && [ "$(basename "$1")" = "$FAIL_INSTALL" ]; then exit 1; fi
-cp "$1" "$2"
+exit 127
+MOCK
+cat > "$ROOT/bin/chown" <<'MOCK'
+#!/bin/sh
+if [ -n "\${FAIL_INSTALL:-}" ] && [ "$(basename "$2")" = "$FAIL_INSTALL" ]; then exit 1; fi
 MOCK
 cat > "$ROOT/bin/node" <<'MOCK'
 #!/bin/sh
@@ -90,6 +93,43 @@ for f in flows_cred.json .config.runtime.json .config.users.json; do
 done
 grep -q "Node-RED remains stopped" "$ROOT/log"
 test -z "$(find "$VICTRON_HOME" -type d -name '.secrets-stage.*')"
+`);
+});
+
+test('GX secret installer replaces a symlinked destination instead of writing through it', () => {
+    runFixture(`
+printf outside > "$ROOT/outside"
+rm "$VICTRON_HOME/grid-control-config/email.json"
+ln -s "$ROOT/outside" "$VICTRON_HOME/grid-control-config/email.json"
+sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1
+test "$(cat "$ROOT/outside")" = outside
+test ! -L "$VICTRON_HOME/grid-control-config/email.json"
+test "$(cat "$VICTRON_HOME/grid-control-config/email.json")" = new-email.json
+`);
+});
+
+test('GX secret installer replaces a destination symlinked to a directory', () => {
+    runFixture(`
+mkdir "$ROOT/outdir"
+rm "$VICTRON_HOME/grid-control-config/email.json"
+ln -s "$ROOT/outdir" "$VICTRON_HOME/grid-control-config/email.json"
+sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1
+test -z "$(ls -A "$ROOT/outdir")"
+test ! -L "$VICTRON_HOME/grid-control-config/email.json"
+test "$(cat "$VICTRON_HOME/grid-control-config/email.json")" = new-email.json
+`);
+});
+
+test('GX secret installer rollback does not write through a symlinked destination', () => {
+    runFixture(`
+printf outside > "$ROOT/outside"
+rm "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+ln -s "$ROOT/outside" "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+export FAIL_INSTALL=email.json
+if sh "$ROOT/install.sh" < "$ROOT/archive.tar" > "$ROOT/log" 2>&1; then exit 1; fi
+test "$(cat "$ROOT/outside")" = outside
+test ! -L "$VICTRON_HOME/grid-control-config/mcp-token.txt"
+grep -q "restoring previous files" "$ROOT/log"
 `);
 });
 
