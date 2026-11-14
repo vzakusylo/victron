@@ -459,6 +459,7 @@ function buildDhwChart(d) {
         mode: v.mode,
         master: v.master === undefined ? null : v.master,
         lag: v.lag === undefined ? null : v.lag,
+        defrost: v.defrost || null,   // d#169: next defrost forecast of 40
         cfg: c,
         state: v.state,
         stateLabel: DHW_STATE_LABELS[v.state] || v.state,

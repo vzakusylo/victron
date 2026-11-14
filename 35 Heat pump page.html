@@ -227,7 +227,7 @@
           <span class="big">Heating power controller</span>
           <span><button ng-repeat="m in ['off','dry','live']" ng-class="{sel: msg.payload.heatCtl.mode == m, on: m == 'live'}" ng-disabled="hp.heatModeSent !== null" ng-click="hpHeatMode(m)">{{hpModeLabel(m)}}</button></span>
           <span class="lbl" ng-if="hp.heatModeSent !== null">sent, waiting for the controller…</span>
-          <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
+          <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b><span ng-if="msg.payload.heatCtl.boost"> + curve <b>+{{msg.payload.heatCtl.boost}} °C</b></span> · point <b>{{msg.payload.heatCtl.target === null ? '—' : msg.payload.heatCtl.target + ' °C'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
           <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
           <span class="lbl" ng-if="!msg.payload.heatCtl.fresh"> · controller data is old</span>
           <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
@@ -238,10 +238,11 @@
             <label>step every ≥ <input type="number" ng-model="hp.heat.stepMin" ng-change="hp.heatDirty=true"> min</label>
             <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
             <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
+            <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
           </div>
-          <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts: supply lags the set point and supply − return &lt; {{msg.payload.heatCtl.cfg.gapMax}} °C → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}}; supply above the set point, supply − return &gt; {{msg.payload.heatCtl.cfg.gapMax + 1}} °C or high current → one step down. One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
+          <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts: supply lags the set point and supply − return &lt; {{msg.payload.heatCtl.cfg.gapMax}} °C → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}} → curve +1 °C per step up to +{{msg.payload.heatCtl.cfg.maxBoost}} °C (P23, then P24); supply above the set point, supply − return &gt; {{msg.payload.heatCtl.cfg.gapMax + 1}} °C or high current → one step down (boost first, then mode). One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
         </div>
       </div>
     </section>
@@ -255,6 +256,7 @@
       <div class="hpw-chips" ng-if="msg.payload.summary">
         <span class="hpw-chip" ng-class="{'hpw-warn': msg.payload.summary.valveToDhw}">Valve: {{msg.payload.summary.valveToDhw === null ? '—' : (msg.payload.summary.valveToDhw ? 'DHW (boiler)' : 'Heating')}}</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart" ng-class="{'hpw-warn': msg.payload.dhwChart.state !== 'HEATING', 'hpw-bad': msg.payload.dhwChart.mode !== 'live'}">Controller {{hpModeLabel(msg.payload.dhwChart.mode)}} · {{msg.payload.dhwChart.stateLabel}} since {{msg.payload.dhwChart.since | date:'HH:mm'}}</span>
+        <span class="hpw-chip" ng-if="msg.payload.dhwChart.defrost && msg.payload.dhwChart.defrost.next">next defrost ≈ {{msg.payload.dhwChart.defrost.next | date:'HH:mm'}} (every ~{{msg.payload.dhwChart.defrost.intervalMin}} min)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">next start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
       </div>
       <div class="hpw-ctl" ng-if="msg.payload.dhwChart">
@@ -338,6 +340,8 @@
               <th>Cold limit</th><td><input type="number" ng-model="hp.dhw.coldLimit" ng-change="hp.dhwDirty = true"> °C: supply ≤ <input type="number" ng-model="hp.dhw.coldCap" ng-change="hp.dhwDirty = true"> °C, every <input type="number" step="0.5" ng-model="hp.dhw.coldIntervalH" ng-change="hp.dhwDirty = true"> h, heating first</td></tr>
             <tr title="Shortest time between the end of one DHW cycle and the start of the next.">
               <th>Min interval</th><td><input type="number" step="0.5" ng-model="hp.dhw.minIntervalH" ng-change="hp.dhwDirty = true"> h</td></tr>
+            <tr title="No cycle starts when the next defrost is expected within this time (forecast from the last defrost intervals); after a defrost the cycle waits until the supply is back at the heating set point minus the second value. 0 = off.">
+              <th>Defrost</th><td>no start <input type="number" ng-model="hp.dhw.defrostLead" ng-change="hp.dhwDirty = true"> min before one; after it supply ≥ heating set − <input type="number" step="0.5" ng-model="hp.dhw.supplyReady" ng-change="hp.dhwDirty = true"> °C</td></tr>
             <tr title="Longest DHW cycle; the second value applies at or below the cold limit. The cycle ends earlier when the tank reaches its target.">
               <th>Max duration</th><td><input type="number" ng-model="hp.dhw.maxMin" ng-change="hp.dhwDirty = true"> min, <input type="number" ng-model="hp.dhw.maxMinCold" ng-change="hp.dhwDirty = true"> min in the cold</td></tr>
             <tr title="If the compressor runs at or above any of these for 3 minutes, the controller lowers P23 by 2 (less supply, less load). 9.67 A is the nameplate current.">
@@ -415,7 +419,7 @@
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
         var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp };
-        ['hyst', 'gap', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);
@@ -441,7 +445,7 @@
         var c = scope.hp.heat;
         if (!c) return;
         var cfg = { allowPowerful: !!c.allowPowerful };
-        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
