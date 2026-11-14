@@ -106,8 +106,10 @@
 //    DHW cycles and defrosts it steps the pump mode Silent ⇄ Smart (⇄ Powerful if allowed) from the
 //    10-min averages of supply − heating set point (lag) and supply − return (gap): lag below −lagUp
 //    and gap < gapMax → one step up; supply above the set point + overC, gap > gapMax + 1 or the
-//    current ≥ ampPct of 9.67 A → one step down; at most one step per stepMin. Gap 3–4 °C = the
-//    supply rises smoothly. Its page model goes out as flow.dhwView.heat.
+//    current ≥ ampPct of 9.67 A → one step down; at most one step per stepMin (≥ 10 min; the samples are
+//    cleared after a step). Supply − return ≤ gapMax = the supply rises smoothly. In On it owns the mode
+//    outside DHW cycles: a mode set by hand (or Powerful while not allowed) is corrected at the next step.
+//    d#167 (review of PR #20): gapMin dropped, null DPs ignored, publishView() for flow.dhwView.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -244,8 +246,8 @@ function wantedSupply(c, x) {
 // ---- heating power controller (d#166) ---------------------------------------------------
 const HEAT_ID = 'heat';
 const HEAT_NAME = 'Heating power controller';
-const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMin: 3, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false };
-const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMin: [1, 8], gapMax: [2, 10], stepMin: [5, 60], ampPct: [50, 100] };
+const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false };
+const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMax: [2, 10], stepMin: [10, 60], ampPct: [50, 100] };
 const HEAT_WINDOW_MIN = 10;
 const HEAT_LADDER = ['mute', 'smart', 'strong'];
 const MODE_NAME = { mute: 'Silent', smart: 'Smart', strong: 'Powerful' };
@@ -258,7 +260,6 @@ function heatCfg(raw, base) {
         if (r[k] !== undefined && r[k] !== null && r[k] !== '' && Number.isFinite(v) && v >= HEAT_LIMITS[k][0] && v <= HEAT_LIMITS[k][1]) c[k] = v;
     }
     if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
-    if (c.gapMax < c.gapMin) c.gapMax = c.gapMin;
     return c;
 }
 // one decision from the averages: +1 step up, −1 step down, 0 stay (pure, see tests)
@@ -806,6 +807,7 @@ function heatModel() {
     return { mode: modeOf(HEAT_ID), cfg: c, lag: h.lag, gap: h.gap, why: h.why, decision: h.decision, lastStep: h.lastStep,
         pumpMode: MODE_NAME[H['2']] || H['2'] || null, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
 }
+function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() })); }
 function heatTick() {
     const h = heatState(), c = settings.heat || heatCfg({});
     const md = modeOf(HEAT_ID);
@@ -826,7 +828,8 @@ function heatTick() {
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
         context.set('heat', h); return;
     }
-    const sup = n(H['102']), ret = n(H['101']), set = n(H['125']), amp = n(H['112']);
+    const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));   // Number(null) is 0
+    const sup = num(H['102']), ret = num(H['101']), set = num(H['125']), amp = num(H['112']);
     if ([sup, ret, set].every(Number.isFinite)) h.samples.push([now, sup - set, sup - ret, Number.isFinite(amp) ? amp : null]);
     h.samples = h.samples.filter((x) => now - x[0] <= HEAT_WINDOW_MIN * MIN);
     const full = h.samples.length >= 20 && now - h.samples[0][0] >= (HEAT_WINDOW_MIN - 1) * MIN;
@@ -847,6 +850,7 @@ function heatTick() {
     const live = md === 'live' && settings.master;
     const s = mode(HEAT_LADDER[to]);
     h.run = now + ':' + HEAT_ID; h.lastStep = now; h.modeCmd = s.set; h.modeAt = now;
+    h.samples = [];   // the next decision only sees the new mode
     h.why = dec.why + ' → ' + MODE_NAME[s.set];
     if (live) {
         const q = context.get('queue') || [];
@@ -898,7 +902,7 @@ if (msg.topic === 'ui') {
         persist();
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
             + (p.mode !== 'live' ? ' — no other rule heats the tank now' : '') });
-        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
+        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode' && p.id === HEAT_ID) {
@@ -907,7 +911,7 @@ if (msg.topic === 'ui') {
         const h = heatState(); h.lastStep = 0; h.samples = []; context.set('heat', h);
         persist();
         logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: 'controller set to ' + MODE_LABEL[p.mode] });
-        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
+        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object') {
@@ -916,7 +920,7 @@ if (msg.topic === 'ui') {
         persist();
         const after = JSON.stringify(settings.heat);
         logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
-        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
+        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object') {
@@ -925,7 +929,7 @@ if (msg.topic === 'ui') {
         persist();
         const after = JSON.stringify(settings.dhw);
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
-        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
+        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode') {
@@ -1043,7 +1047,7 @@ for (const r of RULES) {
 dhwTick();
 heatTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
-flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
+publishView();
 persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;

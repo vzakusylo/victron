@@ -234,7 +234,7 @@
           <div class="row" ng-if="hp.heat">
             <label title="supply this far below the set point → one mode step up">up if lag &gt; <input type="number" step="0.5" ng-model="hp.heat.lagUp" ng-change="hp.heatDirty=true"> °C</label>
             <label title="supply this far above the set point → one step down">down if above set &gt; <input type="number" step="0.5" ng-model="hp.heat.overC" ng-change="hp.heatDirty=true"> °C</label>
-            <label title="wanted supply − return: smooth rise">supply − return <input type="number" step="0.5" ng-model="hp.heat.gapMin" ng-change="hp.heatDirty=true"> … <input type="number" step="0.5" ng-model="hp.heat.gapMax" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="supply − return above this: no step up; above this + 1: one step down">supply − return ≤ <input type="number" step="0.5" ng-model="hp.heat.gapMax" ng-change="hp.heatDirty=true"> °C</label>
             <label>step every ≥ <input type="number" ng-model="hp.heat.stepMin" ng-change="hp.heatDirty=true"> min</label>
             <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
             <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
@@ -431,7 +431,7 @@
         scope.hp.dhwModeSent = m; scope.hp.dhwModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: m } });
     };
-    // Heating power controller (d#166)
+    // Heating power controller (d#166–d#167)
     scope.hp.heat = null; scope.hp.heatDirty = false; scope.hp.heatModeSent = null;
     function heatCopy() { var c = scope.msg && scope.msg.payload && scope.msg.payload.heatCtl && scope.msg.payload.heatCtl.cfg; return c ? JSON.parse(JSON.stringify(c)) : null; }
     scope.$watch('msg.payload.heatCtl.cfg', function () { if (!scope.hp.heatDirty) { scope.hp.heat = heatCopy(); } }, true);
@@ -441,7 +441,7 @@
         var c = scope.hp.heat;
         if (!c) return;
         var cfg = { allowPowerful: !!c.allowPowerful };
-        ['lagUp', 'overC', 'gapMin', 'gapMax', 'stepMin', 'ampPct'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
