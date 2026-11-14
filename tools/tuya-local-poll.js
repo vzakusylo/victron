@@ -7,6 +7,7 @@
 // Usage (exec of "Devices model", 50):  node /data/home/nodered/tools/tuya-local-poll.js
 // Protocol version: tried 3.3, 3.4, 3.5 until one answers; the working one is remembered in
 //   grid-control-config/tuya-devices-ver.json (no keys).
+// IP: from the setup; a device without one (off at setup) is looked up by its MAC in the ARP table.
 // Last good readings: grid-control-config/tuya-devices-last.json { id: { t, ip, version, dps } } (no keys).
 // Output: one JSON line per device { kind: 'reading', id, t, ip, version, dps } or { kind: 'error', id, error },
 //   then { kind: 'done', ms }. Never prints keys.
@@ -28,6 +29,24 @@ const last = readJson(DIR + 'tuya-devices-last.json', {});
 const t0 = Date.now();
 const HARD_LIMIT_MS = 25000;   // the exec must not hang (BusyBox on the GX has no `timeout`)
 setTimeout(() => { out({ kind: 'done', ms: Date.now() - t0, aborted: true }); process.exit(0); }, HARD_LIMIT_MS).unref();
+
+// A device that was off at setup has no IP in tuya-devices.json: take it from the ARP table by its
+// MAC, or from its last good reading (the ARP entry is gone after a GX restart).
+function arpTable() {
+    const arp = {};
+    try {
+        for (const line of require('child_process').execSync('ip neigh', { timeout: 5000 }).toString().split('\n')) {
+            const m = line.match(/^(\d+\.\d+\.\d+\.\d+) .* lladdr ([0-9a-f:]+)/i);
+            if (m) arp[m[2].toLowerCase()] = m[1];
+        }
+    } catch (e) { /* no `ip` */ }
+    return arp;
+}
+const arp = Object.keys(devices).some((id) => !devices[id].ip) ? arpTable() : {};
+for (const id of Object.keys(devices)) {
+    const d = devices[id];
+    if (!d.ip) d.ip = arp[String(d.mac || '').toLowerCase()] || (last[id] && last[id].ip) || '';
+}
 
 function readOnce(id, d, version) {
     return new Promise((resolve) => {
