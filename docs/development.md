@@ -122,18 +122,27 @@ Recommended workflow when editing the logic:
    ```
    The same two commands run on every pull request (`.github/workflows/check.yml`).
 4. make a backup (the **Backup** page, or a copy of `flows.json` and `flows_cred.json` on the GX), then deploy. The way used for this installation: a script on the GX reads the live flow from the Node-RED admin API (`GET /flows`), replaces only the changed nodes (same node ids) and posts it back with deploy type `nodes`. The Tuya keys stay in place and only the changed nodes restart. A full *Import → Replace* also works, but do not replace the Tuya nodes that already have keys ([why](../README.md#heat-pump-page-tuya-wi-fi-heat-pump)). Do not deploy the heat pump automation nodes while a DHW cycle runs. Rollback = put the two saved files back and restart Node-RED.
-   Before `POST /flows`, stamp the already assembled selective payload:
+   Save the untouched original `GET /flows` response as `original-live.json`
+   before replacing any nodes. Assemble the selective payload from a separate
+   copy: a repo version tab has a bumped `d#` but no live deployment metadata.
+   Before `POST /flows`, stamp the assembled payload using that original snapshot:
    ```powershell
    # Commit and verify the source changes first; this SHA must identify those sources.
    $SourceCommit = git rev-parse HEAD
-   node .\tools\deploy-version.js .\prepared-live-patch.json .\versioned-live-patch.json --dashboard $SourceCommit --automations $SourceCommit
+   node .\tools\deploy-version.js .\prepared-live-patch.json .\versioned-live-patch.json --live .\original-live.json --dashboard $SourceCommit --automations $SourceCommit
    ```
    Pass only `--dashboard` for a UI-only change or only `--automations` for a
-   logic-only change. The output must be a new file; input and tracked
+   logic-only change. `--live` is mandatory for either scope alone: the previous
+   component SHA comes from the original live tab, not the patched repo tab.
+   An unrecorded original live tab still explicitly yields `unrecorded`.
+   The output must be a new file; input and tracked
    `flows.json` are not overwritten. The module also exports
-   `stampDeployment(payload, { dashboard: sha, automations: sha })` for the
+   `stampDeployment(payload, { dashboard: sha, automations: sha }, originalLive)` for the
    deployment script. It accepts a flow array or a v2 `{ rev, flows }` envelope,
    preserving `rev`, node IDs, logic, wiring and private credential references.
+   Both payloads must refer to the same version tab; v2 revisions must match
+   when both are present. Replacing both component SHAs does not require a
+   previous snapshot, but partial deployments without one fail explicitly.
    Use the v2 revision in the guarded POST; abort and rebuild on a concurrent
    live revision change. Include the stamped tab/UI configuration fields in
    the selective deployment, not just function code. Dashboard configuration

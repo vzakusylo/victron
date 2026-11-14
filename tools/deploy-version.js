@@ -44,31 +44,57 @@ function singleNode(flows, predicate, label) {
     return nodes[0];
 }
 
-function stampDeployment(input, commits) {
-    if (!Array.isArray(input) && (!input || typeof input !== 'object' || !Array.isArray(input.flows))) {
+function flowNodes(payload) {
+    const flows = Array.isArray(payload) ? payload : payload && payload.flows;
+    if (!Array.isArray(flows) || flows.some((node) => !node || typeof node !== 'object' || Array.isArray(node))) {
         throw new Error('Expected a flows array or a Node-RED v2 payload with flows.');
     }
+    return flows;
+}
+
+function versionTab(flows) {
+    return singleNode(flows, (node) => node.type === 'tab' && typeof node.label === 'string' && /d#\d+/.test(node.label), 'd# version tab');
+}
+
+function tabInfo(tab) {
+    if (tab.info !== undefined && typeof tab.info !== 'string') {
+        throw new Error('Version tab info must be a string.');
+    }
+    return tab.info || '';
+}
+
+function stampDeployment(input, commits, liveSnapshot) {
+    flowNodes(input);
     if (!commits || !Object.keys(commits).length ||
         Object.keys(commits).some((scope) => !SCOPES.includes(scope))) {
         throw new Error('Specify the source commit for dashboard and/or automations.');
     }
     const sources = Object.fromEntries(Object.entries(commits).map(([scope, value]) => [scope, commitSha(value)]));
-    const prepared = JSON.parse(JSON.stringify(input));
-    const flows = Array.isArray(prepared) ? prepared : prepared && prepared.flows;
-    if (!Array.isArray(flows) || flows.some((node) => !node || typeof node !== 'object' || Array.isArray(node))) {
-        throw new Error('Expected a flows array or a Node-RED v2 payload with flows.');
+    if (Object.keys(sources).length !== SCOPES.length && liveSnapshot === undefined) {
+        throw new Error('Partial deployments require the original live flow snapshot.');
     }
-    const tab = singleNode(flows, (node) => node.type === 'tab' && typeof node.label === 'string' && /d#\d+/.test(node.label), 'd# version tab');
+    const prepared = JSON.parse(JSON.stringify(input));
+    const flows = flowNodes(prepared);
+    const tab = versionTab(flows);
     const base = singleNode(flows, (node) => node.type === 'ui_base', 'dashboard ui_base');
     const pages = flows.filter((node) => node.type === 'ui_tab');
     if (!base.site || typeof base.site.name !== 'string' || !base.site.name ||
-        !pages.length || pages.some((node) => typeof node.name !== 'string' || !node.name) ||
-        (tab.info !== undefined && typeof tab.info !== 'string')) {
-        throw new Error('Dashboard site/page names and tab info must be valid strings.');
+        !pages.length || pages.some((node) => typeof node.name !== 'string' || !node.name)) {
+        throw new Error('Dashboard site/page names must be valid strings.');
     }
-    const info = tab.info || '';
+    const info = tabInfo(tab);
     const metadata = readMetadata(info);
-    const record = Object.assign(metadata.record, sources);
+    let previous = metadata.record;
+    if (liveSnapshot !== undefined) {
+        const liveTab = versionTab(flowNodes(liveSnapshot));
+        if (liveTab.id !== tab.id) throw new Error('Original live snapshot has a different version tab ID.');
+        if (!Array.isArray(input) && !Array.isArray(liveSnapshot) &&
+            input.rev !== undefined && liveSnapshot.rev !== undefined && input.rev !== liveSnapshot.rev) {
+            throw new Error('Original live snapshot revision differs from the prepared payload.');
+        }
+        previous = readMetadata(tabInfo(liveTab)).record;
+    }
+    const record = Object.assign({}, previous, sources);
     const short = (value) => value === null ? 'unrecorded' : value.slice(0, 12);
     const suffix = record.dashboard && record.dashboard === record.automations
         ? ' [git ' + short(record.dashboard) + ']'
@@ -87,27 +113,37 @@ function stampDeployment(input, commits) {
 
 module.exports = { stampDeployment };
 
+function readPayload(file, label) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch { throw new Error('Cannot read valid ' + label + ' flow JSON; check the file and permissions.'); }
+}
+
 if (require.main === module) {
     try {
         const [input, output, ...args] = process.argv.slice(2);
         if (!input || !output || !args.length || args.length % 2) {
-            throw new Error('Usage: deploy-version.js INPUT OUTPUT --dashboard SHA [--automations SHA] (either scope may be used alone).');
+            throw new Error('Usage: deploy-version.js INPUT OUTPUT [--live ORIGINAL_LIVE] --dashboard SHA [--automations SHA] (--live is required for either scope alone).');
         }
         if (path.resolve(input) === path.resolve(output)) {
             throw new Error('Use a separate output file; do not overwrite the input flows.');
         }
         const commits = {};
+        let liveFile;
         for (let i = 0; i < args.length; i += 2) {
+            if (args[i] === '--live') {
+                if (liveFile !== undefined) throw new Error('Duplicate original live snapshot argument.');
+                liveFile = args[i + 1];
+                continue;
+            }
             const scope = args[i].replace(/^--/, '');
             if (args[i] !== '--' + scope || !SCOPES.includes(scope) || Object.hasOwn(commits, scope)) {
                 throw new Error('Unknown or duplicate deployment scope.');
             }
             commits[scope] = args[i + 1];
         }
-        let payload;
-        try { payload = JSON.parse(fs.readFileSync(input, 'utf8')); }
-        catch { throw new Error('Cannot read valid input flow JSON; check the file and permissions.'); }
-        fs.writeFileSync(output, JSON.stringify(stampDeployment(payload, commits), null, 2), { mode: 0o600, flag: 'wx' });
+        const payload = readPayload(input, 'input');
+        const liveSnapshot = liveFile === undefined ? undefined : readPayload(liveFile, 'original live');
+        fs.writeFileSync(output, JSON.stringify(stampDeployment(payload, commits, liveSnapshot), null, 2), { mode: 0o600, flag: 'wx' });
         console.log('Prepared deployment source labels; no live deployment performed.');
     } catch (error) {
         console.error(error.message);
