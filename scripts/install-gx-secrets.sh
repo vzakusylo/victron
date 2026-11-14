@@ -1,46 +1,92 @@
 #!/bin/sh
 # Runs on the Cerbo GX (busybox sh). Reads a tar archive from stdin containing
-#   secrets/<10 private files> and tools/<2 helper scripts>,
+#   secrets/<7 active private files> and tools/<2 helper scripts>,
 # installs it with a timestamped backup, validates it and rolls back on failure.
 # It never prints file contents and never restarts Node-RED.
 set -eu
 umask 077
 
-CONFIG_DIR=/data/home/nodered/grid-control-config
-NODE_RED_DIR=/data/home/nodered/.node-red
-TOOLS_DIR=/data/home/nodered/tools
+GX_HOME=${VICTRON_HOME:-/data/home/nodered}
+CONFIG_DIR="$GX_HOME/grid-control-config"
+NODE_RED_DIR="$GX_HOME/.node-red"
+TOOLS_DIR="$GX_HOME/tools"
+SERVICE=${VICTRON_SERVICE:-/service/node-red-venus}
 CONFIG_FILES="tuya-cloud.json tuya-devices.json tuya-local-sensors.json tuya-nodes.json email.json mcp-token.txt"
-NODE_RED_FILES="flows_cred.json .config.runtime.json .config.users.json settings-user.js"
+NODE_RED_FILES="settings-user.js"
 TOOL_FILES="victron-secrets.js reload-victron-secrets.js"
 
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-STAGE=$(mktemp -d /data/home/nodered/.secrets-stage.XXXXXX)
-BACKUP="$NODE_RED_DIR/backup-pre-secret-deploy-$STAMP"
-trap 'rm -rf "$STAGE"' EXIT
+if [ "$(id -u)" != 0 ]; then
+    echo "Installation requires root" >&2
+    exit 1
+fi
+STATE=$(svstat "$SERVICE") || exit 1
+case "$STATE" in
+    *": down "*) ;;
+    *) echo "Stop Node-RED and verify it is down before installing secrets" >&2; exit 1 ;;
+esac
+
+STAGE=$(mktemp -d "$GX_HOME/.secrets-stage.XXXXXX")
+BACKUP=
+CHANGED=0
+cleanup() {
+    STATUS=$?
+    trap - EXIT HUP INT TERM
+    if [ "$CHANGED" = 1 ]; then
+        echo "Installation failed; restoring previous files from $BACKUP" >&2
+        RESTORE_FAILED=0
+        for group in config node-red tools; do
+            case "$group" in
+                config) DEST="$CONFIG_DIR"; FILES="$CONFIG_FILES" ;;
+                node-red) DEST="$NODE_RED_DIR"; FILES="$NODE_RED_FILES" ;;
+                tools) DEST="$TOOLS_DIR"; FILES="$TOOL_FILES" ;;
+            esac
+            for f in $FILES; do
+                if [ -e "$BACKUP/$group/$f" ]; then
+                    cp -p "$BACKUP/$group/$f" "$DEST/$f" || RESTORE_FAILED=1
+                else
+                    rm -f "$DEST/$f" || RESTORE_FAILED=1
+                fi
+            done
+        done
+        if [ "$RESTORE_FAILED" = 1 ]; then
+            echo "Rollback incomplete; keep Node-RED stopped and restore from $BACKUP" >&2
+        fi
+        STATUS=1
+    fi
+    rm -rf "$STAGE" || STATUS=1
+    exit "$STATUS"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 cat > "$STAGE/archive.tar"
 EXPECTED=$(for f in $CONFIG_FILES $NODE_RED_FILES; do echo "secrets/$f"; done; for f in $TOOL_FILES; do echo "tools/$f"; done)
-ACTUAL=$(tar -tf "$STAGE/archive.tar" | grep -v '/$' | sort)
+tar -tf "$STAGE/archive.tar" > "$STAGE/members" || exit 1
+tar -tvf "$STAGE/archive.tar" > "$STAGE/types" || exit 1
+if grep -q '^[^-d]' "$STAGE/types"; then
+    echo "Archive must contain only regular files and directories" >&2
+    exit 1
+fi
+ACTUAL=$(grep -v '/$' "$STAGE/members" | sort)
 if [ "$(echo "$EXPECTED" | sort)" != "$ACTUAL" ]; then
     echo "Archive does not contain exactly the expected files" >&2
     exit 1
 fi
+# Only these directories are allowed; reject traversal paths even for directories.
+if grep '/$' "$STAGE/members" | grep -v -E '^(secrets|tools)/$' | grep -q .; then
+    echo "Unexpected archive directory" >&2
+    exit 1
+fi
 tar -xf "$STAGE/archive.tar" -C "$STAGE"
 
+BACKUP=$(mktemp -d "$NODE_RED_DIR/backup-pre-secret-deploy-XXXXXX")
 mkdir -p "$BACKUP/config" "$BACKUP/node-red" "$BACKUP/tools" "$CONFIG_DIR" "$TOOLS_DIR"
 chmod 700 "$BACKUP"
-for f in $CONFIG_FILES; do [ -e "$CONFIG_DIR/$f" ] && cp -p "$CONFIG_DIR/$f" "$BACKUP/config/$f"; done
-for f in $NODE_RED_FILES; do [ -e "$NODE_RED_DIR/$f" ] && cp -p "$NODE_RED_DIR/$f" "$BACKUP/node-red/$f"; done
-for f in $TOOL_FILES; do [ -e "$TOOLS_DIR/$f" ] && cp -p "$TOOLS_DIR/$f" "$BACKUP/tools/$f"; done
+for f in $CONFIG_FILES; do if [ -e "$CONFIG_DIR/$f" ]; then cp -p "$CONFIG_DIR/$f" "$BACKUP/config/$f"; fi; done
+for f in $NODE_RED_FILES; do if [ -e "$NODE_RED_DIR/$f" ]; then cp -p "$NODE_RED_DIR/$f" "$BACKUP/node-red/$f"; fi; done
+for f in $TOOL_FILES; do if [ -e "$TOOLS_DIR/$f" ]; then cp -p "$TOOLS_DIR/$f" "$BACKUP/tools/$f"; fi; done
 
-rollback() {
-    echo "Validation failed; restoring previous files from $BACKUP" >&2
-    for f in $CONFIG_FILES; do [ -e "$BACKUP/config/$f" ] && cp -p "$BACKUP/config/$f" "$CONFIG_DIR/$f"; done
-    for f in $NODE_RED_FILES; do [ -e "$BACKUP/node-red/$f" ] && cp -p "$BACKUP/node-red/$f" "$NODE_RED_DIR/$f"; done
-    for f in $TOOL_FILES; do [ -e "$BACKUP/tools/$f" ] && cp -p "$BACKUP/tools/$f" "$TOOLS_DIR/$f"; done
-    exit 1
-}
-
+CHANGED=1
 for f in $TOOL_FILES; do
     install -m 644 -o nodered -g nodered "$STAGE/tools/$f" "$TOOLS_DIR/$f"
 done
@@ -51,5 +97,7 @@ for f in $NODE_RED_FILES; do
     install -m 600 -o nodered -g nodered "$STAGE/secrets/$f" "$NODE_RED_DIR/$f"
 done
 
-node "$TOOLS_DIR/reload-victron-secrets.js" check || rollback
-echo "Installed 10 private files and 2 helper scripts; previous copies: $BACKUP"
+node "$TOOLS_DIR/reload-victron-secrets.js" check
+CHANGED=0
+echo "Installed 7 active private files and 2 helper scripts; previous copies: $BACKUP"
+echo "Node-RED remains stopped; start it explicitly after reviewing the installation"

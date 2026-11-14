@@ -187,15 +187,16 @@ The VRM remote-console relay does not work for MCP clients (it returns 403 "No s
 
 Nothing secret is stored in this repository. Keep it that way:
 
-For private file backups in GitHub Actions secrets, source locations, and the
-one-command manual synchronization and restore scripts, see
-[Secret file storage and synchronization](scripts/SECRETS.md).
+Deployments reconstruct private files from GitHub Actions Secrets; the running
+GX reads those installed files locally. Required secret names, how to obtain and
+update them, and the manual deployment workflow are described in
+[Victron secrets and deployment](scripts/SECRETS.md).
 
 | Secret | Where it comes from | Where it is kept |
 |---|---|---|
-| Tuya Local Key ×3 | Tuya IoT Platform cloud project linked to the Smart Life app. Get it with `python -m tinytuya wizard` or API Explorer → *Query Device Details* (`local_key`) | entered by hand in the Tuya nodes. `storeAsCreds: true` keeps it in the encrypted `flows_cred.json`, not in `flows.json`. Local notes go in the git-ignored `.secrets/` folder |
-| Tuya IoT Access ID / Secret | Tuya IoT Platform → project → Overview | `.secrets/` (git-ignored) |
-| MCP token | generated on the GX: `/data/home/nodered/grid-control-config/mcp-token.txt`, shown on the **Agent (MCP)** page | GX only. Pass it to the client as `MCP_TOKEN` (an agent with SSH access can read it straight into the env var). Regenerate it if it was ever pasted into a chat |
+| Tuya Local Keys | Tuya IoT Platform cloud project linked to Smart Life; query device details after re-pairing | GitHub file secrets for devices/local sensors; deployment installs private files. Migrated Tuya nodes use startup environment references, not embedded keys |
+| Tuya IoT Access ID / Secret | Tuya IoT Platform → project → Overview | `SECRETFILE_TUYA_CLOUD_JSON`; deployed as private `tuya-cloud.json` |
+| MCP token | generated on the GX in `grid-control-config/mcp-token.txt` | `SECRETFILE_MCP_TOKEN_TXT`; deployed locally. Regenerate and update the secret if exposed |
 | GX root password / SSH key | Remote Console → Settings → General; `ssh-keygen` on the PC, public key in `/root/.ssh/authorized_keys` | your password manager / `~/.ssh` |
 
 The Local Key changes if a Tuya device is reset or re-paired; fetch it again then. `.gitignore` also excludes local handoff notes (`HANDOFF.md`) and the agent channel (`.claude/bridge/`).

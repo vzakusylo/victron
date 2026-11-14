@@ -7,8 +7,8 @@
 The `Backup` tab creates one `.tar.gz` with everything unique to this GX device, so the full history and all setup can be restored on the same or a new device.
 
 For the separate encrypted GitHub Secrets copies of 11 Victron private files,
-manual GX-to-GitHub synchronization, file-backed Tuya credentials and the
-2026-11-14 migration/rollback record, see
+manual GX-to-GitHub synchronization and deployment of file-backed credentials
+from GitHub Secrets, see
 [Victron secret file instructions](../scripts/SECRETS.md).
 Those copies do not replace this full-device backup or restore the flow,
 history, palette modules and drivers.
