@@ -93,7 +93,7 @@ const SOLAR_NOON = 12.35;   // local clock hour of the solar noon (CET, 9.9° E)
 const SUN_GAIN_MAX = 2;
 function sunSin(dayKey, hour) {
     const d = new Date(dayKey + 'T12:00:00');
-    const doy = Math.round((d - new Date(d.getFullYear(), 0, 1)) / 86400000) + 1;
+    const doy = Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 1)) / 86400000) + 1;   // no DST shift
     const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI * (284 + doy) / 365);
     const ha = 15 * (hour + 0.5 - SOLAR_NOON) * Math.PI / 180;
     return Math.sin(LAT) * Math.sin(decl) + Math.cos(LAT) * Math.cos(decl) * Math.cos(ha);

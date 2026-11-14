@@ -128,6 +128,8 @@
 // 27. d#176 (owner): min interval 1 h; in the defrost season (a defrost < 3 h ago) a DHW cycle starts only within
 //    afterDefrostWinMin (30) after the supply recovered from a defrost, so the cycle runs between two defrosts; in the
 //    cold the heating-first check (heating lags its curve → no DHW) stays.
+// 28. d#177 (review of PR #21): holds other than Off / DHW keep the curve boost (no boosted curve stored as the owner's);
+//    the defrost season comes from settings.defrostStarts; a Test cycle never sets dhwBlock; no decisions during a kick.
 // 21. d#170: defrosts are ignored by the curve following: the heating controller pauses (keeps its samples, shifts
 //    them over the pause) during a defrost, the quiet time and until the supply is back at set − supplyReady; the DHW
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
@@ -673,7 +675,7 @@ function dhwTick() {
         // new DHW starts until "Allow DHW again" on the Heat Pump page; no automatic retries (the d#144 retry is gone)
         let retryTxt = '';
         settings.dhwRetry = null;
-        if (abort) {
+        if (abort && d.live) {   // d#177: a Test cycle never switches the valve, so it never blocks
             settings.dhwBlock = { at: now, why };
             retryTxt = '; DHW blocked until allowed again on the Heat Pump page';
         }
@@ -726,8 +728,10 @@ function dhwTick() {
                 + (Number.isFinite(Number(context.get('preDefSupply'))) ? ', before the defrost ' + context.get('preDefSupply') : '') + ') — heating first');
         }
         // d#176: in the defrost season a cycle starts only in the window right after a defrost (supply recovered)
+        // (d#177: the season comes from the recorded defrost starts, not lastDefrost, which a node start sets too)
         const lastDefA = context.get('lastDefrost') || 0, recAt = context.get('recoveredAt') || 0;
-        if (c.afterDefrost && lastDefA && now - lastDefA < 3 * 3600 * 1000 && !defNow && !recentDefrost && !defRecovering
+        const season = (settings.defrostStarts || []).some((x) => now - x < 3 * 3600 * 1000);
+        if (c.afterDefrost && season && !defNow && !recentDefrost && !defRecovering
             && !(recAt > lastDefA && now - recAt <= c.afterDefrostWinMin * MIN))
             why.push('defrost season: start only within ' + c.afterDefrostWinMin + ' min after a defrost' + (recAt > lastDefA ? ' (window closed ' + new Date(recAt + c.afterDefrostWinMin * MIN).toTimeString().slice(0, 5) + ')' : ''));
         const fc = defrostForecast();
@@ -922,9 +926,12 @@ function heatTick() {
     if (hold.length) {
         // d#171: a curve boost ends with the hold: a DHW cycle writes the owner's curve back at its end itself;
         // controller Off (or not On) → the owner's P23 back now
-        if (h.boost) {
+        // d#177 (review of #21): other holds (pump off, stale, valve, unknown mode) keep the boost and its bookkeeping, so the
+        // boosted P23 / P24 is never stored as the owner's curve
+        const dhwRun = !!(d.state && d.state !== 'HEATING');
+        if (h.boost && (dhwRun || md !== 'live')) {
             const hc0 = settings.heatCurve;
-            if (hc0 && !(d.state && d.state !== 'HEATING') && md !== 'live' && settings.master && ready('hp')) {
+            if (hc0 && !dhwRun && md !== 'live' && settings.master && ready('hp')) {
                 const q = context.get('queue') || [];
                 for (const w of [p24w(hc0.p24), p23w(hc0.p23)]) {
                     q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
@@ -932,8 +939,9 @@ function heatTick() {
                 }
                 context.set('queue', q);
                 pump();
-            }
-            h.boost = 0;
+                h.boost = 0;
+            } else if (dhwRun) h.boost = 0;   // the DHW cycle writes the owner's curve back at its end
+            // (Off / Test with local control OFF: nothing can be written, the boost and its bookkeeping stay)
         }
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
         context.set('heat', h); return;
@@ -948,6 +956,9 @@ function heatTick() {
         h.paused = h.paused || now;
         context.set('heat', h); return;
     }
+    // d#177: while a stuck-supply kick holds Smart the controller does not decide (Smart is not its own step)
+    const kk = context.get('kick');
+    if (kk && kk.phase === 'smart') { h.why = 'stuck-supply kick running (Smart for a moment)'; context.set('heat', h); return; }
     // shift the kept samples over the pause, so the 10-min window counts only time outside defrosts
     if (h.paused) { const p = now - h.paused; h.samples = h.samples.map((x) => [x[0] + p, x[1], x[2], x[3]]); h.paused = 0; }
     const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));   // Number(null) is 0

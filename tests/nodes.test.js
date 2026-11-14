@@ -489,7 +489,7 @@ test('40: in the defrost season DHW starts only in the window right after a defr
     const node = loadNode('40 Heat pump automations.js');
     const T0 = Date.parse('2026-11-14T10:00:00Z');
     const M = 60000;
-    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 }, defrostStarts: [T0 - 85 * M] });
     node.context.set('lastDefrost', T0 - 80 * M);
     node.context.set('recoveredAt', T0 - 60 * M);   // window closed 30 min ago
     const tick = (now, over) => {
@@ -506,4 +506,21 @@ test('40: in the defrost season DHW starts only in the window right after a defr
     for (let i = 0; i < 6; i++) d = tick(T0 + M + i * 10000, { 116: 0 });          // defrost
     for (let i = 0; i < 6; i++) d = tick(T0 + 20 * M + i * 10000);                 // recovered → window open
     assert.equal(d.state, 'STOP', 'started right after the defrost');
+});
+
+test('40: a boosted curve is not stored as the owner curve when the pump goes stale for a while', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live', dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('heat', { samples: [], boost: 1, curveCmd: { p23: 40, p24: 5 }, p23At: T0 - 30 * 60000, lastStep: T0 - 30 * 60000, target: 37.2 });
+    node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    for (let i = 0; i < 40; i++) {
+        const t = T0 + i * 10000;
+        const stale = i < 20;   // valve relay stale for 200 s → hold
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: t, dps: { 1: true, 2: 'smart', 101: 34, 102: 37, 103: -5, 108: 47, 115: 60, 116: 594, 125: 38, 112: 3, 132: '1', 133: 40, 134: 5, 15: 0 } },
+            valve: { state: stale ? 'DISCONNECTED' : 'CONNECTED', lastData: stale ? T0 - 600000 : t, dps: { 1: false } }, bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now: t });
+    }
+    assert.deepEqual([node.context.get('settings').heatCurve.p23, node.context.get('settings').heatCurve.p24], [38, 4]);
+    assert.equal(node.context.get('heat').boost, 1, 'the boost is still known');
 });
