@@ -32,6 +32,7 @@
 // 1. Initial version (d#121): curve shift (P23), bypass on/off, history requests.
 // 2. d#138: 'ui' requests of the DHW controller panel go to output 4.
 // 3. d#142: P23 (curve) refused while a DHW cycle runs (the pump is on the boiler curve then).
+// 4. d#166 / d#174: 'ui' also passes the heating controller (mode id 'heat', heatSet) and dhwResume.
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
@@ -112,6 +113,7 @@ case 'ui': {
     const okMode = p.action === 'mode' && (p.id === 'dhw' || p.id === 'heat') && ['off', 'dry', 'live'].includes(p.mode);
     const okSet = p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object' && Array.isArray(p.cfg.curve);
     const okHeat = p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object' && !Array.isArray(p.cfg);
+    if (p.action === 'dhwResume') { node.status({ fill: 'blue', shape: 'dot', text: 'DHW allowed again' }); return [null, null, null, { topic: 'ui', payload: { action: 'dhwResume' } }]; }   // d#174
     if (!okMode && !okSet && !okHeat) return refuse('ui: only the DHW / heating controller mode / settings');
     const who = (okMode ? p.id : okHeat ? 'heat' : 'dhw') === 'heat' ? 'Heating controller' : 'DHW controller';
     node.status({ fill: 'blue', shape: 'dot', text: who + ' ' + (okMode ? 'mode → ' + p.mode : 'settings') });

@@ -244,9 +244,10 @@ if (!send && st.pending.length && now - st.firstAt >= GATHER_MS && now - st.last
     send = mailMsg(subject, lines);
     st.pending = []; st.firstAt = 0;
 }
-// daily devices mail: once a day from REPORT_HOUR; when the digest goes out on this tick, the next tick
+// daily devices mail: once a day in the hour REPORT_HOUR (d#167: not later, so a restart with an empty context
+// after the mail went out does not send it again that day; a day whose 08:xx was missed has no mail); when the digest goes out on this tick, the next tick
 const dayKey = new Date(now).toDateString();
-if (!send && msg.topic === 'tick' && new Date(now).getHours() >= REPORT_HOUR && st.reportDay !== dayKey) {
+if (!send && msg.topic === 'tick' && new Date(now).getHours() === REPORT_HOUR && st.reportDay !== dayKey) {
     send = devicesReport();
     st.reportDay = dayKey;
 } else if (send && msg.topic === 'report') {

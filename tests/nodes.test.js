@@ -332,3 +332,195 @@ test('40: heating power controller steps Silent → Smart while the supply lags,
     }
     assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'mute' }], 'one step down to Silent');
 });
+
+test('40: after a node start no DHW cycle starts for 15 min (outdoor sensor may be warm from a defrost)', () => {
+    const init = loadNode('40 Heat pump automations.init.js');
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.now();
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    init.run({});
+    for (const k of Object.keys(init.context.data)) node.context.set(k, init.context.data[k]);
+    const dps = { 1: true, 2: 'mute', 101: 30, 102: 33, 103: 17.8, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 };
+    const starts = [];
+    for (let i = 0; i < 30; i++) {
+        const now = T0 + i * 10000;
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+        if (node.context.get('dhw').state !== 'HEATING') starts.push(i);
+    }
+    assert.deepEqual(starts, []);
+    assert.match(node.context.get('dhw').why, /defrost now or/);
+});
+
+test('40: DHW waits for a forecast defrost and, after it, for the supply to reach the heating set point', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    const M = 60000;
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 },
+        defrostStarts: [T0 - 150 * M, T0 - 100 * M, T0 - 50 * M] });   // every 50 min → next ≈ T0
+    const tick = (now, over) => {
+        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 36, 103: 3, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+        return node.context.get('dhw');
+    };
+    let d;
+    for (let i = 0; i < 6; i++) d = tick(T0 - 15 * M + i * 10000);
+    assert.equal(d.state, 'HEATING');
+    assert.match(d.why, /defrost expected/);
+    for (let i = 0; i < 6; i++) d = tick(T0 + i * 10000, { 116: 0, 115: 60 });     // defrost
+    assert.equal(node.context.get('settings').defrostStarts.length, 4, 'start recorded');
+    for (let i = 0; i < 6; i++) d = tick(T0 + 20 * M + i * 10000, { 102: 30 });     // supply not back yet
+    assert.equal(d.state, 'HEATING');
+    assert.match(d.why, /after the defrost supply 30/);
+    for (let i = 0; i < 6; i++) d = tick(T0 + 22 * M + i * 10000, { 102: 35.5 });   // back at set − 1
+    assert.equal(d.state, 'STOP', 'cycle started right after the defrost');
+});
+
+test('40: the heating controller ignores a defrost and its recovery and keeps the samples from before', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live' } });
+    const sets = [];
+    const tick = (now, over, byp) => {
+        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 33, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: !!byp } } });
+        const c = node.run({ topic: 'tick' }, { now });
+        c.sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') sets.push([Math.round((now - T0) / 60000), m[1].payload.set]); });
+    };
+    let t = T0;
+    for (let i = 0; i < 36; i++, t += 10000) tick(t);                                  // 6 min lag −3
+    for (let i = 0; i < 30; i++, t += 10000) tick(t, { 116: 0, 102: 22 }, true);       // 5 min defrost
+    for (let i = 0; i < 120; i++, t += 10000) tick(t, { 102: 28 });                     // 20 min quiet + recovery
+    assert.deepEqual(sets, [], 'no step during the defrost and the recovery');
+    assert.match(node.context.get('heat').why, /ignored/);
+    for (let i = 0; i < 30; i++, t += 10000) tick(t);                                  // back to −3: 5 min more
+    assert.equal(sets.length, 1, 'step after 10 min outside the defrost, not 10 min after it');
+    assert.equal(sets[0][1], 'smart');
+});
+
+test('40: after the top mode the heating controller raises the curve (P23 boost) and lowers the boost first', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    const sets = [];
+    let p23 = 38, p24 = 4;
+    const tick = (now, sup, mode) => {
+        const dps = { 1: true, 2: mode, 101: sup - 3, 102: sup, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: p23, 134: p24, 15: 0 };
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now }).sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') { sets.push(m[1].payload); if (m[1].payload.dps === 133) p23 = m[1].payload.set; if (m[1].payload.dps === 134) p24 = m[1].payload.set; } });
+    };
+    let t = T0;
+    for (let i = 0; i < 63; i++, t += 10000) tick(t, 33, 'smart');     // Smart (top), lag −4.2 → boost
+    // +1 °C at −5 °C: P23 would be 41 > 40 → P23 40 with P24 5
+    assert.deepEqual(sets, [{ operation: 'SET', dps: 134, set: 5 }, { operation: 'SET', dps: 133, set: 40 }]);
+    assert.equal(node.context.get('settings').heatCurve.p23, 38, 'the boost is not stored as the owner curve');
+    for (let i = 0; i < 63; i++, t += 10000) tick(t, 39, 'smart');     // above the point → boost off first
+    assert.deepEqual(sets.slice(2), [{ operation: 'SET', dps: 134, set: 4 }, { operation: 'SET', dps: 133, set: 38 }]);
+});
+
+test('40: a defrost after 30 % of a DHW cycle ends it and plans the next one 60 min later', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('dhw', { state: 'DHW', since: T0 - 20 * 60000, run: 'r', live: true, lastEnd: 0, p23Cmd: 30, p24Cmd: 12, rampAt: T0,
+        startAt: T0 - 20 * 60000, startTank: 40, streak: 0, outS: [[T0, 3]], outAvg: 3, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
+        valveOnSince: 0, goal: 30, want: 30, prot: null, curveFixAt: 0, why: '', waitNote: '', tankS: [], dhwMs: 20 * 60000 });
+    for (let i = 0; i < 3; i++) {
+        const now = T0 + i * 10000;
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps: { 1: true, 2: 'mute', 101: 40, 102: 45, 103: 3, 108: 44, 115: 60, 116: 0, 125: 36, 112: 3, 132: '1', 133: 30, 134: 12, 15: 0 } },
+            valve: { state: 'CONNECTED', lastData: now, dps: { 1: true } }, bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+    }
+    const d = node.context.get('dhw');
+    assert.equal(d.state, 'HEATING', 'tank 40 → 44 of 50 = 40 % → cycle ended');
+    const rt = node.context.get('settings').dhwRetry;
+    assert.equal(rt.n, 0);
+    assert.equal(rt.at, T0 + 10000 + 60 * 60000);
+});
+
+test('40: a DHW cycle ended by the valve switched from outside blocks new cycles until allowed again', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('dhw', { state: 'DHW', since: T0 - 5 * 60000, run: 'r', live: true, lastEnd: 0, p23Cmd: 30, p24Cmd: 12, rampAt: T0,
+        startAt: T0 - 5 * 60000, startTank: 40, streak: 0, outS: [[T0, 3]], outAvg: 3, lagS: [], prog: null, defTicks: 0, fanOkSince: 0,
+        valveOnSince: 0, goal: 30, want: 30, prot: null, curveFixAt: 0, why: '', waitNote: '', tankS: [], dhwMs: 4 * 60000 });
+    const tick = (now, valveOn) => {
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps: { 1: true, 2: 'mute', 101: 40, 102: 45, 103: 3, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 } },
+            valve: { state: 'CONNECTED', lastData: now, dps: { 1: valveOn } }, bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+    };
+    tick(T0, false);                                     // valve OFF in DHW (≥ 1 min in the state) → aborted
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.ok(node.context.get('settings').dhwBlock, 'blocked');
+    for (let i = 1; i < 6; i++) tick(T0 + 3 * 3600000 + i * 10000, false);   // 3 h later, tank cold
+    assert.equal(node.context.get('dhw').state, 'HEATING');
+    assert.match(node.context.get('dhw').why, /blocked: the last cycle was aborted/);
+    node.run({ topic: 'ui', payload: { action: 'dhwResume' } }, { now: T0 + 3 * 3600000 + 60000 });
+    assert.equal(node.context.get('settings').dhwBlock, null);
+});
+
+test('40: a supply stuck flat below its point in Silent gets a kick Smart → Silent', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 },
+        heat: { lagUp: 1.5, overC: 1, gapMax: 2, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 10, kickSec: 60 } });
+    node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    const sets = [];
+    let mode = 'mute';
+    let t = T0;
+    for (let i = 0; i < 75; i++, t += 10000) {
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: t, dps: { 1: true, 2: mode, 101: 30, 102: 33, 103: -5, 108: 47, 115: 50, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 } },
+            valve: { state: 'CONNECTED', lastData: t, dps: { 1: false } }, bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now: t }).sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') { sets.push([Math.round((t - T0) / 1000), m[1].payload.set]); if (m[1].payload.dps === 2) mode = m[1].payload.set; } });
+    }
+    // gap 3 > gapMax 2: the heating controller does not step up; the kick does (10 min), then back after 60 s
+    assert.deepEqual(sets.map((x) => x[1]), ['smart', 'mute']);
+    assert.ok(sets[1][0] - sets[0][0] >= 60 && sets[1][0] - sets[0][0] <= 70);
+});
+
+test('40: in the defrost season DHW starts only in the window right after a defrost', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T10:00:00Z');
+    const M = 60000;
+    node.context.set('settings', { master: true, modes: { dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 }, defrostStarts: [T0 - 85 * M] });
+    node.context.set('lastDefrost', T0 - 80 * M);
+    node.context.set('recoveredAt', T0 - 60 * M);   // window closed 30 min ago
+    const tick = (now, over) => {
+        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 36, 103: 3, 108: 40, 115: 60, 116: 600, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+            bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now });
+        return node.context.get('dhw');
+    };
+    let d;
+    for (let i = 0; i < 6; i++) d = tick(T0 + i * 10000);
+    assert.equal(d.state, 'HEATING');
+    assert.match(d.why, /defrost season: start only within 30 min/);
+    for (let i = 0; i < 6; i++) d = tick(T0 + M + i * 10000, { 116: 0 });          // defrost
+    for (let i = 0; i < 6; i++) d = tick(T0 + 20 * M + i * 10000);                 // recovered → window open
+    assert.equal(d.state, 'STOP', 'started right after the defrost');
+});
+
+test('40: a boosted curve is not stored as the owner curve when the pump goes stale for a while', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    node.context.set('settings', { master: true, modes: { heat: 'live', dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
+    node.context.set('heat', { samples: [], boost: 1, curveCmd: { p23: 40, p24: 5 }, p23At: T0 - 30 * 60000, lastStep: T0 - 30 * 60000, target: 37.2 });
+    node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    for (let i = 0; i < 40; i++) {
+        const t = T0 + i * 10000;
+        const stale = i < 20;   // valve relay stale for 200 s → hold
+        node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: t, dps: { 1: true, 2: 'smart', 101: 34, 102: 37, 103: -5, 108: 47, 115: 60, 116: 594, 125: 38, 112: 3, 132: '1', 133: 40, 134: 5, 15: 0 } },
+            valve: { state: stale ? 'DISCONNECTED' : 'CONNECTED', lastData: stale ? T0 - 600000 : t, dps: { 1: false } }, bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } } });
+        node.run({ topic: 'tick' }, { now: t });
+    }
+    assert.deepEqual([node.context.get('settings').heatCurve.p23, node.context.get('settings').heatCurve.p24], [38, 4]);
+    assert.equal(node.context.get('heat').boost, 1, 'the boost is still known');
+});

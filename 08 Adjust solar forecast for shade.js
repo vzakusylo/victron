@@ -21,6 +21,8 @@
 //    On 13 Nov 2026 the June tables forecast 4.1 kWh / 1.06 kW "sunny" while November days gave
 //    0-0.13 kWh, so the controller expected solar that never came. Fewer than 7 logged days ->
 //    the June tables alone, as before.
+// 4. d#167 (review of PR #20): each day's peak is scaled up by the sun elevation gain from that day to
+//    today (max x2), so in spring the cap follows the returning sun instead of trailing it.
 // ==========================
 function localDayKey(date) {
     return [
@@ -84,6 +86,24 @@ const LOG_DIR = '/data/home/nodered/grid-control-logs/';
 const OBSERVED_DAYS = 14;
 const OBSERVED_MIN_DAYS = 7;
 const OBSERVED_HEADROOM = 1.25;
+// d#167: in spring the sun climbs during the 14 days, so the peak of an older day is scaled by the clear-sky
+// gain of today over that day (sun elevation at that hour, Hokksund), at most SUN_GAIN_MAX; never scaled down.
+const LAT = 59.77 * Math.PI / 180;
+const SOLAR_NOON = 12.35;   // local clock hour of the solar noon (CET, 9.9° E)
+const SUN_GAIN_MAX = 2;
+function sunSin(dayKey, hour) {
+    const d = new Date(dayKey + 'T12:00:00');
+    const doy = Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 1)) / 86400000) + 1;   // no DST shift
+    const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI * (284 + doy) / 365);
+    const ha = 15 * (hour + 0.5 - SOLAR_NOON) * Math.PI / 180;
+    return Math.sin(LAT) * Math.sin(decl) + Math.cos(LAT) * Math.cos(decl) * Math.cos(ha);
+}
+function sunGain(fromKey, toKey, hour) {
+    const a = sunSin(fromKey, hour), b = sunSin(toKey, hour);
+    if (b <= 0) return 1;
+    if (a <= 0.02) return SUN_GAIN_MAX;
+    return Math.max(1, Math.min(SUN_GAIN_MAX, b / a));
+}
 
 function readObservedDays(now) {
     // Cached per day in node context; tests set `observedSolar` directly.
@@ -127,7 +147,8 @@ function observedCapByHour(now) {
     }
     const caps = {};
     for (let hour = 0; hour < 24; hour += 1) {
-        const peak = dayKeys.reduce((max, key) => Math.max(max, Number(observed.days[key][hour]) || 0), 0);
+        const todayKey = localDayKey(now);
+        const peak = dayKeys.reduce((max, key) => Math.max(max, (Number(observed.days[key][hour]) || 0) * sunGain(key, todayKey, hour)), 0);
         caps[hour] = Math.round(peak * OBSERVED_HEADROOM);
     }
     return { caps, days: dayKeys.length };
