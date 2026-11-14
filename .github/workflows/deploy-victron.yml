@@ -58,7 +58,7 @@ jobs:
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'bundle/secrets'
           New-Item -ItemType Directory -Force $dir | Out-Null
-          chmod 700 (Split-Path $dir), $dir
+          chmod 700 (Split-Path $dir) $dir
           if ($LASTEXITCODE) { throw 'Could not restrict the private staging directory.' }
           ./scripts/place-secrets.ps1 -SecretsDir $dir -Files @{
             SECRETFILE_TUYA_CLOUD_JSON = 'tuya-cloud.json'
