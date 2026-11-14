@@ -45,6 +45,8 @@
 //    got the data (`seen`), not the monitor clock; only the known monitor MAC gets a card.
 // 6. d#163: flow `devicesReport` = { at, devices: [{ id, name, group, online, lastData, battery, note,
 //    link }] } for the daily devices mail of "Heat pump alerts" (47).
+// 7. d#178 (review of PR #24): a mains device without an IP at setup but read by tools/tuya-local-poll.js
+//    (IP found by its MAC in the ARP table) no longer shows the note "IP not found".
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
@@ -284,7 +286,7 @@ function smartLifeDevices(now, meta, poll, last, cloud) {
         }
         let note = '';
         if (!m.cloudOnline && !online) note = 'offline in Smart Life too (last seen ' + (m.cloudUpdated ? new Date(m.cloudUpdated).toISOString().slice(0, 10) : '?') + ' at setup)';
-        else if (!m.ip && !m.battery) note = 'IP not found (not on a network the GX reaches)';
+        else if (!m.ip && !(r && r.ip) && !m.battery) note = 'IP not found (not on a network the GX reaches)';   // d#178: an IP found by MAC at poll time counts
         else if (fromCloud) note = 'read from the Smart Life cloud: the sensor sends no beacon on the local network';
         else if (m.battery && !t) note = 'waits for the sensor to wake (it reports on a change)';
         out.push({
