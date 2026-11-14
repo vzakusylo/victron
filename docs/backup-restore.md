@@ -17,6 +17,7 @@ Included when present (`node_modules`, `.npm`, `.cache` and `/data/apps/overlay-
 
 - `/data/home/nodered/grid-control-logs` — energy history (monthly CSV + legacy daily logs) and notification logs
 - `/data/home/nodered/grid-control-config` — HV settings, controller constants, dashboard state, backup manifest
+- `/data/home/nodered/tools` — tool scripts run on the GX (d#181): the sensor and mail tools of the exec nodes, `victron-secrets.js` that `settings-user.js` loads at start (without it a restored Node-RED cannot read its file secrets), and the deploy / check scripts in `tools/gx/` once a deploy has placed them there ([Deploying to the Cerbo GX](gx-deploy.md))
 - `/data/home/nodered/.node-red/*` — Node-RED flows, credentials (+ `.config.runtime.json` with the credential secret), settings, context, library
 - `/data/apps` — installed drivers incl. dbus-serialbattery (driver code + `config.ini`), and the legacy `/data/etc/dbus-serialbattery`
 - `/data/grid-control-logs`, `/data/node-red` — legacy log folders

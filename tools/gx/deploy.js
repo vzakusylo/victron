@@ -71,7 +71,7 @@ function readPlan(file) {
     if (!Array.isArray(plan.scopes) || !plan.scopes.length || plan.scopes.some((scope) => !SCOPES.includes(scope))) fail('plan.scopes must list dashboard and/or automations');
     plan.tools = plan.tools || {};
     for (const [tool, hash] of Object.entries(plan.tools)) {
-        if (!/^tools\/[\w.-]+\.js$/.test(tool) || !hex(hash, 64)) fail('plan.tools entry is invalid: ' + tool);
+        if (!/^tools\/(?:gx\/)?[\w-][\w.-]*\.js$/.test(tool) || !hex(hash, 64)) fail('plan.tools entry is invalid: ' + tool);
     }
     return plan;
 }
@@ -101,7 +101,7 @@ function readPlan(file) {
         for (const [tool, hash] of Object.entries(plan.tools)) {
             const staged = download(tool, hash);
             execFileSync(process.execPath, ['--check', staged]);
-            const dest = path.join(toolsDir, path.basename(tool));
+            const dest = path.join(HOME, tool);   // tools/<name>.js or tools/gx/<name>.js
             const current = fs.existsSync(dest) ? sha256(Buffer.from(fs.readFileSync(dest, 'latin1').replace(/\r/g, ''), 'latin1')) : null;
             if (current === hash) console.log('tool up to date : ' + tool);
             else { console.log('tool to replace : ' + tool + (current ? '' : ' (new)')); toolJobs.push({ staged, dest }); }
@@ -182,8 +182,11 @@ function readPlan(file) {
         try {
             for (const job of toolJobs) {
                 let saved = null;
+                const folder = path.dirname(job.dest);
+                if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { mode: 0o755 }); fs.chownSync(folder, owner.uid, owner.gid); }
+                if (!fs.lstatSync(folder).isDirectory()) fail(folder + ' is not a directory.');
                 if (isPlain(job.dest)) {
-                    saved = path.join(backup, path.basename(job.dest));
+                    saved = path.join(backup, path.relative(toolsDir, job.dest).replace(/[\\/]/g, '__'));
                     fs.copyFileSync(job.dest, saved, fs.constants.COPYFILE_EXCL);
                     fs.chownSync(saved, owner.uid, owner.gid);
                 }

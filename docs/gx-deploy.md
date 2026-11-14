@@ -91,6 +91,7 @@ node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
 ```
 
 - `--tools`: the tool scripts that changed since the last deploy (`git diff --stat <deployed sha> $sha -- tools`). The deployed SHA is in the report line `live deployment source`. A tool that is already equal is skipped on the GX.
+- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
 - `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
 - `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
 
