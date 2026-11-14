@@ -47,6 +47,8 @@
 //    link }] } for the daily devices mail of "Heat pump alerts" (47).
 // 7. d#178 (review of PR #24): a mains device without an IP at setup but read by tools/tuya-local-poll.js
 //    (IP found by its MAC in the ARP table) no longer shows the note "IP not found".
+// 8. d#179: pir_state (motion sensor in front of the toilet, Smart Life category tdq) shown as Motion: motion / no motion;
+//    tools/tuya-local-sensors.js logs every wake to grid-control-logs/sensor-events/YYYY-MM-DD.jsonl.
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
@@ -57,6 +59,7 @@ const CODES = {
     temp_current: ['Temperature', '°C'], va_temperature: ['Temperature', '°C'], temp_value: ['Temperature', '°C'],
     humidity_value: ['Humidity', '%'], va_humidity: ['Humidity', '%'],
     co2_value: ['CO2', 'ppm'], ch2o_value: ['HCHO', 'mg/m³'], voc_value: ['VOC', 'ppm'], pm25_value: ['PM2.5', 'µg/m³'],
+    pir_state: ['Motion', ''],   // d#179: 'pir' = motion, 'none' = no motion
     smoke_sensor_state: ['Smoke', ''], smoke_sensor_status: ['Smoke', ''], tamper_alarm: ['Tamper', ''],
     switch_1: ['Switch', ''], switch: ['Switch', ''], switch_2: ['Switch 2', ''], switch_3: ['Switch 3', ''], switch_4: ['Switch 4', ''],
     cur_power: ['Power', 'W'], cur_voltage: ['Voltage', 'V'], cur_current: ['Current', 'A'],
@@ -244,6 +247,7 @@ function tuyaDevices(now, last) {
 function dpValue(code, v, def) {
     const c = CODES[code];
     if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
+    if (code === 'pir_state') return v === 'pir' ? 'motion' : v === 'none' ? 'no motion' : String(v);
     if (typeof v !== 'number') return String(v);
     let x = v / Math.pow(10, (def && def.scale) || 0);
     let unit = c ? c[1] : ((def && def.unit) || '');
