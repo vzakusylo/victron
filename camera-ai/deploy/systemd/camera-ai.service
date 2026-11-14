@@ -1,0 +1,13 @@
+[Unit]
+Description=camera-ai: Tapo C500 control, detection, sound, AI
+After=ollama.service network-online.target
+Wants=ollama.service
+
+[Service]
+WorkingDirectory=%h/camera-ai
+ExecStart=%h/camera-ai/.venv/bin/python -u app.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
