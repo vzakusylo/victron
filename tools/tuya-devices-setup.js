@@ -25,6 +25,10 @@ const NODE_IDS = ['bf3f2552b6fcd2c689fzre', 'bf894708aa7e3ac196zjzk', 'bf3ff3d87
 const BATTERY_CATEGORIES = ['wsdcg', 'ywbj', 'mcs', 'pir', 'sj', 'rqbj', 'cobj', 'ldcg'];
 // shadow-property code -> specification code (the two APIs name some codes differently)
 const SPEC_ALIAS = { temp_current: 'va_temperature', humidity_value: 'va_humidity', smoke_sensor_state: 'smoke_sensor_status', tamper_alarm: 'temper_alarm', switch_1: 'switch' };
+let previous = {};
+try { previous = JSON.parse(fs.readFileSync(DIR + 'tuya-devices-meta.json', 'utf8')); } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+}
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const hmac = (s, key) => crypto.createHmac('sha256', key).update(s).digest('hex').toUpperCase();
@@ -78,10 +82,13 @@ function arpTable(sweep) {
             dps[p.dp_id] = { code: p.code, scale: sp.scale, unit: sp.unit };
         }
         const codes = props.map((p) => p.code);
+        const pir = codes.includes('pir_state');
+        const prior = previous[d.id] && previous[d.id].mac === macs[d.id] ? previous[d.id] : {};
         const m = {
             name: String(d.name || '').trim(), category: d.category, product: d.product_name, mac: macs[d.id] || '',
-            ip: arp[macs[d.id]] || '', cloudOnline: !!d.online, cloudUpdated: d.update_time ? d.update_time * 1000 : 0,
-            battery: BATTERY_CATEGORIES.includes(d.category) || (codes.some((c) => /battery/.test(c)) && !codes.some((c) => /^switch|cur_power/.test(c)) && d.category === 'wsdcg'),
+            ip: arp[macs[d.id]] || (pir ? prior.ip || '' : ''), version: pir ? prior.version || '' : undefined,
+            cloudOnline: !!d.online, cloudUpdated: d.update_time ? d.update_time * 1000 : 0,
+            battery: BATTERY_CATEGORIES.includes(d.category) || (codes.some((c) => /battery/.test(c)) && !codes.some((c) => /^switch|cur_power/.test(c)) && (d.category === 'wsdcg' || codes.includes('pir_state'))),
             node: NODE_IDS.includes(d.id), dps
         };
         meta[d.id] = m;

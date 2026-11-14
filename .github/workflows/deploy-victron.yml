@@ -1,0 +1,149 @@
+name: Deploy Victron secrets
+
+# Manual only. Reads the SECRETFILE_* GitHub secrets, rebuilds the private files and
+# installs them on the Cerbo GX over Tailscale + SSH. See scripts/SECRETS.md.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "check = rebuild files only; install = install active secret files on an already stopped GX instance"
+        type: choice
+        options: [check, install]
+        default: check
+      confirm:
+        description: "For install actions type: overwrite-gx-private-files"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency: deploy-victron
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: victron-gx
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require explicit confirmation for install actions
+        if: inputs.action != 'check'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "overwrite-gx-private-files" ]; then
+            echo "::error::Type overwrite-gx-private-files in 'confirm' to overwrite the GX files."
+            exit 1
+          fi
+
+      - name: Rebuild private files from GitHub secrets
+        shell: pwsh
+        env:
+          SECRETFILE_TUYA_CLOUD_JSON: ${{ secrets.SECRETFILE_TUYA_CLOUD_JSON }}
+          SECRETFILE_TUYA_DEVICES_JSON: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_001: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_001 }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_002: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_002 }}
+          SECRETFILE_TUYA_DEVICES_JSON_PART_003: ${{ secrets.SECRETFILE_TUYA_DEVICES_JSON_PART_003 }}
+          SECRETFILE_TUYA_LOCAL_SENSORS_JSON: ${{ secrets.SECRETFILE_TUYA_LOCAL_SENSORS_JSON }}
+          SECRETFILE_TUYA_NODES_JSON: ${{ secrets.SECRETFILE_TUYA_NODES_JSON }}
+          SECRETFILE_EMAIL_JSON: ${{ secrets.SECRETFILE_EMAIL_JSON }}
+          SECRETFILE_MCP_TOKEN_TXT: ${{ secrets.SECRETFILE_MCP_TOKEN_TXT }}
+          SECRETFILE_FLOWS_CRED_JSON: ${{ secrets.SECRETFILE_FLOWS_CRED_JSON }}
+          SECRETFILE__CONFIG_RUNTIME_JSON: ${{ secrets.SECRETFILE__CONFIG_RUNTIME_JSON }}
+          SECRETFILE__CONFIG_USERS_JSON: ${{ secrets.SECRETFILE__CONFIG_USERS_JSON }}
+          SECRETFILE_SETTINGS_USER_JS: ${{ secrets.SECRETFILE_SETTINGS_USER_JS }}
+          SECRETFILE_VENUS_SETTINGS_JS: ${{ secrets.SECRETFILE_VENUS_SETTINGS_JS }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'bundle/secrets'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          chmod 700 (Split-Path $dir), $dir
+          if ($LASTEXITCODE) { throw 'Could not restrict the private staging directory.' }
+          ./scripts/place-secrets.ps1 -SecretsDir $dir -Files @{
+            SECRETFILE_TUYA_CLOUD_JSON = 'tuya-cloud.json'
+            SECRETFILE_TUYA_DEVICES_JSON = 'tuya-devices.json'
+            SECRETFILE_TUYA_LOCAL_SENSORS_JSON = 'tuya-local-sensors.json'
+            SECRETFILE_TUYA_NODES_JSON = 'tuya-nodes.json'
+            SECRETFILE_EMAIL_JSON = 'email.json'
+            SECRETFILE_MCP_TOKEN_TXT = 'mcp-token.txt'
+            SECRETFILE_FLOWS_CRED_JSON = 'flows_cred.json'
+            SECRETFILE__CONFIG_RUNTIME_JSON = '.config.runtime.json'
+            SECRETFILE__CONFIG_USERS_JSON = '.config.users.json'
+            SECRETFILE_SETTINGS_USER_JS = 'settings-user.js'
+            SECRETFILE_VENUS_SETTINGS_JS = 'venus-settings.js'
+          }
+          $validate = @'
+          const fs = require('fs'), path = require('path'), vm = require('vm');
+          for (const name of fs.readdirSync(process.argv[1])) {
+            try {
+              const text = fs.readFileSync(path.join(process.argv[1], name), 'utf8');
+              if (name.endsWith('.json')) {
+                const value = JSON.parse(text);
+                if (!value || typeof value !== 'object') throw new Error();
+              } else if (name.endsWith('.js')) new vm.Script(text);
+            } catch {
+              console.error('Invalid private file: ' + name);
+              process.exit(1);
+            }
+          }
+          '@
+          node -e $validate $dir
+          if ($LASTEXITCODE) { throw 'Private file syntax validation failed.' }
+          $tools = Join-Path $env:RUNNER_TEMP 'bundle/tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          Copy-Item tools/victron-secrets.js, tools/reload-victron-secrets.js $tools
+          # Recovery-only files are validated/restored above but not sent to the live GX.
+          $activeFiles = @('tuya-cloud.json', 'tuya-devices.json', 'tuya-local-sensors.json',
+            'tuya-nodes.json', 'email.json', 'mcp-token.txt', 'settings-user.js')
+          $members = @($activeFiles | ForEach-Object { "secrets/$_" }) +
+            @('tools/victron-secrets.js', 'tools/reload-victron-secrets.js')
+          tar -C (Join-Path $env:RUNNER_TEMP 'bundle') -cf (Join-Path $env:RUNNER_TEMP 'bundle.tar') @members
+          if ($LASTEXITCODE) { throw 'Could not create the deployment archive.' }
+          chmod 600 (Join-Path $env:RUNNER_TEMP 'bundle.tar')
+          if ($LASTEXITCODE) { throw 'Could not restrict the deployment archive.' }
+          Write-Output 'Rebuilt 11 private files; 7 active files are selected for installation. Contents are not printed.'
+
+      - name: Connect to the tailnet
+        if: inputs.action != 'check'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install files on the GX
+        if: inputs.action != 'check'
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
+          GX_SSH_KNOWN_HOSTS: ${{ secrets.GX_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$GX_SSH_HOST" && test -n "$GX_SSH_KEY" && test -n "$GX_SSH_KNOWN_HOSTS" || {
+            echo "::error::Missing GX_SSH_HOST, GX_SSH_KEY or GX_SSH_KNOWN_HOSTS."
+            exit 1
+          }
+          case "$GX_SSH_HOST" in
+            root@*) ;;
+            *) echo "::error::GX_SSH_HOST must use the root SSH account."; exit 1 ;;
+          esac
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$GX_SSH_KEY" > "$RUNNER_TEMP/ssh/key"
+          printf '%s\n' "$GX_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/ssh/key" "$RUNNER_TEMP/ssh/known_hosts"
+          ssh_options=(-i "$RUNNER_TEMP/ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o ConnectTimeout=15)
+          remote_dir=$(ssh "${ssh_options[@]}" "$GX_SSH_HOST" 'umask 077; mktemp -d /tmp/victron-deploy.XXXXXX')
+          [[ "$remote_dir" =~ ^/tmp/victron-deploy\.[a-zA-Z0-9]+$ ]] || {
+            echo "::error::Unexpected remote staging directory."; exit 1;
+          }
+          trap 'ssh "${ssh_options[@]}" "$GX_SSH_HOST" "rm -f $remote_dir/install.sh; rmdir $remote_dir"' EXIT
+          # The script reads the archive from stdin, so copy the script and pipe the archive separately.
+          scp -i "$RUNNER_TEMP/ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" -o ConnectTimeout=15 \
+            scripts/install-gx-secrets.sh "$GX_SSH_HOST:$remote_dir/install.sh"
+          ssh "${ssh_options[@]}" "$GX_SSH_HOST" "sh $remote_dir/install.sh" < "$RUNNER_TEMP/bundle.tar"
+
+      - name: Remove local key material
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh" "$RUNNER_TEMP/bundle" "$RUNNER_TEMP/bundle.tar"
