@@ -27,6 +27,13 @@ try {
         Assert $failed "Host '$bad' must be rejected."
     }
     Assert (-not (Get-ChildItem $temp)) 'Rejected input must not write files.'
+    # An unfinished rotation must not be rotated again: the first key would never be revoked.
+    $ciKey = Join-Path $temp 'rotating_key'
+    Set-Content $key 'k'; Set-Content $ciKey 'new'; Set-Content "$ciKey.old" 'old'; Set-Content "$ciKey.pub.old" 'ssh-ed25519 AAAA old'
+    $message = ''
+    try { & $script -GxHost 'root@gx.example.test' -SshKey $key -CiKey $ciKey -Rotate -SkipTailscale 6>&1 | Out-Null } catch { $message = "$_" }
+    Assert ($message -match 'unfinished rotation') "Expected a refusal before any SSH, got: $message"
+    Assert ((Get-Content $ciKey -Raw).Trim() -eq 'new' -and (Get-Content "$ciKey.old" -Raw).Trim() -eq 'old') 'Keys must be left untouched.'
 }
 finally { Remove-Item $temp -Recurse -Force }
-Write-Output 'CI access setup tests passed: parse, dry run without side effects, host validation.'
+Write-Output 'CI access setup tests passed: parse, dry run without side effects, host validation, unfinished rotation.'

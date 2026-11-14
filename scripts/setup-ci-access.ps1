@@ -26,6 +26,10 @@ $names = @('GX_SSH_HOST', 'GX_SSH_KEY', 'GX_SSH_KNOWN_HOSTS', 'TS_OAUTH_CLIENT_I
 
 if ($GxHost -notmatch '^root@[A-Za-z0-9._-]+$') { throw 'GxHost must look like root@<host>; the workflow requires the root account.' }
 $hostName = $GxHost.Substring(5)
+# Before anything else: a second rotation would lose track of the first key, which is still authorized.
+if ($Rotate -and ((Test-Path "$CiKey.old") -or (Test-Path "$CiKey.pub.old"))) {
+    throw "$CiKey.old exists from an unfinished rotation; finish it first (run without -Rotate)."
+}
 
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
 function Invoke-Ssh([string]$Key, [string]$Command) {
@@ -70,10 +74,11 @@ Write-Host "ok, $($hostLines.Count) pinned host key line(s)"
 Step '2/6 Dedicated CI key'
 $oldPublic = $null
 if ((Test-Path $CiKey) -and $Rotate) {
-    $oldPublic = ((Get-Content "$CiKey.pub" -Raw).Trim() -split '\s+')[1]
-    Move-Item $CiKey "$CiKey.old" -Force
-    Move-Item "$CiKey.pub" "$CiKey.pub.old" -Force
+    Move-Item $CiKey "$CiKey.old"
+    Move-Item "$CiKey.pub" "$CiKey.pub.old"
 }
+# Also set after an unfinished rotation: this run then finishes it (uploads the new key, revokes the old).
+if (Test-Path "$CiKey.pub.old") { $oldPublic = ((Get-Content "$CiKey.pub.old" -Raw).Trim() -split '\s+')[1] }
 if (-not (Test-Path $CiKey)) {
     & ssh-keygen -q -t ed25519 -N '' -C $comment -f $CiKey
     if ($LASTEXITCODE -ne 0) { throw 'ssh-keygen failed.' }
@@ -89,17 +94,18 @@ $add = "umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; grep -qF '$pub
 $null = Invoke-Ssh $SshKey $add
 $null = Invoke-Ssh $CiKey 'true'
 Write-Host 'ok, the CI key logs in'
-if ($oldPublic -and $oldPublic -ne $publicBody) {
-    $drop = "grep -vF '$oldPublic' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys; rm -f ~/.ssh/authorized_keys.new"
-    $null = Invoke-Ssh $CiKey $drop
-    Remove-Item "$CiKey.old", "$CiKey.pub.old" -Force
-    Write-Host 'removed the previous CI key from the GX'
-}
 
 Step "4/6 SSH secrets -> $Repo"
 Set-Secret 'GX_SSH_KEY' (Get-Content $CiKey -Raw)
 Set-Secret 'GX_SSH_HOST' $GxHost
 Set-Secret 'GX_SSH_KNOWN_HOSTS' ($hostLines -join "`n")
+# Only now, with the new key in GitHub, is the previous one revoked on the GX and deleted here.
+if ($oldPublic -and $oldPublic -ne $publicBody) {
+    $drop = "grep -vF '$oldPublic' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys; rm -f ~/.ssh/authorized_keys.new"
+    $null = Invoke-Ssh $CiKey $drop
+    Write-Host 'removed the previous CI key from the GX'
+}
+Remove-Item "$CiKey.old", "$CiKey.pub.old" -Force -ErrorAction SilentlyContinue
 
 if (-not $SkipTailscale) {
     Step '5/6 Tailscale OAuth client (you create it)'
