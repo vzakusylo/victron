@@ -187,6 +187,10 @@ The VRM remote-console relay does not work for MCP clients (it returns 403 "No s
 
 Nothing secret is stored in this repository. Keep it that way:
 
+For private file backups in GitHub Actions secrets, source locations, and the
+one-command manual synchronization and restore scripts, see
+[Secret file storage and synchronization](scripts/SECRETS.md).
+
 | Secret | Where it comes from | Where it is kept |
 |---|---|---|
 | Tuya Local Key ×3 | Tuya IoT Platform cloud project linked to the Smart Life app. Get it with `python -m tinytuya wizard` or API Explorer → *Query Device Details* (`local_key`) | entered by hand in the Tuya nodes. `storeAsCreds: true` keeps it in the encrypted `flows_cred.json`, not in `flows.json`. Local notes go in the git-ignored `.secrets/` folder |
