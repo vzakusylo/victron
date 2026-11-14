@@ -62,6 +62,79 @@ authorize the `.pub` file through an existing trusted SSH connection. For unatte
 CI use a dedicated key without a passphrase; restrict its network access and rotate
 it separately. Keep both the private key and pinned host-key file outside Git.
 
+## Access secrets: add, check, maintain
+
+The owner runs this, not an agent or CI: it creates credentials. Nothing is printed;
+every value goes through a pipe or the hidden prompt of `gh secret set`.
+
+### Add (once)
+
+```powershell
+pwsh -NoProfile -File .\scripts\setup-ci-access.ps1 -DryRun `
+  -GxHost 'root@<gx-tailscale-host>' -SshKey "$HOME\.ssh\<gx-key-file>"
+```
+
+Read the steps it lists, then run the same command without `-DryRun`. It
+
+1. checks your existing SSH access with the host key already pinned in `known_hosts`
+2. creates the dedicated CI key `~\.ssh\victron_ci_ed25519` (no passphrase) unless it exists
+3. adds its public key to `/root/.ssh/authorized_keys` on the GX and logs in with it
+4. uploads `GX_SSH_KEY`, `GX_SSH_HOST`, `GX_SSH_KNOWN_HOSTS`
+5. tells you what to create in the Tailscale admin console and takes
+   `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` through hidden prompts
+6. lists the secret names and marks any that is missing
+
+Step 5 needs you in the browser: Tailscale → Settings → OAuth clients → generate a
+client with the *Auth Keys* write scope and the tag `tag:ci`. The tailnet policy needs
+`"tagOwners": { "tag:ci": ["autogroup:admin"] }` and a rule that lets `tag:ci` reach
+the GX on `tcp:22`. Use `-SkipTailscale` to do the SSH part now and this part later
+(run the script again; the existing key is kept).
+
+### Check
+
+```powershell
+gh secret list --repo vzakusylo/victron
+ssh -i "$HOME\.ssh\victron_ci_ed25519" -o IdentitiesOnly=yes -o BatchMode=yes 'root@<gx-tailscale-host>' true; $LASTEXITCODE
+gh workflow run deploy-victron.yml --repo vzakusylo/victron --ref master -f action=check
+gh run list --repo vzakusylo/victron --workflow deploy-victron.yml --limit 3
+```
+
+- `gh secret list` shows names and dates only: 14 `SECRETFILE_*` and the five access names.
+- The `ssh` line must print `0`: the CI key is accepted by the GX.
+- The workflow waits for your approval (environment `victron-gx`, required reviewer):
+  Actions → the run → *Review deployments*. `check` rebuilds and validates the private
+  files and does not connect to the GX, so it proves the file secrets, not the access.
+- The access secrets are proven only by an `install` run. Do the first one as described
+  in [Deploy exclusively from GitHub Secrets](#deploy-exclusively-from-github-secrets):
+  backup, Node-RED stopped, then dispatch. A wrong key, host or Tailscale client fails
+  in the *Connect to the tailnet* or *Install files on the GX* step before any file is written.
+
+### Maintain
+
+| When | Do |
+|---|---|
+| A private file on the GX changed (Tuya re-pairing, mail password, MCP token) | `sync-secrets.ps1 -FromGx …`, then the workflow in `check` mode |
+| Every few months, or the PC was lost / shared | `setup-ci-access.ps1 … -Rotate -SkipTailscale`: new CI key, old one removed from the GX and from GitHub |
+| The GX was reinstalled or its SSH host key changed | Verify the new fingerprint on the GX itself, update `known_hosts`, run `setup-ci-access.ps1 … -SkipTailscale` |
+| The GX got another Tailscale name or address | Run `setup-ci-access.ps1` with the new `-GxHost`; check the `tag:ci` rule in the tailnet policy |
+| The Tailscale OAuth client was revoked or regenerated | Run `setup-ci-access.ps1` (step 5 asks for the new values) |
+| After a Venus OS firmware update | The `ssh` check above; `/root/.ssh/authorized_keys` is on the data partition but verify it |
+| A workflow file or the installer changed | The workflow in `check` mode from `master` before the next `install` |
+
+### Where things are stored
+
+No values here, only places and names.
+
+| What | Where |
+|---|---|
+| CI private key | PC: `~\.ssh\victron_ci_ed25519`; GitHub secret `GX_SSH_KEY` |
+| CI public key | PC: `~\.ssh\victron_ci_ed25519.pub`; GX: the line ending in `victron-ci-github-actions` in `/root/.ssh/authorized_keys` |
+| GX address for CI | GitHub secret `GX_SSH_HOST`; private notes |
+| GX SSH host key | PC: `~\.ssh\known_hosts`; GitHub secret `GX_SSH_KNOWN_HOSTS` |
+| Tailscale OAuth client | Tailscale admin console; GitHub secrets `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` |
+| Private files of the GX | GX (see the first table); PC: git-ignored `.secrets\`; GitHub secrets `SECRETFILE_*` |
+| Who may run a deploy | GitHub environment `victron-gx`: required reviewer, branch `master` only |
+
 ## Write and update secrets
 
 Use PowerShell 7 and the GitHub.com `gh` account authorized for this repository:
@@ -203,6 +276,7 @@ original flow; preserve literal empty discovery IPs and the settings exports.
 | [`collect-gx-secrets.ps1`](collect-gx-secrets.ps1) | Read-only trusted SSH collection; nine baseline files, or all 11 with `-IncludeNodeSettings` |
 | [`push-secrets.ps1`](push-secrets.ps1) | Upload a flat private directory; include hidden files, exclude `.bak`, reject name collisions, split large values |
 | [`secret-utils.ps1`](secret-utils.ps1) | GitHub.com authentication selection, encoding/upload checks and JSON validation |
+| [`setup-ci-access.ps1`](setup-ci-access.ps1) | Owner-run setup and rotation of the five access secrets: CI key, its authorization on the GX, uploads without printing, Tailscale values through hidden prompts; `-DryRun` |
 | [`place-secrets.ps1`](place-secrets.ps1) | Decode explicitly mapped secret environment variables; validate chunks before writing. Default mapping restores only two Tuya files, so use the full workflow mapping for all files |
 | [`install-gx-secrets.sh`](install-gx-secrets.sh) | Stopped-service installation, exact regular-file archive validation, backup, ownership/modes and rollback |
 | [`deploy-victron.yml`](../.github/workflows/deploy-victron.yml) | Complete Actions environment mappings, reconstruction, Tailscale/SSH installation and cleanup |
