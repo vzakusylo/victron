@@ -13,7 +13,7 @@ each change**; there is no timer or background service.
 | Item | Recorded state |
 | --- | --- |
 | GX | `einstein`, Node.js `v20.18.2` |
-| Trusted SSH | `root@100.118.128.14` (Tailscale), `root@192.168.0.110` (LAN) |
+| Trusted SSH | `root@<gx-tailscale-host>` (Tailscale), `root@<gx-lan-host>` (LAN); real values are kept in the git-ignored `.secrets/` notes |
 | SSH identity on the PC | `$HOME\.ssh\id_ed25519_cerbo`; stays on the PC, not in GitHub Secrets |
 | Node-RED supervisor | `/service/node-red-venus` |
 | Actual deployed flow | `d#179 Day / Night Grid Control`, 269 nodes; newer than this checkout's portable template |
@@ -147,11 +147,11 @@ this file backup is not a replacement for device recovery.
 
    ```powershell
    pwsh -NoProfile -File .\scripts\sync-secrets.ps1 -FromGx `
-     -GxHost root@100.118.128.14 -SshKey "$HOME\.ssh\id_ed25519_cerbo"
+     -GxHost root@<gx-tailscale-host> -SshKey "$HOME\.ssh\id_ed25519_cerbo"
    ```
 
-   `100.118.128.14` is the verified GX Tailscale address; its verified LAN address
-   is `192.168.0.110`. This remains a manual command, not a scheduled job.
+   Use the verified Tailscale or LAN host from your private `.secrets/` notes. This
+   remains a manual command, not a scheduled job.
 
 Uploads go **only to GitHub.com / vzakusylo/victron**. The scripts temporarily
 ignore enterprise token environment variables, use the GitHub.com account in
@@ -421,11 +421,11 @@ tools directory. From PowerShell 7 in the repository:
 scp -i "$HOME\.ssh\id_ed25519_cerbo" -o IdentitiesOnly=yes `
   -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 `
   .\tools\victron-secrets.js .\tools\reload-victron-secrets.js `
-  root@100.118.128.14:/data/home/nodered/tools/
+  root@<gx-tailscale-host>:/data/home/nodered/tools/
 ```
 
-Check the exit code before continuing. Use the verified LAN address
-`192.168.0.110` only if that is the intended reachable GX. Do not disable host-key
+Check the exit code before continuing. Use the verified LAN host
+(`<gx-lan-host>`) only if that is the intended reachable GX. Do not disable host-key
 verification. The helpers require Node.js; the recorded GX uses version 20.
 
 ### Step 1: validate all files without restarting
@@ -433,7 +433,7 @@ verification. The helpers require Node.js; the recorded GX uses version 20.
 ```powershell
 ssh -i "$HOME\.ssh\id_ed25519_cerbo" -o IdentitiesOnly=yes `
   -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 `
-  root@100.118.128.14 `
+  root@<gx-tailscale-host> `
   'node /data/home/nodered/tools/reload-victron-secrets.js check'
 ```
 
@@ -467,7 +467,7 @@ when that interruption is acceptable. This mode requires root:
 ```powershell
 ssh -i "$HOME\.ssh\id_ed25519_cerbo" -o IdentitiesOnly=yes `
   -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 `
-  root@100.118.128.14 `
+  root@<gx-tailscale-host> `
   'node /data/home/nodered/tools/reload-victron-secrets.js reload'
 ```
 
@@ -505,7 +505,7 @@ When the intended configuration is live and verified:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\sync-secrets.ps1 -FromGx `
-  -GxHost root@100.118.128.14 -SshKey "$HOME\.ssh\id_ed25519_cerbo"
+  -GxHost root@<gx-tailscale-host> -SshKey "$HOME\.ssh\id_ed25519_cerbo"
 ```
 
 This is the manual GX-to-GitHub backup operation, not another restart. It
@@ -747,7 +747,7 @@ const token=fs.readFileSync('/data/home/nodered/grid-control-config/mcp-token.tx
 })().catch(()=>{console.error('Health query failed');process.exitCode=1;});
 '@ | ssh -i "$HOME\.ssh\id_ed25519_cerbo" -o IdentitiesOnly=yes `
     -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 `
-    root@100.118.128.14 node
+    root@<gx-tailscale-host> node
 ```
 
 The first staging/activation checks ran as `node /tmp/stage-gx-secrets.js` and
