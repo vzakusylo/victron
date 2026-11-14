@@ -56,7 +56,7 @@ async function call(path, token) {
     return j.result;
 }
 
-async function recordPirReports(id, dp, from, to, token) {
+async function recordPirReports(id, dp, from, to, token, warnings = []) {
     const reports = [];
     const cursors = new Set();
     let cursor = '';
@@ -95,7 +95,29 @@ async function recordPirReports(id, dp, from, to, token) {
         let text = '';
         try { text = fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
         const eventKey = (e) => JSON.stringify([e.id, e.t, e.source, e.dps]);
-        const seen = new Set(text.split(/\r?\n/).filter((line) => line.trim()).map((line) => eventKey(JSON.parse(line))));
+        const seen = new Set(), invalidLines = [];
+        for (const [index, line] of text.split(/\r?\n/).entries()) {
+            if (!line.trim()) continue;
+            let event;
+            try { event = JSON.parse(line); } catch (error) {
+                if (!(error instanceof SyntaxError)) throw error;
+                invalidLines.push(index + 1);
+                continue;
+            }
+            if (!event || typeof event !== 'object' || Array.isArray(event) || !Number.isFinite(event.t) || event.t <= 0 ||
+                typeof event.id !== 'string' || !event.id || !event.dps || typeof event.dps !== 'object' || Array.isArray(event.dps) ||
+                (event.source !== undefined && typeof event.source !== 'string')) {
+                invalidLines.push(index + 1);
+                continue;
+            }
+            seen.add(eventKey(event));
+        }
+        if (invalidLines.length) {
+            const warning = { kind: 'warning', t: Date.now(), file, count: invalidLines.length, lines: invalidLines.slice(0, 10),
+                error: 'Skipped malformed sensor event JSONL records' };
+            warnings.push(warning);
+            console.error(JSON.stringify(warning));
+        }
         const fresh = [];
         for (const event of events) {
             const key = eventKey(event);
@@ -113,7 +135,7 @@ async function recordPirReports(id, dp, from, to, token) {
 }
 
 (async () => {
-    const res = { at: Date.now(), error: '', devices: {} };
+    const res = { at: Date.now(), error: '', warnings: [], devices: {} };
     // keep the last values of devices that are read locally again or failed this time
     for (const id of Object.keys(prev.devices || {})) if (meta[id]) res.devices[id] = prev.devices[id];
     try {
@@ -131,7 +153,7 @@ async function recordPirReports(id, dp, from, to, token) {
                     if (pirDp) {
                         const to = Date.now();
                         const from = Math.max(res.devices[id].reportTo || 0, to - 7 * 24 * 3600 * 1000);
-                        res.devices[id].events = await recordPirReports(id, pirDp, from, to, tok);
+                        res.devices[id].events = await recordPirReports(id, pirDp, from, to, tok, res.warnings);
                         res.devices[id].reportTo = to;
                     }
                 } catch (e) { res.error = e.message; }
@@ -139,6 +161,6 @@ async function recordPirReports(id, dp, from, to, token) {
         }
     } catch (e) { res.error = e.message; }
     fs.writeFileSync(OUT, JSON.stringify(res));
-    console.log(JSON.stringify({ kind: 'done', devices: ids.length, error: res.error }));
+    console.log(JSON.stringify({ kind: 'done', devices: ids.length, error: res.error, warnings: res.warnings }));
     process.exit(0);
 })();

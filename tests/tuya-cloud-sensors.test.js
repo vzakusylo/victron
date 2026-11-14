@@ -12,17 +12,19 @@ const ID = 'test-motion-sensor';
 const NOW = Date.parse('2026-11-14T13:00:00Z');
 const meta = { [ID]: { name: 'Motion Sensor', battery: true, cloudOnline: true, dps: { 101: { code: 'pir_state' } } } };
 
-async function run(pages, { previous = {}, files = new Map(), now = NOW } = {}) {
+async function run(pages, { previous = {}, files = new Map(), now = NOW, rawEvents = false } = {}) {
     files = new Map(files);
     files.set(DIR + 'tuya-cloud.json', JSON.stringify({ accessId: 'test-id', accessSecret: 'test-secret', endpoint: 'https://example.invalid' }));
     files.set(DIR + 'tuya-devices-meta.json', JSON.stringify(meta));
     files.set(DIR + 'tuya-devices-cloud.json', JSON.stringify({ at: 0, devices: { [ID]: previous } }));
     const requests = [];
+    const diagnostics = [];
     let page = 0;
     await vm.runInNewContext(SOURCE, {
         require: (name) => name !== 'fs' ? require(name) : {
             readFileSync: (file) => {
                 if (!files.has(file)) throw Object.assign(new Error('missing ' + file), { code: 'ENOENT' });
+                if (files.get(file) instanceof Error) throw files.get(file);
                 return files.get(file);
             },
             writeFileSync: (file, text) => files.set(file, text),
@@ -33,7 +35,7 @@ async function run(pages, { previous = {}, files = new Map(), now = NOW } = {}) 
         URLSearchParams, AbortSignal,
         setTimeout: () => ({ unref() {} }),
         process: { argv: ['node', 'tool', '--now'], env: {}, exit() {} },
-        console: { log() {}, error() {} },
+        console: { log() {}, error: message => diagnostics.push(String(message)) },
         fetch: async (url) => {
             const request = new URL(url);
             requests.push(request);
@@ -51,9 +53,9 @@ async function run(pages, { previous = {}, files = new Map(), now = NOW } = {}) 
             return { json: async () => ({ success: true, result }) };
         }
     });
-    const events = [...files.entries()].filter(([file]) => file.startsWith(EVENTS))
+    const events = rawEvents ? [] : [...files.entries()].filter(([file]) => file.startsWith(EVENTS))
         .flatMap(([, text]) => text.trim().split('\n').filter(Boolean).map(JSON.parse));
-    return { files, requests, events, state: JSON.parse(files.get(DIR + 'tuya-devices-cloud.json')) };
+    return { files, requests, events, diagnostics, state: JSON.parse(files.get(DIR + 'tuya-devices-cloud.json')) };
 }
 
 test('PIR history preserves real motion and clear values with report timestamps, not online events', async () => {
@@ -66,6 +68,7 @@ test('PIR history preserves real motion and clear values with report timestamps,
     ]);
     assert.equal(result.state.devices[ID].reportTo, NOW);
     assert.equal(result.state.devices[ID].events, 2);
+    assert.deepEqual(result.state.warnings, []);
     assert.equal(result.requests.at(-1).searchParams.get('start_time'), String(NOW - 7 * 24 * 3600000),
         'the old online-event cursor must not skip real reports');
 });
@@ -89,9 +92,55 @@ test('PIR history deduplicates repeated page entries and replay after restart', 
     const second = await run([{ hasMore: false, logs: [report] }], {
         files: first.files, previous: first.state.devices[ID], now: NOW + 1000
     });
+
     assert.equal(first.events.length, 1);
     assert.equal(second.events.length, 1);
     assert.equal(second.state.devices[ID].events, 0);
+});
+
+test('malformed JSONL records warn without exposing contents, block neither new reports nor valid deduplication', async () => {
+    const file = EVENTS + '2026-11-14.jsonl';
+    const existing = { t: NOW - 1000, id: ID, dps: { 101: 'pir' }, source: 'cloud report' };
+    const text = [JSON.stringify(existing), '{"synthetic-sensitive-data":', 'null',
+        JSON.stringify({ t: NOW - 2000, id: ID, dps: false })].join('\n');
+    const result = await run([{ hasMore: false, logs: [
+        { code: 'pir_state', eventTime: NOW - 1000, value: 'pir' },
+        { code: 'pir_state', eventTime: NOW, value: 'none' }
+    ] }], { files: new Map([[file, text]]), rawEvents: true });
+    assert.equal(result.state.error, '');
+    assert.equal(result.state.devices[ID].reportTo, NOW);
+    assert.equal(result.state.devices[ID].events, 1);
+    assert.ok(result.files.get(file).startsWith(text + '\n'), 'keep corrupt contents for diagnosis');
+    assert.equal(result.files.get(file).split(JSON.stringify(existing)).length - 1, 1);
+    assert.equal(JSON.parse(result.files.get(file).trim().split('\n').at(-1)).dps['101'], 'none');
+    assert.equal(result.state.warnings.length, 1);
+    assert.equal(result.state.warnings[0].count, 3);
+    assert.deepEqual(result.state.warnings[0].lines, [2, 3, 4]);
+    assert.ok(result.diagnostics.some(message => message.includes('malformed sensor event JSONL')));
+    assert.ok(!result.diagnostics.join('\n').includes('synthetic-sensitive-data'));
+});
+
+test('an entirely corrupt day log still accepts a new report with diagnostics', async () => {
+    const file = EVENTS + '2026-11-14.jsonl';
+    const text = 'not JSON\nnull\n[]';
+    const result = await run([{ hasMore: false, logs: [{ code: 'pir_state', eventTime: NOW, value: 'pir' }] }],
+        { files: new Map([[file, text]]), rawEvents: true });
+    assert.equal(result.state.devices[ID].events, 1);
+    assert.equal(result.state.devices[ID].reportTo, NOW);
+    assert.equal(result.state.warnings[0].count, 3);
+    assert.equal(JSON.parse(result.files.get(file).trim().split('\n').at(-1)).dps['101'], 'pir');
+});
+
+test('a real log read error stays fatal to the read and does not advance the history cursor', async () => {
+    const file = EVENTS + '2026-11-14.jsonl';
+    const denied = Object.assign(new Error('synthetic event log permission denied'), { code: 'EACCES' });
+    const result = await run([{ hasMore: false, logs: [{ code: 'pir_state', eventTime: NOW, value: 'pir' }] }], {
+        files: new Map([[file, denied]]), previous: { reportTo: NOW - 60000 }, rawEvents: true
+    });
+    assert.match(result.state.error, /permission denied/);
+    assert.equal(result.state.devices[ID].reportTo, NOW - 60000);
+    assert.deepEqual(result.state.warnings, []);
+    assert.equal(result.files.get(file), denied);
 });
 
 test('failed or broken pagination does not append partial history or advance its cursor', async () => {
