@@ -14,8 +14,9 @@
 //   4. copies only the planned code fields from the commit into the live nodes; a node that differs
 //      from the commit in anything else (wires, outputs) stops the deploy
 //   5. sets the d#<n> tab label of the commit and stamps the source commit (tools/deploy-version.js)
-//   6. DRY=0 only: replaces the tool files (previous ones kept as <name>.pre-<sha12>), copies flows.json,
-//      flows_cred.json and the original live flow to .node-red/backup-<time>-pre-d<n>/, POSTs with the
+//   6. DRY=0 only: copies flows.json,
+//      flows_cred.json and the original live flow to .node-red/backup-<time>-pre-d<n>/, replaces the tool
+//      files (previous ones saved in that backup, restored if the POST fails), POSTs with the
 //      revision and deploy type "nodes", reads the flow back and compares
 // Credentials are not touched: GET /flows has none and Node-RED keeps those of nodes it does not replace.
 'use strict';
@@ -118,8 +119,13 @@ function readPlan(file) {
         const ids = Object.keys(plan.patch);
         if (liveById.has(AUTOMATIONS_NODE)) {
             const raw = JSON.parse(await api('GET', '/context/node/' + AUTOMATIONS_NODE + '/dhw'));
+            // Fail closed: only a value that was never set counts as "no context".
             let dhw = null;
-            try { dhw = JSON.parse(raw.msg); } catch { /* no DHW context yet */ }
+            const neverSet = !Object.keys(raw).length || raw.format === 'undefined';
+            if (!neverSet) {
+                try { dhw = JSON.parse(raw.msg); } catch { fail('Cannot read the DHW state. Not deploying.'); }
+                if (!dhw || typeof dhw.state !== 'string') fail('Unexpected DHW context. Not deploying.');
+            }
             console.log('DHW state       : ' + (dhw ? dhw.state + (dhw.run ? ' (cycle running)' : '') : 'no context'));
             if (dhw && (dhw.state !== 'HEATING' || dhw.run)) fail('A DHW cycle is running. Deploy after it ends.');
         }
@@ -135,6 +141,7 @@ function readPlan(file) {
             }
             if (withoutLayout(node) !== withoutLayout(source)) fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
         }
+        const oldLabel = liveTab.label;
         liveTab.label = repoTab.label;
         const commits = Object.fromEntries(plan.scopes.map((scope) => [scope, plan.sha]));
         const stamped = stampDeployment(payload, commits, original);
@@ -146,33 +153,58 @@ function readPlan(file) {
         console.log('code changes    :\n  ' + (changes.join('\n  ') || 'none'));
         console.log('nodes restarted : ' + touched.length + ' (' + touched.filter((node) => node.type === 'ui_tab').length + ' dashboard pages renamed by the source label)');
         console.log('  ' + touched.filter((node) => node.type !== 'ui_tab').map((node) => node.id + ' [' + node.type + ']').join('\n  '));
-        console.log('live label      : ' + liveTab.label.replace(/ \[.*\]$/, '') + ' -> ' + newTab.label);
+        console.log('live label      : ' + oldLabel + ' -> ' + newTab.label);
         if (DRY) { console.log('DRY RUN - nothing changed. Run again with DRY=0 to deploy.'); return; }
 
-        const owner = fs.statSync(toolsDir);
-        for (const job of toolJobs) {
-            const keep = job.dest + '.pre-' + plan.sha.slice(0, 12);
-            if (fs.existsSync(job.dest) && !fs.existsSync(keep)) fs.copyFileSync(job.dest, keep);
-            fs.chownSync(job.staged, owner.uid, owner.gid);
-            fs.chmodSync(job.staged, 0o644);
-            fs.renameSync(job.staged, job.dest);   // replaces a symlink instead of writing through it
-            console.log('tool replaced   : ' + job.dest);
-        }
-
+        // Backup first: nothing is replaced before the previous state is saved.
         const now = new Date(), two = (value) => String(value).padStart(2, '0');
         const backup = path.join(NODE_RED_DIR, 'backup-' + now.getFullYear() + two(now.getMonth() + 1) + two(now.getDate()) + 'T'
-            + two(now.getHours()) + two(now.getMinutes()) + '-pre-d' + number(repoTab.label));
+            + two(now.getHours()) + two(now.getMinutes()) + two(now.getSeconds()) + '-pre-d' + number(repoTab.label));
         fs.mkdirSync(backup, { mode: 0o700 });
         for (const file of ['flows.json', 'flows_cred.json']) fs.copyFileSync(path.join(NODE_RED_DIR, file), path.join(backup, file));
         fs.writeFileSync(path.join(backup, 'original-live.json'), originalText, { mode: 0o600 });
         console.log('backup          : ' + backup);
 
-        const reply = await api('POST', '/flows', JSON.stringify(stamped), { 'Content-Type': 'application/json', 'Node-RED-Deployment-Type': 'nodes' });
+        // tools/ belongs to nodered: never follow a link there. Previous tool files go to the
+        // root-only backup directory, and come back if the flow deploy fails.
+        const isPlain = (file) => { try { return fs.lstatSync(file).isFile(); } catch { return false; } };
+        const owner = fs.statSync(toolsDir);
+        const replaced = [];
+        const restoreTools = () => {
+            for (const item of replaced) {
+                try {
+                    if (item.saved) fs.renameSync(item.saved, item.dest); else fs.rmSync(item.dest, { force: true });
+                    console.error('tool restored   : ' + item.dest);
+                } catch (error) { console.error('TOOL NOT RESTORED: ' + item.dest + ' (' + error.message + '); previous copy: ' + (item.saved || 'none')); }
+            }
+        };
+        let reply, afterById;
+        try {
+            for (const job of toolJobs) {
+                let saved = null;
+                if (isPlain(job.dest)) {
+                    saved = path.join(backup, path.basename(job.dest));
+                    fs.copyFileSync(job.dest, saved, fs.constants.COPYFILE_EXCL);
+                    fs.chownSync(saved, owner.uid, owner.gid);
+                }
+                fs.chownSync(job.staged, owner.uid, owner.gid);
+                fs.chmodSync(job.staged, 0o644);
+                fs.renameSync(job.staged, job.dest);   // replaces a symlink instead of writing through it
+                replaced.push({ dest: job.dest, saved });
+                console.log('tool replaced   : ' + job.dest);
+            }
+            reply = await api('POST', '/flows', JSON.stringify(stamped), { 'Content-Type': 'application/json', 'Node-RED-Deployment-Type': 'nodes' });
+        } catch (error) {
+            // The flow was not replaced: put the tool files back so flow and tools still match.
+            restoreTools();
+            throw error;
+        }
         await new Promise((resolve) => setTimeout(resolve, 4000));
         const after = JSON.parse(await api('GET', '/flows'));
-        const afterById = new Map(after.flows.map((node) => [node.id, node]));
+        afterById = new Map(after.flows.map((node) => [node.id, node]));
         for (const id of ids) for (const field of plan.patch[id]) {
-            if (norm(afterById.get(id)[field]) !== norm(repoById.get(id)[field])) fail('VERIFY FAILED: ' + id + '.' + field + '. Roll back from ' + backup);
+            // The POST was accepted, so the new flow runs with the new tools: keep both and report.
+            if (norm(afterById.get(id)[field]) !== norm(repoById.get(id)[field])) fail('VERIFY FAILED: ' + id + '.' + field + '. The flow was posted and the tool files replaced; roll back both from ' + backup);
         }
         console.log('DEPLOYED        : ' + afterById.get(repoTab.id).label + ' (rev ' + JSON.parse(reply).rev.slice(0, 12) + ')');
         console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');
