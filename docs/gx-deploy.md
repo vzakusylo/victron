@@ -168,7 +168,7 @@ In this order; the first failure stops it before anything is written.
 7. Every planned node exists on both sides and, after the patch, equals the commit in everything except its editor position.
 8. The node count is unchanged.
 
-With `DRY=0` it then makes the backup, replaces the tool files (owner and mode set first, then a rename; the previous file is saved in the backup directory), posts with the revision and `Node-RED-Deployment-Type: nodes`, waits, reads the flow back and compares the planned fields. If the POST fails, the previous tool files are put back, so the flow and its tools still match. A missing or unreadable DHW state stops the deploy.
+With `DRY=0` it then makes the backup, replaces the tool files (owner and mode set first, then a rename; the previous file is saved in the backup directory), posts with the revision and `Node-RED-Deployment-Type: nodes`, waits, reads the flow back and compares the planned fields. If the POST fails and the live revision is unchanged, the previous tool files are put back, so the flow and its tools still match; if the flow state is unknown after a failed POST, the tool files stay and the script says so. A missing or unreadable DHW state stops the deploy.
 
 What restarts: the patched nodes, and every dashboard page and widget, because the source label renames the pages. Function nodes lose their node context; the heat pump automations read their settings file again on start. Credentials stay: `GET /flows` returns none and Node-RED keeps those of the nodes it does not replace.
 

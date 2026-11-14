@@ -195,8 +195,12 @@ function readPlan(file) {
             }
             reply = await api('POST', '/flows', JSON.stringify(stamped), { 'Content-Type': 'application/json', 'Node-RED-Deployment-Type': 'nodes' });
         } catch (error) {
-            // The flow was not replaced: put the tool files back so flow and tools still match.
-            restoreTools();
+            // Put the tool files back only if the flow really was not replaced: a transport error
+            // on the POST can come after Node-RED accepted it.
+            let liveRev = null;
+            try { liveRev = JSON.parse(await api('GET', '/flows')).rev; } catch { /* unknown */ }
+            if (liveRev === plan.expectRev) restoreTools();
+            else console.error('Flow state after the failed step is unknown (rev ' + liveRev + '); tool files left as replaced. Check the flow and roll back from ' + backup);
             throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 4000));
