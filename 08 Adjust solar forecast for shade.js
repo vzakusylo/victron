@@ -16,6 +16,11 @@
 // Change notes:
 // 1. Initial version.
 // 2. Updated hourlyCapW and sunnyRangeKWh from observed sunny-day data (6 Jun 2026): 16.7 kWh total, 2.7 kW peak.
+// 3. Seasonal cap from real output: each hour is capped at the highest actual solar Wh of that
+//    hour in the last 14 days (energy-YYYY-MM.csv, needs the `fs` module in the node setup) x 1.25.
+//    On 13 Nov 2026 the June tables forecast 4.1 kWh / 1.06 kW "sunny" while November days gave
+//    0-0.13 kWh, so the controller expected solar that never came. Fewer than 7 logged days ->
+//    the June tables alone, as before.
 // ==========================
 function localDayKey(date) {
     return [
@@ -71,6 +76,65 @@ const hourlyCapW = {
     21: 20
 };
 
+// Seasonal correction from what the panels really produced. The tables above come from
+// June; with the low autumn / winter sun the trees shade the panels almost all day, so the
+// June caps overestimate November ~20x. Per hour, the forecast is capped at the highest
+// actual solar Wh of that hour in the last OBSERVED_DAYS days x OBSERVED_HEADROOM.
+const LOG_DIR = '/data/home/nodered/grid-control-logs/';
+const OBSERVED_DAYS = 14;
+const OBSERVED_MIN_DAYS = 7;
+const OBSERVED_HEADROOM = 1.25;
+
+function readObservedDays(now) {
+    // Cached per day in node context; tests set `observedSolar` directly.
+    const cached = context.get('observedSolar');
+    const todayKey = localDayKey(now);
+    if (cached && cached.readOn === todayKey) {
+        return cached;
+    }
+    if (typeof fs === 'undefined') {
+        return cached || null;
+    }
+    const first = new Date(now.getFullYear(), now.getMonth(), now.getDate() - OBSERVED_DAYS);
+    const months = [localDayKey(first).substring(0, 7), todayKey.substring(0, 7)];
+    const days = {};
+    Array.from(new Set(months)).forEach(month => {
+        let text = '';
+        try {
+            text = fs.readFileSync(LOG_DIR + 'energy-' + month + '.csv', 'utf8');
+        } catch (error) {
+            return;
+        }
+        text.split(/\r?\n/).forEach(line => {
+            const m = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),[-]?\d+,[-]?\d+,([-]?\d+)/);
+            if (!m || m[1] < localDayKey(first) || m[1] >= todayKey) {
+                return;
+            }
+            const day = days[m[1]] || (days[m[1]] = {});
+            day[Number(m[2])] = Math.max(0, Number(m[3]) || 0);
+        });
+    });
+    const state = { readOn: todayKey, days };
+    context.set('observedSolar', state);
+    return state;
+}
+
+function observedCapByHour(now) {
+    const observed = readObservedDays(now);
+    const dayKeys = observed && observed.days ? Object.keys(observed.days) : [];
+    if (dayKeys.length < OBSERVED_MIN_DAYS) {
+        return null;
+    }
+    const caps = {};
+    for (let hour = 0; hour < 24; hour += 1) {
+        const peak = dayKeys.reduce((max, key) => Math.max(max, Number(observed.days[key][hour]) || 0), 0);
+        caps[hour] = Math.round(peak * OBSERVED_HEADROOM);
+    }
+    return { caps, days: dayKeys.length };
+}
+
+const observedCap = observedCapByHour(new Date());
+
 const historicalReference = {
     sunnyPeakKW: '2.5-2.8',
     cloudyPeakKW: '<1.0',
@@ -88,7 +152,8 @@ for (const [key, rawValue] of Object.entries(result)) {
     const hour = date.getHours();
     const factor = shadeByHour[hour] || 0;
     const shadedW = factor > 0 ? Math.round(Math.max(0, Number(rawValue) || 0) * factor) : 0;
-    const capW = hourlyCapW[hour] || 0;
+    const tableCapW = hourlyCapW[hour] || 0;
+    const capW = observedCap ? Math.min(tableCapW, observedCap.caps[hour]) : tableCapW;
     const adjustedW = capW > 0 ? Math.min(shadedW, capW) : 0;
     const dayKey = localDayKey(date);
 
@@ -138,9 +203,11 @@ msg.payload = {
         cloudyKWh: '4-8',
         shadeByHour,
         hourlyCapW,
+        observedCapW: observedCap ? observedCap.caps : null,
+        observedDays: observedCap ? observedCap.days : 0,
         historicalReference
     }
 };
 
-node.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW` });
+node.status({ fill: 'blue', shape: 'dot', text: `${condition} | ${todayKWh}kWh | peak ${todayPeakKW}kW | ${observedCap ? 'obs ' + observedCap.days + 'd' : 'June caps'}` });
 return msg;

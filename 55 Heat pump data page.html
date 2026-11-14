@@ -1,0 +1,47 @@
+<!--
+  55 Heat pump data page.html
+  Source of the ui_template "Heat pump data page" (dashboard tab "Heat Pump data", d#164).
+  Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-55).
+  Detailed data of the heat pump, moved from the Heat Pump page (35) on the owner's request: every
+  data point of the heat pump (DP, name, value, unit) and the raw data points of the SA1 power
+  meter. Same model as the Heat Pump page ("Heat pump state", 34, output 1). Read-only, sends nothing.
+-->
+<style>
+.hpd { padding: 6px 4px; font-size: 14px; }
+.hpd-title { font-size: 20px; font-weight: 700; }
+.hpd-sub { font-size: 12px; opacity: .7; margin-bottom: 10px; }
+.hpd h4 { font-size: 15px; margin: 14px 0 6px; }
+.hpd input[type=search] { border-radius: 6px; padding: 4px 8px; background: rgba(127,127,127,.12); color: inherit; border: 1px solid rgba(127,127,127,.35); font-size: 13px; width: 220px; }
+.hpd table { border-collapse: collapse; width: 100%; max-width: 900px; }
+.hpd th, .hpd td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid rgba(127,127,127,.18); }
+.hpd th { font-weight: 600; opacity: .8; }
+.hpd td.num, .hpd th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.hpd tr:hover td { background: rgba(127,127,127,.08); }
+</style>
+
+<div class="hpd">
+  <div class="hpd-title">Heat pump — detailed data</div>
+  <div class="hpd-sub">Every data point the heat pump reports on the local Tuya connection, and the raw data points of the SA1 power meter · updated {{msg.payload.updated | date:'HH:mm:ss'}}</div>
+
+  <input type="search" ng-model="q" placeholder="filter: DP, name or value">
+
+  <h4>All data points</h4>
+  <table>
+    <tr><th>DP</th><th>Parameter</th><th class="num">Value</th><th>Unit</th></tr>
+    <tr ng-repeat="it in msg.payload.items | filter:q">
+      <td>{{it.dp}}</td><td>{{it.label}}</td><td class="num">{{it.value}}</td><td>{{it.unit}}</td>
+    </tr>
+    <tr ng-repeat="u in msg.payload.unknown | filter:q">
+      <td>{{u.dp}}</td><td><i>unknown</i></td><td class="num">{{u.value}}</td><td></td>
+    </tr>
+  </table>
+  <div class="hpd-sub" ng-if="!msg.payload.items.length">Waiting for data from the heat pump…</div>
+
+  <div ng-if="msg.payload.summary.meterDps.length">
+    <h4>Power meter SA1 — raw data points ({{msg.payload.summary.powerSource}})</h4>
+    <table>
+      <tr><th>DP</th><th class="num">Value</th></tr>
+      <tr ng-repeat="u in msg.payload.summary.meterDps | filter:q"><td>{{u.dp}}</td><td class="num">{{u.value}}</td></tr>
+    </table>
+  </div>
+</div>

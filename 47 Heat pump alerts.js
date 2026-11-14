@@ -15,6 +15,7 @@
 //   heat pump, valve and bypass
 // - msg.topic 'tick'    (inject, every 60 s): send the digest when it is due
 // - msg.topic 'test'    (inject "Send test alert mail"): a test mail at once
+// - msg.topic 'report'  (inject "Send devices report now", d#163): the daily devices mail at once
 // - msg.topic 'result'  (exec stdout of send-mail.js): { ok, error }
 // Output (1):
 // - output 1 -> file node "Write alert mail" (/tmp/hp-alert-mail.json) -> exec "Send alert mail"
@@ -27,6 +28,11 @@
 // - battery sensors (d#151): battery low (battery_state 'low' or <= LOW_BAT_PCT %), once per sensor
 //   per day while it stays low, and when it is OK again; no local reading for SENSOR_OFFLINE_H
 //   (and when it is read again). Checked on every tick from flow `heatPump` / `localSensors`.
+// - daily devices mail (d#163, owner: "a mail every day: sensors that went offline or will go off
+//   soon"): at REPORT_HOUR every day, from flow `devicesReport` (Devices model, 50): offline devices,
+//   battery to replace (low), battery getting low (<= SOON_BAT_PCT % or 'middle'), devices whose
+//   last reading is getting old; devices that are offline in Smart Life too are only counted.
+//   Sent even when everything is fine (one line). Not throttled by the digest gap.
 // Throttling: a digest is sent 2 min after its first alert, at most one mail per 15 min; repeated
 // identical texts are counted, not repeated. Without email.json the node shows the error and drops
 // nothing (the digest waits, max 50 lines).
@@ -40,6 +46,7 @@
 // 4. d#153: sensors without a local beacon are read from the Smart Life cloud (50, source 'cloud'):
 //    the offline mail names the source, and uses the sensor's own limit (staleH, 48 h for smoke
 //    detectors that report about once a day).
+// 5. d#163: daily devices mail (see Alerts above).
 // ==========================
 
 const MAIL_FILE = '/tmp/hp-alert-mail.json';
@@ -53,6 +60,9 @@ const LOW_BAT_PCT = 20;
 const BAT_REPEAT_MS = 24 * 3600 * 1000;
 const SENSOR_OFFLINE_H = 24;
 const START_GRACE_MS = 30 * 60 * 1000;
+const REPORT_HOUR = 8;          // daily devices mail at 08:00 (local time of the GX)
+const SOON_BAT_PCT = 35;        // battery getting low: <= 35 % (low = <= LOW_BAT_PCT)
+const REPORT_STALE_MS = 10 * 60 * 1000;   // devicesReport older than this: the Devices node is not running
 
 const now = Date.now();
 const st = context.get('st') || { pending: [], firstAt: 0, lastMailAt: 0, lastResult: null, down: {}, sentCount: 0 };
@@ -155,12 +165,56 @@ function mailMsg(subject, lines) {
     return { topic: 'result', payload: JSON.stringify({ subject, text }), filename: MAIL_FILE };   // exec answers with topic 'result'
 }
 
+// Daily devices mail (d#163): offline, battery low / getting low, last reading getting old
+function batteryLevel(b) {
+    if (!b) return null;
+    if (b.low) return 'low';
+    const txt = String(b.text || '').toLowerCase();
+    const pct = parseFloat(txt);
+    if (Number.isFinite(pct)) return pct <= SOON_BAT_PCT ? 'soon' : 'ok';
+    return txt === 'middle' ? 'soon' : 'ok';
+}
+function ago(t) {
+    if (!t) return 'never read';
+    const h = (now - t) / 3600000;
+    return h < 1 ? Math.round(h * 60) + ' min ago' : (h < 48 ? Math.round(h) + ' h ago' : Math.round(h / 24) + ' days ago');
+}
+function devicesReport() {
+    const r = flow.get('devicesReport');
+    if (!r || !Array.isArray(r.devices)) return mailMsg('Devices report: no data', ['The Devices node (50) has not built its list yet — is the Devices page node running?']);
+    const list = r.devices;
+    const off = list.filter((d) => !d.online && d.group !== 'smartlife-off');
+    const offCloud = list.filter((d) => !d.online && d.group === 'smartlife-off');
+    const low = list.filter((d) => batteryLevel(d.battery) === 'low');
+    const soon = list.filter((d) => batteryLevel(d.battery) === 'soon');
+    // battery sensors whose last reading is older than 12 h but still counted online (offline after 24 / 48 h)
+    const aging = list.filter((d) => d.online && d.battery && d.lastData && now - d.lastData > 12 * 3600 * 1000);
+    const line = (d, extra) => '- ' + d.name + (extra ? ': ' + extra : '') + ' (last data ' + ago(d.lastData) + (d.link ? ', ' + d.link : '') + ')';
+    const lines = [];
+    if (now - (r.at || 0) > REPORT_STALE_MS) lines.push('Note: the device list is ' + ago(r.at).replace(' ago', '') + ' old (Devices node not running?).', '');
+    if (off.length) lines.push('Offline (' + off.length + '):', ...off.map((d) => line(d, d.note)), '');
+    if (low.length) lines.push('Battery low — replace (' + low.length + '):', ...low.map((d) => line(d, 'battery ' + d.battery.text)), '');
+    if (soon.length) lines.push('Battery getting low (' + soon.length + '):', ...soon.map((d) => line(d, 'battery ' + d.battery.text)), '');
+    if (aging.length) lines.push('No reading for over 12 h, offline soon if it stays quiet (' + aging.length + '):', ...aging.map((d) => line(d, '')), '');
+    const online = list.filter((d) => d.online).length;
+    lines.push(online + ' of ' + list.length + ' devices online' + (offCloud.length ? '; ' + offCloud.length + ' more are offline in Smart Life too (not counted above): ' + offCloud.map((d) => d.name).join(', ') : '') + '.');
+    const bad = off.length + low.length;
+    const subject = 'Devices: ' + (bad || soon.length || aging.length
+        ? [off.length ? off.length + ' offline' : '', low.length ? low.length + ' battery low' : '', soon.length ? soon.length + ' battery getting low' : '', aging.length ? aging.length + ' quiet > 12 h' : ''].filter(Boolean).join(', ')
+        : 'all ' + online + ' online, batteries OK');
+    const m = mailMsg(subject, lines);
+    m.payload = JSON.stringify({ subject, text: lines.concat(['', 'Devices page: dashboard → Devices. Sent every day at ' + REPORT_HOUR + ':00 by the Cerbo GX (Heat pump alerts, 47).']).join('\n') });
+    return m;
+}
+
 let send = null;
 
 if (msg.topic === 'result') {
     let r = null; try { r = JSON.parse(String(msg.payload || '').trim().split('\n').pop()); } catch (e) { r = { ok: false, error: 'no answer from send-mail.js' }; }
     st.lastResult = { t: now, ok: !!(r && r.ok), error: r && r.error ? String(r.error).slice(0, 120) : '' };
     if (!st.lastResult.ok) node.warn('Heat pump alerts: mail not sent: ' + st.lastResult.error);
+} else if (msg.topic === 'report') {
+    send = devicesReport();
 } else if (msg.topic === 'test') {
     send = mailMsg('Heat pump: test alert mail', ['Test mail from the Cerbo GX at ' + new Date(now).toString() + '.', 'If you read this, e-mail alerts work.']);
 } else if (msg.event && typeof msg.event === 'object') {
@@ -190,7 +244,15 @@ if (!send && st.pending.length && now - st.firstAt >= GATHER_MS && now - st.last
     send = mailMsg(subject, lines);
     st.pending = []; st.firstAt = 0;
 }
-if (send) { st.lastMailAt = now; st.sentCount++; }
+// daily devices mail: once a day from REPORT_HOUR; when the digest goes out on this tick, the next tick
+const dayKey = new Date(now).toDateString();
+if (!send && msg.topic === 'tick' && new Date(now).getHours() >= REPORT_HOUR && st.reportDay !== dayKey) {
+    send = devicesReport();
+    st.reportDay = dayKey;
+} else if (send && msg.topic === 'report') {
+    st.reportDay = dayKey;
+} else if (send) { st.lastMailAt = now; }
+if (send) st.sentCount++;
 
 context.set('st', st);
 const lr = st.lastResult;

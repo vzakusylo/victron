@@ -44,8 +44,8 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 | Page | What it is for |
 |---|---|
-| Energy / Energy Detail | hourly grid / AC / solar energy, daily files |
-| [Analytics](docs/dashboard.md#analytics-dashboard) | efficiency, PV routing, forecasts, capacity-tariff card |
+| Energy | hourly grid / AC / solar energy, daily files |
+| [Analytics](docs/dashboard.md#analytics-dashboard) | efficiency, PV routing, forecasts, capacity-tariff card, energy by day |
 | [Protection](docs/dashboard.md#protection-dashboard) | high-voltage limiter, Grid CT support, force charging, export guard |
 | [Files](docs/dashboard.md#files--logs-and-disk-usage) | log files with sizes, disk used / free, file viewer |
 | [Constants](docs/dashboard.md#controller-constants-dashboard) | controller constants incl. tariff seasons, tiers and grid current |
@@ -57,6 +57,8 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Automations](docs/heat-pump.md#automations-page-d123d126) | local replacements for all Smart Life heat pump scenes (B\* DHW cycles and modes, DF\* defrost, HP\*) as timed sequences with an internal defrost flag: master switch for all local automations, per rule Off / Test / On and all at once, write check (d#123–d#126) |
 | [Automation log](docs/heat-pump.md#automation-log-page-d126) | everything the local automations did, kept in a file per day: navigation by day, one entry per rule run with its steps and write results, filters (d#126). Which Smart Life scenes already run on the GX: [Migration log](docs/heat-pump.md#migration-log-smart-life--gx) |
 | [Devices](docs/dashboard.md#devices--every-device-and-sensor-online) | every device of the Smart Life account (heat pump devices, sensors, smoke detectors, plugs, breakers, meters) read on the local network, and every Victron D-Bus device: online / offline, IP, last data, key values, battery (d#151–d#153) |
+| [Air quality](docs/dashboard.md#air-quality--day-charts-of-the-qingping-air-monitor) | Qingping Air Monitor: CO2, PM2.5 / PM10, tVOC, temperature and humidity of one day from the day files on the GX, navigation by days (d#159) |
+| Heat Pump data | every data point of the heat pump (DP, name, value, unit) and the raw SA1 meter data points, with a filter; moved from the Heat Pump page (d#164) |
 | [Payback](docs/dashboard.md#payback--savings-and-payback-of-the-equipment) | savings since the energy history starts: peak shaving (capacity step), solar, battery night shift minus losses; equipment cost, what is left and the estimated payback; editable equipment list, prices and capacity steps (d#148) |
 
 ## Heat Pump page (Tuya Wi-Fi heat pump)

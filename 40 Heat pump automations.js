@@ -102,7 +102,15 @@
 // 11. d#138: the DHW controller panel moved to the Heat Pump page (35); its requests arrive here
 //    through "Heat pump command" (37) as the same 'ui' actions. flow.dhwView also carries `master`
 //    and is written at once after a DHW mode / settings change.
+// 18. d#166: heating power controller (HEAT_ID 'heat', Off / Test / On on the Heat Pump page): outside
+//    DHW cycles and defrosts it steps the pump mode Silent ⇄ Smart (⇄ Powerful if allowed) from the
+//    10-min averages of supply − heating set point (lag) and supply − return (gap): lag below −lagUp
+//    and gap < gapMax → one step up; supply above the set point + overC, gap > gapMax + 1 or the
+//    current ≥ ampPct of 9.67 A → one step down; at most one step per stepMin. Gap 3–4 °C = the
+//    supply rises smoothly. Its page model goes out as flow.dhwView.heat.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
+// 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
+//    owner). The page sets only the two ends; a saved curve of more points still works.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
@@ -170,7 +178,7 @@ const DHW_ID = 'dhw';
 const DHW_NAME = 'DHW controller';
 const UNIT_MAX_A = 9.67;   // nameplate PW030-DKZLRS-A
 const DHW_DEFAULTS = {
-    curve: [[-15, 40], [-10, 42], [-5, 44], [0, 46], [2, 49]],   // outdoor °C → tank target °C
+    curve: [[-20, 37], [1, 50]],   // outdoor °C → tank target °C; d#161: a straight line, 40 °C at -15, 50 °C at 1
     frostLimit: -20,     // below: no DHW by the heat pump (electric heater only)
     hyst: 3,             // start when tank < target − hyst
     gap: 5,              // DHW: curve supply ≤ return + gap while the ramp runs
@@ -233,6 +241,36 @@ function wantedSupply(c, x) {
     return Math.min(c.maxSupply, t + c.supplyAdd, x <= c.coldLimit ? c.coldCap : 99);
 }
 
+// ---- heating power controller (d#166) ---------------------------------------------------
+const HEAT_ID = 'heat';
+const HEAT_NAME = 'Heating power controller';
+const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMin: 3, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false };
+const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMin: [1, 8], gapMax: [2, 10], stepMin: [5, 60], ampPct: [50, 100] };
+const HEAT_WINDOW_MIN = 10;
+const HEAT_LADDER = ['mute', 'smart', 'strong'];
+const MODE_NAME = { mute: 'Silent', smart: 'Smart', strong: 'Powerful' };
+function heatCfg(raw, base) {
+    const c = Object.assign({}, HEAT_DEFAULTS, base || {});
+    for (const k of Object.keys(c)) if (!(k in HEAT_DEFAULTS)) delete c[k];
+    const r = raw || {};
+    for (const k of Object.keys(HEAT_LIMITS)) {
+        const v = Number(r[k]);
+        if (r[k] !== undefined && r[k] !== null && r[k] !== '' && Number.isFinite(v) && v >= HEAT_LIMITS[k][0] && v <= HEAT_LIMITS[k][1]) c[k] = v;
+    }
+    if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
+    if (c.gapMax < c.gapMin) c.gapMax = c.gapMin;
+    return c;
+}
+// one decision from the averages: +1 step up, −1 step down, 0 stay (pure, see tests)
+function heatDecide(c, a) {
+    if (a.lag === null || a.gap === null) return { step: 0, why: 'collecting data' };
+    if (a.amp !== null && a.amp >= c.ampPct / 100 * UNIT_MAX_A) return { step: -1, why: 'current ' + a.amp + ' A ≥ ' + c.ampPct + ' % of ' + UNIT_MAX_A + ' A' };
+    if (a.gap > c.gapMax + 1) return { step: -1, why: 'supply − return ' + a.gap + ' °C > ' + (c.gapMax + 1) + ' (rises too fast)' };
+    if (a.lag > c.overC) return { step: -1, why: 'supply ' + a.lag + ' °C above the set point (> ' + c.overC + ')' };
+    if (a.lag < -c.lagUp && a.gap < c.gapMax) return { step: 1, why: 'supply lags ' + (-a.lag) + ' °C behind the set point, supply − return ' + a.gap + ' < ' + c.gapMax };
+    return { step: 0, why: 'lag ' + a.lag + ' °C, supply − return ' + a.gap + ' °C: in range' };
+}
+
 // Smart Life runs on 7–8 Nov 2026 (outdoor −5…+1 °C), for the page
 const RUNS = { 'B46 on <44 -4..1': 6, 'B46 switch >38': 15, 'B46 off >46 -4..1': 8, 'DF exchange off': 45, 'DF exchange on 31': 49, 'DF switch to heating': 6, 'DF safe 10min': 59 };
 const RUNS_FAILED = { 'B46 switch >38': 4, 'B46 off >46 -4..1': 3 };
@@ -270,6 +308,7 @@ function modeOf(id) {
     const s = context.get('settings') || settings;
     if (s.modes && MODES.includes(s.modes[id])) return s.modes[id];
     if (id === DHW_ID) return 'off';
+    if (id === HEAT_ID) return 'dry';
     const r = ruleById(id);
     return (r && r.def) || 'dry';
 }
@@ -759,15 +798,77 @@ function dhwTick() {
     context.set('dhw', d);
 }
 
+// ---- heating power controller tick (d#166) ----------------------------------------
+function heatState() { return ctx('heat', { samples: [], lastStep: 0, modeCmd: null, modeAt: 0, why: '', decision: '', lag: null, gap: null, run: null }); }
+function heatModel() {
+    const h = heatState(), c = (context.get('settings') || settings).heat || heatCfg({});
+    const H = (st.hp && st.hp.dps) || {};
+    return { mode: modeOf(HEAT_ID), cfg: c, lag: h.lag, gap: h.gap, why: h.why, decision: h.decision, lastStep: h.lastStep,
+        pumpMode: MODE_NAME[H['2']] || H['2'] || null, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
+}
+function heatTick() {
+    const h = heatState(), c = settings.heat || heatCfg({});
+    const md = modeOf(HEAT_ID);
+    const H = (st.hp && st.hp.dps) || {}, V = (st.valve && st.valve.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
+    const d = context.get('dhw') || {};
+    const hold = [];
+    if (md === 'off') hold.push('controller Off');
+    if (!(ready('hp') && ready('valve') && ready('bypass'))) hold.push('device not connected / stale');
+    if (d.state && d.state !== 'HEATING') hold.push('DHW cycle running');
+    else if (now - dhwLastEnd(d) < HEAT_WINDOW_MIN * MIN) hold.push('DHW cycle ended < ' + HEAT_WINDOW_MIN + ' min ago');
+    if (V['1'] === true) hold.push('valve on DHW');
+    if (B['1'] === true) hold.push('bypass ON');
+    if (recentDefrost || (n(H['116']) === 0 && n(H['115']) > 30)) hold.push('defrost now or < ' + DEFROST_QUIET_MIN + ' min ago');
+    if (H['1'] !== true) hold.push('heat pump off');
+    if (!(n(H['115']) > 0)) hold.push('compressor stopped');
+    if (!HEAT_LADDER.includes(H['2'])) hold.push('pump mode ' + H['2'] + ' unknown');
+    if (hold.length) {
+        h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
+        context.set('heat', h); return;
+    }
+    const sup = n(H['102']), ret = n(H['101']), set = n(H['125']), amp = n(H['112']);
+    if ([sup, ret, set].every(Number.isFinite)) h.samples.push([now, sup - set, sup - ret, Number.isFinite(amp) ? amp : null]);
+    h.samples = h.samples.filter((x) => now - x[0] <= HEAT_WINDOW_MIN * MIN);
+    const full = h.samples.length >= 20 && now - h.samples[0][0] >= (HEAT_WINDOW_MIN - 1) * MIN;
+    const avg = (i) => Math.round(h.samples.reduce((a, x) => a + x[i], 0) / h.samples.length * 10) / 10;
+    h.lag = h.samples.length ? avg(1) : null; h.gap = h.samples.length ? avg(2) : null;
+    const amps = h.samples.map((x) => x[3]).filter((x) => x !== null);
+    const a = { lag: full ? h.lag : null, gap: full ? h.gap : null, amp: amps.length ? Math.max(...amps.slice(-6)) : null };
+    const dec = heatDecide(c, a);
+    const cur = HEAT_LADDER.indexOf(H['2']);
+    const top = c.allowPowerful ? 2 : 1;
+    let to = Math.max(0, Math.min(top, cur + dec.step));
+    if (cur > top) to = top;   // Powerful while it is not allowed → down
+    h.decision = dec.why;
+    const early = h.lastStep && now - h.lastStep < c.stepMin * MIN;
+    if (to === cur) { h.why = dec.why + (dec.step ? ' (already ' + MODE_NAME[H['2']] + ')' : ''); context.set('heat', h); return; }
+    if (early) { h.why = dec.why + ' → ' + MODE_NAME[HEAT_LADDER[to]] + ' after ' + new Date(h.lastStep + c.stepMin * MIN).toTimeString().slice(0, 5); context.set('heat', h); return; }
+    if (h.modeCmd === HEAT_LADDER[to] && now - h.modeAt < MIN) { context.set('heat', h); return; }
+    const live = md === 'live' && settings.master;
+    const s = mode(HEAT_LADDER[to]);
+    h.run = now + ':' + HEAT_ID; h.lastStep = now; h.modeCmd = s.set; h.modeAt = now;
+    h.why = dec.why + ' → ' + MODE_NAME[s.set];
+    if (live) {
+        const q = context.get('queue') || [];
+        q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: s.role, dps: s.dps, set: s.set, text: s.text });
+        context.set('queue', q);
+        logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: dec.why + ' → ' + s.text });
+        pump();
+    } else {
+        logEvent({ kind: 'dry', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: false, text: dec.why + ' → would ' + s.text });
+    }
+    context.set('heat', h);
+}
+
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
     try {
         const s = JSON.parse(String(msg.payload || '{}'));
         settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
             heatCurve: s.heatCurve && Number.isFinite(s.heatCurve.p23) && Number.isFinite(s.heatCurve.p24) ? s.heatCurve : null,
-            dhwLastEnd: Number(s.dhwLastEnd) || 0 };
+            dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(s.heat) };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
-        if (s.modes && MODES.includes(s.modes[DHW_ID])) settings.modes[DHW_ID] = s.modes[DHW_ID];
+        for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
     } catch (e) {
@@ -798,6 +899,24 @@ if (msg.topic === 'ui') {
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
             + (p.mode !== 'live' ? ' — no other rule heats the tank now' : '') });
         flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'mode' && p.id === HEAT_ID) {
+        if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad heating mode ' + JSON.stringify(p)); return null; }
+        settings.modes[HEAT_ID] = p.mode;
+        const h = heatState(); h.lastStep = 0; h.samples = []; context.set('heat', h);
+        persist();
+        logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: 'controller set to ' + MODE_LABEL[p.mode] });
+        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object') {
+        const before = JSON.stringify(settings.heat || heatCfg({}));
+        settings.heat = heatCfg(p.cfg, settings.heat);
+        persist();
+        const after = JSON.stringify(settings.heat);
+        logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
+        flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object') {
@@ -922,8 +1041,9 @@ for (const r of RULES) {
     }
 }
 dhwTick();
+heatTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
-flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master }));
+flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() }));
 persist();
 const liveCount = RULES.filter((r) => modeOf(r.id) === 'live').length;
 const running = Object.keys(context.get('seqs') || {}).length;

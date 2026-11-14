@@ -43,6 +43,8 @@
 //    last AIR_STALE_MS.
 // 5. d#158 (review of PR #13): AIR_STALE_MS 5 min (reports every 60 s); online by the time the GX
 //    got the data (`seen`), not the monitor clock; only the known monitor MAC gets a card.
+// 6. d#163: flow `devicesReport` = { at, devices: [{ id, name, group, online, lastData, battery, note,
+//    link }] } for the daily devices mail of "Heat pump alerts" (47).
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
@@ -359,6 +361,8 @@ if (msg.topic === 'read') {
     const devices = tuyaDevices(now, p.last).concat(smart, airDevices(now), victronDevices(p.dbus));
     // battery sensors for the low-battery / offline mails of "Heat pump alerts" (47)
     flow.set('deviceBatteries', smart.filter((d) => d.alert).map((d) => ({ id: d.id, name: d.name, battery: d.battery, lastData: d.lastData, source: d.source, staleH: d.staleH })));
+    // d#163: every device for the daily devices mail of "Heat pump alerts" (47)
+    flow.set('devicesReport', { at: now, devices: devices.map((d) => ({ id: d.id, name: d.name, group: d.group, online: !!d.online, lastData: d.lastData || 0, battery: d.battery || null, note: d.note || '', link: d.link || '' })) });
     const model = {
         updated: new Date(now).toISOString(),
         devices,

@@ -208,3 +208,127 @@ test('52 / 50: a Qingping MQTT message becomes the Air monitor card of the Devic
     assert.equal(empty.online, false);
     assert.match(empty.note, /developer\.qingping\.co/);
 });
+test('52 / 54: readings go to the day file once, and the Air quality page gets the day chart', () => {
+    const air = loadNode('52 Air monitor.js');
+    const ts = Math.round(NOW / 1000);
+    const msg = (type, rows) => ({ topic: 'qingping/582D34701F19/up', payload: JSON.stringify({ type, mac: '582D34701F19', timestamp: ts, sensorData: rows }) });
+    const row = (s, co2) => ({ timestamp: { value: s }, co2: { value: co2 }, temperature: { value: 21.899999618530273 }, humidity: { value: 36.5 } });
+    const first = air.run(msg('12', [row(ts - 120, 800)]), { now: NOW }).result;
+    assert.equal(first[0].length, 1);
+    assert.match(first[0][0].filename, /\/grid-control-logs\/air\/2026-11-12\.csv$/);
+    assert.equal(first[0][0].payload, '13:28:00,800,,,,21.9,36.5\n');
+    // the history message repeats the reading already written and adds a newer one
+    const second = air.run(msg('17', [row(ts - 120, 800), row(ts - 60, 900)]), { now: NOW }).result;
+    assert.deepEqual(second[0].map((m) => m.payload), ['13:29:00,900,,,,21.9,36.5\n']);
+    assert.equal(air.run(msg('17', [row(ts - 60, 900)]), { now: NOW }).result, null, 'nothing new: nothing written');
+
+    const hist = loadNode('54 Air quality history.js');
+    const ask = hist.run({ topic: 'ui', payload: { action: 'day', day: '2026-11-11' } }, { now: NOW }).result;
+    assert.equal(ask[1].day, '2026-11-11');
+    assert.match(ask[1].payload, /cat \/data\/home\/nodered\/grid-control-logs\/air\/2026-11-11\.csv/);
+    assert.equal(hist.run({ topic: 'ui', payload: { action: 'day', day: '../../etc/x' } }, { now: NOW + 10000 }).result[1].day, '2026-11-11', 'a bad day is ignored');
+    const text = '2026-11-10.csv\n2026-11-11.csv\nnotes.txt\n@@DATA\n00:01:00,700,5,6,400,21,40\n00:01:00,700,5,6,400,21,40\n00:03:00,900,7,8,,22,\n23:59:30,1000,,,,,\n';
+    const model = hist.run({ topic: 'read', day: '2026-11-11', payload: text }, { now: NOW }).result[0].payload;
+    assert.equal(model.count, 3, 'a reading written twice counts once');
+    assert.deepEqual(model.days, ['2026-11-12', '2026-11-11', '2026-11-10'], 'today first, newest first');
+    assert.equal(model.series.co2.length, 288);
+    assert.equal(model.series.co2[0], 800, '00:00-00:05 bucket = average of 700 and 900');
+    assert.equal(model.series.co2[287], 1000);
+    assert.equal(model.series.co2[1], null);
+    assert.deepEqual(model.stats.co2, { min: 700, avg: 866.7, max: 1000, last: 1000 });
+    assert.deepEqual(model.stats.humidity, { min: 40, avg: 40, max: 40, last: 40 });
+    assert.equal(model.first, '00:01');
+    // the refresh tick reads only while today is shown
+    assert.equal(hist.run({ topic: 'tick' }, { now: NOW + 60000 }).result, null);
+});
+test('38: two power charts, compressor (calculated) and SA1 meter (measured) with V and A from DP 6', () => {
+    const node = loadNode('38 Build heat pump history.js');
+    // SA1 DP 6 = 220.8 V, 7.4 A, 1617 W; compressor 6 A at a 320 V DC bus
+    const rows = ['#day 2026-11-11', '#hp1 2026-11-11 10 cols=t,st,112,114,115,pw,m6', '0,CCCC,6,320,50,1617,CKAAHOgABlE='];
+    for (let t = 30; t < 600; t += 30) rows.push(String(t));
+    rows.push('600,CCCS');                                               // meter stale: no meter values
+    for (let t = 630; t < 900; t += 30) rows.push(String(t));
+    const out = node.run({ topic: 'day', day: '2026-11-11', payload: rows.join('\n') }, { now: NOW }).result.payload;
+    const powers = out.chart.powers;
+    assert.deepEqual(powers.map((p) => p.id), ['compressor', 'meter']);
+    const s = (p, unit) => p.series.find((x) => x.unit === unit);
+    const i = 10 * 30;                                                   // 10:00 bucket (2 min)
+    assert.equal(s(powers[0], 'W').v[i], 1920);
+    assert.equal(s(powers[0], 'A').v[i], 6);
+    assert.equal(s(powers[0], 'V').v[i], 320);
+    assert.equal(s(powers[1], 'W').v[i], 1617);
+    assert.equal(s(powers[1], 'A').v[i], 7.4);
+    assert.equal(s(powers[1], 'V').v[i], 220.8);
+    assert.equal(s(powers[1], 'W').v[i + 6], null, 'stale meter: no power');
+    assert.equal(s(powers[1], 'V').v[i + 6], null, 'stale meter: no voltage');
+    assert.equal(s(powers[0], 'W').v[i + 6], 1920, 'the compressor still counts');
+    assert.equal(out.chart.power, undefined);
+});
+test('47: daily devices mail lists offline devices and batteries to replace, once a day from 08:00', () => {
+    const node = loadNode('47 Heat pump alerts.js');
+    const at8 = new Date(2026, 10, 13, 8, 0, 30).getTime();
+    node.flow.set('devicesReport', { at: at8 - 60000, devices: [
+        { id: 'a', name: 'Air monitor', group: 'air', online: false, lastData: at8 - 3 * 3600000, battery: null, note: 'no reading for 180 min', link: 'MQTT' },
+        { id: 'b', name: 'stue', group: 'smartlife', online: true, lastData: at8 - 600000, battery: { text: 'low', low: true }, note: '', link: 'cloud' },
+        { id: 'c', name: '1st smoke detector', group: 'smartlife', online: true, lastData: at8 - 20 * 3600000, battery: { text: '30 %', low: false }, note: '', link: '' },
+        { id: 'd', name: 'Heat pump', group: 'tuya', online: true, lastData: at8, battery: null, note: '', link: '' },
+        { id: 'e', name: 'EV Charger', group: 'smartlife-off', online: false, lastData: 0, battery: null, note: '', link: '' }
+    ] });
+    assert.equal(node.run({ topic: 'tick' }, { now: at8 - 3600000 }).result, null, 'not before 08:00');
+    const mail = node.run({ topic: 'tick' }, { now: at8 }).result;
+    const m = JSON.parse(mail.payload);
+    assert.equal(m.subject, 'Devices: 1 offline, 1 battery low, 1 battery getting low, 1 quiet > 12 h');
+    assert.match(m.text, /Offline \(1\):\n- Air monitor: no reading for 180 min \(last data 3 h ago, MQTT\)/);
+    assert.match(m.text, /Battery low — replace \(1\):\n- stue: battery low/);
+    assert.match(m.text, /Battery getting low \(1\):\n- 1st smoke detector: battery 30 %/);
+    assert.match(m.text, /3 of 5 devices online; 1 more are offline in Smart Life too \(not counted above\): EV Charger/);
+    assert.equal(node.run({ topic: 'tick' }, { now: at8 + 60000 }).result, null, 'once a day');
+    assert.ok(node.run({ topic: 'report' }, { now: at8 + 120000 }).result, 'on demand');
+});
+test('08: the solar forecast is capped by the real output of the last 14 days', () => {
+    const node = loadNode('08 Adjust solar forecast for shade.js');
+    const raw = { '2026-11-12 12:00:00': 2000, '2026-11-12 13:00:00': 1800, '2026-11-12 15:00:00': 500 };
+    const run = () => node.run({ payload: { result: raw } }, { now: NOW }).result.payload;
+
+    // No logged days yet: the June tables alone (12:00 -> 2000 * 0.72 = 1440 W).
+    assert.equal(run().adjustedResult['2026-11-12 12:00:00'], 1440);
+
+    const days = {};
+    for (let d = 1; d <= 10; d += 1) days['2026-11-' + String(d).padStart(2, '0')] = { 12: d === 4 ? 40 : 10, 13: 20 };
+    node.context.set('observedSolar', { readOn: '2026-11-12', days });
+    const p = run();
+    assert.equal(p.adjustedResult['2026-11-12 12:00:00'], 50, 'best 12:00 hour 40 Wh x 1.25');
+    assert.equal(p.adjustedResult['2026-11-12 13:00:00'], 25);
+    assert.equal(p.adjustedResult['2026-11-12 15:00:00'], 0, 'never produced at 15:00 lately');
+    assert.equal(p.today.condition, 'low');
+    assert.equal(p.assumptions.observedDays, 10);
+});
+
+test('40: heating power controller steps Silent → Smart while the supply lags, and down when it rises too fast', () => {
+    const node = loadNode('40 Heat pump automations.js');
+    const T0 = Date.parse('2026-11-14T12:00:00Z');
+    const hp = (sup, ret, mode) => ({ 1: true, 2: mode, 101: ret, 102: sup, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 });
+    const setDev = (now, dps) => node.flow.set('heatPump', {
+        hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
+        bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
+    node.context.set('settings', { master: true, modes: { heat: 'live' } });
+    const writes = (call) => call.sent.filter((m) => m && m[0] === null && m[1] && m[1].payload && m[1].payload.operation === 'SET').map((m) => m[1].payload);
+    let all = [];
+    for (let i = 0; i <= 62; i++) {
+        const now = T0 + i * 10000;
+        setDev(now, hp(33, 30, 'mute'));
+        all = all.concat(writes(node.run({ topic: 'tick' }, { now })));
+    }
+    assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'smart' }], 'one step up to Smart');
+    const view = node.flow.get('dhwView').heat;
+    assert.equal(view.lag, -3);
+    assert.equal(view.gap, 3);
+    // Smart now, supply − return 6 °C (> gapMax + 1) → after the step time one step down
+    all = [];
+    for (let i = 63; i <= 130; i++) {
+        const now = T0 + i * 10000;
+        setDev(now, hp(36, 30, 'smart'));
+        all = all.concat(writes(node.run({ topic: 'tick' }, { now })));
+    }
+    assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'mute' }], 'one step down to Silent');
+});
