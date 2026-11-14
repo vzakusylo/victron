@@ -110,6 +110,9 @@ Runtime editor for controller constants, including the capacity-tariff season (w
 
 ![Analytics dashboard — efficiency, hourly chart, solar forecast](images/data-analytics.png)
 
+- **Energy by day** (was the separate *Energy Detail* tab, d#165): hourly grid / AC / solar Wh chart and table for one day, with *Previous day / Today / Next day*.
+- **Adjusted solar forecast:** forecast.solar x the per-hour shade factors, capped by the June tables *and* by the best actual solar Wh of that hour in the last 14 days x 1.25 (read from `energy-YYYY-MM.csv`). With fewer than 7 logged days only the June tables apply. Without the real-output cap the November forecast was ~4 kWh / 1 kW "sunny" while the panels gave 0-0.13 kWh a day.
+
 ## Protection dashboard
 
 ![High-Voltage Protection dashboard — Grid CT Support and AC Force Charging cards](images/protections.png)
