@@ -32,14 +32,19 @@ setTimeout(() => { out({ kind: 'done', ms: Date.now() - t0, aborted: true }); pr
 
 // A device that was off at setup has no IP in tuya-devices.json: take it from the ARP table by its
 // MAC, or from its last good reading (the ARP entry is gone after a GX restart).
-function arpTable() {
+// The table is read from /proc/net/arp: the exec of Node-RED runs as user nodered, whose PATH has
+// no `ip` (it is in /sbin), so `ip neigh` failed there. Columns: IP, HW type, Flags, HW address,
+// Mask, Device; flags 0x0 = incomplete entry (no answer), skipped.
+function arpTable(text) {
     const arp = {};
-    try {
-        for (const line of require('child_process').execSync('ip neigh', { timeout: 5000 }).toString().split('\n')) {
-            const m = line.match(/^(\d+\.\d+\.\d+\.\d+) .* lladdr ([0-9a-f:]+)/i);
-            if (m) arp[m[2].toLowerCase()] = m[1];
-        }
-    } catch (e) { /* no `ip` */ }
+    let t = text;
+    if (t === undefined) { try { t = fs.readFileSync('/proc/net/arp', 'utf8'); } catch (e) { t = ''; } }
+    for (const line of String(t).split('\n').slice(1)) {
+        const f = line.trim().split(/\s+/);
+        if (f.length < 4 || !/^\d+\.\d+\.\d+\.\d+$/.test(f[0]) || f[2] === '0x0') continue;
+        const mac = f[3].toLowerCase();
+        if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac) && mac !== '00:00:00:00:00:00') arp[mac] = f[0];
+    }
     return arp;
 }
 const arp = Object.keys(devices).some((id) => !devices[id].ip) ? arpTable() : {};
