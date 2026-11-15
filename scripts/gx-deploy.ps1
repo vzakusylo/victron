@@ -56,6 +56,31 @@ $changed = $false
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
 function Stop-Run([string]$Text) { Write-Host "STOPPED: $Text" -ForegroundColor Yellow; Write-Host "run folder: $run"; exit ($changed ? 2 : 1) }
 function Invoke-Git { $out = & git -C $root @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed." }; return $out }
+function Save-GitBlob([string]$CommitSha, [string]$Path, [string]$Destination) {
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'git'
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add('-C')
+    $startInfo.ArgumentList.Add($root)
+    $startInfo.ArgumentList.Add('cat-file')
+    $startInfo.ArgumentList.Add('blob')
+    $startInfo.ArgumentList.Add("${CommitSha}:$Path")
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw "Could not start git cat-file for $Path." }
+    $stderr = $process.StandardError.ReadToEndAsync()
+    $output = [IO.File]::Create($Destination)
+    try { $process.StandardOutput.BaseStream.CopyTo($output) }
+    finally { $output.Dispose() }
+    $process.WaitForExit()
+    $errorText = $stderr.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) {
+        Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        throw "git cat-file failed for ${CommitSha}:$Path. $errorText"
+    }
+}
 # A script of the commit, piped to `node -` on the GX; tr removes the carriage returns PowerShell adds.
 function Invoke-OnGx([string]$Script, [string]$Arguments) {
     $out = Get-Content -Raw (Join-Path $run $Script) | & ssh @ssh $GxHost "tr -d '\r' | node - $Arguments"
@@ -73,9 +98,8 @@ if (-not (Invoke-Git branch -r --contains $sha)) { Stop-Run "commit $sha is not 
 New-Item -ItemType Directory (Join-Path $run 'tools\gx') | Out-Null
 foreach ($file in 'tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js') {
     if ($UseWorkTreeScripts) { Copy-Item (Join-Path $root $file) (Join-Path $run $file); continue }
-    # cmd keeps the bytes of the blob; a PowerShell pipe would re-encode them.
-    & cmd /c "git -C `"$root`" show ${sha}:$file > `"$(Join-Path $run $file)`" 2>nul"
-    if ($LASTEXITCODE -ne 0) { Stop-Run "$file is not in commit $sha (merge the runner scripts first)." }
+    try { Save-GitBlob $sha $file (Join-Path $run $file) }
+    catch { Stop-Run "$file could not be read from commit $sha (merge the runner scripts first)." }
 }
 $tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"

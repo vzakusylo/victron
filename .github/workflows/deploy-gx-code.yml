@@ -1,0 +1,118 @@
+name: Deploy GX code
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Dry run changes nothing on the GX; apply deploys the selected master commit."
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      confirm:
+        description: "For apply, type deploy-gx-code"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-gx-code
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: victron-gx
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Require master and validate deployment inputs
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
+          GX_SSH_KNOWN_HOSTS: ${{ secrets.GX_SSH_KNOWN_HOSTS }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/master" ]] || {
+            echo "::error::Deploy GX code must be run from master."
+            exit 1
+          }
+          if [[ "$MODE" == "apply" && "$CONFIRM" != "deploy-gx-code" ]]; then
+            echo "::error::Type deploy-gx-code in 'confirm' to apply changes to the GX."
+            exit 1
+          fi
+          for name in GX_SSH_HOST GX_SSH_KEY GX_SSH_KNOWN_HOSTS TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET; do
+            [[ -n "${!name}" ]] || {
+              echo "::error::Missing required repository/environment secret: $name."
+              exit 1
+            }
+          done
+          [[ "$GX_SSH_HOST" =~ ^root@[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::GX_SSH_HOST must look like root@<gx-tailscale-host>."
+            exit 1
+          }
+
+      - name: Connect to the tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Configure SSH
+        env:
+          GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
+          GX_SSH_KNOWN_HOSTS: ${{ secrets.GX_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$GX_SSH_KEY" > "$HOME/.ssh/key"
+          printf '%s\n' "$GX_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/key" "$HOME/.ssh/known_hosts"
+
+      - name: Deploy from master
+        id: deploy
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          MODE: ${{ inputs.mode }}
+        shell: pwsh
+        run: |
+          $arguments = @(
+            '-NoProfile', '-File', './scripts/gx-deploy.ps1',
+            '-GxHost', $env:GX_SSH_HOST,
+            '-SshKey', "$HOME/.ssh/key",
+            '-WaitWindowMin', '30'
+          )
+          if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
+          & pwsh @arguments
+          $deployExit = $LASTEXITCODE
+          $runFolder = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'gx-deploy-*' |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($runFolder) { "run_folder=$($runFolder.FullName)" >> $env:GITHUB_OUTPUT }
+          exit $deployExit
+
+      - name: Upload deploy reports
+        if: always() && steps.deploy.outputs.run_folder != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gx-deploy-reports-${{ github.run_id }}
+          path: ${{ steps.deploy.outputs.run_folder }}
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove SSH key material
+        if: always()
+        run: rm -f "$HOME/.ssh/key" "$HOME/.ssh/known_hosts"
