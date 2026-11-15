@@ -15,16 +15,22 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $repo = (git -C $here rev-parse --show-toplevel).Trim() -replace '/', '\'
 $raw = Join-Path $DataDir 'raw'; $san = Join-Path $DataDir 'sanitized'
-New-Item -ItemType Directory -Force $raw, $san | Out-Null
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 function Check($what) { if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" } }
 
+# Guard first, before anything is downloaded or created: real backups hold secrets and must stay outside the repository.
+Step '0. guard: secrets stay outside the repository'
+foreach ($p in @($raw, $san, $BackupFile) | Where-Object { $_ }) {
+    if ([IO.Path]::GetFullPath($p).StartsWith($repo, [StringComparison]::OrdinalIgnoreCase)) { throw "$p is inside the repository $repo" }
+}
+New-Item -ItemType Directory -Force $raw, $san | Out-Null
+
 Step '1. backup'
 $sshArgs = @(); if ($SshKey) { $sshArgs = @('-i', $SshKey, '-o', 'StrictHostKeyChecking=yes') }
 if ($GxHost) {
-    $remote = (ssh @sshArgs $GxHost "find /data -name 'grid-backup-*.tar.gz' -type f 2>/dev/null | sort | tail -1").Trim()
-    if (-not $remote) { throw "no grid-backup-*.tar.gz found on $GxHost" }
+    $remote = (ssh @sshArgs $GxHost "ls -t /data/home/nodered/grid-control-backups/grid-backup-*.tar.gz 2>/dev/null | head -n 1").Trim()
+    if (-not $remote) { throw "no grid-backup-*.tar.gz in /data/home/nodered/grid-control-backups on $GxHost" }
     scp @sshArgs "${GxHost}:$remote" $raw; Check 'scp'
     $BackupFile = Join-Path $raw (Split-Path $remote -Leaf)
 }
@@ -34,8 +40,8 @@ $BackupFile = (Resolve-Path $BackupFile).Path
 $name = [IO.Path]::GetFileName($BackupFile) -replace '\.tar\.gz$', ''
 Write-Host $BackupFile
 
-Step '2. guard: secrets stay outside the repository'
-foreach ($p in @($raw, $san, $BackupFile)) {
+Step '2. guard: the downloaded backup is outside the repository'
+foreach ($p in @($BackupFile)) {
     if ((Resolve-Path $p).Path.StartsWith($repo, [StringComparison]::OrdinalIgnoreCase)) { throw "$p is inside the repository $repo" }
 }
 
