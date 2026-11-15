@@ -69,3 +69,36 @@ test('a Victron node without a path is reported', () => {
     assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('x7') && m.includes('no D-Bus path')));
   } finally { restore(); }
 });
+
+test('network commands built by a function with a harmless .find( call are not local', () => {
+  const feed = (id, cmd) => ({ id: id + 'f', type: 'function', func: `const a = [1].find((x) => x); msg.payload = '${cmd}'; return msg;`, wires: [[id]] });
+  const cases = [
+    ['x8', "mosquitto_pub -h broker -t t -m 1"],
+    ['x9', "python3 -c \"import urllib.request as u; u.urlopen('http://x')\""],
+  ];
+  const flows = [...realFlows];
+  for (const [id, cmd] of cases) flows.push(feed(id, cmd), { id, type: 'exec', command: 'sh -c', wires: [[]] });
+  inv.useFixtures(flows);
+  try {
+    const p = inv.problems(inv.inventory());
+    for (const [id] of cases) assert.ok(p.some((m) => m.includes(`exec ${id} `) && m.includes('not classified')), id);
+  } finally { restore(); }
+});
+
+test('a tolerant reader checks the paths it reads: a new unpublished path is a warning, not an error', () => {
+  const flows = realFlows.map((n) => (n.id === 'dv-fn-01' ? { ...n, func: n.func.replace("battery: ['/Dc/0/Voltage'", "battery: ['/Dc/0/NewThing', '/Dc/0/Voltage'") } : n));
+  inv.useFixtures(flows);
+  try {
+    assert.ok(inv.warnings(inv.inventory()).some((m) => m.includes('battery /Dc/0/NewThing')));
+    assert.deepEqual(inv.problems(inv.inventory()), []);
+  } finally { restore(); }
+});
+
+test('an exec marked dbus without any service + path pair is an error unless it is a listed tolerant reader', () => {
+  inv.useFixtures([...realFlows, { id: 'x10', type: 'exec', command: 'dbus -y', wires: [[]] }]);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('exec x10') && m.includes('no service + path pair')));
+    const dv = inv.inventory().find((r) => r.id === 'dv-exec-01' && r.kind === 'exec:dbus');
+    assert.ok(dv && !dv.dbus.length && dv.tolerant.includes('battery /Soc') && dv.tolerant.includes('vebus /State'));
+  } finally { restore(); }
+});

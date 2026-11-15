@@ -43,6 +43,27 @@ const PLANNED_DBUS = {
   'settings /Settings/SystemSetup/BmsInstance': 'BMS watchdog reads/writes it (localsettings, B-bms)',
 };
 
+// exec nodes that read D-Bus with a tolerant script: it enumerates services and reads COMMON + TYPE[kind] path tables with try/except,
+// so a missing path gives null instead of an error. Their pairs come from those tables (feeder function) and a gap is a warning, not an error.
+const TOLERANT_DBUS_READERS = {
+  'dv-exec-01': 'Devices model: python reads COMMON + TYPE[kind] paths, a missing path returns null',
+};
+const EMULATED_CLASSES = ['system', 'vebus', 'battery'];
+
+function tolerantPairs(n) {
+  const src = flows.filter((f) => (f.wires || []).some((w) => w.includes(n.id))).map((f) => f.func || '').join('\n');
+  const common = (src.match(/COMMON\s*=\s*\[([^\]]*)\]/) || [])[1] || '';
+  const type = (src.match(/TYPE\s*=\s*['"]?\s*\+\s*JSON\.stringify\(\{([\s\S]*?)\}\)/) || src.match(/TYPE\s*=\s*\{([\s\S]*?)\}/) || [])[1] || '';
+  const paths = (s) => [...s.matchAll(/["'](\/[A-Za-z0-9/_]+)["']/g)].map((m) => m[1]);
+  const out = new Set();
+  for (const c of EMULATED_CLASSES) {
+    for (const p of paths(common)) out.add(`${c} ${p}`);
+    const m = type.match(new RegExp(`\\b${c}\\s*:\\s*\\[([^\\]]*)\\]`));
+    for (const p of paths(m ? m[1] : '')) out.add(`${c} ${p}`);
+  }
+  return [...out];
+}
+
 // Paths com.victronenergy.settings (localsettings in venus) provides itself; the emulator does not publish them.
 const LOCALSETTINGS = new Set(['settings /Settings/CGwacs/AcPowerSetPoint', 'settings /Settings/SystemSetup/MaxChargeCurrent']);
 
@@ -50,15 +71,18 @@ const SENSOR_SCRIPT = /tuya-[\w-]+\.js/;
 const MAIL_SCRIPT = /send-mail\.js/;
 // Scripts and shell tools that only touch files under /data/home/nodered; anything else is not classified and fails the check.
 const LOCAL_TOOLS = new Set(['sensor-history', 'heatpump-decode', 'elvenett-statistics', 'victron-secrets', 'reload-victron-secrets']);
-const LOCAL_SHELL = /\b(cat|find|mkdir|tar|gzip|zcat|ls|python3?)\b/;
-const NETWORK_CMD = /\b(curl|wget|ssh|scp|nc)\s+(-\S+\s+)*['"]?(https?:\/\/|[\w.-]+:\d+)/;
+const LOCAL_SHELL = /\b(cat|find|mkdir|tar|gzip|zcat|ls)\b/;
+const NETWORK_CMD = /\b(curl|wget|ssh|scp|nc)\s+(-\S+\s+)*['"]?(https?:\/\/|[\w.-]+:\d+)|\bmosquitto_(pub|sub)\b|\bdbus-send\b|\burlopen\b|\bhttp\.client\b|\bnode\s+-e\b|\bfetch\(/;
 const withoutComments = (s) => s.replace(/^\s*\/\/.*$/gm, '');
-const toolsUsed = (t) => [...t.matchAll(/(?:tools\/|TOOLS_DIR \+ '\/|\bnode (?:-- )?\S*\/)([\w-]+)\.js/g)].map((m) => m[1]);
+const toolsUsed = (t) => [...t.matchAll(/\/([\w-]+)\.js\b/g)].map((m) => m[1]);
 
-// An exec node's real command is often built by the function node wired into it, so both texts are scanned.
+// An exec node's real command is often built by the function node wired into it. Only the string literals of that function are scanned
+// (the shell command is a string), not its JS code: a `.find(` call must not make a network command look local.
+const STRING_LITERAL = /'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g;
 function execText(n) {
   const feeders = flows.filter((f) => (f.wires || []).some((w) => w.includes(n.id)));
-  return [n.command || '', ...feeders.map((f) => f.func || '')].join('\n');
+  const literals = feeders.flatMap((f) => withoutComments(f.func || '').match(STRING_LITERAL) || []);
+  return [n.command || '', ...literals].join('\n');
 }
 
 const SERVICE_CLASS = (s) => String(s).replace(/^com\.victronenergy\./, '').split(/[./]/)[0];
@@ -106,7 +130,10 @@ function inventory() {
       } else if (k === 'mqtt in') row.topic = n.topic;
       else if (k === 'http request') row.url = n.url || '(from msg)';
       else if (k === 'http in') row.url = n.url;
-      else if (k === 'exec:dbus') row.dbus = dbusPairs(execText(n));
+      else if (k === 'exec:dbus') {
+        row.dbus = dbusPairs(execText(n));
+        if (TOLERANT_DBUS_READERS[n.id]) row.tolerant = tolerantPairs(n);
+      }
       else if (k === 'exec:unknown') row.command = String(n.command || '').slice(0, 80);
       rows.push(row);
     }
@@ -122,6 +149,12 @@ function dbusPairs(text) {
   return [...out];
 }
 
+// Paths a tolerant reader asks for and the emulator does not publish: reported, never fatal.
+function warnings(rows) {
+  const provided = emulatorPairs();
+  return rows.filter((r) => r.tolerant).flatMap((r) => r.tolerant.filter((p) => !provided.has(p)).map((p) => `exec ${r.id} (${r.name}): ${p} is not published by emulator.py (reader tolerates it)`));
+}
+
 // Uncovered = a D-Bus pair the emulator does not publish (and is not in PLANNED_DBUS), or a node type with no coverage and not internal.
 function problems(rows) {
   const out = [];
@@ -134,6 +167,8 @@ function problems(rows) {
     if (r.kind.startsWith('victron-') && !r.path) out.push(`${r.kind} ${r.id}: node has no D-Bus path`);
     if (r.kind.startsWith('victron-') && r.path) check(`${r.kind} ${r.id}`, `${SERVICE_CLASS(r.service)} ${r.path}`);
     if (r.kind === 'exec:unknown') out.push(`exec ${r.id} (${r.name}) is not classified (command: ${r.command || 'built by a function node'})`);
+    if (r.tolerant && !r.tolerant.length) out.push(`exec ${r.id} (${r.name}) is a listed tolerant D-Bus reader but its COMMON/TYPE path tables were not found: the parser is out of date`);
+    if (r.kind === 'exec:dbus' && !r.dbus.length && !r.tolerant) out.push(`exec ${r.id} (${r.name}) is marked dbus but no service + path pair was found: the parser or the category is wrong`);
     if (r.kind === 'exec:dbus') for (const p of r.dbus) check(`exec ${r.id}`, p);
   }
   const unknown = new Set(flows.filter((n) => n.type !== 'exec' && !isInternal(n.type) && !COVERAGE[n.type] && !/^victron-(in|out)put-/.test(n.type)).map((n) => n.type));
@@ -154,10 +189,11 @@ if (require.main === module) {
   for (const [k, why] of Object.entries(PLANNED_DBUS)) console.log('PLANNED  ', k, '-', why);
   const p = problems(rows);
   for (const m of p) console.log('UNCOVERED', m);
+  for (const m of warnings(rows)) console.log('WARN     ', m);
   if (process.argv.includes('--check') && p.length) process.exit(1);
 }
 
 // tests replace the flow / emulator source to prove that gaps are detected
 const useFixtures = (f, e) => { flows = f || flows; emulator = e || emulator; };
 
-module.exports = { inventory, problems, COVERAGE, PLANNED_DBUS, useFixtures };
+module.exports = { TOLERANT_DBUS_READERS, inventory, problems, warnings, COVERAGE, PLANNED_DBUS, useFixtures };
