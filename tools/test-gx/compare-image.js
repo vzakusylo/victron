@@ -15,6 +15,7 @@ const http = require('http');
 const { spawnSync } = require('child_process');
 const { snapshot } = require('../gx/live-snapshot.js');
 const { diffSnapshots } = require('../gx/compare.js');
+const { classifyStartLog, classifyStateFiles } = require('./compare-rules.js');
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i === -1 ? fallback : args[i + 1]; };
@@ -120,7 +121,9 @@ async function main() {
     const changedTools = changed.filter((file) => file.startsWith('tools/')), changedState = changed.filter((file) => !file.startsWith('tools/'));
     if (missing.length || changedTools.length) add('DIFF', 'files tools/ + grid-control-config/', 'missing ' + missing.length + ', changed in tools/ ' + changedTools.length + ': ' + missing.concat(changedTools).slice(0, 5).join(', '));
     else add('OK', 'files tools/ + grid-control-config/', local.size + ' files, none missing, tools/ equal');
-    if (changedState.length) add('WARN', 'state files rewritten by the flow', changedState.length + ': ' + changedState.slice(0, 5).join(', '));
+    const state = classifyStateFiles(changedState);
+    if (state.expected.length) add('EXPECTED', 'state files rewritten by the flow', state.expected.length + ': ' + state.expected.join(', '));
+    if (state.warn.length) add('WARN', 'files changed since the backup', state.warn.length + ': ' + state.warn.slice(0, 5).join(', '));
     if (extraReal.length) add('WARN', 'files created by the flow since start', extraReal.length + ': ' + extraReal.slice(0, 5).join(', '));
 
     // 4. global context keys
@@ -135,25 +138,7 @@ async function main() {
     // 5. start log: errors that are not known
     const logs = spawnSync('docker', ['compose', 'logs', 'nodered', '--no-log-prefix'], { cwd: composeDir, encoding: 'utf8', maxBuffer: 1 << 28 });
     if (logs.status !== 0) throw new Error('docker compose logs: ' + logs.stderr);
-    const KNOWN = [
-        [/tuya-smart-device.*Key is missing or incorrect/, 'Tuya devices have fake keys'],
-        [/Error in setValue: No services available yet/, 'D-Bus service not up yet']
-    ];
-    // The victron palette asks com.victronenergy.settings for /DeviceInstance while it discovers services; localsettings has no such
-    // path and answers UnknownObject (found with dbus-monitor, the log line carries no path). Once per start, right after the palette's
-    // startup line (the log holds all starts); any other UnknownObject is a real error.
-    const PALETTE_DISCOVERY = 'victron palette: settings has no /DeviceInstance (UnknownObject, localsettings)';
-    const unknown = [], known = new Map();
-    let previous = '';
-    for (const line of logs.stdout.split('\n')) {
-        const afterPalette = /Polling is disabled/.test(previous);
-        if (line.trim()) previous = line;
-        if (/DBUS ERROR MESSAGE .*UnknownObject/.test(line) && afterPalette) { known.set(PALETTE_DISCOVERY, (known.get(PALETTE_DISCOVERY) || 0) + 1); continue; }
-        if (!/\[error\]|SyntaxError|ReferenceError|TypeError|DBUS ERROR|Error in /.test(line)) continue;
-        const hit = KNOWN.find(([re]) => re.test(line));
-        if (hit) known.set(hit[1], (known.get(hit[1]) || 0) + 1);
-        else unknown.push(line.trim().slice(0, 160));
-    }
+    const { unknown, known } = classifyStartLog(logs.stdout.split('\n'));
     if (unknown.length) add('DIFF', 'start log', unknown.length + ' unknown error(s): ' + unknown.slice(0, 3).join(' | '));
     else add('OK', 'start log', 'no unknown errors');
     for (const [why, count] of known) add('EXPECTED', 'start log', count + 'x ' + why);

@@ -22,7 +22,8 @@ services:
     build:
       context: .
       additional_contexts:
-        backup: ${TEST_GX_BACKUP:-./.empty-backup}
+        # deliberately a non-existing path: build only through up.ps1 -Backup <sanitized dir>; logs/restart/exec work without it
+        backup: ${TEST_GX_BACKUP:-./backup-required-use-up.ps1}
       args:
         NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-latest}
         PALETTE: ${TEST_GX_PALETTE:-node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device}
@@ -31,6 +32,7 @@ services:
       venus: { condition: service_healthy }
     environment:
       NODE_RED_DBUS_ADDRESS: venus:3000
+      DBUS_SYSTEM_BUS_ADDRESS: tcp:host=venus,port=3000   # python dbus in the exec nodes (Devices page)
       TZ: Europe/Oslo
     ports:
       - "127.0.0.1:1881:1880"   # Node-RED (1881: avoids clash with a local one)

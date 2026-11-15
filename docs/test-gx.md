@@ -50,7 +50,7 @@ Pieces, to run separately:
 
 | Script | What it does |
 |---|---|
-| `up.ps1 [-Backup <sanitized dir>] [-Down]` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts both |
+| `up.ps1 -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts both |
 | `sanitize-backup.js <tar.gz> <outDir> [--days 14] [--no-logs]` | Backup → sanitized tree + `versions.json` + `sanitize-report.json` |
 | `snapshot-file.js flows.json` | Same snapshot as `tools/gx/live-snapshot.js`, from a file |
 | `compare-image.js --backup <dir> [--live live.b64]` | Table `OK / WARN / DIFF / EXPECTED`, exit 0 / 1 / 2 |
@@ -86,6 +86,7 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 - **sshd as root.** The Alpine image needs `apk add --upgrade openssh openssh-server bash curl`, an unlocked root account and a key without passphrase. The host key changes with every image, so `~/.ssh/known_hosts_test_gx` is separate and deleted by the refresh script.
 - **One `UnknownObject` at start is expected.** The victron palette reads `/DeviceInstance` on `com.victronenergy.settings` during service discovery and localsettings has no such path (found with `dbus-monitor`). The start-log check accepts one such line per start (the log keeps all starts), only right after "Polling is disabled"; any other `UnknownObject` is reported as an unknown error.
 - **Emulated identity paths.** Every fake service has `/CustomName`, `/Serial` (`HQEMU0001`) and `/FirmwareVersion` (`0x0510`); vebus has `/VebusError`, battery has `/Dc/0/Temperature`. They feed the Devices page (`dv-exec-01`), so the inventory gives no WARN.
+- **Python D-Bus in the Node-RED image.** The Devices page reads Victron devices with `python3` + `dbus` (`dv-exec-01`). The image installs `py3-dbus` and sets `DBUS_SYSTEM_BUS_ADDRESS=tcp:host=venus,port=3000`; without them the page shows "python dbus module: No module named 'dbus'" instead of the Victron devices. Dashboard tab numbers in the URL (`/ui/#!/<n>`) do not match the `ui_tab` order in `/flows`: Devices is `#!/13`.
 - **Restart order.** Node-RED must start after the simulator is up, otherwise the palette finds no services. The venus healthcheck (`emulator/healthcheck.sh`) passes only when the emulator API answers, which happens after all fake services are registered. Node-RED does not reconnect to a restarted simulator (`ServiceUnknown`): restart both, `docker compose -p test-gx restart venus nodered`. Until the emulator is ready both GET and POST answer 503; it is ready when the signal of its own startup write arrives (that write never shows in `/writes`), or after 10 s with `ready by timeout, startup write signal not seen` in its log. If the signal arrives after that timeout, the `-1` write to `MaxChargeCurrent` does appear in `/writes` (a rare, accepted trade-off) and the log says `late startup signal recorded as write`. `EMU_READY_DELAY=<s>` holds it in 503 for a test; `tools\test-gx\test-emulator-ready.ps1` uses it to check 503 then 200. It is a manual check (needs Docker): CI runs only `node --test`, so the 503 behaviour is not covered by CI.
 
 ## Status
