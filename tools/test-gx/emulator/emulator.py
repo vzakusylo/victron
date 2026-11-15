@@ -62,7 +62,10 @@ def build(name):
                 vebus=('com.victronenergy.vebus.emulator', 276, 'MultiPlus-II 48/5000 (emulated)'),
                 battery=('com.victronenergy.battery.emulator', 289, 'SmartShunt (emulated)'))[name]
     svc = VeDbusService(info[0], bus=bus, register=False)
-    svc.add_mandatory_paths('test-gx-emulator', '1.0', 'emulated', info[1], 0, info[2], '1', '1', 1)
+    svc.add_mandatory_paths('test-gx-emulator', '1.0', 'emulated', info[1], 0, info[2], 0x0510, '1', 1)
+    # fake identity for the Devices page; never a real serial number
+    svc.add_path('/CustomName', {'system': 'Test GX', 'vebus': 'MultiPlus (emu)', 'battery': 'SmartShunt (emu)'}[name])
+    svc.add_path('/Serial', 'HQEMU0001')
 
     def writer(path, value):
         record(name, path, value)
@@ -75,11 +78,11 @@ def build(name):
     elif name == 'vebus':
         svc.add_path('/Ac/In/1/CurrentLimit', 25.0, writeable=True, onchangecallback=writer)
         for p, v in (('/State', 3), ('/Mode', 3), ('/Soc', 60.0), ('/Ac/ActiveIn/Connected', 1),
-                     ('/Ac/ActiveIn/L1/P', 0.0), ('/Ac/Out/L1/P', 0.0), ('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0)):
+                     ('/Ac/ActiveIn/L1/P', 0.0), ('/Ac/Out/L1/P', 0.0), ('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/VebusError', 0)):
             svc.add_path(p, v)
     else:
         for p, v in (('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/Dc/0/Power', 0.0), ('/ConsumedAmphours', 0.0),
-                     ('/Soc', 60.0), ('/Info/MaxChargeCurrent', 100.0), ('/Info/MaxDischargeCurrent', 200.0)):
+                     ('/Soc', 60.0), ('/Info/MaxChargeCurrent', 100.0), ('/Info/MaxDischargeCurrent', 200.0), ('/Dc/0/Temperature', 20.0)):
             svc.add_path(p, v)
     svc.register()
     buses[name], services[name] = bus, svc
@@ -181,6 +184,7 @@ def tick():
 MAX_CHARGE = '/Settings/SystemSetup/MaxChargeCurrent'
 startup_write_pending = False   # our own SetValue(-1) is in flight; its signal is not a flow write
 signal_seen = False
+timed_out = False
 
 
 # test hook: hold the API in 503 for this many seconds after start so the not-ready answers can be checked
@@ -204,6 +208,14 @@ def mark_ready(by_timeout=False):
     return False
 
 
+def ready_by_timeout():
+    # no startup signal came: later MaxChargeCurrent writes are the flow's and must be recorded
+    global startup_write_pending, timed_out
+    startup_write_pending = False
+    timed_out = True
+    return mark_ready(True)
+
+
 def on_settings_change(changes, path=None):
     # PropertiesChanged of a settings item: the flow wrote it
     global startup_write_pending, signal_seen
@@ -219,6 +231,9 @@ def on_settings_change(changes, path=None):
         value = float(value)
     elif value is not None:
         value = str(value)
+    if timed_out and not signal_seen and str(path) == MAX_CHARGE and value == -1.0:
+        signal_seen = True
+        print('late startup signal recorded as write', flush=True)
     record('settings', str(path), value)
 
 
@@ -319,7 +334,7 @@ def main():
     GLib.timeout_add(1000, tick)
 
     if startup_write_pending:
-        GLib.timeout_add(10000, mark_ready, True)   # fallback when the signal never comes
+        GLib.timeout_add(10000, ready_by_timeout)   # fallback when the signal never comes
     else:
         mark_ready()
     server = ThreadingHTTPServer(('0.0.0.0', 8081), Api)

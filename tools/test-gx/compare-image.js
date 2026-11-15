@@ -137,12 +137,18 @@ async function main() {
     if (logs.status !== 0) throw new Error('docker compose logs: ' + logs.stderr);
     const KNOWN = [
         [/tuya-smart-device.*Key is missing or incorrect/, 'Tuya devices have fake keys'],
-        // TEMPORARY: remove once step B (D-Bus emulator) covers these paths, or a real D-Bus error is hidden here.
-        [/DBUS ERROR MESSAGE .*UnknownObject/, 'D-Bus path missing in the simulator (temporary, until step B)'],
         [/Error in setValue: No services available yet/, 'D-Bus service not up yet']
     ];
+    // The victron palette asks com.victronenergy.settings for /DeviceInstance while it discovers services; localsettings has no such
+    // path and answers UnknownObject (found with dbus-monitor, the log line carries no path). Once per start, right after the palette's
+    // startup line (the log holds all starts); any other UnknownObject is a real error.
+    const PALETTE_DISCOVERY = 'victron palette: settings has no /DeviceInstance (UnknownObject, localsettings)';
     const unknown = [], known = new Map();
+    let previous = '';
     for (const line of logs.stdout.split('\n')) {
+        const afterPalette = /Polling is disabled/.test(previous);
+        if (line.trim()) previous = line;
+        if (/DBUS ERROR MESSAGE .*UnknownObject/.test(line) && afterPalette) { known.set(PALETTE_DISCOVERY, (known.get(PALETTE_DISCOVERY) || 0) + 1); continue; }
         if (!/\[error\]|SyntaxError|ReferenceError|TypeError|DBUS ERROR|Error in /.test(line)) continue;
         const hit = KNOWN.find(([re]) => re.test(line));
         if (hit) known.set(hit[1], (known.get(hit[1]) || 0) + 1);
