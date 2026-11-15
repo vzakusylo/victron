@@ -34,6 +34,7 @@ function prepare(snapshotFile, output) {
     if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.months)) fail('Invalid Elvenett import');
     files['grid-control-config/elvenett-statistics.json'] = {data:stats.toString('base64'),hash:hash(stats)};
     const content = { patch, newNodes, files, label:flows.find(n=>n.type==='tab'&&/d#\d+/.test(n.label)).label,
+        recorder:old.has('temps-record-01')?{before:old.get('temps-record-01').rest,outputs:byId.get('temps-record-01').outputs,wires:byId.get('temps-record-01').wires}:null,
         wire:{id:'dv-fn-01',before:old.has('temps-record-01')?byId.get('dv-fn-01').wires:[['dv-page-01'],['dv-exec-01']],value:byId.get('dv-fn-01').wires} };
     const plan = { expectRev:live.rev, source:'local:'+hash(JSON.stringify(content)), content };
     fs.writeFileSync(output,JSON.stringify(plan),{mode:0o600});
@@ -66,6 +67,7 @@ async function deploy(file) {
             if(name.endsWith('.js')) execFileSync(process.execPath,['--check',dest]);
         }
         const {stampDeployment} = require(path.join(stage,'tools/deploy-version.js'));
+        const {snapshot} = require(path.join(stage,'tools/gx/live-snapshot.js'));
         const {collect,judge,format} = require(path.join(stage,'tools/gx/window.js'));
         const {prepare:assets} = require(path.join(stage,'tools/gx/dashboard-assets.js'));
         const original=await api('GET','/flows');
@@ -83,6 +85,13 @@ async function deploy(file) {
         }
         if(c.wire.id!=='dv-fn-01'||JSON.stringify(byId.get(c.wire.id).wires)!==JSON.stringify(c.wire.before)) fail('Unexpected Devices wiring');
         byId.get(c.wire.id).wires=c.wire.value;
+        if(c.recorder) {
+            const n=byId.get('temps-record-01');
+            if(!n||snapshot([n]).nodes[0].rest!==c.recorder.before) fail('Unexpected temperature recorder configuration');
+            if(c.recorder.outputs!==3||JSON.stringify(c.recorder.wires)!==JSON.stringify([['temps-file-01'],['temps-catalog-01'],['temps-exec-01']])) fail('Unreviewed temperature recorder wiring');
+            n.outputs=c.recorder.outputs;
+            n.wires=c.recorder.wires;
+        }
         for(const n of c.newNodes) {if(!n.id.startsWith('temps-')||byId.has(n.id)) fail('New node collision '+n.id);payload.flows.push(n);byId.set(n.id,n);}
         for(const n of payload.flows) for(const output of n.wires||[]) for(const id of output) if(!byId.has(id)) fail('Missing wire target '+id);
         const tab=payload.flows.find(n=>n.type==='tab'&&/d#\d+/.test(n.label));
@@ -128,6 +137,7 @@ async function deploy(file) {
         const after=await api('GET','/flows'), got=new Map(after.flows.map(n=>[n.id,n]));
         for(const [id,fields] of Object.entries(c.patch)) for(const [field,v] of Object.entries(fields)) if(norm(got.get(id)[field])!==norm(v.value)) fail('Verification failed '+id+'.'+field);
         if(after.flows.length!==stamped.flows.length) fail('Node count verification failed');
+        if(c.recorder&&(got.get('temps-record-01').outputs!==c.recorder.outputs||JSON.stringify(got.get('temps-record-01').wires)!==JSON.stringify(c.recorder.wires))) fail('Recorder wiring verification failed');
         for(const n of c.newNodes) if(!got.has(n.id)||got.get(n.id).type!==n.type) fail('New node verification failed '+n.id);
         for(const n of original.flows.filter(n=>n.type==='tuya-smart-device'||n.id==='hpa-fn-01')) if(JSON.stringify(got.get(n.id))!==JSON.stringify(n)) fail('An untouched controller/device changed '+n.id);
         console.log('DEPLOYED '+got.get(tab.id).label+'; rev '+after.rev);

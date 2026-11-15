@@ -13,14 +13,14 @@
 
 ## Repository contents
 
-- `NN Name.js` (`01 Battery + Grid Controller.js` … `54 Air quality history.js`)  
+- `NN Name.js` (`01 Battery + Grid Controller.js` … `58 Record sensor temperatures.js`)
   One readable source file per Node-RED function node. The node name is the file name without the number.
 
 - `NN Name.init.js` (`40 Heat pump automations.init.js`, `45 Compressor resource.init.js`)  
   The On Start code of that function node.
 
-- `NN Name.html` (`35`, `39`, `41`, `43`, `49`, `51`, `53`, `55`)  
-  Sources of the heat pump, automation, Payback, Devices and Air quality `ui_template` pages. The other dashboard templates live only in `flows.json`.
+- `NN Name.html` (`35`, `39`, `41`, `43`, `49`, `51`, `53`, `55`, `59`)
+  Sources of the heat pump, automation, Payback, Devices, Air quality and Temperatures `ui_template` pages. The other dashboard templates live only in `flows.json`. `57` reads sensor history; `58` records additional temperatures and schedules retention.
 
 - `flows.json`  
   The Node-RED flow that runs on the Cerbo GX. Function code in it is generated from the sources.
@@ -43,6 +43,19 @@
 - `tools/heatpump-decode.js`  
   Decoder for the heat pump history files.
 
+- `tools/sensor-history.js`
+  Reads temperature/motion archives for a selected Oslo day, reports skipped
+  invalid rows, and prunes only dated temperature JSONL files older than 400 days
+  when explicitly invoked with `--prune` by the recorder's daily maintenance.
+
+- `tools/elvenett-statistics.js`
+  Fetches authenticated Elvenett data and reads private offline exports for
+  historical capacity comparison on Payback.
+
+- `tools/gx/deploy-local.js`
+  Hash-checked selective deployment for an explicit owner request to deploy an
+  uncommitted snapshot. No commit, push or automation-source relabelling.
+
 - `garag-venus-os/1.txt`, `dbus-serialbattery-config.ini`  
   dbus-serialbattery install, config and troubleshooting notes for the GX device.
 
@@ -54,6 +67,12 @@ Flow versioning rule:
 - the Node-RED tab label in `flows.json` uses `d#<n>` as the live flow version marker
 - every change to `flows.json` must increment that marker by 1 (`sync` does it; after a manual edit run `node tools/flows.js bump`)
 - this makes it visible in Node-RED which exported flow revision is currently loaded
+
+When the owner explicitly requests uncommitted local deployment iterations,
+each build still increments once. A later commit records the latest build number,
+not a renumbered or reused live version. Document the intermediate prepared/deployed
+builds and backups in the work log and PR description. Subsequent changes increment
+from that recorded number normally.
 
 At deployment, also record the **full source commit SHA** for the dashboard and
 Node-RED automations. `tools/deploy-version.js` shows 12-character versions in the

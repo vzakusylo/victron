@@ -25,24 +25,35 @@ const NAMES = {
     'pw': 'heatpump_w'   // SA1 power meter, decoded (d#121); raw meter DPs are `m<dp>`
 };
 
-function* decode(text, file = 'heat pump data') {
+function* decode(text, file = 'heat pump data', onInvalid) {
     let cols = null, date = null, hour = null, last = [];
+    const invalid = (message) => {
+        if (!onInvalid) throw new Error(file + ': ' + message);
+        onInvalid(file + ': ' + message);
+    };
     for (const line of String(text).split(/\r?\n/)) {
         if (!line) continue;
         if (line.startsWith('#hp1 ')) {
             const m = line.match(/^#hp1 (\d{4}-\d{2}-\d{2}) (\d{2}) cols=(.*)$/);
-            if (!m) throw new Error(file + ': bad header: ' + line);
+            if (!m || Number(m[2]) > 23) {
+                cols = null;
+                invalid('bad header: ' + line);
+                continue;
+            }
             [, date, hour] = m;
             cols = m[3].split(',');
             last = new Array(cols.length).fill('');
             yield { cols };
             continue;
         }
-        if (!cols) throw new Error(file + ': data before header');
+        if (!cols) { invalid('data before header'); continue; }
         const cells = line.split(',');
-        for (let i = 1; i < cols.length; i++) if (cells[i] !== undefined && cells[i] !== '') last[i] = cells[i];
         const t = Number(cells[0]);
-        if (!Number.isFinite(t) || t < 0 || t >= 3600) throw new Error(file + ': invalid sample time');
+        if (!cells[0].trim() || !Number.isFinite(t) || t < 0 || t >= 3600) {
+            invalid('invalid sample time');
+            continue;
+        }
+        for (let i = 1; i < cols.length; i++) if (cells[i] !== undefined && cells[i] !== '') last[i] = cells[i];
         const mm = String(Math.floor(t / 60)).padStart(2, '0'), ss = String(t % 60).padStart(2, '0');
         yield { cols, time: `${date} ${hour}:${mm}:${ss}`, sec: Number(hour) * 3600 + t,
             values: Object.fromEntries(cols.slice(1).map((c, i) => [c, last[i + 1]])), cells: last.slice(1) };

@@ -100,6 +100,24 @@ The full regression suite passed 152 tests; live control remained in HEATING,
 master enabled, with a fresh view and no Node-RED errors after the last update.
 No Git commit, push or Git tag was created.
 
+These were separate local builds, not a single deployed jump: d#182 was prepared
+but not deployed; d#183 added the pages and bootstrap fixes (backup
+`backup-2026-11-15T01-43-57-915Z-pre-local`); d#184 added PIR identity discovery
+(`backup-2026-11-15T01-50-05-044Z-pre-local`); d#185 fixed the legend and day
+navigation (final backup above). The subsequent Git commit records d#185 rather
+than reusing a lower version number.
+
+### PR #33 review corrections (d#186, not deployed)
+
+Corrupt archive rows are skipped with visible counts and warnings, and fatal
+read errors preserve day navigation. Archived temperature series are no longer
+recorded twice; additional rows are compact and a daily maintenance command
+retains 400 days of temperature JSONL files. Motion tooltips use Oslo time.
+Payback rejects invalid/duplicate peak timestamps and billing periods before
+Angular sees them. Development documentation now lists sources 57-59 and the
+new tools; Dashboard reinstall/upgrade instructions preserve the patch guards.
+This build changes the reviewed repository only, not the currently deployed GX.
+
 ## Errors and incidents (8–11 Nov)
 
 Everything that went wrong, in order, with the effect on the house and what was done.

@@ -41,6 +41,16 @@ sampling a sleeping sensor. Archives and the current sensor catalogue live in
 also reads existing heat-pump and air archives. Other sensors have history from
 deployment onward; unavailable readings remain missing, not zero.
 
+Heat-pump, accumulator/exchange-plate and Air Monitor series use their existing
+archives rather than a second recording. Older redundant JSONL entries are
+ignored when an archive supplies that series; otherwise they remain available.
+Additional sensors write only key/timestamp/value; names and source stay in the
+catalogue. Daily recorder maintenance keeps 400 days of temperature JSONL files
+and leaves other archives and the catalogue untouched.
+Invalid JSONL rows, sample/event values and archive cells are skipped and counted
+visibly as incomplete history; file-access errors remain explicit. Motion tooltips
+use Oslo local time, like the chart axis.
+
 Both Temperatures and Heat Pump show actual toilet PIR/clear reports from
 `grid-control-logs/sensor-events/`, beneath the temperature/power plots.
 Battery wakes and cached PIR states are not treated as motion. No report is

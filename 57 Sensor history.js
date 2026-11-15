@@ -1,12 +1,15 @@
 // Read-only backend for the Temperatures page. Tools and logs remain on the GX.
 const p = msg.payload || {};
-if (msg.topic === 'read') {
+if (msg.topic === 'read' || msg.topic === 'prune') {
     try {
         const model = JSON.parse(Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : msg.payload);
         if (model.error) node.warn('Sensor history: ' + model.error);
+        if (msg.topic === 'prune') return null;
+        if (model.invalidRows) node.warn('Sensor history: skipped ' + model.invalidRows + ' invalid archive rows');
         return [{ topic: 'sensorHistory', payload: model }, null];
     } catch (e) {
         node.warn('Sensor history returned invalid JSON: ' + e.message);
+        if (msg.topic === 'prune') return null;
         return [{ topic: 'sensorHistory', payload: { error: 'Cannot read sensor history; see Node-RED log.' } }, null];
     }
 }

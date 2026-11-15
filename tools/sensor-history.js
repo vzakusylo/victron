@@ -9,7 +9,8 @@ const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Oslo', hourCy
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 function local(t) {
     const p = Object.fromEntries(clock.formatToParts(t).map((p) => [p.type, p.value]));
-    return { day: p.year + '-' + p.month + '-' + p.day, sec: +p.hour * 3600 + +p.minute * 60 + +p.second };
+    return { day: p.year + '-' + p.month + '-' + p.day, sec: +p.hour * 3600 + +p.minute * 60 + +p.second,
+        time: p.hour + ':' + p.minute + ':' + p.second };
 }
 function validateDay(day) {
     const d = new Date(day + 'T00:00:00Z');
@@ -24,21 +25,37 @@ function listing(dir) {
     try { return fs.readdirSync(dir); }
     catch (e) { if (e.code === 'ENOENT') return []; throw e; }
 }
-function jsonLines(text) { return (text || '').split(/\r?\n/).filter(Boolean).map((s) => JSON.parse(s)); }
+function jsonLines(text, diagnostics) {
+    const rows = [];
+    for (const line of (text || '').split(/\r?\n/).filter((s) => s.trim())) {
+        try { rows.push(JSON.parse(line)); }
+        catch (e) {
+            if (!(e instanceof SyntaxError)) throw e;
+            diagnostics.invalidRows++;
+        }
+    }
+    return rows;
+}
+const timestamp = (t) => Number.isFinite(t) && t > 0 && t <= 8640000000000000;
 const hpKeys = ['101', '102', '103', '104', '105', '106', '107', '108', '113'];
 const colors = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd', '#17becf', '#e377c2', '#8c564b', '#bcbd22'];
-function build(day, catalog, samples, reports, available, days) {
+function build(day, catalog, samples, reports, available, days, invalidRows = 0) {
     validateDay(day);
     const buckets = new Map(), seen = new Set();
     const sensors = new Map((catalog.sensors || []).map((s) => [s.key, { ...s, samples: 0 }]));
     for (const s of samples) {
-        if (typeof s.key !== 'string' || !Number.isFinite(s.value)) throw new Error('Invalid temperature sample');
+        if (!s || typeof s.key !== 'string' || !s.key || !Number.isFinite(s.value) ||
+            (s.sec === undefined ? !timestamp(s.t) : !Number.isFinite(s.sec) || s.sec < 0 || s.sec >= 86400)) {
+            invalidRows++;
+            continue;
+        }
         const c = Number.isFinite(s.sec) ? { day, sec: s.sec } : local(s.t);
         if (c.day !== day || c.sec < 0 || c.sec >= 86400) continue;
         const identity = s.key + ':' + (s.t || s.sec) + ':' + s.value;
         if (seen.has(identity)) continue;
         seen.add(identity);
-        if (!sensors.has(s.key)) sensors.set(s.key, { key: s.key, name: s.name, value: null, online: false, source: s.source, samples: 0 });
+        if (!sensors.has(s.key)) sensors.set(s.key, { key: s.key, name: s.name || s.key, value: null, online: false,
+            source: s.source || 'temperature log (catalog entry unavailable)', samples: 0 });
         sensors.get(s.key).samples++;
         const list = buckets.get(s.key) || new Map();
         const i = Math.floor(c.sec / 120);
@@ -69,16 +86,21 @@ function build(day, catalog, samples, reports, available, days) {
     for (let value = lo; value <= hi; value += 10) ticks.push({ value, y: y(value) });
     const hours = Array.from({ length: 9 }, (_, i) => ({ x: x(i * 10800), label: String(i * 3).padStart(2, '0') + ':00' }));
     const motionSeen = new Set(), events = [];
-    for (const r of reports.sort((a, b) => a.t - b.t)) {
-        if (!r || !Number.isFinite(r.t) || r.t <= 0 || typeof r.id !== 'string') throw new Error('Invalid sensor event');
+    const validReports = reports.filter((r) => {
+        if (r && timestamp(r.t) && typeof r.id === 'string' && r.id && r.dps && typeof r.dps === 'object' && !Array.isArray(r.dps)) return true;
+        invalidRows++;
+        return false;
+    });
+    for (const r of validReports.sort((a, b) => a.t - b.t)) {
         if (r.id !== catalog.motionId || !['local', 'cloud report'].includes(r.source) || !r.dps || !['pir', 'none'].includes(r.dps['101'])) continue;
         const c = local(r.t), key = r.t + ':' + r.dps['101'];
         if (c.day !== day || motionSeen.has(key)) continue;
         motionSeen.add(key);
-        events.push({ x: x(c.sec), y: r.dps['101'] === 'pir' ? 20 : 55, motion: r.dps['101'] === 'pir', time: new Date(r.t).toISOString(), source: r.source });
+        events.push({ x: x(c.sec), y: r.dps['101'] === 'pir' ? 20 : 55, motion: r.dps['101'] === 'pir', time: c.time, source: r.source });
     }
     return { day, days: [...new Set([day, ...days])].sort().reverse(), series, ticks, hours,
-        sensors: [...sensors.values()], motion: { available, targetKnown: !!catalog.motionId, count: events.filter((e) => e.motion).length, events } };
+        sensors: [...sensors.values()], invalidRows,
+        motion: { available, targetKnown: !!catalog.motionId, count: events.filter((e) => e.motion).length, events } };
 }
 function read(day, dir = DIR) {
     validateDay(day);
@@ -87,36 +109,66 @@ function read(day, dir = DIR) {
     if (!catalog.updated || Date.now() - Date.parse(catalog.updated) > 6 * 60000) {
         for (const s of catalog.sensors) s.online = false;
     }
-    const samples = jsonLines(optional(path.join(dir, 'temperatures', day + '.jsonl')));
+    const diagnostics = { invalidRows: 0 };
+    const recorded = jsonLines(optional(path.join(dir, 'temperatures', day + '.jsonl')), diagnostics);
+    const samples = [];
     const hpDir = path.join(dir, 'heatpump', day);
     for (const file of listing(hpDir).sort().filter((f) => /^\d{2}\.csv(?:\.gz)?$/.test(f))) {
         let text = fs.readFileSync(path.join(hpDir, file));
         if (file.endsWith('.gz')) text = zlib.gunzipSync(text);
-        for (const r of decode(text.toString('utf8'), file)) {
+        for (const r of decode(text.toString('utf8'), file, () => diagnostics.invalidRows++)) {
             if (!r.time) continue;
             const defs = hpKeys.map((k) => ['hp:' + k, 'Heat pump / ' + NAMES[k].replace(/_c$/, '').replace(/_/g, ' '), k, 0])
                 .concat([['acc:Temperature', 'Accumulator tank sensor / Temperature', 'atemp', 4], ['plate:Temperature', 'Exchange plate / Temperature', 'xtemp', 5]]);
+            let invalid = false;
             for (const [key, name, k, stateIndex] of defs) if ((r.values.st || '')[stateIndex] === 'C' && r.values[k] !== undefined && r.values[k] !== '') {
-                samples.push({ key, name, value: Number(r.values[k]), sec: r.sec, source: 'heat pump recorder' });
+                const value = Number(r.values[k]);
+                if (!Number.isFinite(value)) { invalid = true; continue; }
+                samples.push({ key, name, value, sec: r.sec, source: 'heat pump recorder' });
             }
+            if (invalid) diagnostics.invalidRows++;
         }
     }
     for (const line of (optional(path.join(dir, 'air', day + '.csv')) || '').split(/\r?\n/).filter(Boolean)) {
         const cols = line.split(','), parts = cols[0].split(':').map(Number);
-        if (parts.length !== 3 || !parts.every(Number.isFinite)) throw new Error('Invalid air archive time');
+        if (!/^\d{2}:\d{2}:\d{2}$/.test(cols[0]) || parts[0] >= 24 || parts[1] >= 60 || parts[2] >= 60 ||
+            (cols[5] !== undefined && cols[5] !== '' && !Number.isFinite(Number(cols[5])))) {
+            diagnostics.invalidRows++;
+            continue;
+        }
         if (cols[5] !== undefined && cols[5] !== '') samples.push({ key: 'air-monitor:Temperature', name: 'Air monitor / Temperature',
             value: Number(cols[5]), sec: parts[0] * 3600 + parts[1] * 60 + parts[2], source: 'air recorder' });
     }
     const eventsText = optional(path.join(dir, 'sensor-events', day + '.jsonl'));
     const days = ['temperatures', 'heatpump', 'air', 'sensor-events'].flatMap((folder) => listing(path.join(dir, folder)))
         .map((f) => /^(\d{4}-\d{2}-\d{2})(?:\.(?:jsonl|csv))?$/.exec(f)).filter(Boolean).map((m) => m[1]);
-    return build(day, catalog, samples, jsonLines(eventsText), eventsText !== null, days);
+    const archiveKeys = new Set(samples.map((s) => s.key));
+    samples.push(...recorded.filter((s) => !s || !archiveKeys.has(s.key)));
+    return build(day, catalog, samples, jsonLines(eventsText, diagnostics), eventsText !== null, days, diagnostics.invalidRows);
 }
-module.exports = { build, read, validateDay };
+function prune(dir = DIR, now = Date.now()) {
+    const cutoff = local(now - 400 * 86400000).day, folder = path.join(dir, 'temperatures');
+    let pruned = 0;
+    for (const file of listing(folder)) {
+        const match = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(file);
+        if (!match || match[1] >= cutoff) continue;
+        const date = new Date(match[1] + 'T00:00:00Z');
+        if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== match[1]) continue;
+        const full = path.join(folder, file);
+        if (!fs.lstatSync(full).isFile()) continue;
+        fs.unlinkSync(full);
+        pruned++;
+    }
+    return { pruned, keepDays: 400 };
+}
+module.exports = { build, read, prune, validateDay };
 if (require.main === module) {
     try {
         const args = process.argv.slice(2);
-        if (args.length !== 2 || args[0] !== '--day') throw new Error('Usage: sensor-history.js --day YYYY-MM-DD');
-        console.log(JSON.stringify(read(args[1])));
+        if (args.length === 1 && args[0] === '--prune') console.log(JSON.stringify(prune()));
+        else {
+            if (args.length !== 2 || args[0] !== '--day') throw new Error('Usage: sensor-history.js --day YYYY-MM-DD | --prune');
+            console.log(JSON.stringify(read(args[1])));
+        }
     } catch (e) { console.log(JSON.stringify({ error: e.message })); process.exitCode = 1; }
 }

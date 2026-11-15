@@ -11,6 +11,7 @@
   <button ng-click="loadTemp(s.day)" ng-disabled="busy">Refresh</button>
   <span ng-if="busy">Loading...</span>
   <p class="error" ng-if="s.error">{{s.error}}</p>
+  <p class="error" ng-if="s.invalidRows">{{s.invalidRows}} invalid archive rows were skipped; displayed history is incomplete.</p>
   <p class="note">Local Oslo time. Dots are two-minute averages; gaps are not interpolated. On the autumn clock change repeated hours overlap on this clock axis. Exact timestamps remain in recorded data.</p>
   <div>
     <span ng-repeat="r in s.series" class="key" ng-class="{off:hidden[r.key]}" ng-click="hidden[r.key]=!hidden[r.key]" ng-style="{color:r.color}">{{r.name}}</span>
@@ -38,7 +39,7 @@
   <table><tr><th>Sensor</th><th>Latest known °C</th><th>Status now</th><th>Selected-day samples</th><th>Source</th></tr>
     <tr ng-repeat="r in s.sensors"><td>{{r.name}}</td><td>{{r.value === null ? '—' : r.value}}</td><td>{{r.online ? 'online' : 'unavailable / stale'}}</td><td>{{r.samples}}</td><td>{{r.source}}</td></tr>
   </table>
-  <p class="note">Heat-pump and Air Monitor history comes from existing archives. Other sensors are recorded from deployment onward; missing historical values are not fabricated. Latest known values may be stale; status is based on the Devices catalogue's last update.</p>
+  <p class="note">Heat-pump, accumulator/exchange-plate and Air Monitor history comes from existing archives. Other sensors are recorded from deployment onward and kept for 400 days; missing historical values are not fabricated. Latest known values may be stale; status is based on the Devices catalogue's last update.</p>
 </div>
 <script>
 (function(scope) {
@@ -54,6 +55,13 @@
     scope.$watch('msg',function(m) {
         if (!m || m.topic !== 'sensorHistory') return;
         if (m.payload.day && requestedDay && m.payload.day !== requestedDay) return;
+        if (m.payload.error) {
+            scope.s.error = m.payload.error;
+            scope.busy = false;
+            scope.selected = scope.s.day;
+            requestedDay = scope.s.day || null;
+            return;
+        }
         scope.s = Object.assign({days:[],series:[],sensors:[],motion:{events:[]}},m.payload);
         if (scope.s.day) requestedDay = scope.s.day;
         scope.selected = scope.s.day;

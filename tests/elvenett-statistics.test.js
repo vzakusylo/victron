@@ -113,3 +113,29 @@ test('Payback import joins local months without replacing estimated savings, and
     assert.equal(bad.result[0].payload.elvenett, null);
     assert.equal(bad.warnings.length, 1);
 });
+
+test('Payback rejects invalid or duplicate nested repeat keys before rendering imported data', () => {
+    const n = loadNode('48 Payback model.js');
+    const input = '@@CFG\n{}\n@@CSV energy-2026-10.csv\n2026-10-01 10,1000,2000,0,1000\n';
+    const initial = n.run({topic:'read',payload:input+'@@END'}).result[0].payload;
+    const invalid = [
+        s=>s.months[0].top3.push(s.months[0].top3[0]),
+        s=>delete s.months[0].top3[0].at,
+        s=>s.expensePeriods=[{period:'2026-10'},{period:'2026-10'}],
+        s=>s.expensePeriods=[{period:'2026-13'}],
+        s=>s.expensePeriods=null
+    ];
+    const p = period('2026-10',1);
+    p.peakHours = p.consumption;
+    const valid = summarize(archive([p]));
+    assert.ok(n.run({topic:'read',payload:input+'@@ELV\n'+JSON.stringify(valid)+'\n@@END'}).result[0].payload.elvenett);
+    for (const mutate of invalid) {
+        const imported = summarize(archive([p]));
+        mutate(imported);
+        const result = n.run({topic:'read',payload:input+'@@ELV\n'+JSON.stringify(imported)+'\n@@END'});
+        assert.equal(result.result[0].payload.elvenett,null);
+        assert.equal(result.result[0].payload.saved,initial.saved);
+        assert.match(result.result[0].payload.error,/Cannot read Elvenett statistics/);
+        assert.equal(result.warnings.length,1);
+    }
+});

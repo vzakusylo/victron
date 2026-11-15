@@ -139,6 +139,18 @@ function parse(text) {
                 for (const key of ['gridKWh', 'capacityKW', 'computedCapacityKW', 'hours', 'expectedHours']) {
                     if (m[key] !== null && (typeof m[key] !== 'number' || !Number.isFinite(m[key]))) throw new Error('invalid ' + key);
                 }
+                const peakTimes = new Set();
+                for (const p of m.top3) {
+                    const at = p && typeof p.at === 'string' ? Date.parse(p.at) : NaN;
+                    if (!Number.isFinite(at) || peakTimes.has(at)) throw new Error('invalid or duplicate peak timestamp');
+                    peakTimes.add(at);
+                }
+            }
+            if (!Array.isArray(elvenett.expensePeriods)) throw new Error('invalid expense periods');
+            const expensePeriods = new Set();
+            for (const e of elvenett.expensePeriods) {
+                if (!e || !/^\d{4}-(0[1-9]|1[0-2])$/.test(e.period) || expensePeriods.has(e.period)) throw new Error('invalid or duplicate expense period');
+                expensePeriods.add(e.period);
             }
         } catch (e) {
             elvenett = null;

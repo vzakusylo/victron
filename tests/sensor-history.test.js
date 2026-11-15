@@ -2,7 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), os = require('os'), path = require('path');
-const { build, read, validateDay } = require('../tools/sensor-history');
+const { build, read, prune, validateDay } = require('../tools/sensor-history');
+const { decode } = require('../tools/heatpump-decode');
 const { loadNode } = require('./harness');
 const { prepare } = require('../tools/gx/dashboard-assets');
 const { stampDeployment } = require('../tools/deploy-version');
@@ -74,6 +75,120 @@ test('day navigation ignores delayed or other-client responses for a different d
     assert.equal(scope.selected,'2026-11-14');
     watch({topic:'sensorHistory',payload:{day:'2026-11-15'}});
     assert.equal(scope.selected,'2026-11-14');
+    scope.loadTemp('2026-11-13');
+    watch({topic:'sensorHistory',payload:{error:'Archive access denied'}});
+    assert.equal(scope.busy,false);
+    assert.equal(scope.selected,'2026-11-14');
+    assert.deepEqual(scope.s.days,['2026-11-15','2026-11-14']);
+    assert.equal(scope.s.error,'Archive access denied');
+    scope.loadTemp('2026-11-13');
+    assert.equal(scope.busy,true);
+});
+
+test('corrupt JSONL and invalid typed rows preserve valid history, navigation and visible diagnostics', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-corrupt-'));
+    try {
+        fs.mkdirSync(path.join(dir,'temperatures'));
+        fs.mkdirSync(path.join(dir,'sensor-events'));
+        fs.writeFileSync(path.join(dir,'temperatures','catalog.json'),JSON.stringify({sensors:[{key:'room',name:'Room'}],motionId:'toilet'}));
+        const samples = [{key:'room',t,value:21},{key:'room',t:'bad',value:21},null,{key:'room',t,value:'warm'}];
+        fs.writeFileSync(path.join(dir,'temperatures',day+'.jsonl'),samples.map(JSON.stringify).join('\n')+'\n{"key":"room","val');
+        fs.writeFileSync(path.join(dir,'temperatures','2026-11-11.jsonl'),'');
+        const reports = [{t,id:'toilet',dps:{101:'pir'},source:'local'},null,{t:1e20,id:'toilet',dps:{101:'pir'}}];
+        fs.writeFileSync(path.join(dir,'sensor-events',day+'.jsonl'),reports.map(JSON.stringify).join('\n')+'\n{"t":');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,7);
+        assert.equal(result.sensors[0].samples,1);
+        assert.equal(result.series[0].points[0].value,21);
+        assert.equal(result.motion.count,1);
+        assert.deepEqual(result.days,[day,'2026-11-11']);
+        const ui = loadNode('57 Sensor history.js').run({topic:'read',payload:JSON.stringify(result)});
+        assert.equal(ui.result[0].payload.invalidRows,7);
+        assert.match(ui.warnings[0],/skipped 7 invalid archive rows/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('bad archive times and nonnumeric cells are counted without poisoning later delta samples', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-cells-'));
+    try {
+        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
+        fs.mkdirSync(path.join(dir,'air'));
+        const text = '#hp1 '+day+' 13 cols=t,st,102,104\n0,CCCCCC,30,55\noops,CCCCCC,99,99\n30,,,\n60,,bad,56\n90,,31,\n';
+        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),text);
+        fs.writeFileSync(path.join(dir,'air',day+'.csv'),'99:00:00,800,1,2,3,22\n13:00:00,800,1,2,3,bad\n13:02:00,800,1,2,3,22\n');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,4);
+        assert.equal(result.sensors.find(s=>s.key==='hp:102').samples,3);
+        assert.equal(result.series.find(s=>s.key==='hp:102').points[0].value,30.33);
+        assert.equal(result.series.find(s=>s.key==='air-monitor:Temperature').points[0].value,22);
+        assert.throws(()=>[...decode(text)],/invalid sample time/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('recorder and reader count archived temperatures once, including redundant legacy JSONL rows', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-recording-'));
+    try {
+        const sensors = [{key:'hp:102',name:'Supply',t,value:30,online:true},
+            {key:'air-monitor:Temperature',name:'Air',t,value:22,online:true},
+            {key:'room',name:'Room',t,value:21,online:true},
+            {key:'acc:Temperature',name:'Accumulator',t,value:43,online:true},
+            {key:'plate:Temperature',name:'Plate',t,value:32,online:true}];
+        const n = loadNode('58 Record sensor temperatures.js');
+        const msg = {payload:{temperatureSensors:sensors,updated:new Date(t).toISOString()}};
+        const outputs = n.run(msg,{now:t}).result;
+        const row = JSON.parse(outputs[0][0].payload);
+        assert.deepEqual(row,{key:'room',t,value:21});
+        assert.equal(outputs[2].topic,'prune');
+        assert.equal(outputs[2].payload,'--prune');
+        assert.equal(n.run(msg,{now:t+1000}).result[2],null);
+        assert.equal(n.run(msg,{now:t+86400000}).result[2].topic,'prune');
+        fs.mkdirSync(path.join(dir,'temperatures'));
+        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
+        fs.mkdirSync(path.join(dir,'air'));
+        fs.writeFileSync(path.join(dir,'temperatures','catalog.json'),outputs[1].payload);
+        fs.writeFileSync(path.join(dir,'temperatures',day+'.jsonl'),outputs[0][0].payload+sensors.filter(s=>s.key!=='room').map(JSON.stringify).join('\n'));
+        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),'#hp1 '+day+' 13 cols=t,st,102,atemp,xtemp\n0,CCCCCC,30,43,32\n');
+        fs.writeFileSync(path.join(dir,'air',day+'.csv'),'13:00:00,800,1,2,3,22\n');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,0);
+        assert.deepEqual(result.sensors.map(s=>s.samples),[1,1,1,1,1]);
+        assert.equal(result.series.find(s=>s.key==='room').name,'Room');
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('retention removes only regular dated temperature logs older than 400 days', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-retention-'));
+    try {
+        const folder = path.join(dir,'temperatures');
+        fs.mkdirSync(folder);
+        const boundary = new Date(t-400*86400000).toISOString().slice(0,10);
+        const expired = new Date(t-401*86400000).toISOString().slice(0,10);
+        for (const file of [expired+'.jsonl',boundary+'.jsonl',day+'.jsonl','catalog.json','notes.jsonl','2025-02-30.jsonl']) {
+            fs.writeFileSync(path.join(folder,file),'keep');
+        }
+        fs.mkdirSync(path.join(folder,'2024-01-01.jsonl'));
+        fs.mkdirSync(path.join(dir,'sensor-events'));
+        fs.writeFileSync(path.join(dir,'sensor-events',expired+'.jsonl'),'keep');
+        assert.equal(prune(dir,t).pruned,1);
+        assert.equal(fs.existsSync(path.join(folder,expired+'.jsonl')),false);
+        for (const file of [boundary+'.jsonl',day+'.jsonl','catalog.json','notes.jsonl','2025-02-30.jsonl','2024-01-01.jsonl']) {
+            assert.equal(fs.existsSync(path.join(folder,file)),true);
+        }
+        assert.equal(fs.existsSync(path.join(dir,'sensor-events',expired+'.jsonl')),true);
+        const failure = loadNode('57 Sensor history.js').run({topic:'prune',payload:'{"error":"Permission denied"}'});
+        assert.equal(failure.result,null);
+        assert.match(failure.warnings[0],/Permission denied/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('motion tooltips use Oslo time in winter, summer and both repeated autumn hours', () => {
+    const cases = [[day,[t],['13:00:00']],['2026-07-02',[Date.parse('2026-07-01T22:30:00Z')],['00:30:00']],
+        ['2026-10-25',[Date.parse('2026-10-25T00:30:00Z'),Date.parse('2026-10-25T01:30:00Z')],['02:30:00','02:30:00']]];
+    for (const [d,times,expected] of cases) {
+        const reports = times.map(t=>({t,id:'toilet',dps:{101:'pir'},source:'local'}));
+        const result = build(d,{motionId:'toilet'},[],reports,true,[d]);
+        assert.deepEqual(result.motion.events.map(e=>e.time),expected);
+    }
 });
 
 test('existing heat-pump and air archives are read without fabricating other sensor history', () => {

@@ -67,6 +67,10 @@ devices/automations and verifies the result. It labels the UI as
 compact Elvenett import, never the session token or raw account archive.
 The Dashboard 3.6.6 bootstrap patch waits for the sidenav registration and
 restores its missing loading view; a package upgrade can overwrite these assets.
+After reinstalling Dashboard 3.6.6, repeat the guarded local procedure with a
+fresh snapshot/plan, dry run and safe-window apply to restore the patch. After
+upgrading to another version, review and adapt the version-specific patch first:
+the helper intentionally refuses unfamiliar versions/code; never bypass that guard.
 The normal pushed-commit procedure below remains the default.
 
 A deploy is always from a pushed commit: the GX downloads it by SHA and the label on the dashboard names it.
