@@ -1,0 +1,27 @@
+name: PR tests
+
+on:
+  pull_request:
+  pull_request_review:
+    types: [submitted]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Run all Node tests
+        run: node --test "tests/*.test.js"

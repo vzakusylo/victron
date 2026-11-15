@@ -12,6 +12,11 @@ on:
         description: "For apply, type deploy-gx-code"
         type: string
         default: ""
+      version:
+        description: "Report label only; does not create a Git tag or change GX behavior."
+        type: choice
+        options: [test, stable]
+        default: test
 
 permissions:
   contents: read
@@ -110,15 +115,14 @@ jobs:
           RUN_FOLDER: ${{ steps.deploy.outputs.run_folder }}
           MODE: ${{ inputs.mode }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERSION_TYPE: ${{ inputs.version }}
         shell: pwsh
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'gx-deploy-public-summary.json'
-          node ./tools/gx/deploy-report.js $env:RUN_FOLDER $report
+          $summary = & node ./tools/gx/deploy-report.js $env:RUN_FOLDER $report
           if ($LASTEXITCODE) { throw 'Could not prepare the public deployment summary.' }
-          "### GX deployment`n" >> $env:GITHUB_STEP_SUMMARY
-          '```json' >> $env:GITHUB_STEP_SUMMARY
-          Get-Content -LiteralPath $report >> $env:GITHUB_STEP_SUMMARY
-          '```' >> $env:GITHUB_STEP_SUMMARY
+          Write-Output $summary
+          $summary >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload deploy reports
         if: always() && steps.deploy.outputs.run_folder != ''
