@@ -14,7 +14,16 @@ const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== 
 const [backup, out] = positional;
 if (!backup || !out) { console.error('usage: sanitize-backup.js <backup.tar.gz> <outDir> [--days N] [--no-logs]'); process.exit(64); }
 const REPO = path.resolve(__dirname, '..', '..');
-if (path.resolve(out).toLowerCase().startsWith(REPO.toLowerCase() + path.sep)) { console.error('outDir must be outside the repository'); process.exit(64); }
+const MARKER = '.test-gx-sanitized';
+const overlaps = (a, b) => { const r = path.relative(a, b); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+const outAbs = path.resolve(out);
+if (overlaps(REPO, outAbs) || overlaps(outAbs, REPO)) { console.error('outDir must be outside the repository, and must not contain it'); process.exit(64); }
+// out is wiped before every run: only an empty directory or one this tool wrote earlier qualifies
+if (fs.existsSync(outAbs)) {
+    const entries = fs.readdirSync(outAbs);
+    const ours = fs.existsSync(path.join(outAbs, MARKER)) || (entries.includes('sanitize-report.json') && entries.includes('nodered'));
+    if (entries.length && !ours) { console.error('refusing to delete ' + outAbs + ': not empty and not created by sanitize-backup.js (no ' + MARKER + ')'); process.exit(64); }
+}
 const days = Number(opt('--days', 14));
 
 const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-raw-'));
@@ -30,6 +39,7 @@ function run() {
     const dst = path.join(out, 'nodered');
     fs.rmSync(out, { recursive: true, force: true });
     fs.mkdirSync(dst, { recursive: true });
+    fs.writeFileSync(path.join(out, MARKER), 'created by tools/test-gx/sanitize-backup.js; safe to delete and recreate\n');
     const report = { source: path.basename(backup), replaced: [], deleted: [], written: [], logDays: days };
     const secrets = new Map();      // original value -> kind
     const SECRET_FIELDS = /^(key|localkey|secret|accesssecret|accessid|pass|password|token|apikey)$/i;
@@ -135,7 +145,10 @@ function run() {
     const versions = { nodeRed: palette['node-red'], palette, packageJsonDependencies: pkg.dependencies };
     fs.writeFileSync(path.join(out, 'versions.json'), JSON.stringify(versions, null, 2));
 
-    // leftover scan: every original value, plus generic patterns outside flows.json
+    // leftover scan: every original value, plus generic patterns in every file; ALLOWED lists the legitimate matches
+    const ALLOWED = [/^127\.\d+\.\d+\.\d+(:\d+)?$/, /^0\.0\.0\.0(:\d+)?$/, /^10\.99\.\d+\.\d+(:\d+)?$/, /@example\.invalid$/,
+        /^0{31}1$/,                 // IPv6 loopback literal in the Victron client code
+        /@victronenergy\.com$/];    // vendor address in the node package metadata
     const problems = [];
     const files = [];
     (function list(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); e.isDirectory() ? list(p) : files.push(p); } })(dst);
@@ -143,15 +156,17 @@ function run() {
         const rel = path.relative(dst, f).replace(/\\/g, '/');
         if (/package-lock\.json$|\.config\.nodes\.json$/.test(rel)) continue;
         const t = fs.readFileSync(f, 'utf8');
-        for (const v of mapping.keys()) if (t.includes(v)) problems.push(rel + ': original ' + mapping.get(v).slice(0, 0) + secrets.get(v) + ' value still present');
-        if (rel.startsWith('tools/') || rel === '.node-red/flows.json') continue;
+        for (const v of mapping.keys()) if (t.includes(v)) problems.push(rel + ': original ' + secrets.get(v) + ' value still present');
         const generic = [
-            [/\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, 'tailscale address'],
-            [/\b(?!10\.99\.|127\.|0\.0\.0\.0)(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b/, 'ip:port'],
-            [/[A-Za-z0-9._%+-]+@(?!example\.invalid)[A-Za-z0-9.-]+\.[a-z]{2,}/, 'e-mail address'],
-            [/\b[0-9a-f]{32}\b/i, '32-char hex'],
+            [/\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, 'tailscale address'],
+            [/\b(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}\b/g, 'ip:port'],
+            [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g, 'e-mail address'],
+            [/\b[0-9a-f]{32}\b/gi, '32-char hex'],
+            [/\b(?:token|apikey|api_key|access_token|secret)=[^&\s"'<>]{8,}/gi, 'token in URL/query'],
         ];
-        for (const [re, label] of generic) if (re.test(t)) problems.push(rel + ': ' + label);
+        for (const [re, label] of generic) {
+            for (const m of t.match(re) || []) if (!ALLOWED.some((a) => a.test(m))) { problems.push(rel + ': ' + label); break; }
+        }
     }
     report.problems = problems;
     fs.writeFileSync(path.join(out, 'sanitize-report.json'), JSON.stringify(report, null, 2));

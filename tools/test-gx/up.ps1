@@ -7,6 +7,8 @@ Set-Location $PSScriptRoot
 $env:TEST_GX_SIM = $Sim
 if ($Down) { docker compose down -v; return }
 if ($Backup) {
+    # the gx-data volume is mounted on /data and would hide the new image content: always start from a fresh volume
+    docker compose down -v
     $Backup = (Resolve-Path $Backup).Path
     $v = Get-Content (Join-Path $Backup 'versions.json') -Raw | ConvertFrom-Json
     $env:TEST_GX_BACKUP = $Backup
