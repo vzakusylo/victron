@@ -3,8 +3,15 @@
 services:
   venus:
     image: mqtt            # built by up.ps1 from victronenergy/venus-docker
-    command: ["/root/run_with_simulation.sh", "${TEST_GX_SIM:-e}"]
+    command: ["bash", "/emulator/start.sh", "${TEST_GX_SIM:-e}"]   # "emu" = our emulator, a letter = venus-docker simulation
+    volumes:
+      - ./emulator:/emulator:ro
+    healthcheck:   # Node-RED starts only when the D-Bus services exist, otherwise the palette finds none
+      test: ["CMD-SHELL", "dbus -y com.victronenergy.system /DeviceInstance GetValue"]
+      interval: 3s
+      retries: 60
     ports:
+      - "127.0.0.1:8081:8081"   # emulator HTTP API (-Sim emu)
       - "127.0.0.1:3000:3000"   # D-Bus over TCP
       - "127.0.0.1:1883:1883"   # MQTT
       - "127.0.0.1:8080:80"     # Venus HTML5 app
@@ -17,7 +24,8 @@ services:
         NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-latest}
         PALETTE: ${TEST_GX_PALETTE:-node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device}
     image: test-gx-nodered:${TEST_GX_TAG:-local}
-    depends_on: [venus]
+    depends_on:
+      venus: { condition: service_healthy }
     environment:
       NODE_RED_DBUS_ADDRESS: venus:3000
       TZ: Europe/Oslo
