@@ -6,10 +6,13 @@
 
 Related: [Development & deployment](development.md) (rules, versioning) · [Secrets](../scripts/SECRETS.md) (private files, GitHub workflow) · [Backup & restore](backup-restore.md) · [Work log](heat-pump-work-log.md)
 
+For connection failures, differing versions/GX-only lines, output migrations and the complete pinned dry-run/apply/backup procedure, use the [GX deployment troubleshooting runbook](gx-deploy-troubleshooting.md).
+
 ## Contents
 
 - [The three things that get deployed](#the-three-things-that-get-deployed)
 - [Which script is for what](#which-script-is-for-what)
+- [Finding the GX and restoring Tailscale on Windows](#finding-the-gx-and-restoring-tailscale-on-windows)
 - [Step by step](#step-by-step)
 - [Monitoring](#monitoring)
 - [Reading the comparison report](#reading-the-comparison-report)
@@ -43,6 +46,65 @@ The repository `flows.json` is a portable template: its Tuya nodes have no keys 
 | [`scripts/install-gx-secrets.sh`](../scripts/install-gx-secrets.sh) | GX, started by the workflow | yes | Installs the private files with Node-RED stopped. Part of the secret workflow, not of a code deploy |
 
 Why two places to run: the PC has git and the repository, the GX has the live flow. Pushing large files from the PC to the GX stalls on this link, so the GX downloads the commit itself from `raw.githubusercontent.com` and checks the SHA-256 values that the PC put in the plan.
+
+## Finding the GX and restoring Tailscale on Windows
+
+Use PowerShell. If `tailscale` is not on `PATH`, invoke its installed executable:
+
+```powershell
+$ts = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+& $ts status
+```
+
+### 1. Restore the PC connection
+
+If the peer list is empty or reports `Unable to connect to the Tailscale coordination server`, first check internet access and whether another VPN, proxy or firewall blocks `controlplane.tailscale.com`. Do not disable firewall protections to work around this.
+
+To reconnect, run the following **only when interrupting this PC's Tailscale connections is acceptable**; existing SSH sessions over Tailscale will disconnect:
+
+```powershell
+& $ts down
+& $ts up
+& $ts status
+```
+
+If `up` asks for existing non-default flags, preserve the original settings rather than reset them. If reconnection does not help, open the Tailscale tray menu and choose **Log in** (or the sign-in action shown there), then authenticate in Microsoft Edge. Login/key expiry is one possible cause, not proof of the problem.
+
+### 2. Find the GX address
+
+In `status`, look for the Cerbo GX; its hostname may be `einstein`, `cerbo`, `venus` or another configured name. Use the actual peer name, not a guess:
+
+```powershell
+& $ts status
+& $ts ip -4 '<hostname-gx>'
+```
+
+The second command prints the peer's Tailscale IPv4 address. **Without a hostname, `ip -4` prints this PC's address, not the GX's.**
+
+If the GX is missing, open the [Tailscale machines page](https://login.tailscale.com/admin/machines) in Microsoft Edge and check its online state and key expiry. On the GX, check **Settings > Tailscale (remote VPN access)**; the device name and Tailscale IP (`100.x.y.z`) are shown there when available.
+
+### 3. Check SSH without changing the GX
+
+Replace the placeholder with the discovered hostname or IP. Use the existing GX key; the example below uses `id_ed25519_cerbo`:
+
+```powershell
+$gx = 'root@<hostname-or-100.x.y.z>'
+$key = "$HOME\.ssh\id_ed25519_cerbo"
+ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 $gx 'hostname'
+```
+
+An unknown or changed host key must be checked against a trusted fingerprint before updating `known_hosts`. Never bypass the check with `StrictHostKeyChecking=no`.
+
+### 4. Use the local network if you are at home
+
+If Tailscale remains unavailable, find the GX's LAN IP in the router's client list or your private network notes (for example, `C:\learn\home-network\NETWORK.md`). The PC must have a route to that LAN:
+
+```powershell
+$gx = 'root@<local-IP-GX>'
+ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 $gx 'hostname'
+```
+
+This fallback is for the local PC, not a GitHub-hosted runner. Once SSH works, use the discovered `$gx` and `$key` for the snapshot/compare procedure below or the dry-run runner. Do not apply a deployment that would discard unreviewed GX-only code.
 
 ## Step by step
 
@@ -106,7 +168,7 @@ Read the report ([below](#reading-the-comparison-report)) before going on. If a 
 node tools\gx\compare.js live.b64 --commit $sha --show dv-fn-01
 ```
 
-Lines that exist only on the GX were deployed from an uncommitted work tree. Copy them into the numbered source, `sync`, commit, and start again from step 1. Otherwise the deploy removes them.
+Removed lines may be genuinely uncommitted GX code or older code already present in Git history. Inspect `--show` and the `--history` matches first. Copy wanted unique lines into the numbered source, `sync`, test, merge and start again from step 1. Use `-AllowLiveOnlyLines` only after the specific replacement/removal is reviewed and explicitly approved; see the [runbook](gx-deploy-troubleshooting.md#3-take-a-private-snapshot-and-compare-code-not-just-version-labels).
 
 ### 4. Write the plan
 
@@ -293,4 +355,4 @@ For the record, and as a worked example of the steps above.
 12. **Fixed the secret installer** (`install` missing on the GX, then the symlink issue found in review), with tests.
 13. **Turned the one-off scripts into `tools/gx/`** and tested them on the GX: snapshot, comparison, a dry run of a plan, verify.
 
-Left for the owner: the five access secrets (`GX_SSH_HOST`, `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) and the approval of the workflow run.
+At the end of 14 Nov, the five access secrets and workflow approval were still pending. The secrets were present and Tailscale/SSH were proven by the 15 Nov code dry-run; environment approval is required for each new run. See the [15 Nov runbook](gx-deploy-troubleshooting.md) and work log for the later recovery and deployment.

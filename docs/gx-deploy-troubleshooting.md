@@ -1,0 +1,216 @@
+# GX deployment runbook: connection, drift, dry-run, backup and verification
+
+This is the recovery procedure used for the **15 Nov 2026 d#187 deployment from master**, not an instruction to force a failed deploy. See [the deployment guide](gx-deploy.md) for the tools, [the handoff](gx-handoff.md) for the fixed steps, and [the work log](heat-pump-work-log.md#2026-11-15-1035-1038-europeoslo-master-deployed-without-stopping-node-red) for the actual result and backups.
+
+**Never replace the GX's `flows.json` with the repository template. Never deploy the secret workflow just to update code.** Code deployment preserves the live credentials and settings and restarts only modified nodes/dashboard pages, not the Node-RED service.
+
+## 1. Restore connectivity before trying a deployment
+
+Use PowerShell 7, a reviewed checkout of the deployment scripts, and the real GX address/key from private notes:
+
+```powershell
+$ts = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+& $ts status
+$gx = 'root@<gx-hostname-or-IP>'
+$key = "$HOME\.ssh\id_ed25519_cerbo"
+$sshOptions = @('-i', $key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15')
+ssh @sshOptions $gx 'hostname'
+if ($LASTEXITCODE -ne 0) { throw 'GX SSH is not ready; do not deploy.' }
+```
+
+| Symptom | Check and resolution |
+|---|---|
+| Empty peer list / `Unable to connect to the Tailscale coordination server` | Check internet, login/key expiry, another VPN/proxy and firewall access to `controlplane.tailscale.com`. When disconnecting current tailnet sessions is acceptable, run `& $ts down`, then `& $ts up`, then `& $ts status`. Preserve existing non-default flags if `up` requests them. Use the tray sign-in action and authenticate in Edge if required. |
+| GX address is unknown | Find the actual GX peer in `status`, then `& $ts ip -4 '<gx-hostname>'`. Without a hostname this prints the PC's address. Check the Tailscale machines page or GX **Settings > Tailscale (remote VPN access)** if the peer is absent. |
+| Tailscale is still unavailable, but the PC is at home | Find the GX LAN address in the router or private network notes, and use `root@<LAN-IP>` instead. The PC must have a route to that LAN. GitHub-hosted runners cannot use this local fallback. |
+| `Permission denied (publickey)` | Check the root account, the correct local private-key file and its matching authorized key on GX. Never print or upload the key. |
+| Unknown/changed SSH host key | Verify the fingerprint through a trusted channel before updating standard `~/.ssh/known_hosts`. Do not disable host-key checking. |
+| SSH works but `/flows` cannot be read | Check `svstat /service/node-red-venus` and the Node-RED log over SSH. Diagnose service/API availability; do not restart the service as a routine deployment step. |
+
+The complete Windows connectivity commands are in [Finding the GX and restoring Tailscale](gx-deploy.md#finding-the-gx-and-restoring-tailscale-on-windows). On 15 Nov the PC had lost coordination connectivity; after reconnecting, SSH and the read-only snapshot worked.
+
+## 2. Freeze the target master commit
+
+Before merging code changes, sync the numbered sources, check them and run tests:
+
+```powershell
+node tools/flows.js sync
+node tools/flows.js check
+node --test "tests/*.test.js"
+```
+
+After the changes are pushed, reviewed and merged, resolve a full SHA:
+
+```powershell
+git fetch --quiet origin
+if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed.' }
+$sha = (git rev-parse --verify 'origin/master^{commit}').Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve master.' }
+git branch -r --contains $sha
+```
+
+Keep `$sha` unchanged for diagnosis, dry-run and apply. A pushed feature branch, a closed PR and the latest working-tree files are **not** evidence that the change is in master. Check the merge state and master history first.
+
+Do not run `sync` merely to deploy an already merged commit: it changes the working tree, not the pinned deployment target. Do not use `-UseWorkTreeScripts` for a production deployment.
+
+## 3. Take a private snapshot and compare code, not just version labels
+
+Keep run files outside the repository:
+
+```powershell
+$runRoot = Join-Path ([IO.Path]::GetTempPath()) ('gx-review-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+New-Item -ItemType Directory -Path $runRoot | Out-Null
+$snapshotFile = Join-Path $runRoot 'live.b64'
+$snapshot = Get-Content -Raw .\tools\gx\live-snapshot.js |
+    ssh @sshOptions $gx "tr -d '\r' | node -"
+if ($LASTEXITCODE -ne 0 -or -not $snapshot) { throw 'Snapshot failed.' }
+[IO.File]::WriteAllText($snapshotFile, ($snapshot -join "`n") + "`n")
+node .\tools\gx\compare.js $snapshotFile --commit $sha --history 20
+if ($LASTEXITCODE -ne 0) { throw 'Comparison failed.' }
+```
+
+The snapshot excludes Tuya settings/credentials but contains live function/template code. Treat it and the detailed reports as private: a hard-coded live secret could still be present. Do not commit them or upload them to public artifacts.
+
+Interpretation:
+
+| Result | Meaning and next action |
+|---|---|
+| Different `d#` / `[git ...]` / `[UI local ...; Auto ...]` | Deployment metadata, not proof of the code difference. Compare each code field. A local label can remain even when a node exactly matches a committed version. |
+| `code differs`, only `+N` | The target has code missing on GX. Review it; the normal selective deploy may update it. |
+| `-N` / `liveOnlyLines` | The target would remove live lines. This can be either genuinely uncommitted code **or an ordinary replacement of older committed code**. The runner conservatively stops in both cases. Inspect before granting any exception. |
+| `live = <commit>` with `--history` | That field exactly matches an older repository version after trailing-whitespace normalization. Check its changes against the target; the label alone was not the baseline. |
+| `live = no commit` | No match in the searched history, not proof that the code never existed in Git. Widen `--history` if needed; preserve truly unique wanted code in the numbered source, sync, test, merge and resolve a new target SHA. |
+| `trailing whitespace only` | Leave it alone. It is excluded from the normal patch and does not require a node restart. |
+| `config differs` | Check separately. Tuya secret references and the version tab are expected differences; other differences may be wiring, outputs or settings that the code runner cannot migrate. |
+| Nodes only on GX / only in repository | Stop. The normal code plan does not add or remove nodes. Use a separately reviewed structural migration, then take a new snapshot. |
+
+Inspect every field that would lose lines, using its node ID:
+
+```powershell
+node .\tools\gx\compare.js $snapshotFile --commit $sha --history 100 --show temps-fn-01
+node .\tools\gx\compare.js $snapshotFile --commit $sha --show temps-page-01
+node .\tools\gx\compare.js $snapshotFile --commit $sha --show temps-record-01
+```
+
+**The actual 15 Nov finding:** all three temperature fields matched `a4af86d`. Master replaced local-time day selection with Europe/Oslo, added archive-error handling and 400-day cleanup, and avoided duplicate archive series. There were no unique live lines to copy back. The owner explicitly approved replacing that reviewed older code; only then was `-AllowLiveOnlyLines` used.
+
+Do not use that flag to make an unexplained failure disappear. It authorizes removal of live lines and belongs on **both** dry-run and apply only after the specific replacements have been reviewed and approved.
+
+## 4. Handle output/wiring changes separately, with a backup
+
+The runner patches code fields, not topology. On 15 Nov, `temps-record-01` had two outputs on GX but three in master:
+
+```text
+GX:     [["temps-file-01"], ["temps-catalog-01"]]
+master: [["temps-file-01"], ["temps-catalog-01"], ["temps-exec-01"]]
+```
+
+Without the third output, the new recorder code would not deliver its cleanup command. Do not deploy that new function while silently leaving the old topology.
+
+For a structural update, first verify the exact live node/configuration against the reviewed baseline and the intended master configuration. Check that referenced targets already exist on the same flow. Obtain the owner's approval and a safe window:
+
+```powershell
+Get-Content -Raw .\tools\gx\window.js |
+    ssh @sshOptions $gx "tr -d '\r' | node - --for deploy"
+if ($LASTEXITCODE -ne 0) { throw 'Not a safe deployment window.' }
+```
+
+Make a private backup before changing any structure:
+
+```powershell
+$backup = ssh @sshOptions $gx 'umask 077; d=/data/home/nodered/.node-red; b="$d/backup-$(date -u +%Y%m%dT%H%M%S)-pre-topology"; mkdir "$b" && cp -p "$d/flows.json" "$d/flows_cred.json" "$b/" && printf "%s\n" "$b"'
+if ($LASTEXITCODE -ne 0 -or -not $backup) { throw 'Backup failed; stop.' }
+$backup
+```
+
+Use a reviewed updater that checks the expected live revision before POST and verifies the read-back, or make the narrowly reviewed change in the Node-RED editor with no other pending edits. In the editor, retain the existing code, both previous output routes and all other properties; add only output 3 and its route to the existing `temps-exec-01`. Select **Modified Nodes** deployment, not a full restart. A stale editor or revision conflict means refresh and inspect again, not overwrite another deployment.
+
+The successful one-off updater checked the exact old code/configuration, revision, unchanged first two routes, the existing exec target and the safe window again immediately before POST. It backed up the flow/credentials and original API response, changed only `outputs` and `wires` of this recorder, and verified every other node was unchanged. This is a historical, specific migration, **not** a generic permission to modify arbitrary wiring.
+
+Take a fresh snapshot after the topology update. The remaining differences should now be the reviewed code fields and expected secret/layout metadata, not the recorder's outputs/wires.
+
+## 5. Run dry-run; apply the same SHA only when all checks pass
+
+Normal dry-run:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
+    -Commit $sha -RunDirectory (Join-Path $runRoot 'dry-run')
+```
+
+If and only if removal of the specifically inspected older/unique lines has been approved, add `-AllowLiveOnlyLines`. Example for the reviewed historical-code replacement:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
+    -Commit $sha -AllowLiveOnlyLines -RunDirectory (Join-Path $runRoot 'reviewed-dry-run')
+```
+
+Read `compare-before.txt`, `plan.json`, `window.txt` and `dry-run.txt` in that run folder. Before applying, require:
+
+- the target SHA is the intended pushed master commit;
+- no unexplained lost live code, added/removed nodes, wiring/output/settings differences or `ABORT`;
+- every listed node/tool change and dashboard rename is understood;
+- SSH, downloads, SHA-256 and syntax checks succeeded;
+- the live revision is current and the safe-window check passes;
+- the owner's deployment approval has been given.
+
+For normal apply, omit the exception flag:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
+    -Commit $sha -Apply -WaitWindowMin 30 -RunDirectory (Join-Path $runRoot 'apply')
+```
+
+For the same explicitly reviewed historical-code replacement as above:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
+    -Commit $sha -AllowLiveOnlyLines -Apply -WaitWindowMin 30 `
+    -RunDirectory (Join-Path $runRoot 'reviewed-apply')
+```
+
+Use a new run-directory name for each retry; never overwrite the evidence from a failed run. Apply repeats the snapshot, comparison, plan, window and dry-run checks before changing anything. If another deployment changed the revision, start again from a fresh snapshot. If DHW/defrost/rule activity blocks the safe window, wait or rerun later; do not bypass it.
+
+**Backup timing:** a successful apply that changes the GX creates its backup before replacing files or posting the flow. Record the printed path before continuing. A dry-run creates no GX backup, and `NOTHING TO DO` makes no change and creates no new backup. If a backup is required even for a no-op, make the explicit private backup from section 4 first.
+
+"Everything matches" does not mean every raw config/whitespace value equals the portable template. Success means no substantive code differences or added/removed nodes, both recorded source SHAs equal the target, and planned tools are current. If all of these already hold, exit 0 / `NOTHING TO DO` is the correct result. If code matches but source labels or tools lag, an apply may still update those and restart the renamed dashboard pages.
+
+## 6. Verify immediately, then again after 15-20 minutes
+
+The apply runner must finish with `DONE`, the expected label and a comparison showing the live code equals the pinned SHA. Check independently:
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key -Drift
+ssh @sshOptions $gx 'svstat /service/node-red-venus'
+```
+
+`-Drift` compares with the locally fetched `origin/master`. If master advanced since `$sha` was chosen, inspect against the pinned SHA rather than calling that later difference a failed deployment.
+
+Confirm local control is on, automations tick, heat pump/valve/bypass are connected, the service uptime did not reset, and there are no new Node-RED errors. Repeat the monitor after **15-20 minutes**; a newly reset outdoor average needs time to refill.
+
+A historical 24-hour automation-log warning is not the same as a new deployment fault. On 15 Nov the monitor reported old Er03 events (4 errors / 2 aborted cycles), while the live pump had no fault and no new Node-RED errors appeared. Do not hide a new/active Er03, disconnected device or stalled controller behind that explanation.
+
+Record the time, SHA, version, backup paths, migrations, review exceptions and results in the work log. Keep private run folders locally.
+
+## 7. GitHub Action problems encountered
+
+| Problem | Resolution |
+|---|---|
+| Job stays `waiting` | The `victron-gx` environment requires its configured reviewer. In Edge, open the run, choose **Review deployments**, select the environment and **Approve and deploy**. Saying "continue" in chat is not the GitHub approval. Dry-run and apply are separate approved runs. |
+| `master` changes while awaiting approval | The workflow must pass `-Commit $env:GITHUB_SHA`. Match the approved dry-run SHA with the apply SHA; a later run of master may point to a different commit. |
+| A local dry-run/apply has reviewed exceptions | The current workflow does not expose `-AllowLiveOnlyLines` or topology migration. Do not expect rerunning it to bypass those checks. Resolve drift/migration first; use the explicitly approved local procedure when necessary. |
+| Run reports cannot be found on Ubuntu | The script uses .NET's temp directory; set `TMPDIR` to `runner.temp` or pass an exact `-RunDirectory`. Do not search a different directory or assume Windows `cmd` exists. Git blob extraction must preserve bytes cross-platform. |
+| Public artifacts could leak GX-only code | Upload only the deliberately constructed public summary. Never upload the entire run folder, live snapshots, diffs or raw live reports. |
+| Tailscale/SSH secret is missing | Configure `GX_SSH_HOST`, `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` in the repository/environment. Keep `known_hosts` in the standard SSH location; preserve strict verification and remove runner key material in `always()`. |
+| GitHub CLI uses the wrong host/token | Use `--repo github.com/vzakusylo/victron` and API `--hostname github.com`; inspect `gh auth status`. Do not print tokens. Use the intended stored account in a separate shell without conflicting token/host environment overrides. |
+| Copilot app cannot create a PR with the repository's selected account | Select an account with access in the repository's GitHub Account setting. Using a separate authenticated CLI account requires the owner's choice; it does not fix the app's selected account. |
+| Updated branch does not appear in master | Verify the PR is merged, not merely pushed/closed, and fetch master. Optional report labels and other workflow improvements exist only where their commits were actually merged. |
+
+## 8. If apply fails after changes began
+
+Exit 1 means the runner stopped before its code deployment began; inspect the reports and correct the cause. A separately completed topology migration is still a real earlier change even if the later code runner exits 1. Exit 2 means changes may already have begun: keep the reports, inspect the actual live state and the printed backup; do not retry blindly.
+
+The code backup contains `flows.json`, `flows_cred.json`, `original-live.json` and previous replaced tools. Follow [Rollback](gx-deploy.md#rollback) with a safe window and explicit approval: rollback stops Node-RED and is not the normal no-restart deploy. Restore replaced tools as well as flow/credentials; nested tool paths are stored with separators flattened, for example `gx__verify.js` restores to `tools/gx/verify.js`. Never restore the repository template or expose credential files.
+
+The 15 Nov deployment kept **two** backups: one before output-topology migration and one before code deployment. The latter contains the already migrated topology. Choose the backup that represents the state you actually intend to restore.
