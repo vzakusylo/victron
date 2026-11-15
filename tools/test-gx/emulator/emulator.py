@@ -184,6 +184,7 @@ def tick():
 MAX_CHARGE = '/Settings/SystemSetup/MaxChargeCurrent'
 startup_write_pending = False   # our own SetValue(-1) is in flight; its signal is not a flow write
 signal_seen = False
+timed_out = False
 
 
 # test hook: hold the API in 503 for this many seconds after start so the not-ready answers can be checked
@@ -209,8 +210,9 @@ def mark_ready(by_timeout=False):
 
 def ready_by_timeout():
     # no startup signal came: later MaxChargeCurrent writes are the flow's and must be recorded
-    global startup_write_pending
+    global startup_write_pending, timed_out
     startup_write_pending = False
+    timed_out = True
     return mark_ready(True)
 
 
@@ -229,6 +231,9 @@ def on_settings_change(changes, path=None):
         value = float(value)
     elif value is not None:
         value = str(value)
+    if timed_out and not signal_seen and str(path) == MAX_CHARGE and value == -1.0:
+        signal_seen = True
+        print('late startup signal recorded as write', flush=True)
     record('settings', str(path), value)
 
 

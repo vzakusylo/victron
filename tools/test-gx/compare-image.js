@@ -140,15 +140,15 @@ async function main() {
         [/Error in setValue: No services available yet/, 'D-Bus service not up yet']
     ];
     // The victron palette asks com.victronenergy.settings for /DeviceInstance while it discovers services; localsettings has no such
-    // path and answers UnknownObject (found with dbus-monitor, the log line carries no path). Exactly once, right after the palette's
-    // startup line; any other UnknownObject is a real error.
+    // path and answers UnknownObject (found with dbus-monitor, the log line carries no path). Once per start, right after the palette's
+    // startup line (the log holds all starts); any other UnknownObject is a real error.
     const PALETTE_DISCOVERY = 'victron palette: settings has no /DeviceInstance (UnknownObject, localsettings)';
     const unknown = [], known = new Map();
     let previous = '';
     for (const line of logs.stdout.split('\n')) {
         const afterPalette = /Polling is disabled/.test(previous);
         if (line.trim()) previous = line;
-        if (/DBUS ERROR MESSAGE .*UnknownObject/.test(line) && afterPalette && !known.has(PALETTE_DISCOVERY)) { known.set(PALETTE_DISCOVERY, 1); continue; }
+        if (/DBUS ERROR MESSAGE .*UnknownObject/.test(line) && afterPalette) { known.set(PALETTE_DISCOVERY, (known.get(PALETTE_DISCOVERY) || 0) + 1); continue; }
         if (!/\[error\]|SyntaxError|ReferenceError|TypeError|DBUS ERROR|Error in /.test(line)) continue;
         const hit = KNOWN.find(([re]) => re.test(line));
         if (hit) known.set(hit[1], (known.get(hit[1]) || 0) + 1);
