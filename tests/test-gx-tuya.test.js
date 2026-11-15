@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const http = require('node:http');
+const zlib = require('node:zlib');
 const { loadNode } = require('./harness.js');
 const { transformTuya, DEVICES } = require('../tools/test-gx/transform-tuya.js');
 const { validateTransformation, transformLiveSnapshot } = require('../tools/test-gx/tuya-compare.js');
@@ -91,6 +95,53 @@ test('comparison normalizes only deterministic manifest IDs and still detects al
     changedImage.find(n => n.id === 'hp-tuya-pump-01').func = 'return msg;';
     assert.throws(() => validateTransformation(original, changedImage, {}, a.transformed), /differs/);
     assert.ok(diffSnapshots(transformLiveSnapshot(snapshot(changedImage, null, { raw: true }), {}, a.transformed), expected).code.length);
+});
+
+test('compare-image --live without --map warns rather than throwing for the production localhost broker', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tuya-live-no-map-'));
+    const server = http.createServer((req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ version: '3.1.15' }));
+    });
+    try {
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+        const a = transformed();
+        fs.mkdirSync(path.join(root, 'nodered', '.node-red'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'nodered', '.node-red', 'flows.json'), JSON.stringify(a.flows));
+        fs.writeFileSync(path.join(root, 'tuya-source-flows.json'), JSON.stringify(original));
+        fs.writeFileSync(path.join(root, 'sanitize-report.json'), JSON.stringify({ transformed: a.transformed }));
+        fs.writeFileSync(path.join(root, 'versions.json'), JSON.stringify({ nodeRed: '3.1.15', palette: {} }));
+        const live = structuredClone(original);
+        live[0].broker = '127.0.0.1';
+        const encode = f => zlib.gzipSync(JSON.stringify(snapshot(f, null, { raw: true }))).toString('base64');
+        const liveFile = path.join(root, 'live.b64');
+        fs.writeFileSync(liveFile, encode(live));
+        const preload = path.join(root, 'mock-transport.js');
+        fs.writeFileSync(preload, `
+const Module = require('node:module');
+const load = Module._load;
+Module._load = function(name, ...args) {
+    const value = load.call(this, name, ...args);
+    if (name !== 'child_process') return value;
+    return { ...value, spawnSync(command, args) {
+        if (command === 'ssh') return { status: 0, stdout: args[1].includes('node -') ? ${JSON.stringify(encode(a.flows))} : args[1].includes('npm ls') ? '{"dependencies":{}}' : '' };
+        if (command === 'docker') return { status: 0, stdout: '' };
+        throw new Error('Unexpected transport command: ' + command);
+    }};
+};`);
+        const result = await new Promise(resolve => require('node:child_process').execFile(process.execPath,
+            ['--require', preload, path.join(__dirname, '..', 'tools', 'test-gx', 'compare-image.js'),
+                '--backup', root, '--live', liveFile, '--api', 'http://127.0.0.1:' + server.address().port],
+            (error, stdout, stderr) => resolve({ code: error ? error.code : 0, stdout, stderr })));
+        assert.equal(result.code, 1, result.stderr); // Raw, unmapped differences are still fatal; the comparison itself completed.
+        assert.match(result.stdout, /WARN\s+Tuya proxy\s+no --map: skipping live Tuya transformation/);
+        assert.match(result.stdout, /DIFF\s+flow: image vs live GX/);
+        assert.match(result.stdout, /STATUS:/);
+        assert.doesNotMatch(result.stderr, /compare-image failed|Tuya proxy requires/);
+    } finally {
+        await new Promise(resolve => server.close(resolve));
+        fs.rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test('Tuya model validates atomic SETs, answers GETs, routes heat, and supports stale/offline/invalid without invalid JSON', () => {

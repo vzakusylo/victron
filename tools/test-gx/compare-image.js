@@ -166,7 +166,10 @@ async function main() {
             if (mapped.restMissing) add('WARN', 'live map', mapped.restMissing + ' node(s) without restJson: take the snapshot with "node - --raw", else their config will differ');
             if (Object.keys(mapped.unmapped).length) add('WARN', 'live map', 'not in map: ' + counts(mapped.unmapped) + ' (a device or setting added on the GX after the backup?)');
         } else add('WARN', 'live map', 'no --map: DIFF on nodes the sanitizer rewrote (device ids, addresses) is expected');
-        if (manifest.length) live = transformLiveSnapshot(live, registry, manifest);
+        if (manifest.length) {
+            if (mapFile) live = transformLiveSnapshot(live, registry, manifest);
+            else add('WARN', 'Tuya proxy', 'no --map: skipping live Tuya transformation; raw flow differences remain DIFF');
+        }
         classifyFlow('flow: image vs live GX', diffSnapshots(live, imageSnap));
         const tab = (s) => (s.nodes.find((n) => n.type === 'tab' && /d#\d+/.test(n.label || '')) || {}).label || '';
         const strip = (label) => label.replace(/ TEST-GX$/, '');

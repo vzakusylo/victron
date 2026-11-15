@@ -75,6 +75,11 @@ The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapsh
 - The `replaced N <kind>` count is a count of occurrences: the same value may be counted in both `code` and `restJson`.
 - After `STOPPED`, `sanitize-report.json` still names `<name>.map.json`, although the sanitizer removes that map and does not create it.
 - The cleanup instruction above used to ask the operator to delete the map even though the script already deletes it. It is harmless but redundant.
+- Without `--map`, live Tuya transformation is skipped with a `Tuya proxy` WARN, including when the production broker is `127.0.0.1:1883`. Comparison still completes; raw unmapped code/config/node differences remain DIFF (exit 1), not a comparison exception (exit 2).
+- Tuya data is published every second, unlike the real palette's change/poll cadence; this can hide throttle or timing issues. Change-only publication with a slower heartbeat remains future work.
+- `compare-image.js` currently requires `sanitize-report.json`; an old/manual backup without it fails with ENOENT rather than a dedicated diagnostic.
+- The persistent emulator MQTT client constructor is not wrapped with the incompatible-paho guard used by `/mqtt`; incompatible paho fails loudly at startup, but its diagnostic can be improved.
+- With pump DP 132 = `'1'`, physics recalculates DP 125 from the weather curve every tick; a SET DP 125 is recorded/applied but overwritten on the next tick.
 
 ### What `compare-image.js` checks
 
