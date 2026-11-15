@@ -204,6 +204,13 @@ def mark_ready(by_timeout=False):
     return False
 
 
+def ready_by_timeout():
+    # no startup signal came: later MaxChargeCurrent writes are the flow's and must be recorded
+    global startup_write_pending
+    startup_write_pending = False
+    return mark_ready(True)
+
+
 def on_settings_change(changes, path=None):
     # PropertiesChanged of a settings item: the flow wrote it
     global startup_write_pending, signal_seen
@@ -319,7 +326,7 @@ def main():
     GLib.timeout_add(1000, tick)
 
     if startup_write_pending:
-        GLib.timeout_add(10000, mark_ready, True)   # fallback when the signal never comes
+        GLib.timeout_add(10000, ready_by_timeout)   # fallback when the signal never comes
     else:
         mark_ready()
     server = ThreadingHTTPServer(('0.0.0.0', 8081), Api)
