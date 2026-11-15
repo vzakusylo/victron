@@ -97,8 +97,8 @@ function emulatorPairs() {
   for (let i = 1; i < parts.length; i += 2) {
     for (const m of parts[i + 1].matchAll(/'(\/[A-Za-z0-9/_]+)'/g)) pairs.add(`${svcName[parts[i]]} ${m[1]}`);
   }
-  // mandatory paths every VeDbusService registers
-  for (const s of Object.values(svcName)) for (const p of ['/Mgmt/ProcessName', '/Mgmt/Connection', '/DeviceInstance', '/ProductName', '/Connected']) pairs.add(`${s} ${p}`);
+  // paths registered for every fake service (mandatory paths plus identity)
+  for (const s of Object.values(svcName)) for (const p of ['/Mgmt/ProcessName', '/Mgmt/Connection', '/DeviceInstance', '/ProductName', '/FirmwareVersion', '/CustomName', '/Serial', '/Connected']) pairs.add(`${s} ${p}`);
   return pairs;
 }
 

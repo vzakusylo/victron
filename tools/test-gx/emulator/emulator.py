@@ -62,7 +62,10 @@ def build(name):
                 vebus=('com.victronenergy.vebus.emulator', 276, 'MultiPlus-II 48/5000 (emulated)'),
                 battery=('com.victronenergy.battery.emulator', 289, 'SmartShunt (emulated)'))[name]
     svc = VeDbusService(info[0], bus=bus, register=False)
-    svc.add_mandatory_paths('test-gx-emulator', '1.0', 'emulated', info[1], 0, info[2], '1', '1', 1)
+    svc.add_mandatory_paths('test-gx-emulator', '1.0', 'emulated', info[1], 0, info[2], 0x0510, '1', 1)
+    # fake identity for the Devices page; never a real serial number
+    svc.add_path('/CustomName', {'system': 'Test GX', 'vebus': 'MultiPlus (emu)', 'battery': 'SmartShunt (emu)'}[name])
+    svc.add_path('/Serial', 'HQEMU0001')
 
     def writer(path, value):
         record(name, path, value)
@@ -75,11 +78,11 @@ def build(name):
     elif name == 'vebus':
         svc.add_path('/Ac/In/1/CurrentLimit', 25.0, writeable=True, onchangecallback=writer)
         for p, v in (('/State', 3), ('/Mode', 3), ('/Soc', 60.0), ('/Ac/ActiveIn/Connected', 1),
-                     ('/Ac/ActiveIn/L1/P', 0.0), ('/Ac/Out/L1/P', 0.0), ('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0)):
+                     ('/Ac/ActiveIn/L1/P', 0.0), ('/Ac/Out/L1/P', 0.0), ('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/VebusError', 0)):
             svc.add_path(p, v)
     else:
         for p, v in (('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/Dc/0/Power', 0.0), ('/ConsumedAmphours', 0.0),
-                     ('/Soc', 60.0), ('/Info/MaxChargeCurrent', 100.0), ('/Info/MaxDischargeCurrent', 200.0)):
+                     ('/Soc', 60.0), ('/Info/MaxChargeCurrent', 100.0), ('/Info/MaxDischargeCurrent', 200.0), ('/Dc/0/Temperature', 20.0)):
             svc.add_path(p, v)
     svc.register()
     buses[name], services[name] = bus, svc
