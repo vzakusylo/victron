@@ -51,16 +51,25 @@ Pieces, to run separately:
 | Script | What it does |
 |---|---|
 | `up.ps1 -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts both |
-| `sanitize-backup.js <tar.gz> <outDir> [--days 14] [--no-logs]` | Backup → sanitized tree + `versions.json` + `sanitize-report.json` |
+| `sanitize-backup.js <tar.gz> <outDir> [--days 14] [--no-logs]` | Backup → sanitized tree + `versions.json` + `sanitize-report.json`, and **beside** `<outDir>` the secret `<name>.map.json` (original → fake) |
 | `snapshot-file.js flows.json` | Same snapshot as `tools/gx/live-snapshot.js`, from a file |
-| `compare-image.js --backup <dir> [--live live.b64]` | Table `OK / WARN / DIFF / EXPECTED`, exit 0 / 1 / 2 |
+| `compare-image.js --backup <dir> [--live live.b64 [--map <name>.map.json]]` | Table `OK / WARN / DIFF / EXPECTED`, exit 0 / 1 / 2 |
 | `node tools/gx/compare.js a.b64 --against b.b64` | Snapshot against snapshot |
+
+### Comparing with the live GX: the map
+
+The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapshot differs from the image in exactly those nodes. `<name>.map.json` lists the pairs, so `--live` can replace the originals in the live snapshot with the fakes before comparing (never the other way round). With the map, an exact copy gives 0 DIFF; without `--map` a WARN says that DIFF on rewritten nodes is expected.
+
+- The map is **secret** (it holds the originals). It is written next to the sanitized tree, never inside it, so it never reaches the Docker build context, and never inside the repository. The report and the console show counts per kind only.
+- `live-snapshot.js` hashes node config into `rest`, which cannot be rewritten. Take the snapshot with `node - --raw` (as `test-gx-refresh.ps1 -GxHost` does): it adds the config text of each node, so the map can be applied and the hash recomputed. That `live.b64` holds real ids: keep it outside the repository.
+- WARN `not in map`: ids, addresses or e-mails in the live code that are neither in the map nor already in the image. A device or setting was added on the GX after the backup: take a new backup.
+- WARN `without restJson`: the snapshot was taken without `--raw`; config of rewritten nodes will differ.
 
 ### What `compare-image.js` checks
 
 | Check | Rule |
 |---|---|
-| Flow (image vs backup, and vs live GX with `--live`) | No code differences; Tuya config differences are EXPECTED |
+| Flow (image vs backup, and vs live GX with `--live --map`) | No code differences; Tuya config differences are EXPECTED |
 | Node-RED and palette versions | Equal; same minor but other patch → WARN |
 | Files in `tools/`, `grid-control-config/` | SHA-256 equal; state files the flow rewrites → WARN |
 | Global context keys | Compared when the backup has a context store |

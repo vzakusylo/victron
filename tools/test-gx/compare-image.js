@@ -3,8 +3,11 @@
 // Runs on the PC, reads the container over ssh and the Node-RED admin API; changes nothing.
 //
 // Usage: node tools/test-gx/compare-image.js --backup <sanitized dir> [--ssh test-gx] [--api http://127.0.0.1:1881]
-//          [--compose tools/test-gx] [--live LIVE.b64] [--report report.json]
-//   --live  snapshot of a real GX (tools/gx/live-snapshot.js output): also compare the image with it (read-only on the GX).
+//          [--compose tools/test-gx] [--live LIVE.b64 [--map <name>.map.json]] [--report report.json]
+//   --live  snapshot of a real GX (tools/gx/live-snapshot.js output, taken with "node - --raw" when --map is used):
+//           also compare the image with it (read-only on the GX).
+//   --map   the SECRET <name>.map.json that sanitize-backup.js wrote beside the sanitized tree: originals in the
+//           live snapshot are replaced by the fakes first, so the nodes the sanitizer rewrote do not show as DIFF.
 // Exit code: 0 = OK / WARN / EXPECTED only, 1 = DIFF, 2 = the check itself failed.
 'use strict';
 const fs = require('fs');
@@ -16,6 +19,7 @@ const { spawnSync } = require('child_process');
 const { snapshot } = require('../gx/live-snapshot.js');
 const { diffSnapshots } = require('../gx/compare.js');
 const { classifyStartLog, classifyStateFiles } = require('./compare-rules.js');
+const { applyMap, parseMap } = require('./live-map.js');
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i === -1 ? fallback : args[i + 1]; };
@@ -146,7 +150,16 @@ async function main() {
     // 6. optional: the image against a real GX
     const liveFile = opt('--live');
     if (liveFile) {
-        const live = decodeSnapshot(fs.readFileSync(liveFile, 'utf8'));
+        let live = decodeSnapshot(fs.readFileSync(liveFile, 'utf8'));
+        const mapFile = opt('--map');
+        if (mapFile) {
+            const mapped = applyMap(live, parseMap(fs.readFileSync(mapFile, 'utf8')), imageSnap);
+            live = mapped.snapshot;
+            const counts = (o) => Object.entries(o).map(([k, n]) => n + ' ' + k).join(', ') || 'none';
+            add('OK', 'live map', 'replaced ' + counts(mapped.replaced));
+            if (mapped.restMissing) add('WARN', 'live map', mapped.restMissing + ' node(s) without restJson: take the snapshot with "node - --raw", else their config will differ');
+            if (Object.keys(mapped.unmapped).length) add('WARN', 'live map', 'not in map: ' + counts(mapped.unmapped) + ' (a device or setting added on the GX after the backup?)');
+        } else add('WARN', 'live map', 'no --map: DIFF on nodes the sanitizer rewrote (device ids, addresses) is expected');
         classifyFlow('flow: image vs live GX', diffSnapshots(live, imageSnap), EXPECTED_CONFIG_TYPES);
         const tab = (s) => (s.nodes.find((n) => n.type === 'tab' && /d#\d+/.test(n.label || '')) || {}).label || '';
         const strip = (label) => label.replace(/ TEST-GX$/, '');

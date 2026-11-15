@@ -2,7 +2,8 @@
 // Turns a real GX backup (grid-backup-*.tar.gz) into a tree without private values for the test GX.
 // Usage: node tools/test-gx/sanitize-backup.js <backup.tar.gz> <outDir> [--days 14] [--no-logs]
 // <outDir> must be outside the repository. Writes <outDir>/nodered (the /data/home/nodered tree),
-// <outDir>/versions.json and <outDir>/sanitize-report.json (paths and fields only, never values).
+// <outDir>/versions.json and <outDir>/sanitize-report.json (paths and fields only, never values), and, BESIDE
+// <outDir>, <name>.map.json: the original -> fake pairs for compare-image.js --live --map. That file is SECRET.
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), os = require('os');
 const { execFileSync } = require('child_process');
@@ -15,6 +16,7 @@ const [backup, out] = positional;
 if (!backup || !out) { console.error('usage: sanitize-backup.js <backup.tar.gz> <outDir> [--days N] [--no-logs]'); process.exit(64); }
 const REPO = path.resolve(__dirname, '..', '..');
 const MARKER = '.test-gx-sanitized';
+const MAP_FORMAT = 'test-gx-map-v1';
 const real = (p) => { // realpath of the nearest existing ancestor, then the rest appended
     let cur = path.resolve(p); const rest = [];
     while (!fs.existsSync(cur) && path.dirname(cur) !== cur) { rest.unshift(path.basename(cur)); cur = path.dirname(cur); }
@@ -92,6 +94,19 @@ function run() {
     };
     const mapping = new Map([...secrets].map(([v, kind], i) => [v, fake(v, kind, i)]));
     const ordered = [...mapping].sort((a, b) => b[0].length - a[0].length);
+    // original -> fake pairs for compare-image.js --live --map. SECRET: it holds the original values. It lives
+    // beside <outDir> (never inside it, so never in the Docker build context) and outside the repository.
+    const mapFile = path.join(path.dirname(outAbs), path.basename(outAbs) + '.map.json');
+    if (overlaps(REPO, mapFile)) { throw new Error('map file would be inside the repository: ' + mapFile); }
+    if (fs.existsSync(mapFile)) {
+        let prev = null; try { prev = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* not ours */ }
+        if (!prev || prev.format !== MAP_FORMAT) throw new Error('refusing to overwrite ' + mapFile + ': not a ' + MAP_FORMAT + ' file');
+    }
+    const mapCounts = {};
+    for (const kind of secrets.values()) mapCounts[kind] = (mapCounts[kind] || 0) + 1;
+    fs.writeFileSync(mapFile, JSON.stringify({ format: MAP_FORMAT, pairs: ordered.map(([from, to]) => ({ from, to, kind: secrets.get(from) })) }, null, 1));
+    report.mapFile = path.basename(mapFile);
+    report.mapCounts = mapCounts;
     const apply = (text) => { for (const [from, to] of ordered) if (text.includes(from)) text = text.split(from).join(to); return text; };
 
     const put = (rel, data) => {
@@ -176,7 +191,8 @@ function run() {
     }
     report.problems = problems;
     fs.writeFileSync(path.join(out, 'sanitize-report.json'), JSON.stringify(report, null, 2));
-    console.log('written ' + report.written.length + ' files, replaced ' + mapping.size + ' values, deleted ' + report.deleted.length);
+    console.log('written ' + report.written.length + ' files, replaced ' + mapping.size + ' values, deleted ' + report.deleted.length
+        + '; map ' + report.mapFile + ' (' + Object.entries(mapCounts).map(([k, n]) => n + ' ' + k).join(', ') + ')');
     if (problems.length) {
         console.error('STOPPED: ' + problems.length + ' possible secret(s) left (see sanitize-report.json):');
         problems.slice(0, 20).forEach(p => console.error('  ' + p));
