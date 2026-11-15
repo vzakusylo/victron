@@ -10,6 +10,8 @@ const KNOWN = [
 // path and answers UnknownObject (found with dbus-monitor, the log line carries no path). Once per start, right after the palette's
 // startup line (the log holds all starts); any other UnknownObject is a real error.
 const PALETTE_DISCOVERY = 'victron palette: settings has no /DeviceInstance (UnknownObject, localsettings)';
+// Independent MQTT connection logging can interleave the two D-Bus discovery lines.
+const MQTT_CONNECTED = /^\d{1,2} [A-Za-z]{3} \d{2}:\d{2}:\d{2} - \[info\] \[mqtt-broker:[^\]]+\] Connected to broker: mqtt:\/\/mosquitto:1883$/;
 
 // lines: the nodered log. Returns { unknown: [line], known: Map(reason -> count) }.
 function classifyStartLog(lines) {
@@ -17,7 +19,7 @@ function classifyStartLog(lines) {
     let previous = '';
     for (const line of lines) {
         const afterPalette = /Polling is disabled/.test(previous);
-        if (line.trim()) previous = line;
+        if (line.trim() && !MQTT_CONNECTED.test(line)) previous = line;
         if (/DBUS ERROR MESSAGE .*UnknownObject/.test(line) && afterPalette) { known.set(PALETTE_DISCOVERY, (known.get(PALETTE_DISCOVERY) || 0) + 1); continue; }
         if (!/\[error\]|SyntaxError|ReferenceError|TypeError|DBUS ERROR|Error in /.test(line)) continue;
         const hit = KNOWN.find(([re]) => re.test(line));

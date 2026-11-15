@@ -15,7 +15,7 @@ const COVERAGE = {
   'victron-input': { status: 'emulated', by: 'D-Bus emulator' },
   'victron-output': { status: 'emulated', by: 'D-Bus emulator (/writes)' },
   'tuya-smart-device': { status: 'planned', by: 'Tuya stub (B-tuya)' },
-  'mqtt in': { status: 'planned', by: 'mosquitto + publisher (B-mqtt)' },
+  'mqtt in': { status: 'emulated', by: 'internal mosquitto + emulator POST /mqtt' },
   'http request': { status: 'planned', by: 'forecast stub (B-forecast)' },
   'inject': { status: 'emulated', by: 'real Node-RED timers (libfaketime for clock scenarios)' },
   'http in': { status: 'emulated', by: 'real Node-RED HTTP endpoints' },
@@ -165,6 +165,7 @@ function problems(rows) {
     if (!provided.has(pair) && !LOCALSETTINGS.has(pair)) out.push(`${where}: ${pair} is not published by emulator.py`);
   };
   for (const r of rows) {
+    if (r.kind === 'mqtt in' && r.topic !== 'qingping/+/up') out.push(`mqtt in ${r.id}: topic "${r.topic}" is not covered by emulator POST /mqtt`);
     if (r.kind.startsWith('victron-') && !r.path) out.push(`${r.kind} ${r.id}: node has no D-Bus path`);
     if (r.kind.startsWith('victron-') && r.path) check(`${r.kind} ${r.id}`, `${SERVICE_CLASS(r.service)} ${r.path}`);
     if (r.kind === 'exec:unknown') out.push(`exec ${r.id} (${r.name}) is not classified (command: ${r.command || 'built by a function node'})`);

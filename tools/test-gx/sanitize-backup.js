@@ -64,7 +64,7 @@ function run() {
     const SECRET_FIELDS = /^(key|localkey|secret|accesssecret|accessid|pass|password|token|apikey)$/i;
     const ID = /^[a-z0-9]{20,24}$/;
     const IPV4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-    const MAC = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+    const MAC = /^(?:([0-9a-f]{2}:){5}[0-9a-f]{2}|[0-9a-f]{12})$/i;
     const EMAIL = /^[^@\s"]+@[^@\s"]+\.[a-z]+$/i;
     const add = (v, kind, where) => {
         if (typeof v !== 'string' || v.length < 4 || secrets.has(v)) return;
@@ -76,6 +76,12 @@ function run() {
         for (const [k, v] of Object.entries(o)) {
             if (ID.test(k) && /[0-9]/.test(k)) add(k, 'id', where + '.<deviceId>');
             if (typeof v === 'string') {
+                if (['func', 'initialize', 'finalize'].includes(k)) {
+                    for (const m of v.matchAll(/\bmac\s*:\s*['"]((?:[0-9a-f]{2}:){5}[0-9a-f]{2}|[0-9a-f]{12})['"]/gi))
+                        add(m[1], 'mac', where + '.' + k + '.mac');
+                    for (const m of v.matchAll(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi))
+                        add(m[0], 'mac', where + '.' + k + '.mac');
+                }
                 if (SECRET_FIELDS.test(k)) add(v, 'secret', where + '.' + k);
                 else if (/^(deviceid|id)$/i.test(k) && ID.test(v)) add(v, 'id', where + '.' + k);
                 else if (/^(ip|deviceip)$/i.test(k) && IPV4.test(v)) add(v, 'ip', where + '.' + k);
@@ -85,6 +91,9 @@ function run() {
         }
     };
 
+    const nr = path.join(src, '.node-red');
+    const originalFlows = JSON.parse(fs.readFileSync(path.join(nr, 'flows.json'), 'utf8'));
+    walk(originalFlows, 'flows');
     const cfgSrc = path.join(src, 'grid-control-config');
     const keepCfg = (f) => !/\.(pre-|bak)/.test(f) && !/\.pre-d/.test(f);
     const cfgFiles = fs.existsSync(cfgSrc) ? fs.readdirSync(cfgSrc).filter(keepCfg) : [];
@@ -95,9 +104,13 @@ function run() {
 
     // deterministic fake of the same length and character class
     const fake = (v, kind, n) => {
-        const h = crypto.createHash('sha256').update('test-gx:' + v).digest();
+        const identity = kind === 'mac' ? v.replace(/:/g, '').toLowerCase() : v;
+        const h = crypto.createHash('sha256').update('test-gx:' + identity).digest();
         if (kind === 'ip') return '10.99.' + h[0] % 250 + '.' + (1 + h[1] % 250);
-        if (kind === 'mac') return '02:00:' + [...h.subarray(0, 4)].map(b => b.toString(16).padStart(2, '0')).join(':');
+        if (kind === 'mac') {
+            const mac = '02:00:' + [...h.subarray(0, 4)].map(b => b.toString(16).padStart(2, '0')).join(':');
+            return v.includes(':') ? mac : mac.replace(/:/g, '').toUpperCase();
+        }
         if (kind === 'email') return 'test' + n + '@example.invalid';
         const abc = kind === 'id' ? 'abcdef0123456789' : 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
         let s = ''; for (let i = 0; i < v.length; i++) s += abc[h[i % h.length] % abc.length];
@@ -129,10 +142,18 @@ function run() {
     const mapped = (f) => Buffer.from(apply(fs.readFileSync(f, 'utf8')));
 
     // .node-red: flow, palette list; credentials, runtime config and users are not copied
-    const nr = path.join(src, '.node-red');
     for (const f of ['flows_cred.json', '.flows_cred.json.backup', '.config.runtime.json', '.config.runtime.json.backup', '.config.users.json', '.config.users.json.backup', 'settings-user.js'])
         if (fs.existsSync(path.join(nr, f))) report.deleted.push('.node-red/' + f);
-    const flows = JSON.parse(apply(fs.readFileSync(path.join(nr, 'flows.json'), 'utf8')));
+    const flows = JSON.parse(apply(JSON.stringify(originalFlows)));
+    for (const node of flows) {
+        if (node.type === 'mqtt-broker') {
+            node.broker = 'mosquitto';
+            node.port = '1883';
+            node.usetls = false;
+            node.tls = '';
+            report.replaced.push({ where: 'mqtt-broker', kind: 'test endpoint' });
+        }
+    }
     const tab = flows.find(n => n.type === 'tab' && /d#\d+/.test(n.label || ''));
     if (tab && !/TEST-GX/.test(tab.label)) tab.label += ' TEST-GX';
     put('.node-red/flows.json', JSON.stringify(flows, null, 4));

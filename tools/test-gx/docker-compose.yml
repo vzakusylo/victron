@@ -1,11 +1,22 @@
 # Test GX: Venus D-Bus simulator + Node-RED. See docs/test-gx.md.
 # Fake data only. Never put real secrets or the real GX key here.
 services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "test-gx/health", "-m", "ready", "-q", "1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
   venus:
     image: mqtt            # built by up.ps1 from victronenergy/venus-docker
     command: ["bash", "/emulator/start.sh", "${TEST_GX_SIM:-e}"]   # "emu" = our emulator, a letter = venus-docker simulation
     environment:
       EMU_READY_DELAY: ${EMU_READY_DELAY:-0}   # test hook, see test-emulator-ready.ps1
+    depends_on:
+      mosquitto: { condition: service_healthy }
     volumes:
       - ./emulator:/emulator:ro
     healthcheck:   # Node-RED starts only when the D-Bus services exist, otherwise the palette finds none
@@ -16,7 +27,6 @@ services:
     ports:
       - "127.0.0.1:8081:8081"   # emulator HTTP API (-Sim emu)
       - "127.0.0.1:3000:3000"   # D-Bus over TCP
-      - "127.0.0.1:1883:1883"   # MQTT
       - "127.0.0.1:8080:80"     # Venus HTML5 app
   nodered:
     build:
@@ -30,6 +40,7 @@ services:
     image: test-gx-nodered:${TEST_GX_TAG:-local}
     depends_on:
       venus: { condition: service_healthy }
+      mosquitto: { condition: service_healthy }
     environment:
       NODE_RED_DBUS_ADDRESS: venus:3000
       DBUS_SYSTEM_BUS_ADDRESS: tcp:host=venus,port=3000   # python dbus in the exec nodes (Devices page)

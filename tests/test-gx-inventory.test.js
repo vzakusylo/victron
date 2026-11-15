@@ -31,6 +31,15 @@ test('an unknown node type is reported', () => {
   } finally { restore(); }
 });
 
+test('MQTT coverage rejects a topic the Qingping publisher cannot drive', () => {
+  inv.useFixtures([...realFlows, { id: 'mqtt-extra', type: 'mqtt in', topic: 'other/+/up' }]);
+  try {
+    const p = inv.problems(inv.inventory());
+    assert.ok(p.some((m) => m.includes('mqtt-extra') && m.includes('not covered')));
+    assert.ok(!p.some((m) => m.includes('dv-air-mqtt-01')));
+  } finally { restore(); }
+});
+
 test('an exec node reading a dbus path the emulator lacks is reported', () => {
   const flows = [...realFlows, { id: 'x3', type: 'exec', command: 'dbus -y com.victronenergy.system /Ac/Nothing GetValue', wires: [[]] }];
   inv.useFixtures(flows);
