@@ -61,10 +61,16 @@ Pieces, to run separately:
 The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapshot differs from the image in exactly those nodes. `<name>.map.json` lists the pairs, so `--live` can replace the originals in the live snapshot with the fakes before comparing (never the other way round). With the map, an exact copy gives 0 DIFF; without `--map` a WARN says that DIFF on rewritten nodes is expected.
 
 - The map is **secret** (it holds the originals). It is written next to the sanitized tree, never inside it, so it never reaches the Docker build context, and never inside the repository. The report and the console show counts per kind only.
-- If sanitization stops (`STOPPED` or `FAILED`), do not use the output; remove `$out` and the adjacent `<name>.map.json` before retrying.
+- If sanitization stops (`STOPPED` or `FAILED`), do not use the output; remove `$out` before retrying. The script removes the adjacent map automatically.
 - `live-snapshot.js` hashes node config into `rest`, which cannot be rewritten. Take the snapshot with `node - --raw` (as `test-gx-refresh.ps1 -GxHost` does): it adds the config text of each node, so the map can be applied and the hash recomputed. That `live.b64` holds real ids: keep it outside the repository.
 - WARN `not in map`: ids, addresses or e-mails in the live code that are neither in the map nor already in the image. A device or setting was added on the GX after the backup: take a new backup.
 - WARN `without restJson`: the snapshot was taken without `--raw`; config of rewritten nodes will differ.
+
+### Known limitations
+
+- The `replaced N <kind>` count is a count of occurrences: the same value may be counted in both `code` and `restJson`.
+- After `STOPPED`, `sanitize-report.json` still names `<name>.map.json`, although the sanitizer removes that map and does not create it.
+- The cleanup instruction above used to ask the operator to delete the map even though the script already deletes it. It is harmless but redundant.
 
 ### What `compare-image.js` checks
 
@@ -88,6 +94,7 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 
 ## Traps
 
+- **Temporary probes and PowerShell wires.** Add probes with `POST /flow`, not `POST /flows` (which replaces the flow set); remove them with `DELETE /flow/<id>`. Keep the main `d#...` tab id and label unchanged before and after. Build each output as a nested array, for example `$wires = ,([string[]]@($targetId))`, then serialize with `ConvertTo-Json -Depth 10`: sufficient depth alone does not restore arrays already flattened by PowerShell. Use `node.warn` for console markers; debug defaults to the editor sidebar.
 - **Volume hides the image.** The named volume `gx-data` is mounted on `/data` and hides the files copied into the image. `up.ps1 -Down` removes it; always use it before building a new backup.
 - **ID starting with a digit.** Flow code uses ids as bare object keys (`{ 6ca39...: {...} }`). A fake id that starts with a digit is a syntax error, so the sanitizer makes fake ids start with a letter.
 - **Palette not on npm.** `@victronenergy/node-red-contrib-victron@1.6.31` is not published; `up.ps1` falls back to `~1.6` and warns. Versions then differ from the GX (WARN).
@@ -99,6 +106,48 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 - **Python D-Bus in the Node-RED image.** The Devices page reads Victron devices with `python3` + `dbus` (`dv-exec-01`). The image installs `py3-dbus` and sets `DBUS_SYSTEM_BUS_ADDRESS=tcp:host=venus,port=3000`; without them the page shows "python dbus module: No module named 'dbus'" instead of the Victron devices. Dashboard tab numbers in the URL (`/ui/#!/<n>`) do not match the `ui_tab` order in `/flows`: Devices is `#!/13`.
 - **Restart order.** Node-RED must start after the simulator is up, otherwise the palette finds no services. The venus healthcheck (`emulator/healthcheck.sh`) passes only when the emulator API answers, which happens after all fake services are registered. Node-RED does not reconnect to a restarted simulator (`ServiceUnknown`): restart both, `docker compose -p test-gx restart venus nodered`. Until the emulator is ready both GET and POST answer 503; it is ready when the signal of its own startup write arrives (that write never shows in `/writes`), or after 10 s with `ready by timeout, startup write signal not seen` in its log. If the signal arrives after that timeout, the `-1` write to `MaxChargeCurrent` does appear in `/writes` (a rare, accepted trade-off) and the log says `late startup signal recorded as write`. `EMU_READY_DELAY=<s>` holds it in 503 for a test; `tools\test-gx\test-emulator-ready.ps1` uses it to check 503 then 200. It is a manual check (needs Docker): CI runs only `node --test`, so the 503 behaviour is not covered by CI.
 
+## Clock
+
+The Node-RED image is Alpine 3.18 (musl); its configured repositories do not contain `libfaketime`. The Dockerfile builds upstream `libfaketime` v0.9.13 against musl and keeps only `libfaketimeMT.so.1`. The entrypoint enables it only when `TEST_GX_FAKETIME` is non-empty. In that case Node-RED receives `FAKETIME=<value>`, `LD_PRELOAD=/usr/local/lib/faketime/libfaketimeMT.so.1` and `FAKETIME_DONT_FAKE_MONOTONIC=1`. Without the variable it runs on real time. Venus and the D-Bus emulator are separate containers and remain on real time.
+
+Use the manual smoke script; it rebuilds the test GX from a sanitized backup and removes the test volume:
+
+```powershell
+.\tools\test-gx\test-faketime.ps1 -Backup C:\learn\test-gx-data\sanitized\<name> `
+  -FakeTime '@2026-03-29 01:50:00'
+
+# To observe the real flow around its 06:00 cron tick:
+.\tools\test-gx\test-faketime.ps1 -Backup C:\learn\test-gx-data\sanitized\<name> `
+  -FakeTime '@2026-03-30 05:59:30' -ObserveSeconds 40
+
+# Verify the first closed hour of a new month (start at 00:59):
+.\tools\test-gx\test-faketime.ps1 -Backup C:\learn\test-gx-data\sanitized\<name> `
+  -FakeTime '@2026-12-01 00:59:00' -ObserveSeconds 80 -CheckMonthRollover
+```
+
+`@YYYY-MM-DD HH:mm:ss` means start at that local time and advance at normal speed; accelerated time (`x10`) is not enabled. The smoke script checks the Node process's `Date`, a `setTimeout` backed by Node/libuv monotonic time, Node-RED health/startup, and that emulator write timestamps remain close to the host clock. It does not import a test tab into the repository's `flows.json`.
+
+| Check | Result |
+|---|---|
+| `Date` at `@2026-03-29 01:50:00` | PASS; Node-RED startup and Node report the requested Europe/Oslo time |
+| 10-second timer | PASS; Node timer completed in about 10 real seconds with `FAKETIME_DONT_FAKE_MONOTONIC=1` |
+| `DAY 06:00` inject | PASS; starting the real flow at `@2026-03-30 05:59:30` produced the expected D-Bus writes after the tick |
+| Spring DST wall clock | PASS; `01:59:59` → `03:00:00` |
+| Fall DST wall clock | PASS in Node-RED function logs; the local prefix moved from `02:59` to `02:00` |
+| Fall repeated-hour cron | No duplicate; a temporary `02:00` cron added after the first `02:00` had passed did not fire in the repeated hour |
+| Node-RED `delay` flow | PASS; temporary `POST /flow` tab logged both `node.warn` markers 10.0 real/fake seconds apart, then `DELETE /flow` removed it while preserving the main tab |
+| 22:00 schedule | PASS; a temporary inject using the same cron expression fired once at 22:00 on 2026-10-25, after the autumn change. This confirms the scheduler tick, not the main flow's business effects |
+| Duplicate 06:00 / 22:00 / midnight business effects | NOT TESTED; the temporary 22:00 marker fired once, but business effects were not checked for duplicates |
+| Midnight cleanup | N/A; disabled in the flow since d#97 to keep the full history, as documented in [control logic](control-logic.md#energy-history-files). The smoke script explicitly refuses this check when either node is disabled. |
+| Month tier reset | PASS; dashboard changed from November tier 2 with 16 days tracked to December tier 1 with 1 day tracked after midnight |
+| New monthly CSV | PASS; `energy-2026-12.csv` was written with its `2026-12-01 00` row when the first December hour closed |
+| New daily automation log | NOT VERIFIED; no non-empty `automations/2026-12-01.jsonl` appeared in the short midnight run. Controlled automation events and daily log rollover remain for sensor scenarios |
+| Monthly tariff maximum in context | NOT VERIFIED directly; dashboard month/tier rollover passed, but internal `tariffMonth.dayPeaks` reset was not inspected. Add an assertion in the scenario runner |
+| D-Bus emulator timestamps | PASS; writes remain near real time |
+| Node-RED startup and healthcheck | PASS; admin API accepted a flow deploy (HTTP 200) |
+
+These are manual checks, not CI coverage. The temporary probe must use `POST /flow` / `DELETE /flow/<id>` so it does not replace the main flow; its `wires` arrays must remain two-dimensional. It uses `node.warn` because a debug node normally writes only to the editor sidebar. The first attempt used a full deployment and flattened wires, so the nodes appeared in `GET /flows` but were not connected. The main tab is checked both before and after the probe. Cron was checked on the actual 06:00 inject; a test-only 02:00 cron did not run in the repeated hour because its first scheduled time had already passed. A temporary inject with the same 22:00 schedule logged exactly one tick on the autumn-change date; this verifies the cron scheduler, not the main flow's business effect. The disabled midnight cleanup could not be tested as a main-flow action. The month rollover check starts at 00:59 because the new monthly CSV is written only when the first hour closes at 01:00. Backdating also makes the real HTTPS certificate for `api.forecast.solar` appear not-yet-valid; stub the forecast endpoint during clock scenarios. External processes started by Node-RED inherit `LD_PRELOAD`; their behavior with fake time has not been validated.
+
 ## Status
 
 | Step | State |
@@ -109,18 +158,20 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 | A4 image from the sanitized tree | done |
 | A5 compare image with backup / with live GX | done; the live GX comparison needs SSH access to the GX and is not yet exercised |
 | A6 `test-gx-refresh.ps1` | done |
-| B sensor emulation and scenarios | planned |
+| B1 test-GX image, D-Bus emulator, inventory and live comparison | done |
+| B2 `libfaketime` clock smoke test | done; `Date`, delay, cron, DST and month rollover checked; midnight cleanup is intentionally disabled since d#97 |
+| B3 MQTT, forecast, Tuya and automated scenarios | planned |
 
-## Step B (planned): sensor emulation and scenario tests
+## Next: sensor scenarios and runner
 
-Goal: every input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". Estimate 9–12 working days.
+Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory and `/writes` emulator are already implemented; MQTT, forecast fixtures, the Tuya stub and automated scenarios remain.
 
 1. **Inventory** (`inventory.js`): generated from `flows.json` (Victron D-Bus: 7 inputs, 4 outputs; 4 Tuya devices; Tuya cloud scripts; Qingping MQTT; solar forecast HTTP; 29 inject nodes). Exec nodes are classified by `command` plus the function node feeding them: `tuya-*.js` sensor scripts (planned), `send-mail.js` (stub), local file/shell work (`exec:local`, explicit tool list), `dbus` calls (checked as service + path pairs against `emulator.py`). The Devices model reader (`dv-exec-01`) is a tolerant reader: its COMMON/TYPE path tables are checked too, but a path the emulator lacks is only a WARN because the script returns null for it. Pairs the emulator lacks must be listed in `PLANNED_DBUS` (now the BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`); an exec that fits no category (for example one calling the network), a Victron node without a path, a `settings` path not in the localsettings list, or an unknown node type fails CI.
 2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`):
    - Victron D-Bus: fake services (`system`, `battery` instance 289, `vebus` 276, `settings`) with simple physics; every write the flow makes is recorded.
    - Tuya: local-protocol stub; fallback: a test-image transform that replaces each Tuya node by an MQTT pair with the same id and wires.
-   - Qingping via mosquitto, solar forecast from fixtures, scenario start time via `libfaketime` (check early that it works with Node.js timers; fallback: start at real time).
+   - Qingping via mosquitto, solar forecast from fixtures, scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
 3. **Scenarios** (`scenarios/*.yml`): initial state, steps, expectations, plus rules that hold all the time (grid limit, current limit, at most N writes per minute). Areas: tariff, battery, solar, DHW and shower, sensor failures, midnight, DST, month change, dashboard console errors.
 4. **Runner**: runs all scenarios and writes a JUnit report. Every change passes the scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
-Risks: `libfaketime` with Node.js timers; the Tuya protocol stub may be costly; the victron palette may need D-Bus paths that the emulator lacks.
+Risks: business behavior at DST/month-end needs scenario assertions; the Tuya protocol stub may be costly; the victron palette may need D-Bus paths that the emulator lacks.

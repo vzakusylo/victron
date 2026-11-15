@@ -7,5 +7,8 @@ HANDOFF.md
 # Local secrets (Tuya local keys etc.)
 .secrets/
 
+# Local browser automation output
+.playwright-mcp/
+
 # Cloud chat handoff (private: IPs, bills)
 HANDOFF-CLOUD.md

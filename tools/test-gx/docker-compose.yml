@@ -34,6 +34,7 @@ services:
       NODE_RED_DBUS_ADDRESS: venus:3000
       DBUS_SYSTEM_BUS_ADDRESS: tcp:host=venus,port=3000   # python dbus in the exec nodes (Devices page)
       TZ: Europe/Oslo
+      TEST_GX_FAKETIME: ${TEST_GX_FAKETIME:-}
     ports:
       - "127.0.0.1:1881:1880"   # Node-RED (1881: avoids clash with a local one)
       - "127.0.0.1:2222:22"     # SSH as root, test key only

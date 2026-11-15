@@ -5,6 +5,14 @@ RUN apk add --no-cache --upgrade openssh openssh-server bash curl python3 py3-db
  && ssh-keygen -A \
  && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config \
  && sed -i 's/^root:[^:]*:/root:*:/' /etc/shadow
+# Alpine 3.18 has no libfaketime package. Build a pinned musl-compatible upstream release;
+# only the multithreaded runtime library is retained in the image.
+RUN apk add --no-cache --virtual .faketime-build-deps build-base git \
+ && git clone --depth 1 --branch v0.9.13 https://github.com/wolfcw/libfaketime /tmp/libfaketime \
+ && make -C /tmp/libfaketime \
+ && install -D -m 755 /tmp/libfaketime/src/libfaketimeMT.so.1 /usr/local/lib/faketime/libfaketimeMT.so.1 \
+ && apk del .faketime-build-deps \
+ && rm -rf /tmp/libfaketime
 # Same layout as the GX. BACKUP is a sanitized tree from sanitize-backup.js (build context "backup"):
 # its nodered/ folder becomes /data/home/nodered. PALETTE is "name@version name@version ...".
 ARG PALETTE="node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device"
