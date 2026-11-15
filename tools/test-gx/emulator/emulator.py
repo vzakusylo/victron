@@ -40,6 +40,7 @@ forced = {}
 stale_until = {}      # service -> unix time
 failed = {}           # service -> 'invalid' | 'offline'
 writes = []
+ready = False         # API answers 200 only after all services are registered and the startup write is dropped
 computed = dict(grid_w=0.0, batt_w=0.0, batt_a=0.0, batt_v=51.2, consumed_ah=0.0)
 services = {}
 buses = {}
@@ -219,6 +220,8 @@ class Api(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         with lock:
+            if not ready:
+                return self._send(503, dict(error='starting'))
             if url.path == '/state':
                 now = time.time()
                 return self._send(200, dict(inputs=state, computed=computed, forced=forced, failed=failed, now=now,
@@ -272,9 +275,18 @@ def main():
     for name in SERVICES:
         build(name)
     GLib.timeout_add(1000, tick)
+
+    def finish_startup():
+        # the signal for our own startup SetValue arrives only now; drop it so /writes holds the flow's writes only
+        global ready
+        with lock:
+            writes.clear()
+            ready = True
+        print('emulator up: system/0, vebus/276, battery/289, api :8081', flush=True)
+        return False
+    GLib.timeout_add(1500, finish_startup)
     server = ThreadingHTTPServer(('0.0.0.0', 8081), Api)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print('emulator up: system/0, vebus/276, battery/289, api :8081', flush=True)
     GLib.MainLoop().run()
 
 
