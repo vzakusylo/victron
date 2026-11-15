@@ -180,6 +180,7 @@ def tick():
 
 MAX_CHARGE = '/Settings/SystemSetup/MaxChargeCurrent'
 startup_write_pending = False   # our own SetValue(-1) is in flight; its signal is not a flow write
+signal_seen = False
 
 
 # test hook: hold the API in 503 for this many seconds after start so the not-ready answers can be checked
@@ -197,7 +198,7 @@ def mark_ready(by_timeout=False):
         if ready:
             return False
         ready = True
-    if by_timeout:
+    if by_timeout and not signal_seen:
         print('ready by timeout, startup write signal not seen', flush=True)
     print('emulator up: system/0, vebus/276, battery/289, api :8081', flush=True)
     return False
@@ -205,9 +206,10 @@ def mark_ready(by_timeout=False):
 
 def on_settings_change(changes, path=None):
     # PropertiesChanged of a settings item: the flow wrote it
-    global startup_write_pending
+    global startup_write_pending, signal_seen
     if startup_write_pending and str(path) == MAX_CHARGE:
         startup_write_pending = False
+        signal_seen = True
         mark_ready()
         return
     value = changes.get('Value') if hasattr(changes, 'get') else None
@@ -303,7 +305,11 @@ def main():
     global startup_write_pending
     try:
         obj = sysbus.get_object('com.victronenergy.settings', MAX_CHARGE)
-        if float(obj.GetValue(dbus_interface='com.victronenergy.BusItem')) != -1.0:   # no DVCC limit until the flow sets one
+        try:
+            current = float(obj.GetValue(dbus_interface='com.victronenergy.BusItem'))
+        except Exception:   # empty array or no value: still reset it
+            current = None
+        if current != -1.0:   # no DVCC limit until the flow sets one
             startup_write_pending = True
             obj.SetValue(-1.0, dbus_interface='com.victronenergy.BusItem')
     except Exception as error:

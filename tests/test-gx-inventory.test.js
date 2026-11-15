@@ -94,6 +94,19 @@ test('a tolerant reader checks the paths it reads: a new unpublished path is a w
   } finally { restore(); }
 });
 
+test('a network command is an error even when the node is also dbus, sensor or mail', () => {
+  const cases = [
+    ['m1', "dbus -y com.victronenergy.system /Dc/Battery/Soc GetValue; mosquitto_pub -h broker -t t -m 1"],
+    ['m2', "node /data/home/nodered/tools/tuya-cloud-sensors.js; curl http://example.com/x"],
+    ['m3', "node /data/home/nodered/tools/send-mail.js; wget https://example.com/x"],
+  ];
+  inv.useFixtures([...realFlows, ...cases.map(([id, command]) => ({ id, type: 'exec', command, wires: [[]] }))]);
+  try {
+    const p = inv.problems(inv.inventory());
+    for (const [id] of cases) assert.ok(p.some((m) => m.includes(`exec ${id} `) && m.includes('not classified')), id);
+  } finally { restore(); }
+});
+
 test('an exec marked dbus without any service + path pair is an error unless it is a listed tolerant reader', () => {
   inv.useFixtures([...realFlows, { id: 'x10', type: 'exec', command: 'dbus -y', wires: [[]] }]);
   try {

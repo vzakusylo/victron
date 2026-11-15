@@ -113,7 +113,7 @@ function kinds(n) {
     const tools = toolsUsed(t).filter((x) => !SENSOR_SCRIPT.test(x + '.js') && !MAIL_SCRIPT.test(x + '.js'));
     const local = !NETWORK_CMD.test(t) && tools.every((x) => LOCAL_TOOLS.has(x)) && (tools.length > 0 || LOCAL_SHELL.test(t));
     if (local) out.push('exec:local');
-    if (!out.length || !local && tools.length) out.push('exec:unknown');
+    if (!out.length || !local && tools.length || NETWORK_CMD.test(t)) out.push('exec:unknown');   // a network command is never covered, whatever else the node does
     return out;
   }
   return COVERAGE[n.type] ? [n.type] : [];
