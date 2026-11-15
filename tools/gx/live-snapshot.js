@@ -9,6 +9,8 @@
 //   { rev, at, nodes: [{ id, type, name, code: { func, initialize, finalize, format, command }, rest,
 //                        label, info, site }] }
 // `rest` is a hash of every other property (wires, outputs, settings ...) without the editor position.
+// With `--raw` (node - --raw) each node also carries `restJson`, the stable JSON that was hashed. It contains
+// the real device ids and addresses, so keep that file private: it is only for compare-image.js --live --map.
 // No credentials leave the GX: `GET /flows` does not return them, and the Tuya node settings are only hashed.
 'use strict';
 const crypto = require('crypto');
@@ -26,7 +28,8 @@ function stable(value) {
     return JSON.stringify(value === undefined ? null : value);
 }
 
-function snapshot(flows, rev) {
+function snapshot(flows, rev, options) {
+    const raw = Boolean(options && options.raw);
     const nodes = flows.map((node) => {
         const rest = Object.assign({}, node);
         for (const key of CODE_FIELDS.concat(LAYOUT_FIELDS, ['info', 'credentials'])) delete rest[key];
@@ -38,6 +41,7 @@ function snapshot(flows, rev) {
         for (const field of CODE_FIELDS) if (typeof node[field] === 'string') code[field] = node[field];
         const entry = { id: node.id, type: node.type, name: node.name || node.label || '', code,
             rest: crypto.createHash('sha1').update(stable(rest)).digest('hex').slice(0, 12) };
+        if (raw) entry.restJson = stable(rest);
         if (node.type === 'tab') { entry.label = node.label; entry.info = node.info || ''; }
         if (node.type === 'ui_base') entry.site = node.site && node.site.name;
         return entry;
@@ -56,7 +60,7 @@ if (require.main === module || module.id === '[stdin]') {
         res.on('end', () => {
             if (res.statusCode !== 200) { console.error('GET /flows -> ' + res.statusCode); process.exit(1); }
             const live = JSON.parse(body);
-            console.log(require('zlib').gzipSync(JSON.stringify(snapshot(live.flows, live.rev))).toString('base64'));
+            console.log(require('zlib').gzipSync(JSON.stringify(snapshot(live.flows, live.rev, { raw: process.argv.includes('--raw') }))).toString('base64'));
         });
     }).on('error', (error) => { console.error(error.message); process.exit(1); });
 }

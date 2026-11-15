@@ -75,9 +75,10 @@ $runs = Join-Path $DataDir ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss')); New
 $cmp = @((Join-Path $here 'compare-image.js'), '--backup', $out, '--compose', $here, '--report', (Join-Path $runs 'report.json'))
 if ($GxHost) {
     $live = Join-Path $runs 'live.b64'
-    Get-Content -Raw (Join-Path $repo 'tools\gx\live-snapshot.js') | ssh @sshArgs $GxHost "tr -d '\r' | node -" | Set-Content $live -Encoding ascii
+    # --raw: the snapshot also carries the config text of every node, so the sanitizer's map can be applied; keep live.b64 private
+    Get-Content -Raw (Join-Path $repo 'tools\gx\live-snapshot.js') | ssh @sshArgs $GxHost "tr -d '\r' | node - --raw" | Set-Content $live -Encoding ascii
     Check 'live snapshot'
-    $cmp += @('--live', $live)
+    $cmp += @('--live', $live, '--map', "$out.map.json")
 }
 node @cmp | Tee-Object (Join-Path $runs 'report.txt')
 $code = $LASTEXITCODE

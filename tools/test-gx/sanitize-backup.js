@@ -2,7 +2,8 @@
 // Turns a real GX backup (grid-backup-*.tar.gz) into a tree without private values for the test GX.
 // Usage: node tools/test-gx/sanitize-backup.js <backup.tar.gz> <outDir> [--days 14] [--no-logs]
 // <outDir> must be outside the repository. Writes <outDir>/nodered (the /data/home/nodered tree),
-// <outDir>/versions.json and <outDir>/sanitize-report.json (paths and fields only, never values).
+// <outDir>/versions.json and <outDir>/sanitize-report.json (paths and fields only, never values), and, BESIDE
+// <outDir>, <name>.map.json: the original -> fake pairs for compare-image.js --live --map. That file is SECRET.
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), os = require('os');
 const { execFileSync } = require('child_process');
@@ -15,6 +16,7 @@ const [backup, out] = positional;
 if (!backup || !out) { console.error('usage: sanitize-backup.js <backup.tar.gz> <outDir> [--days N] [--no-logs]'); process.exit(64); }
 const REPO = path.resolve(__dirname, '..', '..');
 const MARKER = '.test-gx-sanitized';
+const MAP_FORMAT = 'test-gx-map-v1';
 const real = (p) => { // realpath of the nearest existing ancestor, then the rest appended
     let cur = path.resolve(p); const rest = [];
     while (!fs.existsSync(cur) && path.dirname(cur) !== cur) { rest.unshift(path.basename(cur)); cur = path.dirname(cur); }
@@ -23,6 +25,13 @@ const real = (p) => { // realpath of the nearest existing ancestor, then the res
 const overlaps = (a, b) => { const r = path.relative(real(a), real(b)); return r === '' || (r !== '..' && !r.startsWith('..' + path.sep) && !path.isAbsolute(r)); };
 const outAbs = path.resolve(out);
 if (overlaps(REPO, outAbs) || overlaps(outAbs, REPO)) { console.error('outDir must be outside the repository, and must not contain it'); process.exit(64); }
+// The map is a secret alongside outDir. Validate it before the output tree can be erased.
+const mapFile = path.join(path.dirname(outAbs), path.basename(outAbs) + '.map.json');
+if (overlaps(REPO, mapFile)) { console.error('map file would be inside the repository: ' + mapFile); process.exit(64); }
+if (fs.existsSync(mapFile)) {
+    let prev = null; try { prev = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* not ours */ }
+    if (!prev || prev.format !== MAP_FORMAT) { console.error('refusing to overwrite ' + mapFile + ': not a ' + MAP_FORMAT + ' file'); process.exit(64); }
+}
 // out is wiped before every run: only an empty directory or one this tool wrote earlier qualifies
 if (fs.existsSync(outAbs)) {
     const entries = fs.readdirSync(outAbs);
@@ -34,9 +43,14 @@ const days = Number(opt('--days', 14));
 const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-raw-'));
 const cleanup = () => fs.rmSync(staging, { recursive: true, force: true });
 try {
+    // An old valid map belongs to the old output; remove it before replacing that tree.
+    fs.rmSync(mapFile, { force: true });
     execFileSync('tar', ['-xzf', backup, '-C', staging, '--exclude', '*/.node-red/backup-*'], { stdio: 'inherit' });
     run();
-} catch (e) { console.error('FAILED: ' + e.message); process.exitCode = 2; }
+} catch (e) {
+    fs.rmSync(mapFile, { force: true });
+    console.error('FAILED: ' + e.message); process.exitCode = 2;
+}
 finally { cleanup(); }
 
 function run() {
@@ -92,6 +106,10 @@ function run() {
     };
     const mapping = new Map([...secrets].map(([v, kind], i) => [v, fake(v, kind, i)]));
     const ordered = [...mapping].sort((a, b) => b[0].length - a[0].length);
+    const mapCounts = {};
+    for (const kind of secrets.values()) mapCounts[kind] = (mapCounts[kind] || 0) + 1;
+    report.mapFile = path.basename(mapFile);
+    report.mapCounts = mapCounts;
     const apply = (text) => { for (const [from, to] of ordered) if (text.includes(from)) text = text.split(from).join(to); return text; };
 
     const put = (rel, data) => {
@@ -176,10 +194,15 @@ function run() {
     }
     report.problems = problems;
     fs.writeFileSync(path.join(out, 'sanitize-report.json'), JSON.stringify(report, null, 2));
-    console.log('written ' + report.written.length + ' files, replaced ' + mapping.size + ' values, deleted ' + report.deleted.length);
     if (problems.length) {
+        fs.rmSync(mapFile, { force: true });
+        console.log('written ' + report.written.length + ' files, replaced ' + mapping.size + ' values, deleted ' + report.deleted.length + '; map not written');
         console.error('STOPPED: ' + problems.length + ' possible secret(s) left (see sanitize-report.json):');
         problems.slice(0, 20).forEach(p => console.error('  ' + p));
         process.exitCode = 3;
+    } else {
+        fs.writeFileSync(mapFile, JSON.stringify({ format: MAP_FORMAT, pairs: ordered.map(([from, to]) => ({ from, to, kind: secrets.get(from) })) }, null, 1));
+        console.log('written ' + report.written.length + ' files, replaced ' + mapping.size + ' values, deleted ' + report.deleted.length
+            + '; map ' + report.mapFile + ' (' + Object.entries(mapCounts).map(([k, n]) => n + ' ' + k).join(', ') + ')');
     }
 }
