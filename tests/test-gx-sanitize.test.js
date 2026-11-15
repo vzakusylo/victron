@@ -59,6 +59,16 @@ test('writes a marker, and a second run over its own output works', () => {
   assert.strictEqual(r2.status, 0, r2.stderr);
 });
 
+test('the repository flows.json and tools/ pass the leftover scan (LAN broker address is allowed)', () => {
+  const tools = {};
+  for (const f of execFileSync('git', ['ls-files', 'tools'], { cwd: REPO, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)) {
+    if (/\.(js|ps1|sh|py|json|md|yml)$/.test(f)) tools[f] = fs.readFileSync(path.join(REPO, f), 'utf8');
+  }
+  const tar = makeBackup('repo-flow', { ...tools, '.node-red/flows.json': fs.readFileSync(path.join(REPO, 'flows.json'), 'utf8') });
+  const r = run(tar, path.join(tmp, 'repo-flow-out'));
+  assert.strictEqual(r.status, 0, r.stderr);
+});
+
 test('stops (exit 3) when a token is left in flows.json or in tools/', () => {
   const tokenUrl = 'http://example.test/api?token=' + 'Zx9'.repeat(8);
   const inFlow = makeBackup('leak-flow', { '.node-red/flows.json': JSON.stringify([{ id: 't1', type: 'function', func: 'fetch("' + tokenUrl + '")' }]) });

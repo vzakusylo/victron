@@ -15,7 +15,12 @@ const [backup, out] = positional;
 if (!backup || !out) { console.error('usage: sanitize-backup.js <backup.tar.gz> <outDir> [--days N] [--no-logs]'); process.exit(64); }
 const REPO = path.resolve(__dirname, '..', '..');
 const MARKER = '.test-gx-sanitized';
-const overlaps = (a, b) => { const r = path.relative(a, b); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+const real = (p) => { // realpath of the nearest existing ancestor, then the rest appended
+    let cur = path.resolve(p); const rest = [];
+    while (!fs.existsSync(cur) && path.dirname(cur) !== cur) { rest.unshift(path.basename(cur)); cur = path.dirname(cur); }
+    return path.join(fs.realpathSync(cur), ...rest);
+};
+const overlaps = (a, b) => { const r = path.relative(real(a), real(b)); return r === '' || (r !== '..' && !r.startsWith('..' + path.sep) && !path.isAbsolute(r)); };
 const outAbs = path.resolve(out);
 if (overlaps(REPO, outAbs) || overlaps(outAbs, REPO)) { console.error('outDir must be outside the repository, and must not contain it'); process.exit(64); }
 // out is wiped before every run: only an empty directory or one this tool wrote earlier qualifies
@@ -147,6 +152,7 @@ function run() {
 
     // leftover scan: every original value, plus generic patterns in every file; ALLOWED lists the legitimate matches
     const ALLOWED = [/^127\.\d+\.\d+\.\d+(:\d+)?$/, /^0\.0\.0\.0(:\d+)?$/, /^10\.99\.\d+\.\d+(:\d+)?$/, /@example\.invalid$/,
+        /^(?:10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/,   // RFC 1918 private addresses (LAN broker etc.)
         /^0{31}1$/,                 // IPv6 loopback literal in the Victron client code
         /@victronenergy\.com$/];    // vendor address in the node package metadata
     const problems = [];
