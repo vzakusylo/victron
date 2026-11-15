@@ -13,5 +13,7 @@ RUN mkdir -p /data/home/nodered/tools /data/home/nodered/grid-control-config /da
  && cd /data/home/nodered/.node-red \
  && npm install --no-audit --no-fund --no-package-lock ${PALETTE}
 COPY entrypoint.sh /entrypoint.sh
+# the base image checks /data/settings.js; our userDir is /data/home/nodered/.node-red
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 CMD curl -fs http://127.0.0.1:1880/ -o /dev/null || exit 1
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

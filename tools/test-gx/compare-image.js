@@ -137,7 +137,8 @@ async function main() {
     if (logs.status !== 0) throw new Error('docker compose logs: ' + logs.stderr);
     const KNOWN = [
         [/tuya-smart-device.*Key is missing or incorrect/, 'Tuya devices have fake keys'],
-        [/DBUS ERROR MESSAGE .*UnknownObject/, 'D-Bus path missing in the simulator'],
+        // TEMPORARY: remove once step B (D-Bus emulator) covers these paths, or a real D-Bus error is hidden here.
+        [/DBUS ERROR MESSAGE .*UnknownObject/, 'D-Bus path missing in the simulator (temporary, until step B)'],
         [/Error in setValue: No services available yet/, 'D-Bus service not up yet']
     ];
     const unknown = [], known = new Map();
