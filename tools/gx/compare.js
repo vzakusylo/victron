@@ -9,6 +9,7 @@
 //   node tools/gx/compare.js live.b64 --history 20         also name the newest commit the live code equals
 //   node tools/gx/compare.js live.b64 --commit <sha> --plan plan.json
 //        [--tools tools/a.js,tools/b.js] [--scopes dashboard,automations] [--include-trailing]
+//   node tools/gx/compare.js live.b64 --commit <sha> --summary summary.json     the result as JSON for a script
 //
 // What the report means:
 //   code      a function / template / exec command differs: this is what a deploy changes
@@ -64,7 +65,7 @@ function main() {
     const args = process.argv.slice(2);
     const file = args.shift();
     const option = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : args[i + 1]; };
-    if (!file) throw new Error('Usage: node tools/gx/compare.js LIVE.b64 [--commit SHA] [--show ID] [--history N] [--plan OUT.json]');
+    if (!file) throw new Error('Usage: node tools/gx/compare.js LIVE.b64 [--commit SHA] [--show ID] [--history N] [--plan OUT.json] [--summary OUT.json]');
     // PowerShell may add a BOM or write UTF-16; keep only the base64 characters.
     let raw = fs.readFileSync(file);
     raw = (raw[0] === 0xff && raw[1] === 0xfe ? raw.toString('utf16le') : raw.toString('utf8')).replace(/[^A-Za-z0-9+/=]/g, '');
@@ -129,6 +130,18 @@ function main() {
             console.log(show + '.' + field + ' - only in the repository:');
             lb.forEach((line, i) => { if (!sa.has(line)) console.log('  R' + (i + 1) + ': ' + line); });
         }
+    }
+
+    // Machine-readable result for scripts/gx-deploy.ps1: what a runner needs to decide, nothing else.
+    const summaryFile = option('--summary');
+    if (summaryFile) {
+        const ids = (items) => items.map((item) => item.id + (item.field ? '.' + item.field : ''));
+        fs.writeFileSync(summaryFile, JSON.stringify({
+            live: { label: liveTab && liveTab.label, rev: live.rev, source: meta ? JSON.parse(meta[1]) : null },
+            repo: { label: repoTab && repoTab.label, commit: commit || null },
+            code: ids(diff.code), liveOnlyLines: ids(diff.code.filter((item) => item.removed > 0)),
+            trailing: ids(diff.trailing), config: ids(diff.config), onlyLive: ids(diff.onlyLive), onlyRepo: ids(diff.onlyRepo)
+        }, null, 2) + '\n');
     }
 
     const planFile = option('--plan');

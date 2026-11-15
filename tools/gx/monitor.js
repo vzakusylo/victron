@@ -111,16 +111,20 @@ function format(result) {
     return result.checks.map((c) => c.level.padEnd(5) + c.check.padEnd(16) + c.text).join('\n') + '\nSTATUS: ' + result.status;
 }
 
-module.exports = { evaluate, format, tai64nMs, LIMITS };
+module.exports = { evaluate, format, tai64nMs, collect, LIMITS };
 
 // ---- collection on the GX (read-only) ----------------------------------------------
-async function collect() {
+// options are only passed by the tests: { port, home, log, svstat: () => text, now }.
+async function collect(options) {
+    const opt = options || {};
     const fs = require('fs');
     const http = require('http');
     const { execFileSync } = require('child_process');
-    const home = process.env.VICTRON_HOME || '/data/home/nodered';
+    const home = opt.home || process.env.VICTRON_HOME || '/data/home/nodered';
+    const port = opt.port || Number(process.env.VICTRON_API_PORT) || 1880;
+    const logFile = opt.log || process.env.VICTRON_LOG || '/var/log/node-red-venus/current';
     const get = (urlPath) => new Promise((resolve, reject) => {
-        http.get({ host: '127.0.0.1', port: 1880, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
+        http.get({ host: '127.0.0.1', port, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
             let text = '';
             res.setEncoding('utf8');
             res.on('data', (chunk) => { text += chunk; });
@@ -128,10 +132,10 @@ async function collect() {
         }).on('error', reject);
     });
     const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } catch { return null; } };
-    const now = Date.now();
+    const now = opt.now || Date.now();
     const input = { now, service: { up: false, seconds: 0 } };
     try {
-        const state = execFileSync('svstat', ['/service/node-red-venus'], { encoding: 'utf8' });
+        const state = opt.svstat ? opt.svstat() : execFileSync('svstat', ['/service/node-red-venus'], { encoding: 'utf8' });
         const m = /: up \(pid \d+\) (\d+) seconds/.exec(state);
         if (m) input.service = { up: true, seconds: Number(m[1]) };
     } catch { /* reported as not running */ }
@@ -158,7 +162,7 @@ async function collect() {
     input.logErrors = [];
     try {
         const groups = {};
-        for (const line of fs.readFileSync('/var/log/node-red-venus/current', 'utf8').split('\n')) {
+        for (const line of fs.readFileSync(logFile, 'utf8').split('\n')) {
             const m = /^\S+ \d+ \w+ \d\d:\d\d:\d\d - \[error\] (\[[^\]]+\])?/.exec(line);
             if (!m) continue;
             const at = tai64nMs(line);

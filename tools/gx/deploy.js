@@ -27,6 +27,9 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
+// Overridden only by the end-to-end test (tests/gx-deploy-e2e.test.js): a local admin API and file server.
+const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
+const RAW_BASE = process.env.VICTRON_RAW_BASE || 'https://raw.githubusercontent.com';
 const NODE_RED_DIR = path.join(HOME, '.node-red');
 const DRY = process.env.DRY !== '0';
 const SCOPES = ['dashboard', 'automations'];
@@ -46,7 +49,7 @@ const withoutLayout = (node) => { const copy = Object.assign({}, node); delete c
 
 function api(method, urlPath, body, headers) {
     return new Promise((resolve, reject) => {
-        const request = http.request({ host: '127.0.0.1', port: 1880, path: urlPath, method,
+        const request = http.request({ host: '127.0.0.1', port: API_PORT, path: urlPath, method,
             headers: Object.assign({ 'Node-RED-API-Version': 'v2' }, headers || {}) }, (res) => {
             let text = '';
             res.setEncoding('utf8');
@@ -83,7 +86,7 @@ function readPlan(file) {
     const stage = fs.mkdtempSync(path.join(HOME, '.gx-deploy-stage.'));
     try {
         const download = (file, want) => {
-            const url = 'https://raw.githubusercontent.com/' + plan.repo + '/' + plan.sha + '/' + file;
+            const url = RAW_BASE + '/' + plan.repo + '/' + plan.sha + '/' + file;
             const out = path.join(stage, file.replace(/\//g, '__'));
             try { execFileSync('curl', ['-fsSL', '--max-time', '120', '-o', out, url], { stdio: 'ignore' }); }
             catch { execFileSync('wget', ['-q', '-T', '120', '-O', out, url], { stdio: 'ignore' }); }

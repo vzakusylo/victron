@@ -13,9 +13,10 @@
 const fs = require('fs');
 const http = require('http');
 
-const LOG = '/var/log/node-red-venus/current';
+const LOG = process.env.VICTRON_LOG || '/var/log/node-red-venus/current';
+const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
 const get = (urlPath) => new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: 1880, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
+    http.get({ host: '127.0.0.1', port: API_PORT, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
         let text = '';
         res.setEncoding('utf8');
         res.on('data', (chunk) => { text += chunk; });
@@ -40,7 +41,8 @@ const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } cat
         if (view.shower) console.log('shower  : ' + JSON.stringify({ enabled: view.shower.enabled, state: view.shower.state, motion: view.shower.motionValue }));
     } else console.log('view    : no dhwView in the flow context');
 
-    const text = fs.readFileSync(LOG, 'utf8').split('\n');
+    let text = [];
+    try { text = fs.readFileSync(LOG, 'utf8').split('\n'); } catch { /* no log file */ }
     const lastDeploy = text.map((line, index) => (line.includes('Started modified nodes') || line.includes('Started flows') ? index : -1)).filter((index) => index >= 0).pop();
     const since = text.slice(lastDeploy === undefined ? 0 : lastDeploy).filter((line) => /\[error\]/.test(line));
     const groups = {};

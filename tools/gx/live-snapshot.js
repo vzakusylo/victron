@@ -49,7 +49,7 @@ module.exports = { snapshot, stable, CODE_FIELDS, LAYOUT_FIELDS };
 
 // Piped to `node -` there is no main module.
 if (!require.main || require.main === module) {
-    require('http').get({ host: '127.0.0.1', port: 1880, path: '/flows', headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
+    require('http').get({ host: '127.0.0.1', port: Number(process.env.VICTRON_API_PORT) || 1880, path: '/flows', headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
         let body = '';
         res.setEncoding('utf8');
         res.on('data', (chunk) => { body += chunk; });
