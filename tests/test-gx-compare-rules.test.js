@@ -50,6 +50,7 @@ test('only a successful internal MQTT connection may interleave D-Bus discovery'
     assert.deepStrictEqual(r.unknown, []);
     assert.strictEqual(r.known.get(PALETTE_DISCOVERY), 2);
     for (const intervening of [
+        connected.replace('mosquitto:1883', '192.168.1.94:1883'),
         connected.replace('mosquitto:1883', 'other:1883'),
         connected.replace('[info]', '[error]'),
         connected.replace('Connected', 'Disconnected'),
