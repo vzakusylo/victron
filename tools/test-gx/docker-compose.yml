@@ -1,0 +1,24 @@
+# Test GX: Venus D-Bus simulator + Node-RED. See docs/test-gx.md.
+# Fake data only. Never put real secrets or the real GX key here.
+services:
+  venus:
+    image: mqtt            # built by up.ps1 from victronenergy/venus-docker
+    command: ["/root/run_with_simulation.sh", "${TEST_GX_SIM:-e}"]
+    ports:
+      - "127.0.0.1:3000:3000"   # D-Bus over TCP
+      - "127.0.0.1:1883:1883"   # MQTT
+      - "127.0.0.1:8080:80"     # Venus HTML5 app
+  nodered:
+    build: .
+    depends_on: [venus]
+    environment:
+      NODE_RED_DBUS_ADDRESS: venus:3000
+      TZ: Europe/Oslo
+    ports:
+      - "127.0.0.1:1881:1880"   # Node-RED (1881: avoids clash with a local one)
+      - "127.0.0.1:2222:22"     # SSH as root, test key only
+    volumes:
+      - gx-data:/data
+      - ./test_key.pub:/tmp/test_key.pub:ro
+volumes:
+  gx-data:
