@@ -69,7 +69,6 @@ async function deploy(file) {
         const {stampDeployment} = require(path.join(stage,'tools/deploy-version.js'));
         const {snapshot} = require(path.join(stage,'tools/gx/live-snapshot.js'));
         const {collect,judge,format} = require(path.join(stage,'tools/gx/window.js'));
-        const {prepare:assets} = require(path.join(stage,'tools/gx/dashboard-assets.js'));
         const original=await api('GET','/flows');
         if(original.rev!==p.expectRev) fail('Live revision changed: take a fresh snapshot');
         const verdict=judge(await collect());
@@ -98,9 +97,8 @@ async function deploy(file) {
         if(Number(/d#(\d+)/.exec(tab.label)[1])>Number(/d#(\d+)/.exec(c.label)[1])) fail('Live version is newer');
         tab.label=c.label;
         const stamped=stampDeployment(payload,{dashboard:p.source},original);
-        const dashboardRoot=path.dirname(require.resolve('node-red-dashboard/package.json',{paths:[path.join(home,'.node-red')]}));
-        const assetJobs=assets(dashboardRoot);
-        console.log('Bootstrap assets: '+assetJobs.length+'; '+c.label+'; source '+p.source);
+        console.log(c.label+'; source '+p.source);
+        console.log('Dashboard package assets are not changed; use dashboard-assets.js separately for a reviewed repair.');
         if(process.env.DRY!=='0') {console.log('DRY RUN - nothing changed');return;}
         const backup=path.join(home,'.node-red','backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'-pre-local');
         fs.mkdirSync(backup,{mode:0o700});
@@ -110,7 +108,7 @@ async function deploy(file) {
         console.log('BACKUP '+backup);
         const owner=fs.statSync(path.join(home,'tools'));
         const saved=[];
-        const jobs=Object.keys(c.files).map(name=>({dest:path.join(home,name),data:fs.readFileSync(path.join(stage,name))})).concat(assetJobs);
+        const jobs=Object.keys(c.files).map(name=>({dest:path.join(home,name),data:fs.readFileSync(path.join(stage,name))}));
         try {
             for(const job of jobs) {
                 const folder=path.dirname(job.dest);

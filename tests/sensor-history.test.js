@@ -5,10 +5,14 @@ const fs = require('fs'), os = require('os'), path = require('path');
 const { build, read, prune, validateDay } = require('../tools/sensor-history');
 const { decode } = require('../tools/heatpump-decode');
 const { loadNode } = require('./harness');
-const { prepare } = require('../tools/gx/dashboard-assets');
+const { prepare, repair } = require('../tools/gx/dashboard-assets');
 const { stampDeployment } = require('../tools/deploy-version');
 const day = '2026-11-12', t = Date.parse('2026-11-12T12:00:00Z');
 const base = '#day ' + day + '\n#hp1 ' + day + ' 13 cols=t,st,102\n0,CCCCCC,30\n30,,,,31\n';
+const dashboardBundle = 'g.menu.length>0&&e("left")&&e("left").close();' +
+    'angular.module("ui",["ngMaterial","ngMdIcons","ngSanitize","ngTouch","sprintf","chart.js","color.picker"]);';
+const dashboardIndex = '<body ng-swipe-right="onSwipeRight();" ng-swipe-left="onSwipeLeft();" ' +
+    'ng-attr-ng-swipe-disable-mouse="{{main.allowSwipe !== \'mouse\' ? \'\' : undefined}}">Dashboard</body>';
 
 test('toilet chart uses actual PIR/clear reports, not battery wakes, other devices or cached state', () => {
     const n = loadNode('38 Build heat pump history.js');
@@ -227,15 +231,185 @@ test('bootstrap asset preparation is idempotent and refuses unfamiliar code', ()
         fs.mkdirSync(path.join(dir,'dist','js'),{recursive:true});
         fs.writeFileSync(path.join(dir,'package.json'),'{"version":"3.6.6"}');
         const file = path.join(dir,'dist','js','app.min.js');
-        fs.writeFileSync(file,'g.menu.length>0&&e("left")&&e("left").close()');
+        fs.writeFileSync(file,dashboardBundle);
+        fs.writeFileSync(path.join(dir,'dist','index.html'),dashboardIndex);
         const jobs = prepare(dir);
-        assert.equal(jobs.length,2);
-        assert.match(jobs[0].data,/waitFor/);
+        assert.equal(jobs.length,3);
+        const bundle = jobs[0].data.toString('utf8');
+        assert.match(bundle,/waitFor/);
+        const modules = [];
+        const bootstrap = bundle.match(/angular\.module\("ui",\[[^\]]+\]\)/)[0];
+        new Function('angular', bootstrap)({ module: (name, dependencies) => modules.push(...dependencies) });
+        assert.ok(modules.includes('ngMaterial'));
+        assert.ok(!modules.includes('ngTouch'), 'Material must not receive the conflicting ngTouch services');
         for (const job of jobs) fs.writeFileSync(job.dest,job.data);
         assert.equal(prepare(dir).length,0);
+        fs.writeFileSync(file,dashboardBundle + dashboardBundle);
+        assert.throws(()=>prepare(dir),/refusing/);
         fs.writeFileSync(file,'unexpected');
         assert.throws(()=>prepare(dir),/refusing/);
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('Material swipe replacement retains touch swipes and permits mouse only in mouse mode', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'dashboard-swipe-'));
+    t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+    fs.mkdirSync(path.join(dir,'dist','js'),{recursive:true});
+    fs.writeFileSync(path.join(dir,'package.json'),'{"version":"3.6.6"}');
+    fs.writeFileSync(path.join(dir,'dist','js','app.min.js'),dashboardBundle);
+    fs.writeFileSync(path.join(dir,'dist','index.html'),dashboardIndex);
+    const html = prepare(dir).find(job => job.dest.endsWith('index.html')).data.toString('utf8');
+    assert.ok(!html.includes('ng-swipe-'), 'ngTouch directives must be replaced, not left as a broken fallback');
+    for (const direction of ['Left', 'Right']) {
+        const expression = html.match(new RegExp('md-swipe-' + direction.toLowerCase() + '="([^"]+)"'))[1];
+        const run = new Function('main','$event','onSwipe' + direction,'return ' + expression);
+        for (const [pointer, source] of [['t',{}], ['p',{pointerType:'touch'}]]) {
+            let calls = 0;
+            run({allowSwipe:'true'},{pointer:{type:pointer},srcEvent:source},() => calls++);
+            assert.equal(calls,1,'touch should invoke the existing controller once');
+        }
+        for (const [pointer, source] of [['m',{}], ['p',{pointerType:'mouse'}], ['p',{pointerType:4}]]) {
+            for (const mode of ['true','menu','mouse']) {
+                let calls = 0;
+                run({allowSwipe:mode},{pointer:{type:pointer},srcEvent:source},() => calls++);
+                assert.equal(calls,mode === 'mouse' ? 1 : 0,mode + ' mouse-swipe behavior');
+            }
+        }
+    }
+});
+
+test('standalone Dashboard repair is dry by default, backed up, idempotent and restores partial writes', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'dashboard-repair-'));
+    t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+    const root = path.join(dir,'node_modules','node-red-dashboard');
+    const app = path.join(root,'dist','js','app.min.js'), index = path.join(root,'dist','index.html');
+    fs.mkdirSync(path.dirname(app),{recursive:true});
+    fs.writeFileSync(path.join(root,'package.json'),'{"version":"3.6.6"}');
+    fs.writeFileSync(app,dashboardBundle);
+    fs.writeFileSync(index,dashboardIndex);
+    fs.writeFileSync(path.join(dir,'flows.json'),'untouched flow');
+    const dry = repair(root);
+    assert.equal(dry.backup,null);
+    assert.equal(fs.readFileSync(app,'utf8'),dashboardBundle);
+    assert.equal(fs.readFileSync(index,'utf8'),dashboardIndex);
+    const rename = fs.renameSync;
+    try {
+        fs.renameSync = (from,to) => {
+            if (to === index) throw new Error('simulated index replacement failure');
+            return rename(from,to);
+        };
+        assert.throws(() => repair(root,true),/prior written assets restored.*simulated index/);
+    } finally { fs.renameSync = rename; }
+    assert.equal(fs.readFileSync(app,'utf8'),dashboardBundle);
+    assert.equal(fs.readFileSync(index,'utf8'),dashboardIndex);
+    try {
+        fs.renameSync = (from,to) => {
+            if (to === index) {
+                fs.writeFileSync(app,'external change');
+                throw new Error('simulated concurrent replacement');
+            }
+            return rename(from,to);
+        };
+        assert.throws(() => repair(root,true),/rollback incomplete\. Backup: .*Concurrent asset change/);
+    } finally { fs.renameSync = rename; }
+    assert.equal(fs.readFileSync(app,'utf8'),'external change','rollback must preserve a concurrent external write');
+    fs.writeFileSync(app,dashboardBundle);
+    const applied = repair(root,true);
+    const saved = JSON.parse(fs.readFileSync(path.join(applied.backup,'files.json'),'utf8'));
+    assert.equal(fs.readFileSync(saved.find(file=>file.dest===app).saved,'utf8'),dashboardBundle);
+    assert.equal(fs.readFileSync(saved.find(file=>file.dest===index).saved,'utf8'),dashboardIndex);
+    assert.equal(fs.readFileSync(path.join(dir,'flows.json'),'utf8'),'untouched flow');
+    assert.equal(prepare(root).length,0);
+    assert.deepEqual(repair(root,true),{jobs:[],backup:null});
+    fs.writeFileSync(path.join(root,'package.json'),'{"version":"4.0.0"}');
+    assert.throws(() => repair(root,true),/only supports version 3\.6\.6/);
+});
+
+test('Dashboard repair preserves original bytes in patches, backups and rollback', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'dashboard-bytes-'));
+    t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+    const root = path.join(dir,'node_modules','node-red-dashboard');
+    const app = path.join(root,'dist','js','app.min.js'), index = path.join(root,'dist','index.html');
+    fs.mkdirSync(path.dirname(app),{recursive:true});
+    fs.writeFileSync(path.join(root,'package.json'),'{"version":"3.6.6"}');
+    const tail = Buffer.concat([Buffer.from('\n// ' + String.fromCodePoint(0x416,0x1f600)),Buffer.from([0xff,0xfe])]);
+    const beforeApp = Buffer.concat([Buffer.from(dashboardBundle),tail]);
+    const beforeIndex = Buffer.concat([Buffer.from(dashboardIndex),tail]);
+    fs.writeFileSync(app,beforeApp);
+    fs.writeFileSync(index,beforeIndex);
+    const rename = fs.renameSync;
+    try {
+        fs.renameSync = (from,to) => {
+            if (to === index) throw new Error('simulated byte-exact rollback');
+            return rename(from,to);
+        };
+        assert.throws(() => repair(root,true),/prior written assets restored/);
+    } finally { fs.renameSync = rename; }
+    assert.ok(fs.readFileSync(app).equals(beforeApp));
+    assert.ok(fs.readFileSync(index).equals(beforeIndex));
+    const applied = repair(root,true);
+    const saved = JSON.parse(fs.readFileSync(path.join(applied.backup,'files.json'),'utf8'));
+    for (const [file,original] of [[app,beforeApp],[index,beforeIndex]]) {
+        assert.ok(fs.readFileSync(saved.find(entry=>entry.dest===file).saved).equals(original),'backup must be byte-exact');
+        assert.ok(fs.readFileSync(file).subarray(-tail.length).equals(tail),'unmodified bytes must survive the patch');
+    }
+    assert.deepEqual(repair(root,true),{jobs:[],backup:null});
+});
+
+test('local code dry-run leaves missing or unfamiliar Dashboard assets alone', async (t) => {
+    const http = require('node:http'), crypto = require('node:crypto');
+    const { deploy } = require('../tools/gx/deploy-local');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'gx-local-assets-'));
+    t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+    const assets = path.join(dir,'.node-red','node_modules','node-red-dashboard');
+    fs.mkdirSync(path.join(assets,'dist','js'),{recursive:true});
+    fs.writeFileSync(path.join(assets,'package.json'),'{"version":"3.6.6"}');
+    fs.writeFileSync(path.join(assets,'dist','js','app.min.js'),dashboardBundle);
+    const index = path.join(assets,'dist','index.html');
+    fs.writeFileSync(index,'owner-customized index');
+    const original = {rev:'rev-1',flows:[
+        {id:'tab',type:'tab',label:'d#187 Test',info:''},
+        {id:'base',type:'ui_base',site:{name:'Dashboard'}},
+        {id:'page',type:'ui_tab',name:'Page'},
+        {id:'dv-fn-01',type:'function',wires:[]}
+    ]};
+    const originalText = JSON.stringify(original.flows);
+    fs.writeFileSync(path.join(dir,'.node-red','flows.json'),originalText);
+    let posts = 0;
+    const server = http.createServer((req,res) => {
+        if (req.method === 'POST') posts++;
+        res.setHeader('Content-Type','application/json');
+        res.end(JSON.stringify(original));
+    });
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    t.after(()=>server.close());
+    const files = {};
+    for (const [name,data] of [
+        ['tools/deploy-version.js',fs.readFileSync(path.join(__dirname,'..','tools','deploy-version.js'))],
+        ['tools/gx/live-snapshot.js',Buffer.from('module.exports = {};')],
+        ['tools/gx/window.js',Buffer.from('module.exports = {collect: async () => ({}), judge: () => ({safe:true}), format: () => "SAFE"};')],
+        ['tools/gx/dashboard-assets.js',fs.readFileSync(path.join(__dirname,'..','tools','gx','dashboard-assets.js'))]
+    ]) files[name] = {data:data.toString('base64'),hash:crypto.createHash('sha256').update(data).digest('hex')};
+    const content = {files,patch:{},newNodes:[],recorder:null,label:'d#187 Test',wire:{id:'dv-fn-01',before:[],value:[]}};
+    const plan = path.join(dir,'plan.json');
+    fs.writeFileSync(plan,JSON.stringify({expectRev:'rev-1',source:'local:'+crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex'),content}));
+    const names = ['VICTRON_HOME','VICTRON_API_PORT','DRY'];
+    const previous = names.map(name=>process.env[name]);
+    t.after(() => names.forEach((name,i) => {
+        if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i];
+    }));
+    process.env.VICTRON_HOME = dir;
+    process.env.VICTRON_API_PORT = String(server.address().port);
+    process.env.DRY = '1';
+    await deploy(plan);
+    assert.equal(fs.readFileSync(index,'utf8'),'owner-customized index');
+    fs.unlinkSync(index);
+    await deploy(plan);
+    assert.ok(!fs.existsSync(index));
+    assert.equal(fs.readFileSync(path.join(assets,'dist','js','app.min.js'),'utf8'),dashboardBundle);
+    assert.equal(fs.readFileSync(path.join(dir,'.node-red','flows.json'),'utf8'),originalText);
+    assert.equal(posts,0);
+    assert.ok(!fs.readdirSync(dir).some(name=>name.startsWith('.gx-local-stage.')));
 });
 
 test('local source labels preserve the recorded automation commit without pretending to be Git', () => {
