@@ -59,6 +59,20 @@ with patch.dict(sys.modules, {'paho': paho, 'paho.mqtt': paho.mqtt, 'paho.mqtt.c
         pass
     else:
         raise AssertionError('connection failure reported success')
+    mqtt.Client.side_effect = ValueError('callback API incompatible')
+    try:
+        publish_message(topic, '{}')
+    except RuntimeError as error:
+        assert 'incompatible paho' in str(error)
+    else:
+        raise AssertionError('incompatible client treated as bad request')
+with patch.dict(sys.modules, {'paho.mqtt.client': None}):
+    try:
+        publish_message(topic, '{}')
+    except ImportError:
+        pass
+    else:
+        raise AssertionError('missing paho was not surfaced to the API 503 handler')
 `;
     execFileSync(process.platform === 'win32' ? 'py' : 'python3',
         ['-B', '-c', script, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator')], { stdio: 'pipe' });

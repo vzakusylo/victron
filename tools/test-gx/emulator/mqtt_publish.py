@@ -29,7 +29,10 @@ def publish_message(topic, data):
 
     connected = threading.Event()
     result = []
-    client = mqtt.Client()
+    try:
+        client = mqtt.Client()
+    except ValueError as error:
+        raise RuntimeError('incompatible paho MQTT client') from error
 
     def on_connect(client, userdata, flags, rc):
         result.append(rc)

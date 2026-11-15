@@ -320,7 +320,7 @@ class Api(BaseHTTPRequestHandler):
             self._send(200, dict(ok=True))
         except (KeyError, ValueError, TypeError) as error:
             self._send(400, dict(error=str(error)))
-        except (OSError, RuntimeError) as error:
+        except (ImportError, OSError, RuntimeError) as error:
             print('MQTT publish failed:', str(error), flush=True)
             self._send(503, dict(error='MQTT broker unavailable or publication failed'))
 

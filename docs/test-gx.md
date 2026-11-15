@@ -70,6 +70,7 @@ The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapsh
 
 ### Sanitizer limitations
 
+- Live comparison deliberately does not check the original MQTT `broker`, `port`, `usetls` or `tls` fields: they are normalized to the internal test endpoint. Other broker properties remain checked.
 - The `replaced N <kind>` count is a count of occurrences: the same value may be counted in both `code` and `restJson`.
 - After `STOPPED`, `sanitize-report.json` still names `<name>.map.json`, although the sanitizer removes that map and does not create it.
 - The cleanup instruction above used to ask the operator to delete the map even though the script already deletes it. It is harmless but redundant.
