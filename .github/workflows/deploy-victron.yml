@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 15
     environment: victron-gx
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Require explicit confirmation for install actions
         if: inputs.action != 'check'
