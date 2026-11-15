@@ -5,6 +5,7 @@
 // Usage:
 //   node tools/gx/compare.js live.b64                      compare with flows.json of the work tree
 //   node tools/gx/compare.js live.b64 --commit <sha>       compare with flows.json of a commit
+//   node tools/gx/compare.js a.b64 --against b.b64         snapshot against snapshot (a = "live" side, b = "repo" side)
 //   node tools/gx/compare.js live.b64 --show <node id>     print the lines that differ in one node
 //   node tools/gx/compare.js live.b64 --history 20         also name the newest commit the live code equals
 //   node tools/gx/compare.js live.b64 --commit <sha> --plan plan.json
@@ -58,6 +59,13 @@ function buildPatch(diff, includeTrailing) {
 
 module.exports = { diffSnapshots, buildPatch };
 
+function readSnapshot(file) {
+    // PowerShell may add a BOM or write UTF-16; keep only the base64 characters.
+    let raw = fs.readFileSync(file);
+    raw = (raw[0] === 0xff && raw[1] === 0xfe ? raw.toString('utf16le') : raw.toString('utf8')).replace(/[^A-Za-z0-9+/=]/g, '');
+    return JSON.parse(zlib.gunzipSync(Buffer.from(raw, 'base64')).toString('utf8'));
+}
+
 function git(...args) { return execFileSync('git', args, { maxBuffer: 1 << 27 }); }
 const sha256 = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 
@@ -66,22 +74,21 @@ function main() {
     const file = args.shift();
     const option = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : args[i + 1]; };
     if (!file) throw new Error('Usage: node tools/gx/compare.js LIVE.b64 [--commit SHA] [--show ID] [--history N] [--plan OUT.json] [--summary OUT.json]');
-    // PowerShell may add a BOM or write UTF-16; keep only the base64 characters.
-    let raw = fs.readFileSync(file);
-    raw = (raw[0] === 0xff && raw[1] === 0xfe ? raw.toString('utf16le') : raw.toString('utf8')).replace(/[^A-Za-z0-9+/=]/g, '');
-    const live = JSON.parse(zlib.gunzipSync(Buffer.from(raw, 'base64')).toString('utf8'));
+    const live = readSnapshot(file);
 
+    // --against SNAPSHOT.b64: snapshot against snapshot (e.g. the Docker test GX against the live GX or a backup).
+    const against = option('--against');
+    if (against && (option('--commit') || option('--plan'))) throw new Error('--against cannot be combined with --commit or --plan.');
     let commit = option('--commit');
     if (commit) commit = git('rev-parse', '--verify', commit + '^{commit}').toString().trim();
-    const flowsBuffer = commit ? git('show', commit + ':flows.json') : fs.readFileSync('flows.json');
-    const repoFlows = JSON.parse(flowsBuffer.toString('utf8'));
-    const repo = snapshot(repoFlows);
+    const flowsBuffer = against ? null : commit ? git('show', commit + ':flows.json') : fs.readFileSync('flows.json');
+    const repo = against ? readSnapshot(against) : snapshot(JSON.parse(flowsBuffer.toString('utf8')));
     const diff = diffSnapshots(live, repo);
 
     const liveTab = live.nodes.find((node) => node.type === 'tab' && /d#\d+/.test(node.label || ''));
     const repoTab = repo.nodes.find((node) => node.type === 'tab' && /d#\d+/.test(node.label || ''));
     console.log('live  : ' + (liveTab && liveTab.label) + '  (rev ' + String(live.rev).slice(0, 12) + ', read ' + new Date(live.at).toISOString() + ')');
-    console.log('repo  : ' + (repoTab && repoTab.label) + '  (' + (commit ? 'commit ' + commit.slice(0, 12) : 'work tree') + ')');
+    console.log('repo  : ' + (repoTab && repoTab.label) + '  (' + (against ? 'snapshot ' + against : commit ? 'commit ' + commit.slice(0, 12) : 'work tree') + ')');
     const meta = liveTab && /<!-- victron-deployment-source -->\s*([\s\S]*?)\s*<!-- \/victron-deployment-source -->/.exec(liveTab.info || '');
     console.log('live deployment source: ' + (meta ? meta[1] : 'not recorded'));
 

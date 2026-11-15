@@ -15,7 +15,7 @@ const crypto = require('crypto');
 
 const CODE_FIELDS = ['func', 'initialize', 'finalize', 'format', 'command'];
 const LAYOUT_FIELDS = ['x', 'y', 'g'];
-const SOURCE_LABEL = / \[(?:git [a-f0-9]{12}|local [a-f0-9]{12}|UI (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\]$/;
+const SOURCE_LABEL = / \[(?:git [a-f0-9]{12}|local [a-f0-9]{12}|UI (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\](?: TEST-GX)?$/;
 
 // Stable JSON: the key order of a node differs between the editor export and the repository file.
 function stable(value) {
@@ -47,8 +47,8 @@ function snapshot(flows, rev) {
 
 module.exports = { snapshot, stable, CODE_FIELDS, LAYOUT_FIELDS };
 
-// Piped to `node -` there is no main module.
-if (!require.main || require.main === module) {
+// Piped to `node -` there is no main module (module.id is "[stdin]"); `node -e` and require() must not start the request.
+if (require.main === module || module.id === '[stdin]') {
     require('http').get({ host: '127.0.0.1', port: Number(process.env.VICTRON_API_PORT) || 1880, path: '/flows', headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
         let body = '';
         res.setEncoding('utf8');
