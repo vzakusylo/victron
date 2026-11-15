@@ -7,6 +7,8 @@
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), os = require('os');
 const { execFileSync } = require('child_process');
+const zlib = require('zlib');
+const { transformTuya } = require('./transform-tuya.js');
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -61,7 +63,7 @@ function run() {
     fs.writeFileSync(path.join(out, MARKER), 'created by tools/test-gx/sanitize-backup.js; safe to delete and recreate\n');
     const report = { source: path.basename(backup), replaced: [], deleted: [], written: [], logDays: days };
     const secrets = new Map();      // original value -> kind
-    const SECRET_FIELDS = /^(key|localkey|secret|accesssecret|accessid|pass|password|token|apikey)$/i;
+    const SECRET_FIELDS = /^(key|localkey|devicekey|secret|accesssecret|accessid|pass|password|token|apikey)$/i;
     const ID = /^[a-z0-9]{20,24}$/;
     const IPV4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
     const MAC = /^(?:([0-9a-f]{2}:){5}[0-9a-f]{2}|[0-9a-f]{12})$/i;
@@ -140,6 +142,8 @@ function run() {
     };
     const text = (f) => fs.readFileSync(f);
     const mapped = (f) => Buffer.from(apply(fs.readFileSync(f, 'utf8')));
+    const logText = (f) => f.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(f)).toString('utf8') : fs.readFileSync(f, 'utf8');
+    const mappedLog = (f) => f.endsWith('.gz') ? zlib.gzipSync(Buffer.from(apply(logText(f)))) : mapped(f);
 
     // .node-red: flow, palette list; credentials, runtime config and users are not copied
     for (const f of ['flows_cred.json', '.flows_cred.json.backup', '.config.runtime.json', '.config.runtime.json.backup', '.config.users.json', '.config.users.json.backup', 'settings-user.js'])
@@ -156,7 +160,12 @@ function run() {
     }
     const tab = flows.find(n => n.type === 'tab' && /d#\d+/.test(n.label || ''));
     if (tab && !/TEST-GX/.test(tab.label)) tab.label += ' TEST-GX';
-    put('.node-red/flows.json', JSON.stringify(flows, null, 4));
+    const registryFile = path.join(cfgSrc, 'tuya-nodes.json');
+    const registry = fs.existsSync(registryFile) ? JSON.parse(apply(fs.readFileSync(registryFile, 'utf8'))) : {};
+    const transformed = transformTuya(flows, registry);
+    report.transformed = transformed.transformed;
+    if (report.transformed.length) fs.writeFileSync(path.join(out, 'tuya-source-flows.json'), JSON.stringify(flows, null, 4));
+    put('.node-red/flows.json', JSON.stringify(transformed.flows, null, 4));
     for (const f of ['package.json', 'package-lock.json', '.config.nodes.json']) put('.node-red/' + f, text(path.join(nr, f)));
     put('.node-red/settings-user.js', "'use strict';\nmodule.exports = {};\n");
 
@@ -178,7 +187,7 @@ function run() {
             if (e.isDirectory()) return true;
             const m = e.name.match(/(\d{4}-\d{2}-\d{2})/);
             return !m || m[1] >= cutoff;
-        }, mapped);
+        }, mappedLog);
     }
 
     // versions
@@ -197,10 +206,12 @@ function run() {
     const problems = [];
     const files = [];
     (function list(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); e.isDirectory() ? list(p) : files.push(p); } })(dst);
+    const sourceFlowsFile = path.join(out, 'tuya-source-flows.json');
+    if (fs.existsSync(sourceFlowsFile)) files.push(sourceFlowsFile);
     for (const f of files) {
-        const rel = path.relative(dst, f).replace(/\\/g, '/');
+        const rel = f === sourceFlowsFile ? 'tuya-source-flows.json' : path.relative(dst, f).replace(/\\/g, '/');
         if (/package-lock\.json$|\.config\.nodes\.json$/.test(rel)) continue;
-        const t = fs.readFileSync(f, 'utf8');
+        const t = f.endsWith('.gz') ? logText(f) : fs.readFileSync(f, 'utf8');
         for (const v of mapping.keys()) if (t.includes(v)) problems.push(rel + ': original ' + secrets.get(v) + ' value still present');
         const generic = [
             [/\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, 'tailscale address'],

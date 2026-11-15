@@ -64,7 +64,9 @@ test('the repository flows.json and tools/ pass the leftover scan (LAN broker ad
   for (const f of execFileSync('git', ['ls-files', 'tools'], { cwd: REPO, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)) {
     if (/\.(js|ps1|sh|py|json|md|yml)$/.test(f)) tools[f] = fs.readFileSync(path.join(REPO, f), 'utf8');
   }
-  const tar = makeBackup('repo-flow', { ...tools, '.node-red/flows.json': fs.readFileSync(path.join(REPO, 'flows.json'), 'utf8') });
+  const registry = Object.fromEntries(['pump', 'valve', 'bypass', 'meter'].map(role => ['hp-tuya-' + role + '-01', { deviceId: 'fake-' + role }]));
+  const tar = makeBackup('repo-flow', { ...tools, '.node-red/flows.json': fs.readFileSync(path.join(REPO, 'flows.json'), 'utf8'),
+    'grid-control-config/tuya-nodes.json': JSON.stringify(registry) });
   const r = run(tar, path.join(tmp, 'repo-flow-out'));
   assert.strictEqual(r.status, 0, r.stderr);
 });
@@ -77,4 +79,53 @@ test('stops (exit 3) when a token is left in flows.json or in tools/', () => {
   for (const [tar, name] of [[inFlow, 'f'], [inTool, 't'], [tailnet, 'i']]) {
     assert.strictEqual(run(tar, path.join(tmp, 'out-' + name)).status, 3, name);
   }
+});
+
+test('compressed recorder logs survive sanitization and are scanned after decompression', () => {
+  const zlib = require('node:zlib');
+  const ip = '192.168.1.123';
+  const tar = makeBackup('gzip-log', {
+    'grid-control-config/example.json': JSON.stringify({ ip }),
+    'grid-control-logs/heatpump/2099-01-01/00.csv.gz': zlib.gzipSync(Buffer.from('#hp1 t,st,108\n0,C,46\n# ' + ip + '\n')),
+  });
+
+  const out = path.join(tmp, 'gzip-log-out');
+  const r = run(tar, out);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const text = zlib.gunzipSync(fs.readFileSync(path.join(out, 'nodered', 'grid-control-logs', 'heatpump', '2099-01-01', '00.csv.gz'))).toString();
+  assert.ok(text.includes('0,C,46'));
+  assert.ok(!text.includes(ip));
+  const leak = makeBackup('gzip-leak', {
+    'grid-control-logs/heatpump/2099-01-01/00.csv.gz': zlib.gzipSync(Buffer.from('http://example.test/?token=' + 'Zx9'.repeat(8))),
+  });
+  assert.strictEqual(run(leak, path.join(tmp, 'gzip-leak-out')).status, 3);
+});
+
+test('sanitizer fails closed on a Tuya device with no proxy model', () => {
+  const tar = makeBackup('unsupported-tuya', { '.node-red/flows.json': JSON.stringify([
+    { id: 'unexpected-tuya', type: 'tuya-smart-device', deviceId: 'fake-id', wires: [[], []] },
+  ]) });
+  const out = path.join(tmp, 'unsupported-tuya-out');
+  const r = run(tar, out);
+  assert.strictEqual(r.status, 2);
+  assert.match(r.stderr, /Unmodelled tuya-smart-device/);
+  assert.ok(!fs.existsSync(out + '.map.json'));
+  assert.ok(!fs.existsSync(path.join(out, 'nodered', '.node-red', 'flows.json')));
+});
+
+test('Tuya comparison source is sanitized and scanned even when a field is removed from the proxy', () => {
+  const nodes = [
+    { id: 'broker', type: 'mqtt-broker', broker: '192.168.1.94', port: '1883' },
+    { id: 'hp-tuya-pump-01', type: 'tuya-smart-device', deviceId: 'fake-pump', deviceKey: 'private-key-for-test', wires: [[], []] },
+  ];
+  const tar = makeBackup('tuya-source-safe', { '.node-red/flows.json': JSON.stringify(nodes) });
+  const out = path.join(tmp, 'tuya-source-safe-out');
+  const r = run(tar, out);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const source = fs.readFileSync(path.join(out, 'tuya-source-flows.json'), 'utf8');
+  assert.ok(!source.includes('private-key-for-test'));
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(out, 'sanitize-report.json'))).transformed.length, 4);
+  nodes[1].unused = 'http://example.test/?token=' + 'Zx9'.repeat(8);
+  const leak = makeBackup('tuya-source-leak', { '.node-red/flows.json': JSON.stringify(nodes) });
+  assert.strictEqual(run(leak, path.join(tmp, 'tuya-source-leak-out')).status, 3);
 });

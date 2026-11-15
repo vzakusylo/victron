@@ -15,6 +15,18 @@ test('every D-Bus pair of the flow is emulated or explicitly planned', () => {
   assert.deepStrictEqual(inv.problems(rows), []);
 });
 
+test('Tuya coverage fails for an unmodelled device or a new consumed DPS', () => {
+  const extra = { id: 'new-tuya', type: 'tuya-smart-device' };
+  const reader = { id: 'new-dps', type: 'function', func: "const H = {}; return H['999'];" };
+  inv.useFixtures([...realFlows, extra, reader]);
+  try {
+    const p = inv.problems(inv.inventory());
+    assert.ok(p.some(m => m.includes('new-tuya') && m.includes('no device model')));
+    assert.ok(p.some(m => m.includes('pump') && m.includes('DPS 999')));
+    assert.equal(inv.COVERAGE['tuya-smart-device'].status, 'emulated');
+  } finally { restore(); }
+});
+
 test('a Victron node on a service+path the emulator lacks is reported, even if the path exists on another service', () => {
   // /Soc exists on vebus and battery in emulator.py but not on system
   const flows = [...realFlows, { id: 'x1', type: 'victron-input-system', service: 'com.victronenergy.system/0', path: '/Soc' }];
@@ -37,6 +49,13 @@ test('MQTT coverage rejects a topic the Qingping publisher cannot drive', () => 
     const p = inv.problems(inv.inventory());
     assert.ok(p.some((m) => m.includes('mqtt-extra') && m.includes('not covered')));
     assert.ok(!p.some((m) => m.includes('dv-air-mqtt-01')));
+  } finally { restore(); }
+});
+
+test('MQTT output coverage rejects an unrecorded command topic', () => {
+  inv.useFixtures([...realFlows, { id: 'unrecorded', type: 'mqtt out', topic: 'other/command' }]);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some(m => m.includes('unrecorded') && m.includes('not covered')));
   } finally { restore(); }
 });
 
