@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { ROOT } = require('./harness');
 const { judge, format, defrostIntervalMin } = require('../tools/gx/window.js');
+const { publicSummary } = require('../tools/gx/deploy-report.js');
 
 const MIN = 60000;
 const NOW = new Date(2026, 10, 15, 1, 22).getTime();
@@ -117,4 +118,50 @@ test('runners: without -Apply / with -DryRun nothing can change, and bad hosts a
             assert.ok(text.indexOf('finally {') > text.indexOf('svc -d $service') && text.includes('svc -u $service'), 'Node-RED is started again in the finally block');
         }
     }
+});
+
+test('public deploy report excludes live code, labels, identifiers and arbitrary source metadata', () => {
+    const secret = 'PRIVATE-GX-TOKEN';
+    const commit = 'a'.repeat(40);
+    const previous = 'b'.repeat(40);
+    const summary = {
+        live: { label: secret, rev: secret, source: { dashboard: previous, automations: secret } },
+        code: [secret], trailing: [], config: [secret], onlyLive: [], onlyRepo: [], liveOnlyLines: [secret],
+        nodes: [{ func: secret }], error: secret
+    };
+    const result = publicSummary(summary, null, { commit, mode: 'dry-run', outcome: 'failure' });
+    assert.deepEqual(result, {
+        commit, mode: 'dry-run', outcome: 'failure',
+        previous: { dashboard: previous, automations: null },
+        before: { code: 1, trailing: 0, config: 1, onlyLive: 0, onlyRepo: 0, liveOnlyLines: 1 },
+        after: null
+    });
+    assert.ok(!JSON.stringify(result).includes(secret));
+    assert.equal(publicSummary(null, null, { commit, mode: 'apply', outcome: 'cancelled' }).before, null);
+    assert.throws(() => publicSummary(null, null, { commit: secret, mode: 'apply', outcome: 'success' }), /commit SHA/);
+    assert.throws(() => publicSummary({ code: secret }, null, { commit, mode: 'apply', outcome: 'success' }), /summary field/);
+});
+
+test('runner extracts committed scripts byte-for-byte without cmd, and keeps Git error detail', (t) => {
+    const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
+    if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
+    const script = path.join(ROOT, 'scripts', 'gx-deploy.ps1');
+    const out = spawnSync('pwsh', ['-NoProfile', '-Command', `
+        $root = $env:TEST_REPO
+        $tokens = $null; $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:TEST_SCRIPT, [ref]$tokens, [ref]$errors)
+        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Save-GitBlob' }, $true)
+        Invoke-Expression $fn.Extent.Text
+        $destination = [IO.Path]::GetTempFileName()
+        try {
+            Save-GitBlob 'HEAD' 'scripts/gx-deploy.ps1' $destination
+            $actual = & git -C $root hash-object --no-filters $destination
+            $expected = & git -C $root rev-parse 'HEAD:scripts/gx-deploy.ps1'
+            if ($actual -ne $expected) { throw 'Blob bytes differ.' }
+            try { Save-GitBlob 'HEAD' 'missing-file.js' $destination; throw 'Missing blob accepted.' }
+            catch { if ($_.Exception.Message -notmatch 'git cat-file failed.*missing-file.js') { throw } }
+        }
+        finally { if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force } }
+    `], { encoding: 'utf8', env: { ...process.env, TEST_REPO: ROOT, TEST_SCRIPT: script } });
+    assert.equal(out.status, 0, out.stderr + out.stdout);
 });

@@ -22,6 +22,7 @@ param(
     [int]$WaitWindowMin = 0,
     [switch]$AllowLiveOnlyLines,
     [switch]$UseWorkTreeScripts,
+    [string]$RunDirectory,
     [switch]$Steps
 )
 $ErrorActionPreference = 'Stop'
@@ -49,7 +50,8 @@ $gxTools = @(
     'tools/tuya-local-poll.js', 'tools/tuya-local-sensors.js'
 )
 $ssh = @('-i', $SshKey, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15')
-$run = Join-Path ([IO.Path]::GetTempPath()) ('gx-deploy-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$run = $RunDirectory ? [IO.Path]::GetFullPath($RunDirectory) :
+    (Join-Path ([IO.Path]::GetTempPath()) ('gx-deploy-' + (Get-Date -Format 'yyyyMMdd-HHmmss')))
 New-Item -ItemType Directory $run | Out-Null
 $changed = $false
 
@@ -99,7 +101,7 @@ New-Item -ItemType Directory (Join-Path $run 'tools\gx') | Out-Null
 foreach ($file in 'tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js') {
     if ($UseWorkTreeScripts) { Copy-Item (Join-Path $root $file) (Join-Path $run $file); continue }
     try { Save-GitBlob $sha $file (Join-Path $run $file) }
-    catch { Stop-Run "$file could not be read from commit $sha (merge the runner scripts first)." }
+    catch { Stop-Run "$file could not be read from commit $sha (merge the runner scripts first). $($_.Exception.Message)" }
 }
 $tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"

@@ -23,14 +23,14 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment: victron-gx
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -87,30 +87,46 @@ jobs:
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
           MODE: ${{ inputs.mode }}
+          TMPDIR: ${{ runner.temp }}
         shell: pwsh
         run: |
+          $runFolder = Join-Path $env:RUNNER_TEMP "gx-deploy-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "run_folder=$runFolder" >> $env:GITHUB_OUTPUT
           $arguments = @(
             '-NoProfile', '-File', './scripts/gx-deploy.ps1',
             '-GxHost', $env:GX_SSH_HOST,
             '-SshKey', "$HOME/.ssh/key",
-            '-WaitWindowMin', '30'
+            '-WaitWindowMin', '30',
+            '-Commit', $env:GITHUB_SHA,
+            '-RunDirectory', $runFolder
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
           & pwsh @arguments
-          $deployExit = $LASTEXITCODE
-          $runFolder = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'gx-deploy-*' |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-          if ($runFolder) { "run_folder=$($runFolder.FullName)" >> $env:GITHUB_OUTPUT }
-          exit $deployExit
+          exit $LASTEXITCODE
+
+      - name: Prepare public deployment summary
+        if: always() && steps.deploy.outputs.run_folder != ''
+        env:
+          RUN_FOLDER: ${{ steps.deploy.outputs.run_folder }}
+          MODE: ${{ inputs.mode }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'gx-deploy-public-summary.json'
+          node ./tools/gx/deploy-report.js $env:RUN_FOLDER $report
+          if ($LASTEXITCODE) { throw 'Could not prepare the public deployment summary.' }
+          "### GX deployment`n" >> $env:GITHUB_STEP_SUMMARY
+          '```json' >> $env:GITHUB_STEP_SUMMARY
+          Get-Content -LiteralPath $report >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload deploy reports
         if: always() && steps.deploy.outputs.run_folder != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gx-deploy-reports-${{ github.run_id }}
-          path: ${{ steps.deploy.outputs.run_folder }}
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/gx-deploy-public-summary.json
+          if-no-files-found: error
           retention-days: 30
 
       - name: Remove SSH key material
