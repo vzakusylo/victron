@@ -5,10 +5,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const os = require('node:os');
+const { spawnSync, execFileSync } = require('node:child_process');
 const { ROOT } = require('./harness');
 const { judge, format, defrostIntervalMin } = require('../tools/gx/window.js');
-const { publicSummary } = require('../tools/gx/deploy-report.js');
+const { publicSummary, repositoryChanges, formatReport } = require('../tools/gx/deploy-report.js');
 
 const MIN = 60000;
 const NOW = new Date(2026, 10, 15, 1, 22).getTime();
@@ -129,17 +130,88 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
         code: [secret], trailing: [], config: [secret], onlyLive: [], onlyRepo: [], liveOnlyLines: [secret],
         nodes: [{ func: secret }], error: secret
     };
-    const result = publicSummary(summary, null, { commit, mode: 'dry-run', outcome: 'failure' });
+    const result = publicSummary(summary, null, { commit, mode: 'dry-run', outcome: 'failure', version: 'test' });
     assert.deepEqual(result, {
-        commit, mode: 'dry-run', outcome: 'failure',
+        commit, mode: 'dry-run', outcome: 'failure', version: 'test',
         previous: { dashboard: previous, automations: null },
         before: { code: 1, trailing: 0, config: 1, onlyLive: 0, onlyRepo: 0, liveOnlyLines: 1 },
         after: null
     });
     assert.ok(!JSON.stringify(result).includes(secret));
-    assert.equal(publicSummary(null, null, { commit, mode: 'apply', outcome: 'cancelled' }).before, null);
-    assert.throws(() => publicSummary(null, null, { commit: secret, mode: 'apply', outcome: 'success' }), /commit SHA/);
-    assert.throws(() => publicSummary({ code: secret }, null, { commit, mode: 'apply', outcome: 'success' }), /summary field/);
+    assert.equal(publicSummary(null, null, { commit, mode: 'apply', outcome: 'cancelled', version: 'stable' }).before, null);
+    assert.throws(() => publicSummary(null, null, { commit: secret, mode: 'apply', outcome: 'success', version: 'test' }), /commit SHA/);
+    assert.throws(() => publicSummary({ code: secret }, null, { commit, mode: 'apply', outcome: 'success', version: 'test' }), /summary field/);
+    assert.throws(() => publicSummary(null, null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
+});
+
+test('deployment changelog and workflow command use recorded Git commits and report missing baselines', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-report-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+    git('init', '--quiet');
+    const commitFile = (text, subject) => {
+        fs.writeFileSync(path.join(root, 'test.js'), text);
+        git('add', 'test.js');
+        git('-c', 'user.name=GX report test', '-c', 'user.email=test@example.test', '-c', 'commit.gpgsign=false',
+            'commit', '--quiet', '-m', subject);
+        return git('rev-parse', 'HEAD');
+    };
+    const first = commitFile('old\n', 'Initial version');
+    const second = commitFile('new\n', 'Update controller');
+    const third = commitFile('latest\n', 'Fix dashboard <script>');
+    const changes = repositoryChanges({ dashboard: first, automations: second }, third, root);
+    assert.deepEqual(changes.map((change) => change.scopes), [['dashboard'], ['automations']]);
+    assert.deepEqual(changes[0].commits.map((commit) => commit.subject), ['Update controller', 'Fix dashboard <script>']);
+    assert.deepEqual(changes[1].commits.map((commit) => commit.sha), [third]);
+    assert.deepEqual(changes[0].files, [{ status: 'M', path: 'test.js' }]);
+    const grouped = repositoryChanges({ dashboard: third, automations: third }, third, root);
+    assert.equal(grouped.length, 1);
+    assert.deepEqual(grouped[0].scopes, ['dashboard', 'automations']);
+    assert.deepEqual([grouped[0].commits, grouped[0].files], [[], []]);
+    const unavailable = repositoryChanges({ dashboard: null, automations: 'a'.repeat(40) }, third, root);
+    assert.deepEqual(unavailable.map((change) => change.status), ['previous-not-recorded', 'previous-not-in-repository']);
+    const report = publicSummary(null, null, { commit: third, mode: 'dry-run', outcome: 'success', version: 'stable' });
+    const formatted = formatReport({ ...report, changes });
+    assert.match(formatted, /Version label: \*\*stable\*\* \(report only\)/);
+    assert.match(formatted, /Fix dashboard &lt;script&gt;/);
+    assert.ok(formatted.includes(first) && formatted.includes(third));
+    assert.match(formatted, /M test\.js/);
+    assert.match(formatReport({ ...report, changes: unavailable }), /comparison is unavailable/);
+    // Preserve the CLI's repository-root convention with controlled fixture history.
+    const script = path.join(root,'tools','gx','deploy-report.js');
+    fs.mkdirSync(path.dirname(script),{recursive:true});
+    fs.copyFileSync(path.join(ROOT,'tools','gx','deploy-report.js'),script);
+    const runFolder = path.join(root,'private-run');
+    fs.mkdirSync(runFolder);
+    const privateValue = 'PRIVATE-CLI-LIVE-CODE';
+    fs.writeFileSync(path.join(runFolder,'summary-before.json'),JSON.stringify({
+        live:{source:{dashboard:first,automations:second},label:privateValue},
+        code:[privateValue],trailing:[],config:[],onlyLive:[],onlyRepo:[],liveOnlyLines:[]
+    }));
+    for (const [mode,outcome,version] of [['apply','success','stable'],['dry-run','failure','test']]) {
+        const output = path.join(root,mode+'.json');
+        const cli = spawnSync(process.execPath,[script,runFolder,output],{encoding:'utf8',env:{
+            ...process.env,GITHUB_SHA:third,MODE:mode,DEPLOY_OUTCOME:outcome,VERSION_TYPE:version
+        }});
+        assert.equal(cli.status,0,cli.stderr);
+        const artifact = JSON.parse(fs.readFileSync(output,'utf8'));
+        assert.deepEqual([artifact.commit,artifact.mode,artifact.outcome,artifact.version],[third,mode,outcome,version]);
+        assert.deepEqual(artifact.changes[0].commits.map(commit=>commit.sha),[second,third]);
+        assert.deepEqual(artifact.changes[1].commits.map(commit=>commit.sha),[third]);
+        assert.deepEqual(artifact.changes[0].files,[{status:'M',path:'test.js'}]);
+        assert.equal(artifact.before.code,1);
+        assert.equal(artifact.after,null);
+        assert.match(cli.stdout,/Fix dashboard &lt;script&gt;/);
+        assert.ok(cli.stdout.includes(`Version label: **${version}**`));
+        assert.ok(!cli.stdout.includes(privateValue) && !JSON.stringify(artifact).includes(privateValue));
+    }
+    const invalidOutput = path.join(root,'invalid.json');
+    const invalid = spawnSync(process.execPath,[script,runFolder,invalidOutput],{encoding:'utf8',env:{
+        ...process.env,GITHUB_SHA:third,MODE:'apply',DEPLOY_OUTCOME:'success',VERSION_TYPE:'invalid'
+    }});
+    assert.notEqual(invalid.status,0);
+    assert.match(invalid.stderr,/Unexpected version label/);
+    assert.ok(!fs.existsSync(invalidOutput));
 });
 
 test('runner extracts committed scripts byte-for-byte without cmd, and keeps Git error detail', (t) => {

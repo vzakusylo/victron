@@ -4,6 +4,11 @@
 
 The [Victron GX connector](victron-gx-connector.md) documents interfaces and signals.
 
+For the later d#187 deployment, connection recovery, version/code mismatches,
+reviewed topology migration, pinned dry-run/apply, backups and verification,
+see the [GX deployment troubleshooting runbook](gx-deploy-troubleshooting.md).
+The state table below is the historical 01:30 handoff, not a live status report.
+
 ## Contents
 
 - [State at the end](#state-at-the-end)

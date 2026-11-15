@@ -107,7 +107,7 @@ but not deployed; d#183 added the pages and bootstrap fixes (backup
 navigation (final backup above). The subsequent Git commit records d#185 rather
 than reusing a lower version number.
 
-### PR #33 review corrections (d#186, not deployed)
+### PR #33 review corrections (d#186-d#187)
 
 Corrupt archive rows are skipped with visible counts and warnings, and fatal
 read errors preserve day navigation. Archived temperature series are no longer
@@ -116,10 +116,24 @@ retains 400 days of temperature JSONL files. Motion tooltips use Oslo time.
 Payback rejects invalid/duplicate peak timestamps and billing periods before
 Angular sees them. Development documentation now lists sources 57-59 and the
 new tools; Dashboard reinstall/upgrade instructions preserve the patch guards.
-This build changes the reviewed repository only, not the currently deployed GX.
+At review time, this build changed the repository only, not the deployed GX.
 Follow-up review build d#187 also selects the default history day explicitly in
 Europe/Oslo, including summer/winter midnight when the Node-RED server runs in UTC.
-It has not been deployed to GX.
+These corrections were initially repository-only; the d#187 deployment is recorded below.
+
+### 2026-11-15 10:35-10:38 Europe/Oslo: master deployed without stopping Node-RED
+
+| Version | Owner request | What changed | Result |
+|---|---|---|---|
+| d#187, `66f101421963334af34c8c88eda2a4ea3ff02560` | Deploy master; inspect and preserve GX-only code first. | Inspection showed all differing temperature fields exactly matched repository commit `a4af86d`, not unique uncommitted code. With explicit approval, a guarded migration added only output 3 of `temps-record-01` to the existing `temps-exec-01`, preserving both previous outputs and the old code. After a successful dry-run, the pinned master deployment updated `pb-fn-01`, `temps-fn-01`, `temps-page-01`, `temps-record-01` and `tools/gx/{deploy,verify,monitor}.js`; dashboard pages received the Git source label. | Read-back: 277 nodes, dashboard and automations source `66f101421963`, live code equals master, no errors since deployment. Node-RED remained up (PID 27014, 554 min uptime). Heating/valve/bypass connected, local control on, DHW idle, tank 50 C. Monitor WARN was only the pre-existing 24-hour automation log (4 errors / 2 aborted cycles), not a new deployment error. |
+
+Backups on the GX: `/data/home/nodered/.node-red/backup-20261115T093500-sensor-topology`
+before the third-output migration, and
+`/data/home/nodered/.node-red/backup-20261115T093732-pre-d187` before the code deployment.
+Both contain the prior flow and credentials. The migration checked the original code/configuration,
+live revision, existing wiring target and safe window, then verified that every other node was unchanged.
+The ordinary runner used `-AllowLiveOnlyLines` only after the historical code was reviewed and
+its replacement explicitly approved. Remote migration staging files were removed.
 
 ## Errors and incidents (8–11 Nov)
 

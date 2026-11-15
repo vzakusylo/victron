@@ -26,8 +26,44 @@ function run(file, args, env) {
     });
 }
 function listen(handler) {
-    return new Promise((resolve) => { const server = http.createServer(handler); server.listen(0, '127.0.0.1', () => resolve(server)); });
+    return new Promise((resolve) => {
+        const server = http.createServer((req, res) => {
+            // A TCP chunk can split a UTF-8 character in the flow's source.
+            req.setEncoding('utf8');
+            handler(req, res);
+        });
+        server.listen(0, '127.0.0.1', () => resolve(server));
+    });
 }
+
+test('fake GX preserves UTF-8 JSON when a character is split across HTTP chunks', { timeout: 10000 }, async (t) => {
+    let received;
+    const firstChunk = new Promise((resolve) => { received = resolve; });
+    const server = await listen((req, res) => {
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; received(); });
+        req.on('end', () => res.end(body));
+    });
+    t.after(() => server.close());
+    const payload = { func: '// ' + String.fromCodePoint(0x416, 0x1f600) };
+    const bytes = Buffer.from(JSON.stringify(payload));
+    const split = bytes.findIndex((byte) => byte > 127) + 1;
+    let request;
+    const reply = new Promise((resolve, reject) => {
+        request = http.request({ host: '127.0.0.1', port: server.address().port, method: 'POST' }, (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => resolve(body));
+            res.on('error', reject);
+        });
+        request.on('error', reject);
+    });
+    request.write(bytes.subarray(0, split));
+    await firstChunk;
+    request.end(bytes.subarray(split));
+    assert.deepEqual(JSON.parse(await reply), payload);
+});
 
 let available = true;
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', 'HEAD^{commit}'], { stdio: 'ignore' }); execFileSync('curl', ['--version'], { stdio: 'ignore' }); }

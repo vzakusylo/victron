@@ -26,6 +26,58 @@
 
 The live flow now includes several dashboard surfaces for operation and diagnostics, including a dedicated `Protection` tab for runtime control of the high-voltage limiter and AC-assisted charging.
 
+## Dashboard 3.6.6 bootstrap and ngTouch compatibility
+
+The bundled Dashboard loads AngularJS Material and also injects `ngTouch` into
+its `ui` module. Material detects the conflicting `$swipe` service and warns
+that `ngTouch` is unsupported. Removing only the module dependency would break
+the page's existing `ng-swipe-left/right` directives.
+
+`tools/gx/dashboard-assets.js` prepares a guarded, version-specific repair:
+remove the `ngTouch` dependency, migrate the page attributes to Material's
+`md-swipe-left/right`, and retain the existing controller handlers. Touch swipes
+continue to follow the configured menu/page mode; mouse and pointer-mouse
+swipes are enabled only in the existing `mouse` mode. The vendor warning is
+not suppressed or edited. The same repair preserves the sidenav-registration
+fix and supplies `loading.html` when absent.
+
+This changes only installed static package assets, not flows, credentials,
+controller settings or the Node-RED service. Use the reviewed helper after
+merging it; neither the normal commit deployment nor `deploy-local.js` applies
+these package fixes. Local code deployment does not inspect or depend on the
+installed package's `index.html`; repair assets separately, with their own
+dry-run and backup. Unknown assets still stop the standalone repair safely.
+From the PC, copy the helper to the GX and open SSH:
+
+```powershell
+scp -i $key .\tools\gx\dashboard-assets.js "${gx}:/tmp/gx-dashboard-assets.js"
+ssh -i $key $gx
+```
+
+In the GX shell, resolve the installed package and inspect the dry-run first:
+
+```sh
+dashboard_root=$(node -p "require('path').dirname(require.resolve('node-red-dashboard/package.json',{paths:['/data/home/nodered/.node-red']}))")
+node /tmp/gx-dashboard-assets.js "$dashboard_root"
+# Only after reviewing the dry-run and approving this asset repair:
+node /tmp/gx-dashboard-assets.js "$dashboard_root" --apply
+rm -f /tmp/gx-dashboard-assets.js
+```
+
+Apply backs up byte-exact original files and owner/mode information under
+`.node-red/backup-dashboard-assets-*`, uses same-filesystem renames, checks for
+concurrent changes and verifies the result. A partial write failure restores
+the already replaced assets; a conflicting external write stops rollback
+instead of overwriting it. ASCII patch markers are replaced without decoding
+or re-encoding unrelated bytes. An already repaired package is a no-op. Unknown
+versions or unfamiliar/duplicate source patterns are refused.
+
+Hard-reload the dashboard in Edge (**Ctrl+Shift+R**) to discard cached assets.
+Check that the ngTouch warning is gone, page navigation still works, and touch
+and mouse swipes obey the configured mode. Reinstalling Dashboard overwrites
+these fixes: repeat the guarded repair for 3.6.6, and inspect/adapt the patch
+before applying it to any different version.
+
 ## Dashboard pages
 
 ### Temperatures and toilet motion history
