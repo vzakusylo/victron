@@ -82,7 +82,7 @@ Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($
 
 Step '2/8 snapshot of the live flow'
 $live = Invoke-OnGx 'tools\gx\live-snapshot.js' ''
-if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read.' }
+if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
 Save 'live-before.b64' $live.Text
 
 Step '3/8 compare'

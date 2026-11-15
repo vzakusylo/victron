@@ -124,7 +124,7 @@ Recommended workflow when editing the logic:
    node --test "tests/*.test.js"
    ```
    The same two commands run on every pull request (`.github/workflows/check.yml`).
-4. deploy with the scripts in `tools/gx/`, following [Deploying to the Cerbo GX](gx-deploy.md): snapshot, compare, plan, dry run, deploy, verify. They do what the rest of this step describes.
+4. deploy with `scripts/gx-deploy.ps1` (dry run first, then `-Apply`), see [GX deployment handoff](gx-handoff.md#operation-a-deploy-code). It runs the scripts in `tools/gx/` in a fixed order: snapshot, compare, plan, window, dry run, deploy, verify ([details](gx-deploy.md)). They do what the rest of this step describes.
    Make a backup (the **Backup** page, or a copy of `flows.json` and `flows_cred.json` on the GX), then deploy. The way used for this installation: a script on the GX reads the live flow from the Node-RED admin API (`GET /flows`), replaces only the changed nodes (same node ids) and posts it back with deploy type `nodes`. The Tuya keys stay in place and only the changed nodes restart. A full *Import → Replace* also works, but do not replace the Tuya nodes that already have keys ([why](../README.md#heat-pump-page-tuya-wi-fi-heat-pump)). Do not deploy the heat pump automation nodes while a DHW cycle runs. Rollback = put the two saved files back and restart Node-RED.
    Save the untouched original `GET /flows` response as `original-live.json`
    before replacing any nodes. Assemble the selective payload from a separate

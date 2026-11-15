@@ -2,6 +2,8 @@
 
 > How to find out what the GX really runs, deploy only the difference from a pushed commit, and check the result. Written after the d#180 deploy of 14 Nov 2026; the scripts in `tools/gx/` are the reusable form of what was done by hand that day.
 
+**Start with [GX deployment handoff](gx-handoff.md)**: it has the one-command runners (`scripts/gx-deploy.ps1`, `scripts/gx-secrets-install.ps1`) that do the steps below in a fixed order. This page explains the single scripts they call.
+
 Related: [Development & deployment](development.md) (rules, versioning) · [Secrets](../scripts/SECRETS.md) (private files, GitHub workflow) · [Backup & restore](backup-restore.md) · [Work log](heat-pump-work-log.md)
 
 ## Contents
