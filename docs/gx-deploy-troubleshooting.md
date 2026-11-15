@@ -206,6 +206,7 @@ Record the time, SHA, version, backup paths, migrations, review exceptions and r
 | GitHub CLI uses the wrong host/token | Use `--repo github.com/vzakusylo/victron` and API `--hostname github.com`; inspect `gh auth status`. Do not print tokens. Use the intended stored account in a separate shell without conflicting token/host environment overrides. |
 | Copilot app cannot create a PR with the repository's selected account | Select an account with access in the repository's GitHub Account setting. Using a separate authenticated CLI account requires the owner's choice; it does not fix the app's selected account. |
 | Updated branch does not appear in master | Verify the PR is merged, not merely pushed/closed, and fetch master. Optional report labels and other workflow improvements exist only where their commits were actually merged. |
+| Both `PR tests` and `Check` fail in the fake-GX E2E test with an unexpected changed `function` | The old test HTTP server concatenated raw Buffers into a string, decoding each TCP chunk separately. A split UTF-8 character corrupted the simulated flow source and made an untouched node appear changed; Linux exposed it while a local run could pass. Decode the request stream with `req.setEncoding('utf8')` before collecting chunks. The regression test deliberately splits a character between two HTTP writes. This is a test-fixture transport problem, not a live GX deployment or a reason to relax the unchanged-node assertion. |
 
 ## 8. If apply fails after changes began
 
