@@ -28,6 +28,27 @@ The live flow now includes several dashboard surfaces for operation and diagnost
 
 ## Dashboard pages
 
+### Temperatures and toilet motion history
+
+The **Temperatures** tab shows every known temperature sensor from Devices,
+including all nine measured heat-pump temperatures, battery room sensors,
+Qingping and GX temperature services. Previous/next buttons and a day selector
+browse recorded days. Legends hide/show individual series.
+
+`50` supplies typed readings; `58` records fresh readings without repeatedly
+sampling a sleeping sensor. Archives and the current sensor catalogue live in
+`grid-control-logs/temperatures/`. `tools/sensor-history.js --day YYYY-MM-DD`
+also reads existing heat-pump and air archives. Other sensors have history from
+deployment onward; unavailable readings remain missing, not zero.
+
+Both Temperatures and Heat Pump show actual toilet PIR/clear reports from
+`grid-control-logs/sensor-events/`, beneath the temperature/power plots.
+Battery wakes and cached PIR states are not treated as motion. No report is
+not evidence of no motion. The clock axis is Oslo local time; on autumn DST
+repeated hours overlap, while source event timestamps remain distinct.
+
+See [Victron GX connector](victron-gx-connector.md) for the local GX interfaces.
+
 ![Dashboard menu — Energy Detail, Analytics, Files, Protection, Constants, Backup, Device, Driver, Agent (MCP), Heat Pump](images/dashboard-menu.png)
 
 The **Heat Pump** page is described in the [README](../README.md#heat-pump-page-tuya-wi-fi-heat-pump) and in [Heat pump (Tuya, local)](heat-pump.md). Screenshots on this page: 8 Nov 2026, d#122.
@@ -69,6 +90,23 @@ Tab **Payback** (d#148; model `48 Payback model.js`, page `49 Payback page.html`
 Model: all loads are behind the MultiPlus, so the AC load is what the house would import without the system (there is no export). Peak = average of the 3 highest billable hours on 3 different days, night 22–06 at the night factor (70 %). The current month counts as far as it has run. One fixed energy price is used (no hourly spot prices in the data). Not counted: backup power during outages.
 
 Settings on the page (stored in `grid-control-config/payback.json`): equipment list in EUR, EUR → NOK, energy price, grid energy charge day / night, night factor, capacity step prices. Defaults: the owner's equipment (inverter 700, Cerbo GX 300, shunts 2 × 70, battery 1000, wires and cabinet 500, solar panels 350 EUR), Elvenett household tariff 2026 (steps 160 / 233 / 331 / 496 / 638 / 803 … kr per month, grid energy 35.16 / 16.41 øre/kWh day / night incl. taxes) — check them against elvenett.no.
+
+#### Elvenett statistics and historical capacity comparison
+
+`tools\elvenett-statistics.js` is a dependency-free Node.js CLI (Node 18+; tested with Node 24). It reads the authenticated self-service API, even when the Flutter analysis UI is blank. It exports all available hours since the selected electricity contract started, monthly official capacity, night-adjusted hourly peaks, tariff history, costs including VAT, settled billing components, hourly spot prices and grid export where the meter supports it. Raw responses are retained separately; missing provider series and HTTP errors are labelled, never substituted with zero.
+
+Keep the session and both exports private, outside git (for example `.secrets\`). The session JSON contains `origin` (`https://nett.elvenett.no`), `realm` (`Dso`), `customerId`, `deliveryPointId`, and `token` (the current access token, without `Bearer `). Obtain it from your signed-in Edge session; never put a token in a command argument, source file or documentation. The CLI only sends it to Elvenett, refuses redirects, and reports expired authentication. It does not store or refresh a password.
+
+```powershell
+node tools\elvenett-statistics.js fetch --session .secrets\elvenett-session.json --raw .secrets\elvenett-raw.json --output .secrets\elvenett-statistics.json
+node tools\elvenett-statistics.js read --raw .secrets\elvenett-raw.json --output .secrets\elvenett-statistics.json
+```
+
+Optional `--from 2026-09 --to 2026-11` selects September and October; **`--to` is exclusive**. Without dates, the current month is partial and the latest meter data may lag behind today's date. Oslo calendar boundaries include DST: October 2026 has 745 hours, and the repeated 02:00 readings remain separate.
+
+Copy the compact `elvenett-statistics.json` (not the session/token or raw archive) to `/data/home/nodered/grid-control-config/elvenett-statistics.json` on the GX, readable by `nodered`, then click **Read the data again** on Payback. The new table compares official capacity and grid energy against the previous calendar month and the same month last year, and against the overlapping local GX peaks. Expand the details for three distinct daily peaks, quality/coverage, signed costs, prices and settled bill components. The raw archive contains the complete original statistics for offline CLI reads.
+
+Important: `/peak-power` hourly values **already include `effectFactor`** (night 0.7). Do not apply it again. Official monthly capacity is authoritative; the independent top-three calculation is shown alongside it. Tariff/spot API prices are shown as returned, without assuming VAT inclusion. Signed costs/credits and Norgespris adjustments are preserved. Billing rows are joined by their own `period`, which can be earlier than the requested month. Historical consumption is not a no-battery counterfactual: imported data does **not** change or inflate the existing payback savings.
 
 ### Devices — every device and sensor online
 

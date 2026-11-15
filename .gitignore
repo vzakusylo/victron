@@ -6,3 +6,6 @@ HANDOFF.md
 
 # Local secrets (Tuya local keys etc.)
 .secrets/
+
+# Cloud chat handoff (private: IPs, bills)
+HANDOFF-CLOUD.md

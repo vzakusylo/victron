@@ -51,6 +51,7 @@
 <div class="pb" ng-init="pbInit()">
   <div class="pb-title">Payback</div>
   <div class="pb-sub">What the battery, inverter, solar panels and the controller have saved since the energy history starts ({{m.firstDay || '…'}}, {{m.daysCovered || 0}} days of data), and what is left until the equipment is paid back. Amounts in NOK incl. VAT.</div>
+  <div class="pb-card neg" ng-if="m.error">{{m.error}}</div>
 
   <div ng-if="!m.months" class="pb-card">Reading the energy history…</div>
 
@@ -90,6 +91,63 @@
     </div>
 
     <div class="pb-bar"><div class="fill" ng-style="{width: Math.max(0, m.paidPct) + '%'}"></div><div class="lbl">{{m.paidPct}} % paid back</div></div>
+
+    <div class="pb-card">
+      <h3>Elvenett: monthly kapasitet and consumption</h3>
+      <div ng-if="!m.elvenett" class="small">No Elvenett import yet. Run <code>node tools\elvenett-statistics.js fetch --session SESSION --raw RAW --output elvenett-statistics.json</code> and place the output in <code>grid-control-config/elvenett-statistics.json</code>. Then read the data again.</div>
+      <div ng-if="m.elvenett">
+        <div class="small">Imported {{m.elvenett.updated | date:'dd.MM.yyyy HH:mm'}}; {{m.elvenett.hours}} metered hours. Timezone: Europe/Oslo. Official kapasitet is already night-adjusted; it is not multiplied by 70 % again. Missing data is shown as a dash.</div>
+        <div class="pb-scroll" style="margin-top:8px;">
+          <table>
+            <tr><th>Month</th><th>Hours / expected</th><th>Grid kWh</th><th>Day / night kWh</th><th>Raw max kW</th><th>Official / top-3 kW</th><th>Step</th><th>Capacity change kW</th><th>Energy change %</th><th>Same month last year %</th><th>GX with / without kW</th><th>Elvenett minus GX kW</th></tr>
+            <tr ng-repeat="r in m.elvenett.months track by r.month">
+              <td>{{r.month}}<span ng-if="!r.complete" class="small"> · partial</span></td>
+              <td>{{r.hours}} / {{decimal(r.expectedHours)}}</td>
+              <td>{{decimal(r.gridKWh)}}</td><td>{{decimal(r.dayKWh)}} / {{decimal(r.nightKWh)}}</td>
+              <td>{{decimal(r.maxRawKW)}}</td><td>{{decimal(r.capacityKW)}} / {{decimal(r.computedCapacityKW)}}</td>
+              <td>{{r.tier ? r.tier.step : '–'}}</td>
+              <td ng-class="sign(-r.capacityChangeKW)">{{decimal(r.capacityChangeKW)}}</td>
+              <td>{{decimal(r.energyChangePct)}}</td><td>{{decimal(r.yearEnergyChangePct)}}</td>
+              <td>{{decimal(r.localKW)}} / {{decimal(r.localWithoutKW)}}</td><td>{{decimal(r.differenceKW)}}</td>
+            </tr>
+          </table>
+        </div>
+        <div class="small" style="margin-top:6px;">Changes compare the preceding calendar month; energy percentages require two complete months. Historical meter data is not a no-battery counterfactual and is not added to the payback savings. GX peaks can differ because of CT measurement and incomplete local history.</div>
+        <details style="margin-top:8px;">
+          <summary>Top-three daily peaks, prices and data quality</summary>
+          <div class="pb-scroll"><table>
+            <tr><th>Month</th><th>Top-three hours (local; adjusted / raw kW)</th><th>Tariff API price</th><th>Spot avg / min / max</th><th>API cost / incl. VAT</th><th>Exported kWh</th><th>Meter quality</th></tr>
+            <tr ng-repeat="r in m.elvenett.months track by r.month">
+              <td>{{r.month}}</td>
+              <td><div ng-repeat="p in r.top3 track by p.at">{{p.local}}: {{decimal(p.capacityKW)}} / {{decimal(p.rawKW)}} (factor {{p.effectFactor}})</div></td>
+              <td>{{decimal(r.tier ? r.tier.price : null)}}</td>
+              <td>{{decimal(r.spotAvg)}} / {{decimal(r.spotMin)}} / {{decimal(r.spotMax)}}</td>
+              <td>{{decimal(r.cost)}} / {{decimal(r.costIncludingVat)}}</td>
+              <td>{{decimal(r.productionKWh)}}</td><td><div ng-repeat="(quality, hours) in r.quality">{{quality}}: {{hours}} h</div></td>
+            </tr>
+          </table></div>
+          <div class="small">Prices and signed costs are exactly the API values in NOK; tariff and spot prices are not labelled VAT-inclusive by the API. Costs may include credits/Norgespris adjustments and are not a final supplier invoice. Export is not the GX solar production.</div>
+        </details>
+        <details style="margin-top:8px;">
+          <summary>Settled billing statistics</summary>
+          <div class="pb-scroll"><table>
+            <tr><th>Billing period</th><th>Net consumption kWh</th><th>Net / VAT</th><th>Energy / VAT</th><th>Consumption tax / VAT</th><th>Other / VAT</th><th>Total / VAT</th><th>Settled</th></tr>
+            <tr ng-repeat="e in m.elvenett.expensePeriods track by e.period">
+              <td>{{e.period}}</td><td>{{e.netConsumptionUnit === 'WattHours' && e.netConsumptionMuliplier === 'Kilo' ? decimal(e.netConsumption) : '–'}}</td>
+              <td>{{decimal(e.netExpenses)}} / {{decimal(e.netExpensesVat)}}</td><td>{{decimal(e.energyExpenses)}} / {{decimal(e.energyExpensesVat)}}</td>
+              <td>{{decimal(e.consumptionTax)}} / {{decimal(e.consumptionTaxVat)}}</td><td>{{decimal(e.otherExpenses)}} / {{decimal(e.otherExpensesVat)}}</td>
+              <td>{{decimal(e.totalExpenses)}} / {{decimal(e.totalExpensesVat)}}</td><td>{{e.isTotalExpensesSettled ? 'yes' : 'no'}}</td>
+            </tr>
+          </table></div>
+          <div class="small">Joined by the API billing period, not by the month requested. The latest consumption month may not yet have a settled bill.</div>
+        </details>
+        <details ng-if="m.elvenett.warnings.length" style="margin-top:8px;">
+          <summary>Provider data warnings ({{m.elvenett.warnings.length}})</summary>
+          <div class="small" ng-repeat="warning in m.elvenett.warnings track by $index">{{warning}}</div>
+        </details>
+        <div class="small neg" ng-repeat="r in m.elvenett.months track by r.month"><div ng-repeat="error in r.errors track by $index">{{r.month}}: {{error}}</div></div>
+      </div>
+    </div>
 
     <div class="pb-card">
       <h3>By month</h3>
@@ -169,6 +227,9 @@
         return Number(v).toLocaleString('nb-NO', { maximumFractionDigits: 0 });
     };
     scope.sign = function(v) { return v > 0 ? 'pos' : (v < 0 ? 'neg' : ''); };
+    scope.decimal = function(v) {
+        return v === null || v === undefined || !isFinite(v) ? '–' : Number(v).toLocaleString('nb-NO', { maximumFractionDigits: 3 });
+    };
     scope.pct = function(f) { return Math.round((Number(f) || 0) * 100); };
     scope.sumEur = function() {
         return (scope.form && scope.form.items || []).reduce(function(s, it) { return s + (Number(it.eur) || 0); }, 0);

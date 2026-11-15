@@ -55,6 +55,20 @@ $key = "$HOME\.ssh\<gx-key-file>"
 
 ### 1. Commit and push first
 
+**Owner-requested exception:** when the owner explicitly asks for no commit or
+push, `tools/gx/deploy-local.js` can prepare a self-contained work-tree plan:
+`node tools/gx/deploy-local.js --prepare LIVE.b64 PLAN.json`.
+Transfer the script and plan to the GX, run `node deploy-local.js PLAN.json`
+for a dry run, then `DRY=0 node deploy-local.js PLAN.json` only in a safe window.
+This route checks the snapshot revision, file/code hashes and live wiring,
+backs up the flow, credentials and replaced files, preserves all untouched
+devices/automations and verifies the result. It labels the UI as
+`local:<SHA-256>` rather than inventing a Git commit. The plan includes the
+compact Elvenett import, never the session token or raw account archive.
+The Dashboard 3.6.6 bootstrap patch waits for the sidenav registration and
+restores its missing loading view; a package upgrade can overwrite these assets.
+The normal pushed-commit procedure below remains the default.
+
 A deploy is always from a pushed commit: the GX downloads it by SHA and the label on the dashboard names it.
 
 ```powershell

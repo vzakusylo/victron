@@ -41,6 +41,7 @@
 
 const LOG_DIR = '/data/home/nodered/grid-control-logs';
 const CFG_FILE = '/data/home/nodered/grid-control-config/payback.json';
+const ELVENETT_FILE = '/data/home/nodered/grid-control-config/elvenett-statistics.json';
 
 // Defaults: equipment from the owner (EUR); Elvenett household tariff 2026 incl. VAT (verify on
 // elvenett.no and change on the page when the prices change).
@@ -72,6 +73,7 @@ function readCmd() {
     return shellQuote([
         'cd ' + LOG_DIR + ' || exit 0',
         'echo "@@CFG"; cat ' + CFG_FILE + ' 2>/dev/null; echo',
+        'echo "@@ELV"; if [ -f ' + ELVENETT_FILE + ' ]; then cat ' + ELVENETT_FILE + '; fi; echo',
         'for f in energy-????-??.csv; do [ -f "$f" ] && { echo "@@CSV $f"; cat "$f"; }; done',
         'for f in energy-????-??-??.log; do [ -f "$f" ] && { echo "@@LOG $f"; cat "$f"; }; done',
         'echo "@@END"'
@@ -103,13 +105,14 @@ function cleanSettings(s) {
 // stdout -> { cfg, hours: { 'YYYY-MM-DD HH': { grid, ac, sol, bill|null } } }
 function parse(text) {
     const hours = {};
-    let cfg = null, mode = '', cfgText = '';
+    let cfg = null, mode = '', cfgText = '', elvenettText = '', elvenett = null, error = '';
     for (const line of String(text || '').split(/\r?\n/)) {
         if (line.startsWith('@@')) {
             mode = line.slice(2, 5);
             continue;
         }
         if (mode === 'CFG') { cfgText += line; continue; }
+        if (mode === 'ELV') { elvenettText += line; continue; }
         if (mode === 'CSV') {
             const p = line.split(',');
             if (!/^\d{4}-\d{2}-\d{2} \d{2}$/.test(p[0] || '')) continue;
@@ -123,7 +126,27 @@ function parse(text) {
     if (cfgText.trim()) {
         try { cfg = JSON.parse(cfgText); } catch (e) { cfg = null; }
     }
-    return { cfg, hours };
+    if (elvenettText.trim()) {
+        try {
+            elvenett = JSON.parse(elvenettText);
+            if (elvenett.schemaVersion !== 1 || elvenett.source !== 'https://nett.elvenett.no' || !Array.isArray(elvenett.months)) {
+                throw new Error('unsupported statistics format');
+            }
+            const seen = {};
+            for (const m of elvenett.months) {
+                if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m.month) || seen[m.month] || !Array.isArray(m.top3)) throw new Error('invalid or duplicate statistics month');
+                seen[m.month] = true;
+                for (const key of ['gridKWh', 'capacityKW', 'computedCapacityKW', 'hours', 'expectedHours']) {
+                    if (m[key] !== null && (typeof m[key] !== 'number' || !Number.isFinite(m[key]))) throw new Error('invalid ' + key);
+                }
+            }
+        } catch (e) {
+            elvenett = null;
+            error = 'Cannot read Elvenett statistics: ' + e.message;
+            node.warn(error);
+        }
+    }
+    return { cfg, hours, elvenett, error };
 }
 
 function tierOf(kw, st) {
@@ -204,10 +227,23 @@ function compute(hours, st, nowTs) {
 
 function model(st, nowTs, error) {
     const hours = context.get('hours') || {};
+    const calculated = compute(hours, st, nowTs);
+    const imported = context.get('elvenett');
+    const elvenett = imported ? Object.assign({}, imported, {
+        months: imported.months.map((r) => {
+            const local = calculated.months.find((m) => m.month === r.month);
+            return Object.assign({}, r, {
+                localKW: local ? local.kwWith : null,
+                localWithoutKW: local ? local.kwWithout : null,
+                localGridKWh: local ? local.gridKWh : null,
+                differenceKW: local && r.capacityKW !== null ? r2(r.capacityKW - local.kwWith) : null
+            });
+        })
+    }) : null;
     return {
         topic: 'model',
-        payload: Object.assign({ settings: st, defaults: DEFAULTS, error: error || '', updated: new Date(nowTs).toISOString(), hoursCount: Object.keys(hours).length },
-            compute(hours, st, nowTs))
+        payload: Object.assign({ settings: st, defaults: DEFAULTS, error: error || context.get('elvenettError') || '',
+            elvenett, updated: new Date(nowTs).toISOString(), hoursCount: Object.keys(hours).length }, calculated)
     };
 }
 
@@ -217,6 +253,8 @@ const action = msg.topic === 'ui' && msg.payload ? String(msg.payload.action || 
 if (msg.topic === 'read') {
     const p = parse(msg.payload);
     context.set('hours', p.hours);
+    context.set('elvenett', p.elvenett);
+    context.set('elvenettError', p.error);
     const st = cleanSettings(p.cfg || context.get('settings') || DEFAULTS);
     context.set('settings', st);
     node.status({ fill: 'green', shape: 'dot', text: Object.keys(p.hours).length + ' h of data, ' + new Date(nowTs).toTimeString().slice(0, 5) });

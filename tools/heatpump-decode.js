@@ -25,6 +25,32 @@ const NAMES = {
     'pw': 'heatpump_w'   // SA1 power meter, decoded (d#121); raw meter DPs are `m<dp>`
 };
 
+function* decode(text, file = 'heat pump data') {
+    let cols = null, date = null, hour = null, last = [];
+    for (const line of String(text).split(/\r?\n/)) {
+        if (!line) continue;
+        if (line.startsWith('#hp1 ')) {
+            const m = line.match(/^#hp1 (\d{4}-\d{2}-\d{2}) (\d{2}) cols=(.*)$/);
+            if (!m) throw new Error(file + ': bad header: ' + line);
+            [, date, hour] = m;
+            cols = m[3].split(',');
+            last = new Array(cols.length).fill('');
+            yield { cols };
+            continue;
+        }
+        if (!cols) throw new Error(file + ': data before header');
+        const cells = line.split(',');
+        for (let i = 1; i < cols.length; i++) if (cells[i] !== undefined && cells[i] !== '') last[i] = cells[i];
+        const t = Number(cells[0]);
+        if (!Number.isFinite(t) || t < 0 || t >= 3600) throw new Error(file + ': invalid sample time');
+        const mm = String(Math.floor(t / 60)).padStart(2, '0'), ss = String(t % 60).padStart(2, '0');
+        yield { cols, time: `${date} ${hour}:${mm}:${ss}`, sec: Number(hour) * 3600 + t,
+            values: Object.fromEntries(cols.slice(1).map((c, i) => [c, last[i + 1]])), cells: last.slice(1) };
+    }
+}
+module.exports = { decode, NAMES };
+
+if (require.main === module) {
 const args = process.argv.slice(2);
 const useNames = args.includes('--names');
 const files = args.filter((a) => a !== '--names');
@@ -39,33 +65,16 @@ for (const file of files) {
     if (file.endsWith('.gz')) text = zlib.gunzipSync(text);
     text = text.toString('utf8');
 
-    let cols = null;
-    let date = null;
-    let hour = null;
-    let last = [];
-    for (const line of text.split(/\r?\n/)) {
-        if (!line) continue;
-        if (line.startsWith('#hp1 ')) {
-            const m = line.match(/^#hp1 (\d{4}-\d{2}-\d{2}) (\d{2}) cols=(.*)$/);
-            if (!m) throw new Error(file + ': bad header: ' + line);
-            [, date, hour] = m;
-            cols = m[3].split(',');
-            last = new Array(cols.length).fill('');
-            const header = ['time'].concat(cols.slice(1).map((c) => (useNames && NAMES[c] ? NAMES[c] : c))).join(',');
+    for (const row of decode(text, file)) {
+        if (!row.time) {
+            const header = ['time'].concat(row.cols.slice(1).map((c) => (useNames && NAMES[c] ? NAMES[c] : c))).join(',');
             if (header !== printedHeader) {
                 process.stdout.write(header + '\n');
                 printedHeader = header;
             }
             continue;
         }
-        if (!cols) throw new Error(file + ': data before header');
-        const cells = line.split(',');
-        for (let i = 1; i < cols.length; i++) {
-            if (cells[i] !== undefined && cells[i] !== '') last[i] = cells[i];
-        }
-        const t = Number(cells[0]);
-        const mm = String(Math.floor(t / 60)).padStart(2, '0');
-        const ss = String(t % 60).padStart(2, '0');
-        process.stdout.write([`${date} ${hour}:${mm}:${ss}`].concat(last.slice(1)).join(',') + '\n');
+        process.stdout.write([row.time].concat(row.cells).join(',') + '\n');
     }
+}
 }
