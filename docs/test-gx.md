@@ -61,6 +61,7 @@ Pieces, to run separately:
 The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapshot differs from the image in exactly those nodes. `<name>.map.json` lists the pairs, so `--live` can replace the originals in the live snapshot with the fakes before comparing (never the other way round). With the map, an exact copy gives 0 DIFF; without `--map` a WARN says that DIFF on rewritten nodes is expected.
 
 - The map is **secret** (it holds the originals). It is written next to the sanitized tree, never inside it, so it never reaches the Docker build context, and never inside the repository. The report and the console show counts per kind only.
+- If sanitization stops (`STOPPED` or `FAILED`), do not use the output; remove `$out` and the adjacent `<name>.map.json` before retrying.
 - `live-snapshot.js` hashes node config into `rest`, which cannot be rewritten. Take the snapshot with `node - --raw` (as `test-gx-refresh.ps1 -GxHost` does): it adds the config text of each node, so the map can be applied and the hash recomputed. That `live.b64` holds real ids: keep it outside the repository.
 - WARN `not in map`: ids, addresses or e-mails in the live code that are neither in the map nor already in the image. A device or setting was added on the GX after the backup: take a new backup.
 - WARN `without restJson`: the snapshot was taken without `--raw`; config of rewritten nodes will differ.

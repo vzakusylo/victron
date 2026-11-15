@@ -35,7 +35,7 @@ function build() {
     const out = path.join(root, 'sanitized', 'fake-backup');
     fs.mkdirSync(path.dirname(out));
     const run = spawnSync(process.execPath, [path.join(__dirname, '..', 'tools', 'test-gx', 'sanitize-backup.js'), tarball, out, '--no-logs'], { encoding: 'utf8' });
-    return { root, out, run, mapFile: out + '.map.json' };
+    return { root, out, backup: tarball, run, mapFile: out + '.map.json' };
 }
 
 test('sanitizer writes the map beside the tree, never inside it, and the report has counts only', () => {
@@ -89,4 +89,18 @@ test('a snapshot without --raw is flagged: its config hashes cannot be mapped', 
 
 test('a file that is not a map is rejected', () => {
     assert.throws(() => parseMap('{"pairs":[]}'), /not a test-gx-map-v1 file/);
+});
+
+test('sanitizer refuses a foreign map before deleting the existing output tree', () => {
+    const { root, out, backup, mapFile } = build();
+    try {
+        assert.ok(fs.existsSync(path.join(out, 'nodered', '.node-red', 'flows.json')));
+        const flows = fs.readFileSync(path.join(out, 'nodered', '.node-red', 'flows.json'), 'utf8');
+        fs.writeFileSync(mapFile, '{"format":"someone-elses-file"}');
+        const refused = spawnSync(process.execPath, [path.join(__dirname, '..', 'tools', 'test-gx', 'sanitize-backup.js'), backup, out, '--no-logs'], { encoding: 'utf8' });
+        assert.strictEqual(refused.status, 64);
+        assert.match(refused.stderr, /refusing to overwrite/);
+        assert.strictEqual(fs.readFileSync(path.join(out, 'nodered', '.node-red', 'flows.json'), 'utf8'), flows);
+        assert.strictEqual(fs.readFileSync(mapFile, 'utf8'), '{"format":"someone-elses-file"}');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
