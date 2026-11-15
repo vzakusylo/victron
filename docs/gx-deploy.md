@@ -216,6 +216,14 @@ only in the repository (0)
 
 The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with different code. Compare the code.
 
+## GitHub Actions
+
+After the code commit is on `master`, run **Actions → Deploy GX code**. The workflow is manual-only and defaults to `dry-run`. It pins the deployment to the run's `GITHUB_SHA`, even if `master` advances while awaiting approval. Select `apply` only after reviewing a dry-run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` environment approval is still required.
+
+The job summary and artifact contain only validated commit IDs, the run outcome and comparison counts. Full snapshots, node code, live labels, node IDs and raw compare/deploy/verify reports are **not uploaded**: this repository is public. For detailed reports, use the local runner instead. The workflow allows 60 minutes, including up to 30 minutes waiting for a safe deployment window.
+
+Configure these repository or `victron-gx` environment secrets before running it: `GX_SSH_HOST` (`root@<gx-tailscale-host>`), `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, and `TS_OAUTH_SECRET`. The workflow runs only from `master`; the environment should also restrict deployments to `master` and require its configured reviewer.
+
 ## What the deploy script checks
 
 In this order; the first failure stops it before anything is written.
