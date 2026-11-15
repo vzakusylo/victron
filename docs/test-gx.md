@@ -8,7 +8,8 @@ A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RE
 | `/data/home/nodered/...` files (`tools/`, `grid-control-config/`, logs) | Copied from a **sanitized** GX backup | Yes, secrets replaced by fakes |
 | SSH as `root`, admin API | sshd in the same container | Yes, `tools/gx/*` and `scripts/gx-*.ps1` run unchanged |
 | Victron D-Bus services | [`victronenergy/venus-docker`](https://github.com/victronenergy/venus-docker), simulation `e` (MultiPlus + BMV) | Partly: demo values, other device instances |
-| Tuya devices, Qingping, solar forecast | Not connected | No (step B) |
+| Qingping MQTT | Internal Mosquitto + emulator `/mqtt` publications | Real MQTT and flow parsing; synthetic readings |
+| Tuya devices, solar forecast | Not connected | No (later step B) |
 | Real hardware, ARM specifics | Not available | No |
 
 It proves that the flow loads, function nodes run, the dashboard renders and the deploy chain (`live-snapshot` → `compare` → `deploy` → `verify`) works. It does **not** prove that the inverter or battery react correctly: that is still checked on the real GX with the monitor.
@@ -50,7 +51,7 @@ Pieces, to run separately:
 
 | Script | What it does |
 |---|---|
-| `up.ps1 -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts both |
+| `up.ps1 -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts them with an internal Mosquitto broker |
 | `sanitize-backup.js <tar.gz> <outDir> [--days 14] [--no-logs]` | Backup → sanitized tree + `versions.json` + `sanitize-report.json`, and **beside** `<outDir>` the secret `<name>.map.json` (original → fake) |
 | `snapshot-file.js flows.json` | Same snapshot as `tools/gx/live-snapshot.js`, from a file |
 | `compare-image.js --backup <dir> [--live live.b64 [--map <name>.map.json]]` | Table `OK / WARN / DIFF / EXPECTED`, exit 0 / 1 / 2 |
@@ -65,8 +66,9 @@ The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapsh
 - `live-snapshot.js` hashes node config into `rest`, which cannot be rewritten. Take the snapshot with `node - --raw` (as `test-gx-refresh.ps1 -GxHost` does): it adds the config text of each node, so the map can be applied and the hash recomputed. That `live.b64` holds real ids: keep it outside the repository.
 - WARN `not in map`: ids, addresses or e-mails in the live code that are neither in the map nor already in the image. A device or setting was added on the GX after the backup: take a new backup.
 - WARN `without restJson`: the snapshot was taken without `--raw`; config of rewritten nodes will differ.
+- MQTT config is a deliberate test endpoint transform: the sanitizer sets `mqtt-broker` to `mosquitto:1883` without TLS. With `--live --map`, comparison applies the same endpoint transform only for matching broker nodes in the sanitized backup, keeping all other properties checked. MACs in function-code literals are mapped too; colon-separated and compact forms of the same identity receive matching fake MACs.
 
-### Known limitations
+### Sanitizer limitations
 
 - The `replaced N <kind>` count is a count of occurrences: the same value may be counted in both `code` and `restJson`.
 - After `STOPPED`, `sanitize-report.json` still names `<name>.map.json`, although the sanitizer removes that map and does not create it.
@@ -101,7 +103,7 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 - **venus-docker.** Clone with `core.autocrlf=false` (CRLF breaks the `#!` scripts). The HTML5-app stage fails upstream and is removed by `up.ps1`, so the Venus app on `:8080` does not work. D-Bus over TCP is on port 3000; the palette reads it from `NODE_RED_DBUS_ADDRESS=venus:3000`.
 - **Device instances.** The flow expects `com.victronenergy.battery/289` and `vebus/276`. With `-Sim emu` the emulator publishes its own services with exactly these instances; the stock simulator uses others, which gives `DBUS ERROR UnknownObject`, "not found in cache" and `Set error status`. Never change the instance in the flow: the test would no longer match the real GX.
 - **sshd as root.** The Alpine image needs `apk add --upgrade openssh openssh-server bash curl`, an unlocked root account and a key without passphrase. The host key changes with every image, so `~/.ssh/known_hosts_test_gx` is separate and deleted by the refresh script.
-- **One `UnknownObject` at start is expected.** The victron palette reads `/DeviceInstance` on `com.victronenergy.settings` during service discovery and localsettings has no such path (found with `dbus-monitor`). The start-log check accepts one such line per start (the log keeps all starts), only right after "Polling is disabled"; any other `UnknownObject` is reported as an unknown error.
+- **One `UnknownObject` at start is expected.** The victron palette reads `/DeviceInstance` on `com.victronenergy.settings` during service discovery and localsettings has no such path (found with `dbus-monitor`). The start-log check accepts one such line per start (the log keeps all starts), only right after "Polling is disabled", skipping blank lines and the specific successful `mqtt://mosquitto:1883` connection message that can interleave the D-Bus log. Other intervening lines and any other `UnknownObject` are reported as unknown errors.
 - **Emulated identity paths.** Every fake service has `/CustomName`, `/Serial` (`HQEMU0001`) and `/FirmwareVersion` (`0x0510`); vebus has `/VebusError`, battery has `/Dc/0/Temperature`. They feed the Devices page (`dv-exec-01`), so the inventory gives no WARN.
 - **Python D-Bus in the Node-RED image.** The Devices page reads Victron devices with `python3` + `dbus` (`dv-exec-01`). The image installs `py3-dbus` and sets `DBUS_SYSTEM_BUS_ADDRESS=tcp:host=venus,port=3000`; without them the page shows "python dbus module: No module named 'dbus'" instead of the Victron devices. Dashboard tab numbers in the URL (`/ui/#!/<n>`) do not match the `ui_tab` order in `/flows`: Devices is `#!/13`.
 - **Restart order.** Node-RED must start after the simulator is up, otherwise the palette finds no services. The venus healthcheck (`emulator/healthcheck.sh`) passes only when the emulator API answers, which happens after all fake services are registered. Node-RED does not reconnect to a restarted simulator (`ServiceUnknown`): restart both, `docker compose -p test-gx restart venus nodered`. Until the emulator is ready both GET and POST answer 503; it is ready when the signal of its own startup write arrives (that write never shows in `/writes`), or after 10 s with `ready by timeout, startup write signal not seen` in its log. If the signal arrives after that timeout, the `-1` write to `MaxChargeCurrent` does appear in `/writes` (a rare, accepted trade-off) and the log says `late startup signal recorded as write`. `EMU_READY_DELAY=<s>` holds it in 503 for a test; `tools\test-gx\test-emulator-ready.ps1` uses it to check 503 then 200. It is a manual check (needs Docker): CI runs only `node --test`, so the 503 behaviour is not covered by CI.
@@ -109,6 +111,8 @@ The window check says WAIT until the emulator provides DHW state, valve, bypass 
 ## Clock
 
 The Node-RED image is Alpine 3.18 (musl); its configured repositories do not contain `libfaketime`. The Dockerfile builds upstream `libfaketime` v0.9.13 against musl and keeps only `libfaketimeMT.so.1`. The entrypoint enables it only when `TEST_GX_FAKETIME` is non-empty. In that case Node-RED receives `FAKETIME=<value>`, `LD_PRELOAD=/usr/local/lib/faketime/libfaketimeMT.so.1` and `FAKETIME_DONT_FAKE_MONOTONIC=1`. Without the variable it runs on real time. Venus and the D-Bus emulator are separate containers and remain on real time.
+
+SSH processes use real time because sshd starts before the preload is exported; use `verify.js` cautiously under faketime, as its "since deploy" log filter compares different clocks. The smoke script leaves `TEST_GX_FAKETIME` in the calling shell: after success or failure, run `Remove-Item Env:TEST_GX_FAKETIME -ErrorAction SilentlyContinue` before a real-time `up.ps1` run (the existing container stays on fake time until recreated). The library is pinned to a release tag, not an immutable commit SHA; tag rewriting remains a reproducibility limitation. Probe cleanup failures can mask the original smoke-check error.
 
 Use the manual smoke script; it rebuilds the test GX from a sanitized backup and removes the test volume:
 
@@ -160,18 +164,50 @@ These are manual checks, not CI coverage. The temporary probe must use `POST /fl
 | A6 `test-gx-refresh.ps1` | done |
 | B1 test-GX image, D-Bus emulator, inventory and live comparison | done |
 | B2 `libfaketime` clock smoke test | done; `Date`, delay, cron, DST and month rollover checked; midnight cleanup is intentionally disabled since d#97 |
-| B3 MQTT, forecast, Tuya and automated scenarios | planned |
+| B3 Qingping MQTT | done; internal broker and emulator `/mqtt`, real Air quality dashboard verified |
+| B4 forecast, Tuya and automated scenarios | planned |
+
+## Qingping MQTT
+
+Compose runs `eclipse-mosquitto:2.0.22` with no host port and an explicit anonymous listener inside the test network. Node-RED and the emulator start only after the broker is healthy. The sanitizer redirects MQTT broker config to `mosquitto:1883`; rerun refresh for older sanitized trees.
+
+Publish through `POST http://127.0.0.1:8081/mqtt`. Only `qingping/<fake MAC>/up` topics with a `02:00` prefix (colon-separated or compact) are accepted; wildcards, real MACs, non-object payloads and mismatching payload MACs give HTTP 400. Payloads are limited to 256 KiB. HTTP 200 means a QoS 1 broker acknowledgement, not that the dashboard rendered; connection/publication failures return 503 and are logged. Publications are not retained.
+
+Use the fake MAC from the adjacent secret map locally, never copy the map into the image or repository:
+
+```powershell
+$map = Get-Content 'C:\learn\test-gx-data\sanitized\<name>.map.json' -Raw | ConvertFrom-Json
+# Select the entry for Qingping's compact MAC from the live Devices model.
+$mac = ($map.pairs | Where-Object { $_.kind -eq 'mac' -and $_.from -eq '<original compact MAC>' }).to
+$body = @{
+  topic = "qingping/$mac/up"
+  payload = @{
+    type = 12; mac = $mac; timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    sensorData = @(@{
+      co2 = @{ value = 678 }; pm25 = @{ value = 4.5 }; pm10 = @{ value = 8.2 }
+      tvoc = @{ value = 99 }; temperature = @{ value = 22.4 }; humidity = @{ value = 46.7 }
+    })
+  }
+} | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Method Post 'http://127.0.0.1:8081/mqtt' -ContentType 'application/json' -Body $body
+```
+
+In Edge, Air quality (`/ui/#!/14` for the current backup) displayed all six published values; the flow also appended the reading to its daily air CSV. Node tests cover MAC mapping, the MQTT endpoint transform and publisher validation/acknowledgement failures without Docker (Python 3 is needed: `py` on Windows, `python3` on Linux). Broker-failure/recovery and image comparison are manual Docker checks.
+
+The inventory marks `qingping/+/up` as emulated and rejects new MQTT input topics until a publisher covers them. Manual checks confirmed HTTP 400 for a wildcard topic, 503 with Mosquitto stopped, and successful publication after recovery. Image comparison gave 0 DIFF; fresh refresh and paired Venus/Node-RED restart warned only about the palette patch mismatch. A longer run also warned about runtime changes in `compressor-resource.json`. Click Refresh on Air quality to read newly appended samples.
 
 ## Next: sensor scenarios and runner
 
-Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory and `/writes` emulator are already implemented; MQTT, forecast fixtures, the Tuya stub and automated scenarios remain.
+Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory, `/writes` and Qingping `/mqtt` are implemented; forecast fixtures, the Tuya stub and automated scenarios remain.
 
 1. **Inventory** (`inventory.js`): generated from `flows.json` (Victron D-Bus: 7 inputs, 4 outputs; 4 Tuya devices; Tuya cloud scripts; Qingping MQTT; solar forecast HTTP; 29 inject nodes). Exec nodes are classified by `command` plus the function node feeding them: `tuya-*.js` sensor scripts (planned), `send-mail.js` (stub), local file/shell work (`exec:local`, explicit tool list), `dbus` calls (checked as service + path pairs against `emulator.py`). The Devices model reader (`dv-exec-01`) is a tolerant reader: its COMMON/TYPE path tables are checked too, but a path the emulator lacks is only a WARN because the script returns null for it. Pairs the emulator lacks must be listed in `PLANNED_DBUS` (now the BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`); an exec that fits no category (for example one calling the network), a Victron node without a path, a `settings` path not in the localsettings list, or an unknown node type fails CI.
-2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`):
+2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`, `/mqtt`):
    - Victron D-Bus: fake services (`system`, `battery` instance 289, `vebus` 276, `settings`) with simple physics; every write the flow makes is recorded.
    - Tuya: local-protocol stub; fallback: a test-image transform that replaces each Tuya node by an MQTT pair with the same id and wires.
-   - Qingping via mosquitto, solar forecast from fixtures, scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
+   - Qingping via internal mosquitto and `/mqtt` (done); solar forecast from fixtures (planned), scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
 3. **Scenarios** (`scenarios/*.yml`): initial state, steps, expectations, plus rules that hold all the time (grid limit, current limit, at most N writes per minute). Areas: tariff, battery, solar, DHW and shower, sensor failures, midnight, DST, month change, dashboard console errors.
 4. **Runner**: runs all scenarios and writes a JUnit report. Every change passes the scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
 Risks: business behavior at DST/month-end needs scenario assertions; the Tuya protocol stub may be costly; the victron palette may need D-Bus paths that the emulator lacks.
+
+Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the complete test-GX work, not the MQTT step.

@@ -73,10 +73,21 @@ function applyMap(snap, pairs, baseline) {
         out.code = {};
         for (const [field, value] of Object.entries(node.code || {})) { out.code[field] = apply(value); seen.push(strip(value)); }
         if (typeof node.restJson === 'string') {
-            const mapped = stable(mapDeep(JSON.parse(node.restJson), apply));
+            const sourceRest = JSON.parse(node.restJson);
+            const rest = mapDeep(sourceRest, apply);
+            const imageNode = baseline && baseline.nodes.find((n) => n.id === node.id);
+            if (node.type === 'mqtt-broker' && imageNode && typeof imageNode.restJson === 'string'
+                && JSON.parse(imageNode.restJson).broker === 'mosquitto') {
+                rest.broker = 'mosquitto';
+                rest.port = '1883';
+                rest.usetls = false;
+                rest.tls = '';
+                sourceRest.broker = '';
+            }
+            const mapped = stable(rest);
             out.rest = crypto.createHash('sha1').update(mapped).digest('hex').slice(0, 12);
             out.restJson = mapped;
-            seen.push(strip(node.restJson));
+            seen.push(strip(stable(sourceRest)));
         } else restMissing++;
         if (typeof out.name === 'string') out.name = apply(out.name);
         return out;

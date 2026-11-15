@@ -87,7 +87,7 @@ async function main() {
 
     // 1. flow: image (same live-snapshot.js as for the real GX) against the backup
     const imageSnap = decodeSnapshot(ssh('tr -d "\\r" | node -', fs.readFileSync(path.join(__dirname, '..', 'gx', 'live-snapshot.js'), 'utf8')));
-    const backupSnap = snapshot(JSON.parse(fs.readFileSync(flowsFile, 'utf8')));
+    const backupSnap = snapshot(JSON.parse(fs.readFileSync(flowsFile, 'utf8')), undefined, { raw: true });
     classifyFlow('flow: image vs backup', diffSnapshots(imageSnap, backupSnap), EXPECTED_CONFIG_TYPES);
 
     // 2. versions
@@ -153,7 +153,7 @@ async function main() {
         let live = decodeSnapshot(fs.readFileSync(liveFile, 'utf8'));
         const mapFile = opt('--map');
         if (mapFile) {
-            const mapped = applyMap(live, parseMap(fs.readFileSync(mapFile, 'utf8')), imageSnap);
+            const mapped = applyMap(live, parseMap(fs.readFileSync(mapFile, 'utf8')), backupSnap);
             live = mapped.snapshot;
             const counts = (o) => Object.entries(o).map(([k, n]) => n + ' ' + k).join(', ') || 'none';
             add('OK', 'live map', 'replaced ' + counts(mapped.replaced));

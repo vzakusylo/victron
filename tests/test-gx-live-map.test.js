@@ -19,12 +19,12 @@ const FLOW = [
     { id: 'c1', type: 'tuya-config', z: 't1', devices: { [DEVICE]: { ip: IP, notify: MAIL } }, wires: [] },
 ];
 
-function build() {
+function build(flow = FLOW) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-map-'));
     const nr = path.join(root, 'raw', 'data', 'home', 'nodered');
     fs.mkdirSync(path.join(nr, '.node-red'), { recursive: true });
     fs.mkdirSync(path.join(nr, 'grid-control-config'), { recursive: true });
-    fs.writeFileSync(path.join(nr, '.node-red', 'flows.json'), JSON.stringify(FLOW));
+    fs.writeFileSync(path.join(nr, '.node-red', 'flows.json'), JSON.stringify(flow));
     fs.writeFileSync(path.join(nr, '.node-red', 'package.json'), '{"dependencies":{}}');
     fs.writeFileSync(path.join(nr, '.node-red', 'package-lock.json'), '{}');
     fs.writeFileSync(path.join(nr, '.node-red', '.config.nodes.json'), '{"node-red":{"name":"node-red","version":"4.0.0"}}');
@@ -79,6 +79,31 @@ test('a device added on the GX after the backup is reported as not in map', () =
         const image = snapshot([{ id: 'f9', type: 'function', func: "// LAN example 192.168.1.77" }], 'r1');
         const again = applyMap(snapshot(flow, 'r1', { raw: true }), parseMap(fs.readFileSync(mapFile, 'utf8')), image);
         assert.deepStrictEqual(again.unmapped, { id: 1 }, 'a value the image already has unchanged is not new');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Qingping MAC aliases and MQTT test endpoint map consistently without hiding other broker changes', () => {
+    const flow = FLOW.concat([
+        { id: 'air', type: 'function', func: "const AIR = { mac: 'AABBCCDDEEFF' }; // AA:BB:CC:DD:EE:FF" },
+        { id: 'mqtt', type: 'mqtt-broker', broker: '192.168.1.94', port: '8883', usetls: true, tls: 'real-tls', clientid: 'test-client' },
+    ]);
+    const { root, out, run, mapFile } = build(flow);
+    try {
+        assert.strictEqual(run.status, 0, run.stderr);
+        const imageFlow = JSON.parse(fs.readFileSync(path.join(out, 'nodered', '.node-red', 'flows.json'), 'utf8'));
+        const broker = imageFlow.find((n) => n.id === 'mqtt');
+        assert.deepStrictEqual([broker.broker, broker.port, broker.usetls, broker.tls], ['mosquitto', '1883', false, '']);
+        const pairs = parseMap(fs.readFileSync(mapFile, 'utf8'));
+        const macs = pairs.filter((p) => p.kind === 'mac');
+        assert.strictEqual(macs.length, 2);
+        assert.strictEqual(macs[0].to.replace(/:/g, '').toUpperCase(), macs[1].to.replace(/:/g, '').toUpperCase());
+        assert.match(macs[0].to.replace(/:/g, ''), /^0200/i);
+        const baseline = snapshot(imageFlow, 'r1', { raw: true });
+        const mapped = applyMap(snapshot(flow, 'r1', { raw: true }), pairs, baseline);
+        assert.deepStrictEqual(diffSnapshots(mapped.snapshot, baseline), { onlyLive: [], onlyRepo: [], code: [], trailing: [], config: [] });
+        assert.deepStrictEqual(mapped.unmapped, {}, 'the deliberately redirected broker is not a new unmapped device');
+        const changed = flow.map((n) => n.id === 'mqtt' ? { ...n, clientid: 'changed-client' } : n);
+        assert.strictEqual(diffSnapshots(applyMap(snapshot(changed, 'r1', { raw: true }), pairs, baseline).snapshot, baseline).config.length, 1);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

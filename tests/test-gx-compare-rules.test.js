@@ -44,6 +44,23 @@ test('Tuya "Key is missing or incorrect" is expected, counted per line', () => {
     assert.strictEqual(r.known.get('Tuya devices have fake keys'), 2);
 });
 
+test('only a successful internal MQTT connection may interleave D-Bus discovery', () => {
+    const connected = '15 Nov 21:10:21 - [info] [mqtt-broker:GX broker (local)] Connected to broker: mqtt://mosquitto:1883';
+    const r = classifyStartLog([POLL, connected, UNKNOWN, 'Started flows', POLL, connected, UNKNOWN]);
+    assert.deepStrictEqual(r.unknown, []);
+    assert.strictEqual(r.known.get(PALETTE_DISCOVERY), 2);
+    for (const intervening of [
+        connected.replace('mosquitto:1883', '192.168.1.94:1883'),
+        connected.replace('mosquitto:1883', 'other:1883'),
+        connected.replace('[info]', '[error]'),
+        connected.replace('Connected', 'Disconnected'),
+        'some unrelated log line',
+    ]) {
+        assert.ok(classifyStartLog([POLL, intervening, UNKNOWN]).unknown.includes(UNKNOWN));
+    }
+    assert.ok(classifyStartLog([connected, UNKNOWN]).unknown.includes(UNKNOWN), 'MQTT alone is not D-Bus discovery');
+});
+
 test('state files: known names are expected, others stay a warning', () => {
     const r = classifyStateFiles(['grid-control-config/tuya-devices-ver.json', 'grid-control-config/controller-constants.json']);
     assert.deepStrictEqual(r.expected, ['grid-control-config/tuya-devices-ver.json']);

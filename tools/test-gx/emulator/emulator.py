@@ -14,6 +14,7 @@
 #   POST /stale {"path": "battery", "seconds": 900} freeze the values on D-Bus (service stays, data stops changing)
 #   POST /fail  {"path": "battery", "mode": "invalid"|"offline"|"ok"}   invalid values / service disappears / back to normal
 #   POST /reset                       defaults, no faults, no writes
+#   POST /mqtt {"topic": "qingping/<fake mac>/up", "payload": {...}}  QoS 1 to the internal test broker
 import json
 import os
 import sys
@@ -21,6 +22,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from mqtt_publish import publish_message, validate_message
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 import dbus  # noqa: E402
@@ -284,6 +286,13 @@ class Api(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         try:
             body = json.loads(self.rfile.read(length) or b'{}')
+            if self.path == '/mqtt':
+                with lock:
+                    if not ready:
+                        return self._send(503, dict(error='starting'))
+                topic, payload = validate_message(body)
+                publish_message(topic, payload)
+                return self._send(200, dict(ok=True))
             with lock:
                 if not ready:
                     return self._send(503, dict(error='starting'))
@@ -311,6 +320,9 @@ class Api(BaseHTTPRequestHandler):
             self._send(200, dict(ok=True))
         except (KeyError, ValueError, TypeError) as error:
             self._send(400, dict(error=str(error)))
+        except (OSError, RuntimeError) as error:
+            print('MQTT publish failed:', str(error), flush=True)
+            self._send(503, dict(error='MQTT broker unavailable or publication failed'))
 
 
 def main():
