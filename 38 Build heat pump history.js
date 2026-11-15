@@ -92,13 +92,28 @@ function parse(text) {
     let last = null;
     let hpState = 'U';
     let meterState = 'U';
+    let motionSection = false;
     for (const line of String(text).split(/\r?\n/)) {
         if (!line) continue;
         if (line.startsWith('#day ')) {
             const parts = line.split(' ');
             day = parts[1];
-            if (!days[day]) { days[day] = { cached: parts[2] === 'cached', rows: [] }; order.push(day); }
+            if (!days[day]) { days[day] = { cached: parts[2] === 'cached', rows: [], motion: [], motionAvailable: false, motionErrors: 0 }; order.push(day); }
+            motionSection = false;
             idx = null;
+            continue;
+        }
+        if (line.startsWith('#motion ') && day) {
+            motionSection = true;
+            days[day].motionAvailable = line === '#motion available';
+            continue;
+        }
+        if (motionSection) {
+            try {
+                const report = JSON.parse(line);
+                if (!report || !Number.isFinite(report.t) || report.t <= 0 || typeof report.id !== 'string') throw new Error('bad report');
+                days[day].motion.push(report);
+            } catch (e) { days[day].motionErrors++; }
             continue;
         }
         if (line.startsWith('#hp1 ')) {
@@ -371,7 +386,24 @@ if (msg.topic === 'day') {
     if (msg.day < today) { cache[msg.day] = s.stats; }
     flow.set('hpDayCache2', cache);
     node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + d.rows.length + ' samples' });
-    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: chart(d.rows, msg.day === today ? flow.get('dhwView') : null) } };
+    const c = chart(d.rows, msg.day === today ? flow.get('dhwView') : null);
+    const motionId = (flow.get('bathroomMotion') || {}).id || flow.get('motionSensorId');
+    const seen = new Set();
+    const events = d.motion.filter((r) => r.id === motionId && ['local', 'cloud report'].includes(r.source)
+        && r.dps && ['pir', 'none'].includes(r.dps['101'])).sort((a, b) => a.t - b.t).flatMap((r) => {
+        const dt = new Date(r.t);
+        const day = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+        const key = r.t + ':' + r.dps['101'];
+        if (day !== msg.day || seen.has(key)) return [];
+        seen.add(key);
+        const sec = dt.getHours() * 3600 + dt.getMinutes() * 60 + dt.getSeconds();
+        return [{ x: +(c.left + sec / 86400 * (c.right - c.left)).toFixed(2), y: r.dps['101'] === 'pir' ? 20 : 55,
+            motion: r.dps['101'] === 'pir', time: pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds()), source: r.source }];
+    });
+    c.motion = { available: d.motionAvailable, targetKnown: !!motionId, events,
+        count: events.filter((e) => e.motion).length, errors: d.motionErrors };
+    if (d.motionErrors) node.warn('Heat pump motion history: ' + d.motionErrors + ' invalid sensor reports');
+    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: c } };
 }
 
 // summary

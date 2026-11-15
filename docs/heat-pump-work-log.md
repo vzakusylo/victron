@@ -76,6 +76,51 @@ PR #13 (d#156–d#158, branch `claude/telia-air-quality-sensor-ce4875`) and PR #
 
 Not done / open: the dashboard pages were not looked at in a browser; type-17 history messages of the monitor are not acknowledged (`need_ack`), no repeats seen; `tools/tuya-local-poll.js` ARP lookup for the Tuya *Smart air box* (192.168.1.149) is not in any PR (uncommitted in the old worktree `kamilla-linkedin-response-c9070e`, untested); Claude Code Review failed on every PR since 9 Nov, cause not found yet (the temporary `show_full_output` of PR #14 is no longer on master). d#165 (Energy by day on Analytics, solar forecast capped by real output) was merged into this branch by another session (PR #17).
 
+### 2026-11-15: private dashboard backlog (d#183-d#185)
+
+The owner explicitly requested deployment of the uncommitted local pages to the
+GX, without commit, push, general flow deployment or Node-RED restart. The
+hash-checked local runner used selective `nodes` deployment after its safe-window
+check. Automation code, Tuya nodes and credentials were preserved.
+
+| Backlog item | Delivered |
+|---|---|
+| Dashboard JavaScript errors | Restored the missing loading view, waited for Angular Material sidenav registration and corrected the Heat Pump event legend expression. All 16 pages checked in Edge; a fresh private-proxy reload had no console errors. |
+| Toilet motion below Heat Pump power | Real PIR and clear events from the sensor archive, with original timestamps and explicit missing-data states. |
+| GX connector documentation | [Connector](victron-gx-connector.md) and [operational handoff](gx-handoff.md). |
+| All-sensor temperature history | 26 sensor rows, day navigation and motion. Late responses for another day cannot reset the selection. Previous-day rendering confirmed 46 PIR/clear markers and 8,089 temperature points. |
+| Elvenett on Payback | CLI extraction and reading; 69 monthly rows, 49,920 hours and historical capacity comparison. Only the compact statistics were copied to GX, not credentials or the raw account archive. |
+
+Final dashboard source:
+`local:ed58af24446fa458a7642b7596022a857276a8acb16c8b740e540a78c44aaa80`.
+Automation provenance remains `97bd93be46f1b3f2e31a9cc5335e0a388fa0a796`.
+Final pre-update backup:
+`/data/home/nodered/.node-red/backup-2026-11-15T01-55-50-124Z-pre-local`.
+The full regression suite passed 152 tests; live control remained in HEATING,
+master enabled, with a fresh view and no Node-RED errors after the last update.
+No Git commit, push or Git tag was created.
+
+These were separate local builds, not a single deployed jump: d#182 was prepared
+but not deployed; d#183 added the pages and bootstrap fixes (backup
+`backup-2026-11-15T01-43-57-915Z-pre-local`); d#184 added PIR identity discovery
+(`backup-2026-11-15T01-50-05-044Z-pre-local`); d#185 fixed the legend and day
+navigation (final backup above). The subsequent Git commit records d#185 rather
+than reusing a lower version number.
+
+### PR #33 review corrections (d#186, not deployed)
+
+Corrupt archive rows are skipped with visible counts and warnings, and fatal
+read errors preserve day navigation. Archived temperature series are no longer
+recorded twice; additional rows are compact and a daily maintenance command
+retains 400 days of temperature JSONL files. Motion tooltips use Oslo time.
+Payback rejects invalid/duplicate peak timestamps and billing periods before
+Angular sees them. Development documentation now lists sources 57-59 and the
+new tools; Dashboard reinstall/upgrade instructions preserve the patch guards.
+This build changes the reviewed repository only, not the currently deployed GX.
+Follow-up review build d#187 also selects the default history day explicitly in
+Europe/Oslo, including summer/winter midnight when the Node-RED server runs in UTC.
+It has not been deployed to GX.
+
 ## Errors and incidents (8–11 Nov)
 
 Everything that went wrong, in order, with the effect on the house and what was done.

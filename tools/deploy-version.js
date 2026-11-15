@@ -6,9 +6,10 @@ const path = require('path');
 const START = '<!-- victron-deployment-source -->';
 const END = '<!-- /victron-deployment-source -->';
 const SCOPES = ['dashboard', 'automations'];
-const SUFFIX = / \[(?:git [a-f0-9]{12}|UI (?:[a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|unrecorded))\]$/;
+const SUFFIX = / \[(?:git [a-f0-9]{12}|local [a-f0-9]{12}|UI (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\]$/;
 
 function commitSha(value) {
+    if (typeof value === 'string' && /^local:[a-f0-9]{64}$/.test(value)) return value;
     if (typeof value !== 'string' || !/^[a-f0-9]{40}$/i.test(value)) {
         throw new Error('Deployment source must be a full 40-character Git commit SHA.');
     }
@@ -95,9 +96,9 @@ function stampDeployment(input, commits, liveSnapshot) {
         previous = readMetadata(tabInfo(liveTab)).record;
     }
     const record = Object.assign({}, previous, sources);
-    const short = (value) => value === null ? 'unrecorded' : value.slice(0, 12);
+    const short = (value) => value === null ? 'unrecorded' : value.startsWith('local:') ? 'local ' + value.slice(6, 18) : value.slice(0, 12);
     const suffix = record.dashboard && record.dashboard === record.automations
-        ? ' [git ' + short(record.dashboard) + ']'
+        ? ' [' + (record.dashboard.startsWith('local:') ? short(record.dashboard) : 'git ' + short(record.dashboard)) + ']'
         : ' [UI ' + short(record.dashboard) + '; Auto ' + short(record.automations) + ']';
     const label = (value) => value.replace(SUFFIX, '') + suffix;
     tab.label = label(tab.label);

@@ -15,7 +15,7 @@ const crypto = require('crypto');
 
 const CODE_FIELDS = ['func', 'initialize', 'finalize', 'format', 'command'];
 const LAYOUT_FIELDS = ['x', 'y', 'g'];
-const SOURCE_LABEL = / \[(?:git [a-f0-9]{12}|UI (?:[a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|unrecorded))\]$/;
+const SOURCE_LABEL = / \[(?:git [a-f0-9]{12}|local [a-f0-9]{12}|UI (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\]$/;
 
 // Stable JSON: the key order of a node differs between the editor export and the repository file.
 function stable(value) {

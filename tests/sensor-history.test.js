@@ -1,0 +1,248 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs'), os = require('os'), path = require('path');
+const { build, read, prune, validateDay } = require('../tools/sensor-history');
+const { decode } = require('../tools/heatpump-decode');
+const { loadNode } = require('./harness');
+const { prepare } = require('../tools/gx/dashboard-assets');
+const { stampDeployment } = require('../tools/deploy-version');
+const day = '2026-11-12', t = Date.parse('2026-11-12T12:00:00Z');
+const base = '#day ' + day + '\n#hp1 ' + day + ' 13 cols=t,st,102\n0,CCCCCC,30\n30,,,,31\n';
+
+test('toilet chart uses actual PIR/clear reports, not battery wakes, other devices or cached state', () => {
+    const n = loadNode('38 Build heat pump history.js');
+    n.flow.set('bathroomMotion', { id: 'toilet' });
+    const reports = [{ t, id: 'toilet', dps: { 101: 'pir' }, source: 'local' },
+        { t, id: 'toilet', dps: { 101: 'pir' }, source: 'cloud report' },
+        { t: t+1000, id: 'toilet', dps: { 102: 'high' }, source: 'local' },
+        { t: t+2000, id: 'other', dps: { 101: 'pir' }, source: 'local' },
+        { t: t+3000, id: 'toilet', dps: { 101: 'none' }, source: 'cloud report' }];
+    const result = n.run({topic:'day',day,payload:base+'#motion available\n'+reports.map(JSON.stringify).join('\n')+'\nbad JSON'}, {now:t});
+    assert.equal(result.result.payload.chart.motion.count,1);
+    assert.equal(result.result.payload.chart.motion.events.length,2);
+    assert.equal(result.result.payload.chart.motion.errors,1);
+    assert.match(result.warnings[0],/invalid sensor reports/);
+    const missing = n.run({topic:'day',day,payload:base}, {now:t}).result.payload.chart.motion;
+    assert.equal(missing.available,false);
+});
+
+test('temperature recorder rejects stale/future values and does not resample a sleeping sensor', () => {
+    const n = loadNode('58 Record sensor temperatures.js');
+    const sensors = [{key:'room',name:'Room',t,value:21,online:true},
+        {key:'stale',t,value:19,online:false},{key:'future',t:t+10000,value:20,online:true}];
+    const msg = {payload:{temperatureSensors:sensors,updated:new Date(t).toISOString()}};
+    assert.equal(n.run(msg,{now:t}).result[0].length,1);
+    assert.equal(n.run(msg,{now:t+1000}).result[0].length,0);
+});
+
+test('cloud PIR history can identify the sole known motion sensor before a local wake, without guessing among several', () => {
+    const n = loadNode('50 Devices model.js');
+    const meta = {toilet:{name:'Toilet PIR',dps:{101:{code:'pir_state'}}}};
+    const result = n.run({topic:'read',payload:'@@META\n'+JSON.stringify(meta)+'\n@@DBUSJSON {"services":[]}'},{now:t}).result[0].payload;
+    assert.equal(result.motionSensorId,'toilet');
+    assert.equal(n.flow.get('motionSensorId'),'toilet');
+    meta.other = meta.toilet;
+    const ambiguous = n.run({topic:'read',payload:'@@META\n'+JSON.stringify(meta)+'\n@@DBUSJSON {"services":[]}'},{now:t});
+    assert.equal(ambiguous.result[0].payload.motionSensorId,'');
+    assert.match(ambiguous.warnings[0],/multiple PIR/);
+});
+
+test('history keeps empty sensors, averages measured buckets and does not connect long gaps', () => {
+    const c = {sensors:[{key:'room',name:'Room',value:21},{key:'empty',name:'Empty',value:null}],motionId:'toilet'};
+    const s = [{key:'room',name:'Room',t,value:20},{key:'room',name:'Room',t:t+30000,value:22},
+        {key:'room',name:'Room',t:t+3600000,value:23}];
+    const r = build(day,c,s,[],false,[day,'2026-11-11']);
+    assert.equal(r.series[0].points[0].value,21);
+    assert.equal(r.series[0].lines.length,0);
+    assert.equal(r.sensors.find(s=>s.key==='empty').samples,0);
+    assert.equal(r.motion.available,false);
+    assert.throws(()=>validateDay('2026-02-30'));
+    assert.throws(()=>validateDay('../secrets'));
+});
+
+test('day navigation ignores delayed or other-client responses for a different day', () => {
+    const script = fs.readFileSync(path.join(__dirname,'..','59 Temperatures page.html'),'utf8').match(/<script>([\s\S]*)<\/script>/)[1];
+    let watch;
+    const scope = {$watch:(_,cb)=>watch=cb,$on:()=>{},send:()=>{}};
+    new Function('scope','setTimeout','setInterval','clearTimeout','clearInterval',script)(scope,()=>0,()=>0,()=>{},()=>{});
+    scope.loadTemp('2026-11-14');
+    watch({topic:'sensorHistory',payload:{day:'2026-11-15'}});
+    assert.equal(scope.busy,true);
+    assert.equal(scope.s.day,undefined);
+    watch({topic:'sensorHistory',payload:{day:'2026-11-14',days:['2026-11-15','2026-11-14']}});
+    assert.equal(scope.busy,false);
+    assert.equal(scope.selected,'2026-11-14');
+    watch({topic:'sensorHistory',payload:{day:'2026-11-15'}});
+    assert.equal(scope.selected,'2026-11-14');
+    scope.loadTemp('2026-11-13');
+    watch({topic:'sensorHistory',payload:{error:'Archive access denied'}});
+    assert.equal(scope.busy,false);
+    assert.equal(scope.selected,'2026-11-14');
+    assert.deepEqual(scope.s.days,['2026-11-15','2026-11-14']);
+    assert.equal(scope.s.error,'Archive access denied');
+    scope.loadTemp('2026-11-13');
+    assert.equal(scope.busy,true);
+});
+
+test('corrupt JSONL and invalid typed rows preserve valid history, navigation and visible diagnostics', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-corrupt-'));
+    try {
+        fs.mkdirSync(path.join(dir,'temperatures'));
+        fs.mkdirSync(path.join(dir,'sensor-events'));
+        fs.writeFileSync(path.join(dir,'temperatures','catalog.json'),JSON.stringify({sensors:[{key:'room',name:'Room'}],motionId:'toilet'}));
+        const samples = [{key:'room',t,value:21},{key:'room',t:'bad',value:21},null,{key:'room',t,value:'warm'}];
+        fs.writeFileSync(path.join(dir,'temperatures',day+'.jsonl'),samples.map(JSON.stringify).join('\n')+'\n{"key":"room","val');
+        fs.writeFileSync(path.join(dir,'temperatures','2026-11-11.jsonl'),'');
+        const reports = [{t,id:'toilet',dps:{101:'pir'},source:'local'},null,{t:1e20,id:'toilet',dps:{101:'pir'}}];
+        fs.writeFileSync(path.join(dir,'sensor-events',day+'.jsonl'),reports.map(JSON.stringify).join('\n')+'\n{"t":');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,7);
+        assert.equal(result.sensors[0].samples,1);
+        assert.equal(result.series[0].points[0].value,21);
+        assert.equal(result.motion.count,1);
+        assert.deepEqual(result.days,[day,'2026-11-11']);
+        const ui = loadNode('57 Sensor history.js').run({topic:'read',payload:JSON.stringify(result)});
+        assert.equal(ui.result[0].payload.invalidRows,7);
+        assert.match(ui.warnings[0],/skipped 7 invalid archive rows/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('bad archive times and nonnumeric cells are counted without poisoning later delta samples', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-cells-'));
+    try {
+        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
+        fs.mkdirSync(path.join(dir,'air'));
+        const text = '#hp1 '+day+' 13 cols=t,st,102,104\n0,CCCCCC,30,55\noops,CCCCCC,99,99\n30,,,\n60,,bad,56\n90,,31,\n';
+        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),text);
+        fs.writeFileSync(path.join(dir,'air',day+'.csv'),'99:00:00,800,1,2,3,22\n13:00:00,800,1,2,3,bad\n13:02:00,800,1,2,3,22\n');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,4);
+        assert.equal(result.sensors.find(s=>s.key==='hp:102').samples,3);
+        assert.equal(result.series.find(s=>s.key==='hp:102').points[0].value,30.33);
+        assert.equal(result.series.find(s=>s.key==='air-monitor:Temperature').points[0].value,22);
+        assert.throws(()=>[...decode(text)],/invalid sample time/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('recorder and reader count archived temperatures once, including redundant legacy JSONL rows', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-recording-'));
+    try {
+        const sensors = [{key:'hp:102',name:'Supply',t,value:30,online:true},
+            {key:'air-monitor:Temperature',name:'Air',t,value:22,online:true},
+            {key:'room',name:'Room',t,value:21,online:true},
+            {key:'acc:Temperature',name:'Accumulator',t,value:43,online:true},
+            {key:'plate:Temperature',name:'Plate',t,value:32,online:true}];
+        const n = loadNode('58 Record sensor temperatures.js');
+        const msg = {payload:{temperatureSensors:sensors,updated:new Date(t).toISOString()}};
+        const outputs = n.run(msg,{now:t}).result;
+        const row = JSON.parse(outputs[0][0].payload);
+        assert.deepEqual(row,{key:'room',t,value:21});
+        assert.equal(outputs[2].topic,'prune');
+        assert.equal(outputs[2].payload,'--prune');
+        assert.equal(n.run(msg,{now:t+1000}).result[2],null);
+        assert.equal(n.run(msg,{now:t+86400000}).result[2].topic,'prune');
+        fs.mkdirSync(path.join(dir,'temperatures'));
+        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
+        fs.mkdirSync(path.join(dir,'air'));
+        fs.writeFileSync(path.join(dir,'temperatures','catalog.json'),outputs[1].payload);
+        fs.writeFileSync(path.join(dir,'temperatures',day+'.jsonl'),outputs[0][0].payload+sensors.filter(s=>s.key!=='room').map(JSON.stringify).join('\n'));
+        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),'#hp1 '+day+' 13 cols=t,st,102,atemp,xtemp\n0,CCCCCC,30,43,32\n');
+        fs.writeFileSync(path.join(dir,'air',day+'.csv'),'13:00:00,800,1,2,3,22\n');
+        const result = read(day,dir);
+        assert.equal(result.invalidRows,0);
+        assert.deepEqual(result.sensors.map(s=>s.samples),[1,1,1,1,1]);
+        assert.equal(result.series.find(s=>s.key==='room').name,'Room');
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('retention removes only regular dated temperature logs older than 400 days', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-retention-'));
+    try {
+        const folder = path.join(dir,'temperatures');
+        fs.mkdirSync(folder);
+        const boundary = new Date(t-400*86400000).toISOString().slice(0,10);
+        const expired = new Date(t-401*86400000).toISOString().slice(0,10);
+        for (const file of [expired+'.jsonl',boundary+'.jsonl',day+'.jsonl','catalog.json','notes.jsonl','2025-02-30.jsonl']) {
+            fs.writeFileSync(path.join(folder,file),'keep');
+        }
+        fs.mkdirSync(path.join(folder,'2024-01-01.jsonl'));
+        fs.mkdirSync(path.join(dir,'sensor-events'));
+        fs.writeFileSync(path.join(dir,'sensor-events',expired+'.jsonl'),'keep');
+        assert.equal(prune(dir,t).pruned,1);
+        assert.equal(fs.existsSync(path.join(folder,expired+'.jsonl')),false);
+        for (const file of [boundary+'.jsonl',day+'.jsonl','catalog.json','notes.jsonl','2025-02-30.jsonl','2024-01-01.jsonl']) {
+            assert.equal(fs.existsSync(path.join(folder,file)),true);
+        }
+        assert.equal(fs.existsSync(path.join(dir,'sensor-events',expired+'.jsonl')),true);
+        const failure = loadNode('57 Sensor history.js').run({topic:'prune',payload:'{"error":"Permission denied"}'});
+        assert.equal(failure.result,null);
+        assert.match(failure.warnings[0],/Permission denied/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('motion tooltips use Oslo time in winter, summer and both repeated autumn hours', () => {
+    const cases = [[day,[t],['13:00:00']],['2026-07-02',[Date.parse('2026-07-01T22:30:00Z')],['00:30:00']],
+        ['2026-10-25',[Date.parse('2026-10-25T00:30:00Z'),Date.parse('2026-10-25T01:30:00Z')],['02:30:00','02:30:00']]];
+    for (const [d,times,expected] of cases) {
+        const reports = times.map(t=>({t,id:'toilet',dps:{101:'pir'},source:'local'}));
+        const result = build(d,{motionId:'toilet'},[],reports,true,[d]);
+        assert.deepEqual(result.motion.events.map(e=>e.time),expected);
+    }
+});
+
+test('default history day follows Oslo midnight even when the Node-RED server clock is UTC', () => {
+    const before = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+        const n = loadNode('57 Sensor history.js');
+        for (const [now,expected] of [['2026-07-01T22:30:00Z','2026-07-02'],['2026-11-12T23:30:00Z','2026-11-13']]) {
+            assert.equal(n.run({topic:'ui',payload:{}},{now}).result[1].day,expected);
+            assert.equal(n.run({topic:'ui',payload:{day:'2026-11-11'}},{now}).result[1].day,'2026-11-11');
+        }
+    } finally {
+        if (before === undefined) delete process.env.TZ;
+        else process.env.TZ = before;
+    }
+});
+
+test('existing heat-pump and air archives are read without fabricating other sensor history', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-'));
+    try {
+        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
+        fs.mkdirSync(path.join(dir,'air'));
+        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),'#hp1 '+day+' 13 cols=t,st,102,104,atemp\n0,CCCCCC,30,55,42\n30,,,,56,\n');
+        fs.writeFileSync(path.join(dir,'air',day+'.csv'),'13:00:00,800,1,2,3,22,40\n');
+        const r = read(day,dir);
+        assert.equal(r.series.length,4);
+        assert.ok(r.series.some(s=>s.key==='hp:104'));
+        assert.ok(r.series.some(s=>s.key==='air-monitor:Temperature'));
+        assert.equal(r.motion.available,false);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('bootstrap asset preparation is idempotent and refuses unfamiliar code', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(),'dashboard-assets-'));
+    try {
+        fs.mkdirSync(path.join(dir,'dist','js'),{recursive:true});
+        fs.writeFileSync(path.join(dir,'package.json'),'{"version":"3.6.6"}');
+        const file = path.join(dir,'dist','js','app.min.js');
+        fs.writeFileSync(file,'g.menu.length>0&&e("left")&&e("left").close()');
+        const jobs = prepare(dir);
+        assert.equal(jobs.length,2);
+        assert.match(jobs[0].data,/waitFor/);
+        for (const job of jobs) fs.writeFileSync(job.dest,job.data);
+        assert.equal(prepare(dir).length,0);
+        fs.writeFileSync(file,'unexpected');
+        assert.throws(()=>prepare(dir),/refusing/);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('local source labels preserve the recorded automation commit without pretending to be Git', () => {
+    const flows = [{id:'f',type:'tab',label:'d#183 Test',info:''},
+        {id:'b',type:'ui_base',site:{name:'Dashboard'}},{id:'p',type:'ui_tab',name:'Temperatures'}];
+    const live = stampDeployment(flows,{dashboard:'a'.repeat(40),automations:'a'.repeat(40)});
+    const local = stampDeployment(live,{dashboard:'local:'+'b'.repeat(64)},live);
+    assert.match(local[0].label,/\[UI local bbbbbbbbbbbb; Auto aaaaaaaaaaaa\]/);
+    assert.deepEqual(stampDeployment(local,{dashboard:'local:'+'b'.repeat(64)},local),local);
+});

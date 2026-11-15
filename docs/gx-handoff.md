@@ -2,6 +2,8 @@
 
 > Everything that was done to the Cerbo GX and to the deployment tooling on 14–15 Nov 2026, the scripts that came out of it, and how to repeat each operation with one command. Read this first; [Deploying to the Cerbo GX](gx-deploy.md) explains the single scripts, [SECRETS.md](../scripts/SECRETS.md) the secrets.
 
+The [Victron GX connector](victron-gx-connector.md) documents interfaces and signals.
+
 ## Contents
 
 - [State at the end](#state-at-the-end)
@@ -85,9 +87,19 @@ Exit code: 0 done or nothing to do, 1 stopped by a check before any change, 2 fa
 
 After `-Apply`: run operation C again 15–20 minutes later, and add a row to the [work log](heat-pump-work-log.md). What restarts and how to roll back: [gx-deploy.md](gx-deploy.md#what-the-deploy-script-checks).
 
+An explicitly owner-requested deployment without commit/push uses
+`tools/gx/deploy-local.js`, not the normal commit runner. Prepare against a fresh
+snapshot, transfer the hash-checked plan, dry-run, apply only in a safe window
+and verify. The UI records a `local:<SHA-256>` source while preserving the
+unchanged automation commit. Record the backup directory in the work log.
+For rollback, restore both the live flow and replaced files from that backup,
+retaining the original credentials and revision safeguards.
+
 ## Operation B: install the private files
 
 Needed only when a private file must come from GitHub: a restored or new GX, or to prove the chain after a change of the workflow, the installer or an access secret. In daily use the files are edited on the GX and copied to GitHub (`sync-secrets.ps1 -FromGx`), not the other way.
+
+This is separate from a dashboard deployment; do not invoke it just to change a page.
 
 ```powershell
 pwsh -NoProfile -File .\scripts\gx-secrets-install.ps1 -GxHost $gx -SshKey $key -DryRun
@@ -262,7 +274,7 @@ Covered by tests only, never executed on the GX:
 | Rule | Because |
 |---|---|
 | Compare the code, not the `d#` | On 14 Nov the GX and `master` both said `d#179` with different code |
-| Deploy only from a pushed commit | The GX had lines deployed from an uncommitted work tree; they were in no branch |
+| Deploy from a pushed commit by default; use the local exception only on explicit owner request | The GX had lines deployed from an uncommitted work tree; they were in no branch |
 | Never replace the live flow with the repository file | It is a template without the secret references |
 | Sync the secrets from the GX before an install | GitHub had a copy 18 minutes older than the file on the GX |
 | An approval is a click in GitHub | The run stays `waiting` otherwise, and Node-RED may already be stopped |
@@ -279,7 +291,7 @@ Covered by tests only, never executed on the GX:
 - **Er03 on 14 Nov 19:56**, first DHW cycle after the d#180 deploy: cause not established. The next cycles ran. Watch the automation log (`WARN automation log` in the monitor).
 - **Kick setting** `kickMin 1` / `kickSec 60`: a supply stuck below the curve is switched Silent → Smart → Silent every ~2.3 min for as long as it lasts (`tests/heat-automation.test.js`). The owner's choice; not seen in the log yet.
 - **Tailnet policy** allows every device to reach every device, so a `tag:ci` runner sees the whole tailnet during an install. A rule for `tag:ci` → GX `tcp:22` only would narrow it.
-- **`actions/checkout@v4`** targets Node.js 20, which GitHub is retiring; `ubuntu-latest` moves to Ubuntu 26. Run `check` after either change.
+- **GitHub Actions runner changes:** checkout and setup actions now use Node.js 24 (`@v7`); the project tests still use Node.js 22. Run `check` after future action or `ubuntu-latest` image changes.
 - **13 nodes** differ from the repository by a trailing newline only. Harmless; `--include-trailing` in a plan would align them at the cost of a restart.
 - **Local copies of the private files** from the sync of 15 Nov are in the git-ignored `.secrets\` folder of the work tree used that night; delete them when they are no longer wanted.
 - **SA1 power meter** still not reachable from the GX (other network); the monitor lists its errors as known.

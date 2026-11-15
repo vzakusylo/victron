@@ -163,7 +163,7 @@
     <div class="hph-plan" ng-if="h.day.chart.plan">┅ DHW cycle running: tank heading to <b>{{h.day.chart.plan.target}} °C</b>, expected end ≈ <b>{{h.day.chart.plan.etaText}}</b>
       <span ng-if="h.day.chart.plan.rate !== null">(tank +{{h.day.chart.plan.rate}} °C/min over the last 6 min)</span><span ng-if="h.day.chart.plan.byMax"> — at the latest, by the max duration</span>. The chart refreshes every minute.</div>
     <div class="hph-legend" ng-if="h.day.chart.eventLegend">
-      <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', vertical-align: '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
+      <span ng-repeat="e in h.day.chart.eventLegend"><i ng-style="{background: e.color, height: '8px', 'vertical-align': '0'}"></i>{{e.kind}}<span ng-if="e.count !== null"> ×{{e.count}}</span></span>
       <span class="hph-sub">event lane under the chart: what the heat pump did (from the valve, bypass, fan and compressor)</span>
     </div>
 
@@ -197,6 +197,26 @@
         <div ng-repeat="r in h.hov.rows"><i ng-style="{background: r.color}"></i>{{r.name}} <b>{{r.v === null ? '—' : r.v}}</b> {{r.v === null ? '' : r.unit}}</div>
       </div>
       </div>
+    </div>
+
+    <h4>Motion in front of the toilet</h4>
+    <div class="hph-sub" ng-if="!h.day.chart.motion.available">No sensor event archive for this day.</div>
+    <div class="hph-sub" ng-if="!h.day.chart.motion.targetKnown">Waiting for the local toilet sensor to identify itself.</div>
+    <div class="hph-sub" ng-if="h.day.chart.motion.errors">{{h.day.chart.motion.errors}} invalid sensor reports could not be displayed.</div>
+    <div ng-if="h.day.chart.motion.available && h.day.chart.motion.targetKnown">
+      <div class="hph-sub">{{h.day.chart.motion.count}} motion reports. Each marker is a real PIR report; no report does not mean no motion. Green: motion; grey: clear. Local and cloud reports keep their original timestamps.</div>
+      <svg viewBox="0 0 760 85" class="hph-svg" role="img" aria-label="Toilet motion reports">
+        <g class="grid">
+          <line ng-repeat="t in h.day.chart.xTicks" ng-attr-x1="{{t.x}}" ng-attr-x2="{{t.x}}" y1="10" y2="60"></line>
+        </g>
+        <g class="axis">
+          <text x="2" y="24">PIR</text><text x="2" y="59">clear</text>
+          <text ng-repeat="t in h.day.chart.xTicks" ng-attr-x="{{t.x}}" y="78" text-anchor="middle">{{t.label}}</text>
+        </g>
+        <circle ng-repeat="e in h.day.chart.motion.events track by $index" ng-attr-cx="{{e.x}}" ng-attr-cy="{{e.y}}" r="3" ng-attr-fill="{{e.motion ? '#2ca02c' : '#7f7f7f'}}">
+          <title>{{e.time}} · {{e.motion ? 'motion' : 'clear'}} · {{e.source}}</title>
+        </circle>
+      </svg>
     </div>
 
     <details>

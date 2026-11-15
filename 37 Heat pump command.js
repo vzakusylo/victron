@@ -36,6 +36,7 @@
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
+const MOTION_DIR = '/data/home/nodered/grid-control-logs/sensor-events';
 const HISTORY_DAYS = 14;
 const CURVE_MIN = 20;
 const CURVE_MAX = 40;
@@ -105,7 +106,9 @@ case 'summary': {
 case 'day': {
     const day = String(p.day || '');
     if (!DAY_RE.test(day)) return refuse('bad day ' + day);
-    const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; d=' + day + '; [ -d $d ] || exit 0; echo "#day $d"; ' + CAT_DAY;
+    const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; d=' + day + '; [ -d $d ] || exit 0; echo "#day $d"; ' + CAT_DAY
+        + '; echo; if [ -f ' + MOTION_DIR + '/' + day + '.jsonl ]; then echo "#motion available"; cat '
+        + MOTION_DIR + '/' + day + '.jsonl; else echo "#motion missing"; fi';
     node.status({ fill: 'grey', shape: 'dot', text: 'reading ' + day });
     return [null, null, { topic: 'day', day, payload: "'" + script + "'" }];
 }
