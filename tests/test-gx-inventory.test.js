@@ -38,3 +38,34 @@ test('an exec node reading a dbus path the emulator lacks is reported', () => {
     assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('system /Ac/Nothing')));
   } finally { restore(); }
 });
+
+test('an exec node that calls the network is not classified', () => {
+  const flows = [...realFlows, { id: 'x4', type: 'exec', command: 'curl https://example.com/api', wires: [[]] }];
+  inv.useFixtures(flows);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('exec x4') && m.includes('not classified')));
+  } finally { restore(); }
+});
+
+test('an exec node with an unknown script is not classified', () => {
+  inv.useFixtures([...realFlows, { id: 'x5', type: 'exec', command: 'node /data/home/nodered/tools/new-thing.js', wires: [[]] }]);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('exec x5')));
+  } finally { restore(); }
+});
+
+test('settings paths are checked: unknown path fails, the known localsettings paths pass', () => {
+  inv.useFixtures([...realFlows, { id: 'x6', type: 'victron-output-ess', service: 'com.victronenergy.settings', path: '/Settings/Nothing/Here' }]);
+  try {
+    const p = inv.problems(inv.inventory());
+    assert.ok(p.some((m) => m.includes('settings /Settings/Nothing/Here')));
+    assert.strictEqual(p.filter((m) => m.includes('AcPowerSetPoint') || m.includes('MaxChargeCurrent')).length, 0);
+  } finally { restore(); }
+});
+
+test('a Victron node without a path is reported', () => {
+  inv.useFixtures([...realFlows, { id: 'x7', type: 'victron-input-system', service: 'com.victronenergy.system/0' }]);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some((m) => m.includes('x7') && m.includes('no D-Bus path')));
+  } finally { restore(); }
+});
