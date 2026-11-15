@@ -130,8 +130,9 @@ compact Elvenett import, never the session token or raw account archive.
 The Dashboard 3.6.6 bootstrap patch waits for the sidenav registration,
 restores its missing loading view and replaces conflicting ngTouch gestures
 with AngularJS Material gestures; a package upgrade can overwrite these assets.
-After reinstalling Dashboard 3.6.6, repeat the guarded local procedure with a
-fresh snapshot/plan, dry run and safe-window apply to restore the patch. After
+After reinstalling Dashboard 3.6.6, run the standalone asset repair with a
+dry run and reviewed apply to restore the patch. Code deployments, including
+`deploy-local.js`, do not inspect or repair installed Dashboard assets. After
 upgrading to another version, review and adapt the version-specific patch first:
 the helper intentionally refuses unfamiliar versions/code; never bypass that guard.
 For an asset-only repair without changing flows or their source label, use the
@@ -148,7 +149,7 @@ node --test "tests/*.test.js"
 
 Commit, push, wait for the checks of the pull request. Deploy from the commit that will be in `master` (with a squash merge the branch commit disappears from `master`, so merge first or use a merge commit).
 
-The **PR tests** workflow additionally runs the Node test suite for every opened, updated or reopened PR, on submitted PR reviews, and after pushes to `master`. The existing Node tests in **Check** and the test instructions in **Claude Code Review** remain in place; this is intentional duplication. **Check** also verifies flow/source sync and the PowerShell secret-file tests.
+The **PR tests** workflow additionally runs the Node test suite for every opened, updated or reopened PR, on submitted PR reviews, and after pushes to `master`. Event types use separate concurrency groups and do not cancel active runs, so a submitted review cannot interrupt PR tests. The existing Node tests in **Check** and the test instructions in **Claude Code Review** remain in place; this is intentional duplication. **Check** also verifies flow/source sync and the PowerShell secret-file tests.
 
 ### 2. Take a snapshot of the live flow
 

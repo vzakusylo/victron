@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: pr-tests-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   tests:

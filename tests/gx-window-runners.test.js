@@ -144,7 +144,7 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
     assert.throws(() => publicSummary(null, null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
 });
 
-test('deployment changelog uses recorded Git commits, groups equal sources and reports missing baselines', (t) => {
+test('deployment changelog and workflow command use recorded Git commits and report missing baselines', (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-report-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
@@ -177,6 +177,41 @@ test('deployment changelog uses recorded Git commits, groups equal sources and r
     assert.ok(formatted.includes(first) && formatted.includes(third));
     assert.match(formatted, /M test\.js/);
     assert.match(formatReport({ ...report, changes: unavailable }), /comparison is unavailable/);
+    // Preserve the CLI's repository-root convention with controlled fixture history.
+    const script = path.join(root,'tools','gx','deploy-report.js');
+    fs.mkdirSync(path.dirname(script),{recursive:true});
+    fs.copyFileSync(path.join(ROOT,'tools','gx','deploy-report.js'),script);
+    const runFolder = path.join(root,'private-run');
+    fs.mkdirSync(runFolder);
+    const privateValue = 'PRIVATE-CLI-LIVE-CODE';
+    fs.writeFileSync(path.join(runFolder,'summary-before.json'),JSON.stringify({
+        live:{source:{dashboard:first,automations:second},label:privateValue},
+        code:[privateValue],trailing:[],config:[],onlyLive:[],onlyRepo:[],liveOnlyLines:[]
+    }));
+    for (const [mode,outcome,version] of [['apply','success','stable'],['dry-run','failure','test']]) {
+        const output = path.join(root,mode+'.json');
+        const cli = spawnSync(process.execPath,[script,runFolder,output],{encoding:'utf8',env:{
+            ...process.env,GITHUB_SHA:third,MODE:mode,DEPLOY_OUTCOME:outcome,VERSION_TYPE:version
+        }});
+        assert.equal(cli.status,0,cli.stderr);
+        const artifact = JSON.parse(fs.readFileSync(output,'utf8'));
+        assert.deepEqual([artifact.commit,artifact.mode,artifact.outcome,artifact.version],[third,mode,outcome,version]);
+        assert.deepEqual(artifact.changes[0].commits.map(commit=>commit.sha),[second,third]);
+        assert.deepEqual(artifact.changes[1].commits.map(commit=>commit.sha),[third]);
+        assert.deepEqual(artifact.changes[0].files,[{status:'M',path:'test.js'}]);
+        assert.equal(artifact.before.code,1);
+        assert.equal(artifact.after,null);
+        assert.match(cli.stdout,/Fix dashboard &lt;script&gt;/);
+        assert.ok(cli.stdout.includes(`Version label: **${version}**`));
+        assert.ok(!cli.stdout.includes(privateValue) && !JSON.stringify(artifact).includes(privateValue));
+    }
+    const invalidOutput = path.join(root,'invalid.json');
+    const invalid = spawnSync(process.execPath,[script,runFolder,invalidOutput],{encoding:'utf8',env:{
+        ...process.env,GITHUB_SHA:third,MODE:'apply',DEPLOY_OUTCOME:'success',VERSION_TYPE:'invalid'
+    }});
+    assert.notEqual(invalid.status,0);
+    assert.match(invalid.stderr,/Unexpected version label/);
+    assert.ok(!fs.existsSync(invalidOutput));
 });
 
 test('runner extracts committed scripts byte-for-byte without cmd, and keeps Git error detail', (t) => {

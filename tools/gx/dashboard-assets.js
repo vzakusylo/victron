@@ -16,13 +16,15 @@ function readFile(file, optional = false) {
     const stat = fs.lstatSync(file, { throwIfNoEntry: !optional });
     if (!stat) return null;
     if (!stat.isFile()) throw new Error('Dashboard asset is not a regular file: ' + file);
-    return fs.readFileSync(file, 'utf8');
+    return fs.readFileSync(file);
 }
 function prepare(root) {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     if (pkg.version !== '3.6.6') throw new Error('Dashboard bootstrap fix only supports version 3.6.6; inspect this version first');
     const file = path.join(root, 'dist', 'js', 'app.min.js');
-    const source = readFile(file);
+    const bytes = readFile(file);
+    // Latin-1 is a byte-preserving view for these ASCII-only replacements.
+    const source = bytes.toString('latin1');
     const old = 'g.menu.length>0&&e("left")&&e("left").close()';
     const replacement = 'g.menu.length>0&&e().waitFor("left").then(function(s){s.close()})';
     let patched = replaceKnown(source, old, replacement, 'navigation');
@@ -30,14 +32,15 @@ function prepare(root) {
         'angular.module("ui",["ngMaterial","ngMdIcons","ngSanitize","ngTouch","sprintf","chart.js","color.picker"])',
         'angular.module("ui",["ngMaterial","ngMdIcons","ngSanitize","sprintf","chart.js","color.picker"])', 'module dependencies');
     const jobs = [];
-    if (patched !== source) jobs.push({ dest: file, data: patched, beforeHash: hash(source) });
+    if (patched !== source) jobs.push({ dest: file, data: Buffer.from(patched, 'latin1'), beforeHash: hash(bytes) });
     const index = path.join(root, 'dist', 'index.html');
-    const html = readFile(index);
+    const htmlBytes = readFile(index);
+    const html = htmlBytes.toString('latin1');
     const allow = "(main.allowSwipe === 'mouse' || ($event.pointer.type !== 'm' && $event.srcEvent.pointerType !== 'mouse' && $event.srcEvent.pointerType !== 4))";
     const gestures = replaceKnown(html,
         'ng-swipe-right="onSwipeRight();" ng-swipe-left="onSwipeLeft();" ng-attr-ng-swipe-disable-mouse="{{main.allowSwipe !== \'mouse\' ? \'\' : undefined}}"',
         'md-swipe-right="' + allow + ' && onSwipeRight();" md-swipe-left="' + allow + ' && onSwipeLeft();"', 'swipe directives');
-    if (gestures !== html) jobs.push({ dest: index, data: gestures, beforeHash: hash(html) });
+    if (gestures !== html) jobs.push({ dest: index, data: Buffer.from(gestures, 'latin1'), beforeHash: hash(htmlBytes) });
     const loading = path.join(root, 'dist', 'loading.html');
     if (readFile(loading, true) === null) jobs.push({ dest: loading, data: '<div role="status" aria-live="polite" style="padding:24px;text-align:center">Loading dashboard...</div>\n', beforeHash: null });
     return jobs;
@@ -50,8 +53,7 @@ function repair(root, apply = false) {
     const backup = fs.mkdtempSync(path.join(path.dirname(path.dirname(root)), 'backup-dashboard-assets-'));
     fs.chmodSync(backup, 0o700);
     const originals = jobs.map((job, index) => {
-        const source = readFile(job.dest, true);
-        const data = source === null ? null : Buffer.from(source);
+        const data = readFile(job.dest, true);
         if ((data ? hash(data) : null) !== job.beforeHash) throw new Error('Asset changed during preparation: ' + job.dest);
         const stat = fs.statSync(data === null ? path.join(root, 'dist', 'js', 'app.min.js') : job.dest);
         const saved = data ? path.join(backup, String(index)) : null;

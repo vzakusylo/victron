@@ -43,7 +43,10 @@ fix and supplies `loading.html` when absent.
 
 This changes only installed static package assets, not flows, credentials,
 controller settings or the Node-RED service. Use the reviewed helper after
-merging it; a normal code deployment alone does not apply these package fixes.
+merging it; neither the normal commit deployment nor `deploy-local.js` applies
+these package fixes. Local code deployment does not inspect or depend on the
+installed package's `index.html`; repair assets separately, with their own
+dry-run and backup. Unknown assets still stop the standalone repair safely.
 From the PC, copy the helper to the GX and open SSH:
 
 ```powershell
@@ -61,11 +64,12 @@ node /tmp/gx-dashboard-assets.js "$dashboard_root" --apply
 rm -f /tmp/gx-dashboard-assets.js
 ```
 
-Apply backs up original files and owner/mode information under
+Apply backs up byte-exact original files and owner/mode information under
 `.node-red/backup-dashboard-assets-*`, uses same-filesystem renames, checks for
 concurrent changes and verifies the result. A partial write failure restores
 the already replaced assets; a conflicting external write stops rollback
-instead of overwriting it. An already repaired package is a no-op. Unknown
+instead of overwriting it. ASCII patch markers are replaced without decoding
+or re-encoding unrelated bytes. An already repaired package is a no-op. Unknown
 versions or unfamiliar/duplicate source patterns are refused.
 
 Hard-reload the dashboard in Edge (**Ctrl+Shift+R**) to discard cached assets.
