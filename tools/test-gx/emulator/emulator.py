@@ -15,6 +15,7 @@
 #   POST /fail  {"path": "battery", "mode": "invalid"|"offline"|"ok"}   invalid values / service disappears / back to normal
 #   POST /reset                       defaults, no faults, no writes
 import json
+import os
 import sys
 import threading
 import time
@@ -177,8 +178,40 @@ def tick():
     return True
 
 
+MAX_CHARGE = '/Settings/SystemSetup/MaxChargeCurrent'
+startup_write_pending = False   # our own SetValue(-1) is in flight; its signal is not a flow write
+signal_seen = False
+
+
+# test hook: hold the API in 503 for this many seconds after start so the not-ready answers can be checked
+READY_DELAY = float(os.environ.get('EMU_READY_DELAY', '0'))
+STARTED = time.time()
+
+
+def mark_ready(by_timeout=False):
+    global ready
+    wait = STARTED + READY_DELAY - time.time()
+    if wait > 0:
+        GLib.timeout_add(int(wait * 1000) + 50, mark_ready, by_timeout)
+        return False
+    with lock:
+        if ready:
+            return False
+        ready = True
+    if by_timeout and not signal_seen:
+        print('ready by timeout, startup write signal not seen', flush=True)
+    print('emulator up: system/0, vebus/276, battery/289, api :8081', flush=True)
+    return False
+
+
 def on_settings_change(changes, path=None):
     # PropertiesChanged of a settings item: the flow wrote it
+    global startup_write_pending, signal_seen
+    if startup_write_pending and str(path) == MAX_CHARGE:
+        startup_write_pending = False
+        signal_seen = True
+        mark_ready()
+        return
     value = changes.get('Value') if hasattr(changes, 'get') else None
     if isinstance(value, dbus.Array):
         value = None
@@ -237,6 +270,8 @@ class Api(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(length) or b'{}')
             with lock:
+                if not ready:
+                    return self._send(503, dict(error='starting'))
                 if self.path == '/set':
                     apply_set(body['path'], body['value'])
                 elif self.path == '/stale':
@@ -267,24 +302,26 @@ def main():
     sysbus = dbus.SystemBus()
     sysbus.add_signal_receiver(on_settings_change, signal_name='PropertiesChanged', dbus_interface='com.victronenergy.BusItem',
                                bus_name='com.victronenergy.settings', path_keyword='path')
+    global startup_write_pending
     try:
-        obj = sysbus.get_object('com.victronenergy.settings', '/Settings/SystemSetup/MaxChargeCurrent')
-        obj.SetValue(-1.0, dbus_interface='com.victronenergy.BusItem')   # no DVCC limit until the flow sets one
+        obj = sysbus.get_object('com.victronenergy.settings', MAX_CHARGE)
+        try:
+            current = float(obj.GetValue(dbus_interface='com.victronenergy.BusItem'))
+        except Exception:   # empty array or no value: still reset it
+            current = None
+        if current != -1.0:   # no DVCC limit until the flow sets one
+            startup_write_pending = True
+            obj.SetValue(-1.0, dbus_interface='com.victronenergy.BusItem')
     except Exception as error:
         print('could not set MaxChargeCurrent:', error, flush=True)
     for name in SERVICES:
         build(name)
     GLib.timeout_add(1000, tick)
 
-    def finish_startup():
-        # the signal for our own startup SetValue arrives only now; drop it so /writes holds the flow's writes only
-        global ready
-        with lock:
-            writes.clear()
-            ready = True
-        print('emulator up: system/0, vebus/276, battery/289, api :8081', flush=True)
-        return False
-    GLib.timeout_add(1500, finish_startup)
+    if startup_write_pending:
+        GLib.timeout_add(10000, mark_ready, True)   # fallback when the signal never comes
+    else:
+        mark_ready()
     server = ThreadingHTTPServer(('0.0.0.0', 8081), Api)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     GLib.MainLoop().run()

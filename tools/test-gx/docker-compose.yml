@@ -4,6 +4,8 @@ services:
   venus:
     image: mqtt            # built by up.ps1 from victronenergy/venus-docker
     command: ["bash", "/emulator/start.sh", "${TEST_GX_SIM:-e}"]   # "emu" = our emulator, a letter = venus-docker simulation
+    environment:
+      EMU_READY_DELAY: ${EMU_READY_DELAY:-0}   # test hook, see test-emulator-ready.ps1
     volumes:
       - ./emulator:/emulator:ro
     healthcheck:   # Node-RED starts only when the D-Bus services exist, otherwise the palette finds none
