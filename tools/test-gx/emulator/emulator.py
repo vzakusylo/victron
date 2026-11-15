@@ -55,6 +55,7 @@ def record(service, path, value):
 def build(name):
     """Create one fake service on its own bus connection, so that closing the connection removes it from D-Bus."""
     bus = dbus.SystemBus(private=True)
+    bus.set_exit_on_disconnect(False)   # closing the connection on purpose must not terminate the process
     info = dict(system=('com.victronenergy.system', 0, 'Venus emulator'),
                 vebus=('com.victronenergy.vebus.emulator', 276, 'MultiPlus-II 48/5000 (emulated)'),
                 battery=('com.victronenergy.battery.emulator', 289, 'SmartShunt (emulated)'))[name]

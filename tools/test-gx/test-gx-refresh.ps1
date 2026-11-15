@@ -9,6 +9,7 @@ param(
     [string]$SshKey,
     [int]$Days = 14,
     [switch]$NoLogs,
+    [string]$Sim = 'emu',
     [string]$DataDir = 'C:\learn\test-gx-data'
 )
 $ErrorActionPreference = 'Stop'
@@ -53,7 +54,7 @@ if ($LASTEXITCODE -ne 0) { throw "sanitizer stopped (exit $LASTEXITCODE): a secr
 
 Step '4. rebuild (the gx-data volume would hide the new image content, so it is removed first)'
 & (Join-Path $here 'up.ps1') -Down
-& (Join-Path $here 'up.ps1') -Backup $out
+& (Join-Path $here 'up.ps1') -Backup $out -Sim $Sim
 Check 'up.ps1'
 
 Step '5. wait for "Started flows"'
