@@ -9,7 +9,14 @@ services:
       - "127.0.0.1:1883:1883"   # MQTT
       - "127.0.0.1:8080:80"     # Venus HTML5 app
   nodered:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        backup: ${TEST_GX_BACKUP:-./.empty-backup}
+      args:
+        NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-latest}
+        PALETTE: ${TEST_GX_PALETTE:-node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device}
+    image: test-gx-nodered:${TEST_GX_TAG:-local}
     depends_on: [venus]
     environment:
       NODE_RED_DBUS_ADDRESS: venus:3000
