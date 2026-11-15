@@ -127,12 +127,15 @@ backs up the flow, credentials and replaced files, preserves all untouched
 devices/automations and verifies the result. It labels the UI as
 `local:<SHA-256>` rather than inventing a Git commit. The plan includes the
 compact Elvenett import, never the session token or raw account archive.
-The Dashboard 3.6.6 bootstrap patch waits for the sidenav registration and
-restores its missing loading view; a package upgrade can overwrite these assets.
+The Dashboard 3.6.6 bootstrap patch waits for the sidenav registration,
+restores its missing loading view and replaces conflicting ngTouch gestures
+with AngularJS Material gestures; a package upgrade can overwrite these assets.
 After reinstalling Dashboard 3.6.6, repeat the guarded local procedure with a
 fresh snapshot/plan, dry run and safe-window apply to restore the patch. After
 upgrading to another version, review and adapt the version-specific patch first:
 the helper intentionally refuses unfamiliar versions/code; never bypass that guard.
+For an asset-only repair without changing flows or their source label, use the
+[standalone Dashboard repair](dashboard.md#dashboard-366-bootstrap-and-ngtouch-compatibility).
 The normal pushed-commit procedure below remains the default.
 
 A deploy is always from a pushed commit: the GX downloads it by SHA and the label on the dashboard names it.
@@ -145,7 +148,7 @@ node --test "tests/*.test.js"
 
 Commit, push, wait for the checks of the pull request. Deploy from the commit that will be in `master` (with a squash merge the branch commit disappears from `master`, so merge first or use a merge commit).
 
-The **PR tests** workflow runs the Node test suite for every opened, updated or reopened PR, on submitted PR reviews, and after pushes to `master`. **Check** separately verifies the flow/source sync and the PowerShell secret-file tests.
+The **PR tests** workflow additionally runs the Node test suite for every opened, updated or reopened PR, on submitted PR reviews, and after pushes to `master`. The existing Node tests in **Check** and the test instructions in **Claude Code Review** remain in place; this is intentional duplication. **Check** also verifies flow/source sync and the PowerShell secret-file tests.
 
 ### 2. Take a snapshot of the live flow
 
