@@ -31,6 +31,19 @@ test('known and unknown errors are told apart', () => {
     assert.deepStrictEqual(r.unknown, ['[error] TypeError: boom']);
 });
 
+test('whitespace-only lines between "Polling is disabled" and UnknownObject are skipped', () => {
+    const r = classifyStartLog([POLL, '   ', '\t', UNKNOWN]);
+    assert.deepStrictEqual(r.unknown, []);
+    assert.strictEqual(r.known.get(PALETTE_DISCOVERY), 1);
+});
+
+test('Tuya "Key is missing or incorrect" is expected, counted per line', () => {
+    const line = '[error] [tuya-smart-device:Heat pump] Key is missing or incorrect';
+    const r = classifyStartLog([line, line]);
+    assert.deepStrictEqual(r.unknown, []);
+    assert.strictEqual(r.known.get('Tuya devices have fake keys'), 2);
+});
+
 test('state files: known names are expected, others stay a warning', () => {
     const r = classifyStateFiles(['grid-control-config/tuya-devices-ver.json', 'grid-control-config/controller-constants.json']);
     assert.deepStrictEqual(r.expected, ['grid-control-config/tuya-devices-ver.json']);

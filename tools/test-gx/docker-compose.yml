@@ -22,6 +22,7 @@ services:
     build:
       context: .
       additional_contexts:
+        # deliberately a non-existing path: build only through up.ps1 -Backup <sanitized dir>; logs/restart/exec work without it
         backup: ${TEST_GX_BACKUP:-./backup-required-use-up.ps1}
       args:
         NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-latest}

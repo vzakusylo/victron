@@ -1,3 +1,5 @@
 .venus-docker/
 test_key
 test_key.pub
+__pycache__/
+*.pyc
