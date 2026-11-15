@@ -13,8 +13,9 @@ if (msg.topic === 'read' || msg.topic === 'prune') {
         return [{ topic: 'sensorHistory', payload: { error: 'Cannot read sensor history; see Node-RED log.' } }, null];
     }
 }
-const now = new Date();
-const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Oslo', year: 'numeric', month: '2-digit', day: '2-digit' });
+const parts = Object.fromEntries(clock.formatToParts(Date.now()).map((p) => [p.type, p.value]));
+const today = parts.year + '-' + parts.month + '-' + parts.day;
 const day = String(p.day || today);
 const dt = new Date(day + 'T00:00:00Z');
 if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(dt.getTime()) || dt.toISOString().slice(0, 10) !== day) {

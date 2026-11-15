@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#186 Day / Night Grid Control",
+    "label": "d#187 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -6269,7 +6269,7 @@
     "type": "function",
     "z": "995ac4ed6222a706",
     "name": "Sensor history",
-    "func": "// Read-only backend for the Temperatures page. Tools and logs remain on the GX.\nconst p = msg.payload || {};\nif (msg.topic === 'read' || msg.topic === 'prune') {\n    try {\n        const model = JSON.parse(Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : msg.payload);\n        if (model.error) node.warn('Sensor history: ' + model.error);\n        if (msg.topic === 'prune') return null;\n        if (model.invalidRows) node.warn('Sensor history: skipped ' + model.invalidRows + ' invalid archive rows');\n        return [{ topic: 'sensorHistory', payload: model }, null];\n    } catch (e) {\n        node.warn('Sensor history returned invalid JSON: ' + e.message);\n        if (msg.topic === 'prune') return null;\n        return [{ topic: 'sensorHistory', payload: { error: 'Cannot read sensor history; see Node-RED log.' } }, null];\n    }\n}\nconst now = new Date();\nconst today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');\nconst day = String(p.day || today);\nconst dt = new Date(day + 'T00:00:00Z');\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) || !Number.isFinite(dt.getTime()) || dt.toISOString().slice(0, 10) !== day) {\n    node.warn('Sensor history: invalid day');\n    return [{ topic: 'sensorHistory', payload: { error: 'Invalid calendar day.' } }, null];\n}\nreturn [null, { topic: 'read', day, payload: '--day ' + day }];",
+    "func": "// Read-only backend for the Temperatures page. Tools and logs remain on the GX.\nconst p = msg.payload || {};\nif (msg.topic === 'read' || msg.topic === 'prune') {\n    try {\n        const model = JSON.parse(Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : msg.payload);\n        if (model.error) node.warn('Sensor history: ' + model.error);\n        if (msg.topic === 'prune') return null;\n        if (model.invalidRows) node.warn('Sensor history: skipped ' + model.invalidRows + ' invalid archive rows');\n        return [{ topic: 'sensorHistory', payload: model }, null];\n    } catch (e) {\n        node.warn('Sensor history returned invalid JSON: ' + e.message);\n        if (msg.topic === 'prune') return null;\n        return [{ topic: 'sensorHistory', payload: { error: 'Cannot read sensor history; see Node-RED log.' } }, null];\n    }\n}\nconst clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Oslo', year: 'numeric', month: '2-digit', day: '2-digit' });\nconst parts = Object.fromEntries(clock.formatToParts(Date.now()).map((p) => [p.type, p.value]));\nconst today = parts.year + '-' + parts.month + '-' + parts.day;\nconst day = String(p.day || today);\nconst dt = new Date(day + 'T00:00:00Z');\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) || !Number.isFinite(dt.getTime()) || dt.toISOString().slice(0, 10) !== day) {\n    node.warn('Sensor history: invalid day');\n    return [{ topic: 'sensorHistory', payload: { error: 'Invalid calendar day.' } }, null];\n}\nreturn [null, { topic: 'read', day, payload: '--day ' + day }];",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,

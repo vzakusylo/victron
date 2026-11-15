@@ -191,6 +191,21 @@ test('motion tooltips use Oslo time in winter, summer and both repeated autumn h
     }
 });
 
+test('default history day follows Oslo midnight even when the Node-RED server clock is UTC', () => {
+    const before = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+        const n = loadNode('57 Sensor history.js');
+        for (const [now,expected] of [['2026-07-01T22:30:00Z','2026-07-02'],['2026-11-12T23:30:00Z','2026-11-13']]) {
+            assert.equal(n.run({topic:'ui',payload:{}},{now}).result[1].day,expected);
+            assert.equal(n.run({topic:'ui',payload:{day:'2026-11-11'}},{now}).result[1].day,'2026-11-11');
+        }
+    } finally {
+        if (before === undefined) delete process.env.TZ;
+        else process.env.TZ = before;
+    }
+});
+
 test('existing heat-pump and air archives are read without fabricating other sensor history', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-'));
     try {

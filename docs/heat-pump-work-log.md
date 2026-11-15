@@ -117,6 +117,9 @@ Payback rejects invalid/duplicate peak timestamps and billing periods before
 Angular sees them. Development documentation now lists sources 57-59 and the
 new tools; Dashboard reinstall/upgrade instructions preserve the patch guards.
 This build changes the reviewed repository only, not the currently deployed GX.
+Follow-up review build d#187 also selects the default history day explicitly in
+Europe/Oslo, including summer/winter midnight when the Node-RED server runs in UTC.
+It has not been deployed to GX.
 
 ## Errors and incidents (8–11 Nov)
 
