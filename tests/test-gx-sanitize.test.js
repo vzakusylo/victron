@@ -130,7 +130,7 @@ test('Tuya comparison source is sanitized and scanned even when a field is remov
   assert.strictEqual(run(leak, path.join(tmp, 'tuya-source-leak-out')).status, 3);
 });
 
-test('sanitizer replaces the real local Tuya poller and records the file transformation', () => {
+test('sanitizer omits the unemulated local Tuya poller from the image', () => {
   const realPoller = '#!/usr/bin/env node\nrequire("tuyapi");\n';
   const tar = makeBackup('boiler-poller', {
     '.node-red/flows.json': JSON.stringify([
@@ -142,10 +142,8 @@ test('sanitizer replaces the real local Tuya poller and records the file transfo
   const out = path.join(tmp, 'boiler-poller-out');
   const result = run(tar, out);
   assert.strictEqual(result.status, 0, result.stderr);
-  const stub = fs.readFileSync(path.join(REPO, 'tools', 'test-gx', 'tuya-local-poll.js'));
-  const imagePoller = fs.readFileSync(path.join(out, 'nodered', 'tools', 'tuya-local-poll.js'));
-  assert.deepStrictEqual(imagePoller, stub);
-  assert.ok(!imagePoller.toString().includes('tuyapi'));
+  assert.ok(!fs.existsSync(path.join(out, 'nodered', 'tools', 'tuya-local-poll.js')));
   const report = JSON.parse(fs.readFileSync(path.join(out, 'sanitize-report.json'), 'utf8'));
-  assert.ok(report.transformed.some(item => item.path === 'tools/tuya-local-poll.js' && item.to === 'test-gx-http-stub'));
+  assert.ok(report.omitted.some(item => item.path === 'tools/tuya-local-poll.js' && item.reason.includes('planned')));
+  assert.ok(!report.transformed.some(item => item.path === 'tools/tuya-local-poll.js'));
 });

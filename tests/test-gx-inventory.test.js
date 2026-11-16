@@ -28,21 +28,21 @@ test('Tuya coverage fails for an unmodelled device or a new consumed DPS', () =>
   } finally { restore(); }
 });
 
-test('boiler tank DPS consumed by flow functions must exist in the boiler model', () => {
+test('boiler tank DPS 108 consumed by flow functions must exist in the pump model', () => {
   const missing = structuredClone(realTuyaModel);
-  delete missing.boiler['108'];
+  delete missing.pump['108'];
   inv.useFixtures(realFlows, realEmulator, missing);
   try {
-    assert.ok(inv.problems(inv.inventory()).some(m => m === 'Tuya boiler: consumed DPS 108 is not in tuya-model.json'));
+    assert.ok(inv.problems(inv.inventory()).some(m => m === 'Tuya pump: consumed DPS 108 is not in tuya-model.json'));
   } finally { restore(); }
 });
 
-test('the local Tuya poll exec is covered by the boiler HTTP stub', () => {
+test('the local Tuya poll exec remains planned sensor coverage', () => {
   restore();
-  const row = inv.inventory().find(r => r.id === 'dv-exec-01' && r.kind === 'exec:boiler-poll');
+  const row = inv.inventory().find(r => r.id === 'dv-exec-01' && r.kind === 'exec:sensor');
   assert.ok(row);
-  assert.equal(row.script, 'tuya-local-poll.js');
-  assert.equal(inv.COVERAGE['exec:boiler-poll'].status, 'emulated');
+  assert.equal(inv.COVERAGE['exec:sensor'].status, 'planned');
+  assert.ok(!inv.inventory().some(r => r.id === 'dv-exec-01' && r.kind === 'exec:boiler-poll'));
 });
 
 test('a Victron node on a service+path the emulator lacks is reported, even if the path exists on another service', () => {

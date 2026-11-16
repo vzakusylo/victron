@@ -61,7 +61,7 @@ function run() {
     fs.rmSync(out, { recursive: true, force: true });
     fs.mkdirSync(dst, { recursive: true });
     fs.writeFileSync(path.join(out, MARKER), 'created by tools/test-gx/sanitize-backup.js; safe to delete and recreate\n');
-    const report = { source: path.basename(backup), replaced: [], deleted: [], written: [], logDays: days };
+    const report = { source: path.basename(backup), replaced: [], deleted: [], omitted: [], written: [], logDays: days };
     const secrets = new Map();      // original value -> kind
     const SECRET_FIELDS = /^(key|localkey|devicekey|secret|accesssecret|accessid|pass|password|token|apikey)$/i;
     const ID = /^[a-z0-9]{20,24}$/;
@@ -167,9 +167,8 @@ function run() {
     const pollerPath = path.join(src, 'tools', 'tuya-local-poll.js');
     const pollerUsed = JSON.stringify(flows).includes('tuya-local-poll.js');
     if (pollerUsed && !fs.existsSync(pollerPath)) throw new Error('Backup flow uses tools/tuya-local-poll.js but the file is missing');
-    const hasPoller = fs.existsSync(pollerPath);
-    if (hasPoller) {
-        report.transformed.push({ path: 'tools/tuya-local-poll.js', from: 'backup', to: 'test-gx-http-stub', device: 'boiler' });
+    if (fs.existsSync(pollerPath)) {
+        report.omitted.push({ path: 'tools/tuya-local-poll.js', reason: 'local Tuya sensor polling is planned (B-tuya)' });
     }
     if (report.transformed.length) fs.writeFileSync(path.join(out, 'tuya-source-flows.json'), JSON.stringify(flows, null, 4));
     put('.node-red/flows.json', JSON.stringify(transformed.flows, null, 4));
@@ -186,8 +185,7 @@ function run() {
 
     // tools: code, with device ids replaced like everywhere else (backup copies *.pre-* / *.bak* are skipped)
     copyTree(path.join(src, 'tools'), 'tools', (r) => !/\.(pre-|bak)/.test(r) && !/\.pre-d/.test(r)
-        && !(hasPoller && r.replace(/\\/g, '/') === 'tuya-local-poll.js'), mapped);
-    if (hasPoller) put('tools/tuya-local-poll.js', fs.readFileSync(path.join(__dirname, 'tuya-local-poll.js')));
+        && r.replace(/\\/g, '/') !== 'tools/tuya-local-poll.js', mapped);
 
     // logs: last N days
     if (!flag('--no-logs')) {

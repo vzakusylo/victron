@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { execFile, execFileSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -167,23 +167,23 @@ model.tick(1)
 raw = base64.b64decode(model.devices['meter']['dps']['6'])
 assert len(raw) == 8 and int.from_bytes(raw[5:8], 'big') == model.power_w > 0
 model.set('pump', '108', 25)
-assert model.devices['boiler']['dps']['108'] == 25
-assert model.local_reading('boiler')['dps']['108'] == 25
+assert model.devices['pump']['dps']['108'] == 25
 model.command('valve', {'operation':'SET','set':True})
 model.tick(1)
 assert model.devices['pump']['dps']['108'] > 25
-assert model.devices['boiler']['dps']['108'] == model.devices['pump']['dps']['108']
-model.set('boiler','108',30)
-assert model.devices['pump']['dps']['108'] == 30
 model.command('pump', {'operation':'SET','dps':1,'set':True})
 model.command('valve', {'operation':'SET','dps':1,'set':True})
-before = model.devices['boiler']['dps']['108']
+before = model.devices['pump']['dps']['108']
 model.tick(60)
-assert model.devices['boiler']['dps']['108'] > before
+assert model.devices['pump']['dps']['108'] > before
 model.command('valve', {'operation':'SET','dps':1,'set':False})
-before = model.devices['boiler']['dps']['108']
-model.tick(60)
-assert model.devices['boiler']['dps']['108'] < before
+model.set('pump', '108', 46)
+model.command('pump', {'operation':'SET','dps':1,'set':False})
+model.tick(3600)
+cooled_after_hour = model.devices['pump']['dps']['108']
+assert 45.8 < cooled_after_hour < 46
+model.tick(2 * 3600)
+assert 45.5 < model.devices['pump']['dps']['108'] < cooled_after_hour
 model.command('bypass', {'operation':'SET','set':True})
 tank = model.devices['pump']['dps']['108']
 model.tick(1)
@@ -193,6 +193,7 @@ published.clear()
 model.command('pump', {'operation':'GET'})
 model.tick(1)
 assert not any(t.startswith('tuya/pump/') for t,p in published)
+model.command('pump', {'operation':'SET','dps':1,'set':True})
 model.fail('pump','ok')
 model.fail('pump','offline')
 assert published[-1] == ('tuya/pump/state', {'state':'DISCONNECTED'})
@@ -206,9 +207,10 @@ for value in [float('nan'), True, 999]:
     except ValueError: pass
     else: raise AssertionError('invalid sensor value accepted')
 model.fail('pump','ok')
-model.fail('boiler','offline')
-assert published[-1] == ('tuya/pump/state', {'state':'DISCONNECTED'})
-model.fail('boiler','ok')
+model.fail('valve','offline')
+assert published[-1] == ('tuya/valve/state', {'state':'DISCONNECTED'})
+model.fail('valve','ok')
+assert 'boiler' not in model.snapshot()
 model.error('pump')
 assert published[-1] == ('tuya/pump/state', {'state':'ERROR'})
 model.announce('pump')
@@ -221,76 +223,7 @@ assert model.power_w == 0 and model.devices['pump']['dps']['115'] == 0
         ['-B', '-c', script, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator')], { stdio: 'pipe' });
 });
 
-test('local boiler poll stub matches the real poller JSON-line envelope and exits cleanly offline', async () => {
-    const stub = path.join(__dirname, '..', 'tools', 'test-gx', 'tuya-local-poll.js');
-    const real = path.join(__dirname, '..', 'tools', 'tuya-local-poll.js');
-    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'boiler-poller-'));
-    let response = { state: 'CONNECTED', dps: { '108': 44 } };
-    const server = http.createServer((req, res) => {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(response));
-    });
-    try {
-        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-        const api = 'http://127.0.0.1:' + server.address().port + '/tuya/boiler';
-        const fakeApi = path.join(temp, 'fake-tuya.js');
-        fs.writeFileSync(fakeApi, `
-const { EventEmitter } = require('node:events');
-module.exports = class FakeTuya extends EventEmitter {
-  connect() { return Promise.resolve(); }
-  get() { return Promise.resolve({ dps: { '108': 44 } }); }
-  disconnect() {}
-};
-`);
-        const preload = path.join(temp, 'backup-config.js');
-        const config = {
-            '/data/home/nodered/grid-control-config/tuya-devices.json': JSON.stringify({
-                boiler: { key: 'synthetic-test-key', ip: '192.0.2.10', battery: false, node: false },
-            }),
-            '/data/home/nodered/grid-control-config/tuya-devices-ver.json': '{}',
-            '/data/home/nodered/grid-control-config/tuya-devices-last.json': '{}',
-        };
-        fs.writeFileSync(preload, `
-const fs = require('node:fs');
-const original = fs.readFileSync;
-const data = ${JSON.stringify(config)};
-fs.readFileSync = function(file, ...args) {
-  const key = String(file).replace(/\\\\\\\\/g, '/');
-  if (Object.prototype.hasOwnProperty.call(data, key)) {
-    return args[0] === 'utf8' ? data[key] : Buffer.from(data[key]);
-  }
-  return original.call(this, file, ...args);
-};
-`);
-        const env = Object.assign({}, process.env, { TUYAPI: fakeApi });
-        const run = (file, args, options) => new Promise((resolve, reject) => {
-            execFile(process.execPath, args, options, (error, stdout, stderr) => {
-                if (error) return reject(new Error(stderr || error.message));
-                resolve(stdout.trim().split(/\r?\n/).map(line => JSON.parse(line)));
-            });
-        });
-        const realLines = await run(real, ['--require', preload, real], { encoding: 'utf8', env });
-        const stubLines = await run(stub, [stub], {
-            encoding: 'utf8',
-            env: Object.assign({}, process.env, { TEST_GX_EMULATOR_URL: api }),
-        });
-        assert.deepEqual(Object.keys(stubLines[0]).sort(), Object.keys(realLines[0]).sort());
-        assert.deepEqual(stubLines[0].dps, realLines[0].dps);
-        assert.equal(stubLines[0].kind, 'reading');
-        assert.equal(stubLines[0].version, 'emulator');
-        assert.equal(stubLines.at(-1).kind, 'done');
-        assert.deepEqual(Object.keys(stubLines.at(-1)).sort(), Object.keys(realLines.at(-1)).sort());
-
-        response = { state: 'DISCONNECTED', error: 'offline', dps: {} };
-        const failed = await run(stub, [stub], {
-            encoding: 'utf8',
-            env: Object.assign({}, process.env, { TEST_GX_EMULATOR_URL: api }),
-        });
-        assert.equal(failed[0].kind, 'error');
-        assert.equal(failed[0].error, 'offline');
-        assert.equal(failed.at(-1).kind, 'done');
-    } finally {
-        await new Promise(resolve => server.close(resolve));
-        fs.rmSync(temp, { recursive: true, force: true });
-    }
+test('Test GX does not ship an unemulated local Tuya poller', () => {
+    const poller = path.join(__dirname, '..', 'tools', 'test-gx', 'tuya-local-poll.js');
+    assert.equal(fs.existsSync(poller), false);
 });
