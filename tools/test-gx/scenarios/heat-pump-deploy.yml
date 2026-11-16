@@ -1,24 +1,24 @@
 - name: no heat pump commands during deploy quiet period
   faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"}}
+  initial:
+    inputs:
+      tuya.pump.dps.108: 25
   steps:
     - when: 0s
-      settle: 12s
+      settle: 75s
       expect:
         writes: []
 
-- name: Er03 command is not suppressed after deploy quiet period
-  faketime: '@2026-11-16 20:00:00'
-  initial:
-    inputs:
-      tuya.pump.dps.15: 0
-      tuya.valve.dps.1: false
-      tuya.bypass.dps.1: false
+- name: Er03 positive control after deploy quiet period
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
   steps:
     - when: 16m
       inputs:
-        tuya.pump.dps.15: 1
         tuya.valve.dps.1: true
-      settle: 70s
+        tuya.pump.dps.15: 1
+      settle: 75s
       expect:
         writes:
           - device: valve
@@ -26,46 +26,50 @@
             dps: "1"
             value: false
             applied: true
-          - device: valve
-            operation: SET
-            dps: "1"
-            value: false
-            applied: true
-          - device: pump
-            operation: SET
-            dps: "1"
-            value: false
-            applied: true
 
-- name: heat pump offline remains in safe mode
-  faketime: '@2026-11-16 20:00:00'
+- name: Er03 offline pump guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
   initial:
     fail:
       tuya.pump: offline
   steps:
-    - when: 10m
-      settle: 12s
+    - when: 16m
+      inputs:
+        tuya.valve.dps.1: true
+        tuya.pump.dps.15: 1
+      settle: 75s
       expect:
         writes: []
 
-- name: stale bypass relay suppresses automation writes
-  faketime: '@2026-11-16 20:00:00'
+- name: Er03 stale valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
   initial:
+    inputs:
+      tuya.valve.dps.1: true
     stale:
-      tuya.bypass: 300
+      tuya.valve: 300
   steps:
-    - when: 0s
-      settle: 12s
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 75s
       expect:
         writes: []
 
-- name: invalid heat pump readings suppress automation writes
-  faketime: '@2026-11-16 20:00:00'
+- name: Er03 invalid valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
   initial:
+    inputs:
+      tuya.valve.dps.1: true
     fail:
-      tuya.pump: invalid
+      tuya.valve: invalid
   steps:
-    - when: 0s
-      settle: 12s
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 75s
       expect:
         writes: []

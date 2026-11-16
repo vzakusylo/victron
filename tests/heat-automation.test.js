@@ -14,11 +14,12 @@ const NOW = new Date(2026, 10, 14, 20, 10).getTime();
 // Settings read from the GX on 14 Nov 20:10 (heat controller On, owner's curve P23 38 / P24 4).
 const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60 };
 
-function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {} } = {}) {
+function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {},
+    heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 } } = {}) {
     const node = loadNode('40 Heat pump automations.js');
     node.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: Object.assign({ dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' }, modes),
-        heat: cfg, dhw: { showerForce: false }, heatCurve: { p23: 38, p24: 4, at: NOW - 3600000 }, dhwLastEnd
+        heat: cfg, dhw: { showerForce: false }, heatCurve, dhwLastEnd
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
     const writes = [];
@@ -162,6 +163,22 @@ test('a DHW cycle aborted by Er03 writes the owner heating curve back and the he
     // 10 min later, pump back on the owner's curve: the heating controller decides again
     c.tick(NOW + 11 * MIN);
     assert.doesNotMatch(c.heat().why, /^waiting/);
+});
+
+test('expected_fail HP-SETTINGS-1: invalid saved curve must not be restored', (t) => {
+    const c = heating({ dhw: 'live', heatCurve: { p23: 41, p24: 31, at: NOW - MIN } });
+    const d = c.node.context.get('dhw');
+    Object.assign(d, { state: 'DHW', since: NOW - 30 * S, startAt: NOW - 3 * MIN,
+        startTank: 44, run: (NOW - 3 * MIN) + ':dhw', live: true,
+        outAvg: -2, outS: [[NOW - MIN, -2]], p23Cmd: 22, p24Cmd: 12, tickAt: NOW - 30 * S });
+    c.node.context.set('dhw', d);
+    c.tick(NOW, { 15: 1, 115: 0, 116: 0, 108: 44, 133: 22, 134: 12 }, true);
+    const queue = c.node.context.get('queue') || [];
+    const curve = queue.filter(w => w.role === 'hp' && [133, 134].includes(w.dps));
+    assert.ok(curve.length > 0, 'test must exercise restoration of the saved heating curve');
+    const invalid = curve.filter(w => w.dps === 133 ? w.set < 0 || w.set > 40 : w.set < 1 || w.set > 30);
+    assert.ok(invalid.length > 0, 'unexpected pass: remove expected_fail after fixing HP-SETTINGS-1');
+    t.skip('expected_fail HP-SETTINGS-1: out-of-range heating-curve writes were queued');
 });
 
 test('DHW compressor protection steps the curve down after three sustained minutes', () => {

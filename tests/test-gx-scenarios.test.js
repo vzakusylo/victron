@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const {
     ScenarioAssertionError,
     assertWrites,
+    createAdmin,
     faketimeRate,
     junitXml,
     loadScenarios,
@@ -16,7 +17,8 @@ const {
     parseYaml,
     runScenario,
     runScenarios,
-    trivialScenario
+    trivialScenario,
+    validateScenario
 } = require('../tools/test-gx/run-scenarios.js');
 const { loadNode } = require('./harness');
 
@@ -57,6 +59,12 @@ test('faketime and when durations are validated and converted', () => {
     assert.equal(parseDuration('1.5m'), 90000);
     assert.throws(() => faketimeRate('not a clock'), /@YYYY-MM-DD HH:mm:ss/);
     assert.throws(() => parseDuration('next week'), /invalid duration/);
+});
+
+test('scenario settings reject unsupported fields and rule modes', () => {
+    const scenario = { name: 'settings', faketime: '@2026-11-16 12:00:00', steps: [{ when: '0s' }] };
+    assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: {}, heatCurve: {} } }), /known rule modes/);
+    assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: { hp_er03_restart: 'invalid' } } }), /known rule modes/);
 });
 
 test('write assertions compare write count, order and requested fields', () => {
@@ -134,6 +142,70 @@ test('scenario actions use the approved emulator input, stale and fail endpoints
     ]);
 });
 
+test('scenario applies its settings and asserts only new SET commands', async () => {
+    const calls = [];
+    const scenario = {
+        name: 'deterministic settings',
+        faketime: '@2026-11-16 12:00:00',
+        settings: { master: true, modes: { hp_er03_restart: 'live' } },
+        steps: [{ when: '0s', settle: '0s', expect: { writes: [{ device: 'valve', dps: '1', value: false }] } }]
+    };
+    const api = {
+        post: async route => { calls.push(route); },
+        getWrites: async () => [
+            { service: 'vebus', path: '/Ac/In/1/CurrentLimit', value: 31 },
+            { device: 'pump', operation: 'GET' },
+            { device: 'valve', operation: 'SET', dps: '1', value: false }
+        ]
+    };
+    await runScenario(scenario, {
+        api, waitReady: false, setFaketime: async () => {},
+        admin: { loadSettings: async settings => { calls.push(settings); } }
+    });
+    assert.deepEqual(calls, [scenario.settings, '/reset']);
+});
+
+test('settings use temporary inject nodes and remove the temporary flow', async () => {
+    const calls = [];
+    const fetch = async (url, options) => {
+        const route = url.pathname;
+        const body = options.body && JSON.parse(options.body);
+        calls.push({ method: options.method, route, body });
+        const text = route === '/flow' ? JSON.stringify({ id: 'temporary-flow' })
+            : options.method === 'GET' ? JSON.stringify({ nodes: [{ id: 'inject-id', type: 'inject', name: 'Load scenario settings' }] })
+            : options.method === 'POST' ? 'OK' : '';
+        return { ok: true, text: async () => text };
+    };
+    const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
+    await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' } });
+    assert.deepEqual(calls[0].body.nodes[0].wires, [['hpa-fn-01']]);
+    const actions = calls.filter(call => call.route === '/inject/inject-id')
+        .map(call => JSON.parse(call.body.__user_inject_props__[0].v));
+    assert.deepEqual(actions, [
+        { action: 'master', on: false },
+        { action: 'modeAll', mode: 'off' },
+        { action: 'mode', id: 'dhw', mode: 'off' },
+        { action: 'mode', id: 'heat', mode: 'off' },
+        { action: 'mode', id: 'hp_er03_restart', mode: 'live' },
+        { action: 'master', on: true }
+    ]);
+    assert.equal(calls.at(-1).method, 'DELETE');
+    assert.equal(calls.at(-1).route, '/flow/temporary-flow');
+});
+
+test('settings remove the temporary flow if the inject node is absent', async () => {
+    const calls = [];
+    const fetch = async (url, options) => {
+        calls.push([options.method, url.pathname]);
+        const text = url.pathname === '/flow' ? '{"id":"temporary-flow"}'
+            : options.method === 'GET' ? '{"nodes":[]}' : '';
+        return { ok: true, text: async () => text };
+    };
+    const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
+    await assert.rejects(admin.loadSettings({ master: true, modes: {} }), /did not deploy/);
+    assert.deepEqual(calls.at(-1), ['DELETE', '/flow/temporary-flow']);
+});
+
 test('expected_fail scenarios are distinguished from failures and unexpected passes', async () => {
     const failing = {
         name: 'known mismatch',
@@ -168,8 +240,8 @@ test('trivial scenario YAML is checked in and matches the runner smoke contract'
 test('all checked-in scenarios parse and validate', () => {
     const scenarios = loadScenarios();
     assert.ok(scenarios.length >= 5);
-    assert.ok(scenarios.some(s => s.name === 'Er03 command is not suppressed after deploy quiet period'));
-    assert.ok(scenarios.some(s => s.name === 'heat pump offline remains in safe mode'));
+    assert.ok(scenarios.some(s => s.name === 'Er03 positive control after deploy quiet period'));
+    assert.ok(scenarios.some(s => s.name === 'Er03 offline pump guard'));
 });
 
 test('the heat pump automation function exposes seven outputs with the documented device ports', () => {

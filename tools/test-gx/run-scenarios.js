@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { randomBytes } = require('node:crypto');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIOS = path.join(__dirname, 'scenarios');
 const DEFAULT_API = process.env.TEST_GX_API || 'http://127.0.0.1:8081';
+const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 
 class ScenarioAssertionError extends Error {
     constructor(message) {
@@ -174,6 +176,18 @@ function validateScenario(scenario, source = 'scenario') {
     if (scenario.expected_fail !== undefined && (typeof scenario.expected_fail !== 'string' || !scenario.expected_fail.trim())) {
         throw new Error(`${source} expected_fail must be a bug reference`);
     }
+    if (scenario.settings !== undefined && (!scenario.settings || typeof scenario.settings !== 'object' || Array.isArray(scenario.settings))) {
+        throw new Error(`${source} settings must be a mapping`);
+    }
+    if (scenario.settings) {
+        const allowed = ['dhw', 'heat', 'df_exchange_off', 'df_exchange_on', 'hp_er03_restart'];
+        if (Object.keys(scenario.settings).some(key => !['master', 'modes'].includes(key)) ||
+            typeof scenario.settings.master !== 'boolean' || !scenario.settings.modes ||
+            typeof scenario.settings.modes !== 'object' || Array.isArray(scenario.settings.modes) ||
+            Object.entries(scenario.settings.modes).some(([id, mode]) => !allowed.includes(id) || !['off', 'dry', 'live'].includes(mode))) {
+            throw new Error(`${source} settings must contain a boolean master and known rule modes`);
+        }
+    }
     for (const [index, step] of scenario.steps.entries()) {
         if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error(`${source} step ${index + 1} must be a mapping`);
         parseDuration(step.when, `${source} step ${index + 1} when`);
@@ -244,10 +258,10 @@ function createApi(baseUrl = DEFAULT_API, fetchImpl = globalThis.fetch) {
 function setFaketime(value, options = {}) {
     const composeDir = options.composeDir || __dirname;
     const project = options.project || process.env.TEST_GX_COMPOSE_PROJECT || 'test-gx';
-    const result = spawnSync('docker', [
-        'compose', '-p', project, '-f', 'docker-compose.yml',
-        'up', '-d', '--no-build', '--force-recreate', 'nodered'
-    ], {
+    const args = ['compose', '-p', project, '-f', 'docker-compose.yml'];
+    if (process.env.TEST_GX_COMPOSE_OVERRIDE) args.push('-f', process.env.TEST_GX_COMPOSE_OVERRIDE);
+    args.push('up', '-d', '--no-build', '--no-deps', '--force-recreate', 'nodered');
+    const result = spawnSync('docker', args, {
         cwd: composeDir,
         encoding: 'utf8',
         env: { ...process.env, TEST_GX_FAKETIME: value || '' },
@@ -255,6 +269,64 @@ function setFaketime(value, options = {}) {
     });
     if (result.error) throw new Error(`Could not shift Test GX faketime: ${result.error.message}`);
     if (result.status !== 0) throw new Error(`Could not shift Test GX faketime (docker compose exit ${result.status}): ${(result.stderr || result.stdout || '').trim()}`);
+}
+
+function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
+    wait = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+    async function request(method, route, body) {
+        const response = await fetchImpl(new URL(route, baseUrl), {
+            method,
+            headers: body === undefined ? {} : { 'content-type': 'application/json' },
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error(`Node-RED ${method} ${route} returned ${response.status}: ${await response.text()}`);
+        const text = await response.text();
+        if (!text) return null;
+        try { return JSON.parse(text); } catch { return text; }
+    }
+    return {
+        async ready() { await request('GET', '/flows'); },
+        async loadSettings(settings) {
+            const inject = randomBytes(8).toString('hex');
+            const flow = {
+                label: 'Temporary Test GX scenario settings',
+                nodes: [{
+                    id: inject, type: 'inject', name: 'Load scenario settings',
+                    props: [{ p: 'payload' }, { p: 'topic', vt: 'str' }],
+                    payload: '{}', payloadType: 'json', topic: 'ui',
+                    repeat: '', crontab: '', once: false, onceDelay: 0.1,
+                    x: 120, y: 80, wires: [['hpa-fn-01']]
+                }]
+            };
+            const created = await request('POST', '/flow', flow);
+            if (!created || typeof created.id !== 'string') throw new Error('Node-RED did not return the temporary flow id');
+            try {
+                const deployed = await request('GET', `/flow/${created.id}`);
+                const node = deployed.nodes && deployed.nodes.find(item => item.name === 'Load scenario settings' && item.type === 'inject');
+                if (!node) throw new Error('Node-RED did not deploy the scenario settings inject node');
+                const actions = [
+                    { action: 'master', on: false },
+                    { action: 'modeAll', mode: 'off' },
+                    { action: 'mode', id: 'dhw', mode: 'off' },
+                    { action: 'mode', id: 'heat', mode: 'off' },
+                    ...Object.entries(settings.modes || {}).map(([id, mode]) => ({ action: 'mode', id, mode })),
+                    { action: 'master', on: settings.master === true }
+                ];
+                for (const action of actions) {
+                    await request('POST', `/inject/${node.id}`, {
+                        __user_inject_props__: [
+                            { p: 'payload', v: JSON.stringify(action), vt: 'json' },
+                            { p: 'topic', v: 'ui', vt: 'str' }
+                        ]
+                    });
+                    await wait(200);
+                }
+            } finally {
+                await request('DELETE', `/flow/${created.id}`);
+            }
+        }
+    };
 }
 
 async function waitReady(api, timeoutMs = 120000) {
@@ -288,6 +360,11 @@ async function runScenario(scenario, options = {}) {
     const wait = options.wait || (ms => new Promise(resolve => setTimeout(resolve, ms)));
     await clock(scenario.faketime);
     if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs);
+    if (scenario.settings) {
+        const admin = options.admin || createAdmin(options.adminUrl);
+        if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+        await admin.loadSettings(scenario.settings);
+    }
     await api.post('/reset', {});
     await applyActions(api, scenario.initial || {});
 
@@ -301,7 +378,7 @@ async function runScenario(scenario, options = {}) {
         const settle = parseDuration(step.settle === undefined ? '12s' : step.settle, 'settle');
         if (settle) await wait(settle);
         const writes = await api.getWrites();
-        const current = writes.slice(cursor);
+        const current = writes.slice(cursor).filter(write => write.operation === 'SET');
         cursor = writes.length;
         if (step.expect) assertWrites(current, step.expect.writes, scenario.name, index + 1);
     }
@@ -428,6 +505,7 @@ if (require.main === module) {
 module.exports = {
     ScenarioAssertionError,
     assertWrites,
+    createAdmin,
     faketimeRate,
     junitXml,
     loadScenarios,

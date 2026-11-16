@@ -285,7 +285,7 @@ Run against an already-running Test GX stack:
 node .\tools\test-gx\run-scenarios.js --junit C:\learn\test-gx-data\runs\heatpump.xml
 
 # Run one scenario by its exact YAML `name`.
-node .\tools\test-gx\run-scenarios.js --scenario "Er03 command is not suppressed after deploy quiet period" `
+node .\tools\test-gx\run-scenarios.js --scenario "Er03 positive control after deploy quiet period" `
   --junit C:\learn\test-gx-data\runs\heatpump-er03.xml
 
 # Runner-only smoke test (uses a mock API; does not need Docker or mutate Test GX).
@@ -295,12 +295,20 @@ node .\tools\test-gx\run-scenarios.js --self-test --junit $env:TEMP\test-gx-scen
 node --test .\tests\test-gx-scenarios.test.js .\tests\heat-automation.test.js
 ```
 
-Each scenario resets emulator state, applies `inputs` through `/set`, `fail` through `/fail`,
-`stale` through `/stale`, advances to each `when` offset under its `faketime`, waits `settle`,
-then compares the new `/writes` against `expect.writes`. Optional `expected_fail: <bug-reference>`
+Each scenario restarts Node-RED with its `faketime`, applies `settings` through temporary Node-RED
+UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` through `/fail`,
+`stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
+Tuya `SET` commands in `/writes` against `expect.writes`. Other D-Bus writes and Tuya GETs are
+not included in these assertions. Settings UI actions are persisted in the Test GX volume.
+Optional `expected_fail: <bug-reference>`
 marks a known mismatch as a JUnit skipped case; an unexpected pass is a failure. The runner writes
 JUnit XML to `--junit`, `TEST_GX_JUNIT`, or the system temp directory. Faketime shifts recreate
-only the Node-RED service and do not remove `gx-data`.
+only the Node-RED service and do not remove `gx-data`. `when` is measured in fake time from the
+runner's post-reset start, not the Node-RED deploy; `settle` is measured in real time.
+The automation tick inject starts 60 real seconds after Node-RED startup, then repeats every
+10 real seconds; the live Er03 controls wait for three ticks. Set `TEST_GX_TAG` to the image tag
+used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
+to its absolute path; the runner uses it when recreating Node-RED.
 
 The checked-in YAML currently has one trivial smoke scenario and five heat-pump scenarios. Unit
 tests additionally cover the individual decisions and all 17 read paths (three variants each:
@@ -312,8 +320,8 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 - The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
 - `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.
 - The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
-- A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. This suspected issue is documented as HP-SETTINGS-1 in the inventory; the scenario API cannot inject a settings file.
-- Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; it is supported by the runner syntax but not validated for heat-pump sequence timing.
+- A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.
+- Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; the Er03 controls use `x60` but do not validate longer sequence timing.
 - `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
 
 ## Remaining Test GX work
