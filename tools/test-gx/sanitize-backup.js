@@ -164,6 +164,13 @@ function run() {
     const registry = fs.existsSync(registryFile) ? JSON.parse(apply(fs.readFileSync(registryFile, 'utf8'))) : {};
     const transformed = transformTuya(flows, registry);
     report.transformed = transformed.transformed;
+    const pollerPath = path.join(src, 'tools', 'tuya-local-poll.js');
+    const pollerUsed = JSON.stringify(flows).includes('tuya-local-poll.js');
+    if (pollerUsed && !fs.existsSync(pollerPath)) throw new Error('Backup flow uses tools/tuya-local-poll.js but the file is missing');
+    const hasPoller = fs.existsSync(pollerPath);
+    if (hasPoller) {
+        report.transformed.push({ path: 'tools/tuya-local-poll.js', from: 'backup', to: 'test-gx-http-stub', device: 'boiler' });
+    }
     if (report.transformed.length) fs.writeFileSync(path.join(out, 'tuya-source-flows.json'), JSON.stringify(flows, null, 4));
     put('.node-red/flows.json', JSON.stringify(transformed.flows, null, 4));
     for (const f of ['package.json', 'package-lock.json', '.config.nodes.json']) put('.node-red/' + f, text(path.join(nr, f)));
@@ -178,7 +185,9 @@ function run() {
     }
 
     // tools: code, with device ids replaced like everywhere else (backup copies *.pre-* / *.bak* are skipped)
-    copyTree(path.join(src, 'tools'), 'tools', (r) => !/\.(pre-|bak)/.test(r) && !/\.pre-d/.test(r), mapped);
+    copyTree(path.join(src, 'tools'), 'tools', (r) => !/\.(pre-|bak)/.test(r) && !/\.pre-d/.test(r)
+        && !(hasPoller && r.replace(/\\/g, '/') === 'tuya-local-poll.js'), mapped);
+    if (hasPoller) put('tools/tuya-local-poll.js', fs.readFileSync(path.join(__dirname, 'tuya-local-poll.js')));
 
     // logs: last N days
     if (!flag('--no-logs')) {

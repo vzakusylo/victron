@@ -87,12 +87,23 @@ async function main() {
     const backupSnap = snapshot(backupFlows, undefined, { raw: true });
     const sanitizeReport = JSON.parse(fs.readFileSync(path.join(backupDir, 'sanitize-report.json'), 'utf8'));
     const manifest = sanitizeReport.transformed || [];
+    const flowManifest = manifest.filter(n => n.id);
+    const fileManifest = manifest.filter(n => n.path);
     const registryFile = path.join(redDir, 'grid-control-config', 'tuya-nodes.json');
     const registry = fs.existsSync(registryFile) ? JSON.parse(fs.readFileSync(registryFile, 'utf8')) : {};
     const sourceFlows = manifest.length ? JSON.parse(fs.readFileSync(path.join(backupDir, 'tuya-source-flows.json'), 'utf8')) : backupFlows;
-    if (manifest.length) {
-        validateTransformation(sourceFlows, backupFlows, registry, manifest);
-        add('EXPECTED', 'Tuya proxy transformations', manifest.length + ' exact replaced/added IDs: ' + manifest.map(n => n.id).join(', '));
+    if (flowManifest.length) {
+        validateTransformation(sourceFlows, backupFlows, registry, flowManifest);
+        add('EXPECTED', 'Tuya proxy transformations', flowManifest.length + ' exact replaced/added IDs: ' + flowManifest.map(n => n.id).join(', '));
+    }
+    for (const item of fileManifest) {
+        if (item.path !== 'tools/tuya-local-poll.js' || item.from !== 'backup' || item.to !== 'test-gx-http-stub' || item.device !== 'boiler') {
+            throw new Error('Unknown sanitized file transformation: ' + JSON.stringify(item));
+        }
+        const expected = fs.readFileSync(path.join(__dirname, 'tuya-local-poll.js'));
+        const actual = fs.readFileSync(path.join(redDir, item.path));
+        if (!actual.equals(expected)) throw new Error('Sanitized Tuya poller is not the expected test GX stub');
+        add('EXPECTED', 'Tuya poller replacement', item.path + ' -> HTTP /tuya/boiler stub');
     }
     classifyFlow('flow: image vs backup', diffSnapshots(imageSnap, backupSnap));
 
@@ -166,8 +177,8 @@ async function main() {
             if (mapped.restMissing) add('WARN', 'live map', mapped.restMissing + ' node(s) without restJson: take the snapshot with "node - --raw", else their config will differ');
             if (Object.keys(mapped.unmapped).length) add('WARN', 'live map', 'not in map: ' + counts(mapped.unmapped) + ' (a device or setting added on the GX after the backup?)');
         } else add('WARN', 'live map', 'no --map: DIFF on nodes the sanitizer rewrote (device ids, addresses) is expected');
-        if (manifest.length) {
-            if (mapFile) live = transformLiveSnapshot(live, registry, manifest);
+        if (flowManifest.length) {
+            if (mapFile) live = transformLiveSnapshot(live, registry, flowManifest);
             else add('WARN', 'Tuya proxy', 'no --map: skipping live Tuya transformation; raw flow differences remain DIFF');
         }
         classifyFlow('flow: image vs live GX', diffSnapshots(live, imageSnap));

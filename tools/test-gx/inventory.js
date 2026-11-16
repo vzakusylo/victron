@@ -5,7 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const { DEVICES } = require('./transform-tuya.js');
-const tuyaModel = require('./emulator/tuya-model.json');
+const originalTuyaModel = require('./emulator/tuya-model.json');
+let tuyaModel = originalTuyaModel;
 
 const repo = path.join(__dirname, '..', '..');
 let flows = JSON.parse(fs.readFileSync(path.join(repo, 'flows.json'), 'utf8'));
@@ -28,6 +29,7 @@ const COVERAGE = {
 Object.assign(COVERAGE, {
   'file': { status: 'emulated', by: 'files inside the image' },
   'exec:sensor': { status: 'planned', by: 'Tuya cloud/local sensor scripts (B-tuya)' },
+  'exec:boiler-poll': { status: 'emulated', by: 'sanitized HTTP stub (GET /tuya/boiler)' },
   'exec:mail': { status: 'stub', by: 'send-mail.js stub (B-mail)' },
   'exec:dbus': { status: 'emulated', by: 'D-Bus emulator (service + path pairs)' },
   'exec:local': { status: 'emulated', by: 'shell/file work inside the image' },
@@ -71,6 +73,7 @@ function tolerantPairs(n) {
 const LOCALSETTINGS = new Set(['settings /Settings/CGwacs/AcPowerSetPoint', 'settings /Settings/SystemSetup/MaxChargeCurrent']);
 
 const SENSOR_SCRIPT = /tuya-[\w-]+\.js/;
+const BOILER_POLL_SCRIPT = /\btuya-local-poll\.js\b/;
 const MAIL_SCRIPT = /send-mail\.js/;
 // Scripts and shell tools that only touch files under /data/home/nodered; anything else is not classified and fails the check.
 const LOCAL_TOOLS = new Set(['sensor-history', 'heatpump-decode', 'elvenett-statistics', 'victron-secrets', 'reload-victron-secrets']);
@@ -111,7 +114,9 @@ function kinds(n) {
   if (n.type === 'exec') {
     const t = withoutComments(execText(n));
     const out = [];
-    if (SENSOR_SCRIPT.test(t)) out.push('exec:sensor');
+    if (BOILER_POLL_SCRIPT.test(t)) out.push('exec:boiler-poll');
+    const otherSensors = BOILER_POLL_SCRIPT.test(t) ? t.replace(BOILER_POLL_SCRIPT, '') : t;
+    if (SENSOR_SCRIPT.test(otherSensors)) out.push('exec:sensor');
     if (MAIL_SCRIPT.test(t)) out.push('exec:mail');
     if (/dbus -y|dbus\.SystemBus|\bg com\.victronenergy/.test(t)) out.push('exec:dbus');
     const tools = toolsUsed(t).filter((x) => !SENSOR_SCRIPT.test(x + '.js') && !MAIL_SCRIPT.test(x + '.js'));
@@ -139,6 +144,7 @@ function inventory() {
         if (TOLERANT_DBUS_READERS[n.id]) row.tolerant = tolerantPairs(n);
       }
       else if (k === 'exec:unknown') row.command = String(n.command || '').slice(0, 80);
+      else if (k === 'exec:boiler-poll') row.script = 'tuya-local-poll.js';
       rows.push(row);
     }
   }
@@ -191,7 +197,7 @@ function problems(rows) {
 
 // Known DPS aliases in the state/automation consumers. DP dictionaries cover dynamic reads by the UI.
 function tuyaDps() {
-  const result = { pump: new Set(), valve: new Set(), bypass: new Set(), meter: new Set() };
+  const result = { pump: new Set(), boiler: new Set(), valve: new Set(), bypass: new Set(), meter: new Set() };
   for (const n of flows.filter(n => n.type === 'function')) {
     let text = withoutComments(n.func || '');
     const meter = text.match(/function meterReading\([^)]*\)\s*\{[\s\S]*?^\}/m);
@@ -210,6 +216,7 @@ function tuyaDps() {
     for (const m of text.matchAll(/\bdev\.dps\[['"]?(\d+)['"]?\]/g)) { result.valve.add(m[1]); result.bypass.add(m[1]); }
     for (const m of text.matchAll(/role:\s*['"](hp|valve|bypass|meter)['"],\s*dps:\s*(\d+)/g)) result[m[1] === 'hp' ? 'pump' : m[1]].add(m[2]);
   }
+  if (result.pump.has('108')) result.boiler.add('108');
   return result;
 }
 
@@ -231,6 +238,6 @@ if (require.main === module) {
 }
 
 // tests replace the flow / emulator source to prove that gaps are detected
-const useFixtures = (f, e) => { flows = f || flows; emulator = e || emulator; };
+const useFixtures = (f, e, m) => { flows = f || flows; emulator = e || emulator; tuyaModel = m || tuyaModel; };
 
 module.exports = { TOLERANT_DBUS_READERS, inventory, problems, warnings, COVERAGE, PLANNED_DBUS, useFixtures };

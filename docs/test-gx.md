@@ -10,7 +10,9 @@ A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RE
 | Victron D-Bus services | [`victronenergy/venus-docker`](https://github.com/victronenergy/venus-docker), simulation `e` (MultiPlus + BMV) | Partly: demo values, other device instances |
 | Qingping MQTT | Internal Mosquitto + emulator `/mqtt` publications | Real MQTT and flow parsing; synthetic readings |
 | Four native Tuya devices | Same-ID MQTT proxies + four emulator models | Automation contracts only; native palette/protocol not tested |
-| Exec-based Tuya sensors, solar forecast | Not emulated yet | No (later step B) |
+| DHW boiler tank | `boiler` model, synchronized with pump DPS 108 | Tank-temperature and automation path emulated |
+| Exec-based boiler poll | HTTP stub for `/tuya/boiler` | JSON-line interface only; local Tuya protocol not tested |
+| Other exec-based Tuya sensors, solar forecast | Not emulated yet | No (later step B) |
 | Real hardware, ARM specifics | Not available | No |
 
 It proves that the flow loads, function nodes run, the dashboard renders and the deploy chain (`live-snapshot` → `compare` → `deploy` → `verify`) works. It does **not** prove that the inverter or battery react correctly: that is still checked on the real GX with the monitor.
@@ -211,6 +213,25 @@ Only the image is transformed: production `flows.json` and numbered sources are 
 
 Contracts were checked in the installed `node-red-contrib-tuya-smart-device@5.4.0` and TuyAPI source, the sanitized `tuya-nodes.json` / `tuya-devices-meta.json`, [heat-pump documentation](heat-pump.md#data-points) and a valid recorder keyframe from the backup (`2026-11-15/00.csv.gz`):
 
+### Boiler tank and local poll stub
+
+The boiler is the DHW tank represented by heat-pump DPS 108, not a separate electric plug. The Tuya device named **Boiler** is the three-way valve relay (`valve`): its backup metadata marks it as a flow node, so `tuya-local-poll.js` excludes it. The automation heats the tank when the pump is running and valve DPS 1 is ON; when that condition is off, the simple model cools the tank to represent draw-off / heat loss.
+
+| DPS | Meaning | Backup observation | Test-model range |
+|---|---|---:|---:|
+| Pump 108 | DHW tank temperature, °C | 32–50 °C in the heat-pump recorder | 0–80 °C |
+| Valve 1 | Three-way valve relay; ON routes to DHW | 0–1 | boolean |
+| Valve 9 | Countdown, seconds | 0 | 0–86400 |
+| Valve 18 | Current, mA | 0 | 0–16000 |
+| Valve 19 | Power, W × 10 | 0 | 0–36800 |
+| Valve 20 | Voltage, V × 10 | 2220–2325 | 0–3000 |
+
+The ranges in the backup-observation column are observed recorder values, not manufacturer limits. The broader test ranges are input-validation envelopes. The model's `boiler.108` is an alias for `pump.108`; `/set` through either name updates the pump's MQTT reading. `/fail` and `/stale` for `tuya.boiler` propagate to the pump status so the page, alerts and automation guard see the same offline device.
+
+The original `tuya-local-poll.js` is replaced only in the sanitized image by `tools/test-gx/tuya-local-poll.js`, recorded in `sanitize-report.json` under `transformed`. The replacement takes no arguments, GETs `http://venus:8081/tuya/boiler`, emits the same JSON-line `reading` / `error` and final `done` envelope, and exits 0 for per-device errors (a Node.js startup failure still exits nonzero). It emits no IP or key. The real poller's `Read devices` exec (`dv-exec-01`) runs without arguments and redirects that script's stdout; node 50 consumes the poll file. The tank shown on the Heat Pump and Devices pages instead comes from pump DPS 108 via the existing Tuya proxy: node 34 builds the model, node 40 reads tank / valve state for automation, node 47 handles connection alerts, and node 50 displays the tank temperature.
+
+The poller is read-only and sends no SETs. Automation SETs remain on the existing Tuya MQTT proxy and appear in `/writes`.
+
 | Direction | Actual contract |
 |---|---|
 | Poll | `msg.payload = {operation:'GET', schema:true}` |
@@ -257,7 +278,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8081/fail -ContentType applicati
 
 Stale suppresses even GET replies until `/fail` with `mode:"ok"` or `/reset`; optional `seconds` gives a finite interval. `mode:"invalid"` publishes pump temperatures -127, current `null` (JSON-safe substitute for NaN), compressor frequency 0; relay DP 1 becomes `null`, meter DP 6 empty. Actual downstream guards, not the emulator, decide what to do. The 15-minute defrost quiet period after a Node-RED deploy remains untouched: wait for it before asserting a normal DHW start.
 
-Comparison regenerates and validates every reported transformation against `tuya-source-flows.json`, retained outside the image. For `--live --map`, only those original IDs are transformed before comparison; live wiring/code changes still propagate to DIFF, and there is no blanket Tuya-config exemption. Inventory checks the HP_DPS dictionary and known DPS aliases in the actual consumers; adding an unmodelled DP or native device fails CI. New consumer aliases must be added to this parser rather than silently treated as covered. Exec-based boiler, accumulator/plate and battery sensors remain separate planned work.
+Comparison regenerates and validates flow transformations against `tuya-source-flows.json`, retained outside the image, and verifies that the poller file is exactly the expected stub. For `--live --map`, only original Tuya node IDs are transformed before comparison; live wiring/code changes still propagate to DIFF, and there is no blanket Tuya-config exemption. Inventory checks the HP_DPS dictionary, known DPS aliases, and boiler DPS 108 against the shared model; adding an unmodelled DP or native device fails CI. New consumer aliases must be added to this parser rather than silently treated as covered. Accumulator/plate and battery sensor emulation remains separate planned work.
 
 ### Manual results
 

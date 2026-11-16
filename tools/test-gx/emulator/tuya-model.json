@@ -41,6 +41,9 @@
     "143": {"code":"hw_run_freq_max","default":35,"min":30,"max":120,"write":true},
     "144": {"code":"wth_compenst_freq","default":-5,"min":-50,"max":20,"write":true}
   },
+  "boiler": {
+    "108": {"code":"tank_temp","default":46,"min":0,"max":80}
+  },
   "valve": {
     "1":{"code":"switch_1","default":false,"type":"boolean","write":true},
     "9":{"code":"countdown_1","default":0,"min":0,"max":86400},
