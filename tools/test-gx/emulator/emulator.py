@@ -23,6 +23,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from mqtt_publish import publish_message, validate_message
+from tuya_devices import TuyaDevices
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 import dbus  # noqa: E402
@@ -47,6 +48,23 @@ ready = False         # API answers 200 only after all services are registered a
 computed = dict(grid_w=0.0, batt_w=0.0, batt_a=0.0, batt_v=51.2, consumed_ah=0.0)
 services = {}
 buses = {}
+mqtt_client = None
+
+
+def tuya_publish(topic, payload):
+    # Retain only status: replaying old retained data after an offline event could make a fresh proxy look online.
+    if mqtt_client is None or not mqtt_client.is_connected():
+        raise RuntimeError('Tuya MQTT broker unavailable')
+    info = mqtt_client.publish(topic, json.dumps(payload, allow_nan=False), qos=1, retain=topic.endswith('/state'))
+    if info.rc != 0:
+        raise RuntimeError('Tuya MQTT publication failed: ' + str(info.rc))
+
+
+def tuya_record(item):
+    writes.append(dict(ts=time.time(), **item))   # caller already holds lock
+
+
+tuya = TuyaDevices(tuya_publish, tuya_record)
 
 
 def record(service, path, value):
@@ -178,6 +196,7 @@ def tick():
                 elif name not in services:
                     build(name)
                 publish(name)
+            tuya.tick(dt)
     except Exception as error:
         print('tick failed:', repr(error), flush=True)
     return True
@@ -276,6 +295,7 @@ class Api(BaseHTTPRequestHandler):
                 now = time.time()
                 return self._send(200, dict(inputs=state, computed=computed, forced=forced, failed=failed, now=now,
                                             stale={k: round(v - now) for k, v in stale_until.items() if v > now},
+                                            tuya=tuya.snapshot(),
                                             vebus_current_limit_a=vebus_limit_a() if 'vebus' in services else None))
             if url.path == '/writes':
                 since = float(parse_qs(url.query).get('since', ['0'])[0])
@@ -286,6 +306,8 @@ class Api(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         try:
             body = json.loads(self.rfile.read(length) or b'{}')
+            if self.path in ('/set', '/stale', '/fail') and (not isinstance(body, dict) or not isinstance(body.get('path'), str)):
+                raise ValueError('path must be a string')
             if self.path == '/mqtt':
                 with lock:
                     if not ready:
@@ -297,15 +319,27 @@ class Api(BaseHTTPRequestHandler):
                 if not ready:
                     return self._send(503, dict(error='starting'))
                 if self.path == '/set':
-                    apply_set(body['path'], body['value'])
+                    if body['path'].startswith('tuya.'):
+                        parts = body['path'].split('.')
+                        if len(parts) != 4 or parts[2] != 'dps':
+                            raise ValueError('use tuya.<device>.dps.<number>')
+                        tuya.set(parts[1], parts[3], body['value'])
+                    else:
+                        apply_set(body['path'], body['value'])
                 elif self.path == '/stale':
-                    stale_until[service_of(body['path'])] = time.time() + float(body['seconds'])
+                    if body['path'].startswith('tuya.'):
+                        tuya.stale(body['path'][5:], body.get('seconds'))
+                    else:
+                        stale_until[service_of(body['path'])] = time.time() + float(body['seconds'])
                 elif self.path == '/fail':
-                    name, mode = service_of(body['path']), body.get('mode', 'invalid')
-                    if mode == 'ok':
+                    mode = body.get('mode', 'invalid')
+                    if body['path'].startswith('tuya.'):
+                        tuya.fail(body['path'][5:], mode)
+                    elif mode == 'ok':
+                        name = service_of(body['path'])
                         failed.pop(name, None)
                     elif mode in ('invalid', 'offline'):
-                        failed[name] = mode
+                        failed[service_of(body['path'])] = mode
                     else:
                         raise KeyError('mode must be invalid, offline or ok')
                 elif self.path == '/reset':
@@ -315,17 +349,64 @@ class Api(BaseHTTPRequestHandler):
                     stale_until.clear()
                     failed.clear()
                     writes.clear()
+                    tuya.reset()
                 else:
                     return self._send(404, dict(error='not found'))
             self._send(200, dict(ok=True))
         except (KeyError, ValueError, TypeError) as error:
             self._send(400, dict(error=str(error)))
-        except (OSError, RuntimeError) as error:
+        except (ImportError, OSError, RuntimeError) as error:
             print('MQTT publish failed:', str(error), flush=True)
             self._send(503, dict(error='MQTT broker unavailable or publication failed'))
 
 
 def main():
+    import paho.mqtt.client as mqtt
+    global mqtt_client
+    mqtt_client = mqtt.Client()
+    connected = threading.Event()
+
+    def on_connect(client, userdata, flags, rc):
+        if rc != 0:
+            print('Tuya MQTT connection rejected:', rc, flush=True)
+            return
+        result, _ = client.subscribe('tuya/+/command', qos=1)
+        if result != mqtt.MQTT_ERR_SUCCESS:
+            print('Tuya MQTT subscription failed:', result, flush=True)
+            return
+        with lock:
+            tuya.announce(force=True)
+
+    def on_subscribe(client, userdata, mid, granted_qos):
+        if not granted_qos or any(q >= 128 for q in granted_qos):
+            print('Tuya MQTT command subscription rejected:', granted_qos, flush=True)
+            return
+        connected.set()
+
+    def on_message(client, userdata, message):
+        name = message.topic.split('/')[1]
+        try:
+            if message.retain:
+                raise ValueError('retained Tuya commands are not accepted')
+            with lock:
+                tuya.command(name, json.loads(message.payload))
+        except (KeyError, ValueError, TypeError) as error:
+            print('Tuya command rejected:', str(error), flush=True)
+            try:
+                with lock:
+                    tuya.error(name)
+            except (KeyError, RuntimeError) as publish_error:
+                print('Tuya MQTT error publication failed:', str(publish_error), flush=True)
+        except RuntimeError as error:
+            print('Tuya MQTT command response failed:', str(error), flush=True)
+
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_message = on_message
+    mqtt_client.on_subscribe = on_subscribe
+    mqtt_client.connect('mosquitto', 1883, 30)
+    mqtt_client.loop_start()
+    if not connected.wait(10):
+        raise RuntimeError('Tuya MQTT connection/subscription did not become ready')
     sysbus = dbus.SystemBus()
     sysbus.add_signal_receiver(on_settings_change, signal_name='PropertiesChanged', dbus_interface='com.victronenergy.BusItem',
                                bus_name='com.victronenergy.settings', path_keyword='path')

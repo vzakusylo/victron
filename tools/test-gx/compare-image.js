@@ -20,6 +20,7 @@ const { snapshot } = require('../gx/live-snapshot.js');
 const { diffSnapshots } = require('../gx/compare.js');
 const { classifyStartLog, classifyStateFiles } = require('./compare-rules.js');
 const { applyMap, parseMap } = require('./live-map.js');
+const { validateTransformation, transformLiveSnapshot } = require('./tuya-compare.js');
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i === -1 ? fallback : args[i + 1]; };
@@ -50,18 +51,13 @@ function getJson(url) {
 }
 const decodeSnapshot = (b64) => JSON.parse(zlib.gunzipSync(Buffer.from(String(b64).replace(/[^A-Za-z0-9+/=]/g, ''), 'base64')).toString('utf8'));
 
-// Nodes whose config legitimately differs between the GX and the test GX: Tuya (secrets) and anything with credentials.
-const EXPECTED_CONFIG_TYPES = /^tuya/i;
-
-function classifyFlow(name, diff, expectedTypes) {
+function classifyFlow(name, diff) {
     const real = diff.code.length + diff.trailing.length + diff.onlyLive.length + diff.onlyRepo.length;
-    const config = diff.config.filter((item) => !expectedTypes.test(item.type));
-    const expectedConfig = diff.config.length - config.length;
+    const config = diff.config;
     if (real || config.length) {
         const list = diff.code.concat(diff.trailing, diff.onlyLive, diff.onlyRepo, config).slice(0, 5).map((item) => item.id + ' ' + (item.name || item.type));
         add('DIFF', name, 'code ' + diff.code.length + ', trailing ' + diff.trailing.length + ', only image ' + diff.onlyLive.length + ', only other ' + diff.onlyRepo.length + ', config ' + config.length + ': ' + list.join('; '));
     } else add('OK', name, 'no differences');
-    if (expectedConfig) add('EXPECTED', name + ' (config)', expectedConfig + ' Tuya / credential node(s) differ in config');
 }
 
 function localHashes(root, dirs) {
@@ -87,8 +83,18 @@ async function main() {
 
     // 1. flow: image (same live-snapshot.js as for the real GX) against the backup
     const imageSnap = decodeSnapshot(ssh('tr -d "\\r" | node -', fs.readFileSync(path.join(__dirname, '..', 'gx', 'live-snapshot.js'), 'utf8')));
-    const backupSnap = snapshot(JSON.parse(fs.readFileSync(flowsFile, 'utf8')), undefined, { raw: true });
-    classifyFlow('flow: image vs backup', diffSnapshots(imageSnap, backupSnap), EXPECTED_CONFIG_TYPES);
+    const backupFlows = JSON.parse(fs.readFileSync(flowsFile, 'utf8'));
+    const backupSnap = snapshot(backupFlows, undefined, { raw: true });
+    const sanitizeReport = JSON.parse(fs.readFileSync(path.join(backupDir, 'sanitize-report.json'), 'utf8'));
+    const manifest = sanitizeReport.transformed || [];
+    const registryFile = path.join(redDir, 'grid-control-config', 'tuya-nodes.json');
+    const registry = fs.existsSync(registryFile) ? JSON.parse(fs.readFileSync(registryFile, 'utf8')) : {};
+    const sourceFlows = manifest.length ? JSON.parse(fs.readFileSync(path.join(backupDir, 'tuya-source-flows.json'), 'utf8')) : backupFlows;
+    if (manifest.length) {
+        validateTransformation(sourceFlows, backupFlows, registry, manifest);
+        add('EXPECTED', 'Tuya proxy transformations', manifest.length + ' exact replaced/added IDs: ' + manifest.map(n => n.id).join(', '));
+    }
+    classifyFlow('flow: image vs backup', diffSnapshots(imageSnap, backupSnap));
 
     // 2. versions
     const versions = JSON.parse(fs.readFileSync(versionsFile, 'utf8'));
@@ -153,14 +159,18 @@ async function main() {
         let live = decodeSnapshot(fs.readFileSync(liveFile, 'utf8'));
         const mapFile = opt('--map');
         if (mapFile) {
-            const mapped = applyMap(live, parseMap(fs.readFileSync(mapFile, 'utf8')), backupSnap);
+            const mapped = applyMap(live, parseMap(fs.readFileSync(mapFile, 'utf8')), snapshot(sourceFlows, undefined, { raw: true }));
             live = mapped.snapshot;
             const counts = (o) => Object.entries(o).map(([k, n]) => n + ' ' + k).join(', ') || 'none';
             add('OK', 'live map', 'replaced ' + counts(mapped.replaced));
             if (mapped.restMissing) add('WARN', 'live map', mapped.restMissing + ' node(s) without restJson: take the snapshot with "node - --raw", else their config will differ');
             if (Object.keys(mapped.unmapped).length) add('WARN', 'live map', 'not in map: ' + counts(mapped.unmapped) + ' (a device or setting added on the GX after the backup?)');
         } else add('WARN', 'live map', 'no --map: DIFF on nodes the sanitizer rewrote (device ids, addresses) is expected');
-        classifyFlow('flow: image vs live GX', diffSnapshots(live, imageSnap), EXPECTED_CONFIG_TYPES);
+        if (manifest.length) {
+            if (mapFile) live = transformLiveSnapshot(live, registry, manifest);
+            else add('WARN', 'Tuya proxy', 'no --map: skipping live Tuya transformation; raw flow differences remain DIFF');
+        }
+        classifyFlow('flow: image vs live GX', diffSnapshots(live, imageSnap));
         const tab = (s) => (s.nodes.find((n) => n.type === 'tab' && /d#\d+/.test(n.label || '')) || {}).label || '';
         const strip = (label) => label.replace(/ TEST-GX$/, '');
         add(live.rev === imageSnap.rev ? 'OK' : 'WARN', 'revision', 'live ' + String(live.rev).slice(0, 12) + ', image ' + String(imageSnap.rev).slice(0, 12) + (live.rev === imageSnap.rev ? '' : ' (rev differs when the GX was deployed after the backup)'));

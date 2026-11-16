@@ -4,6 +4,8 @@
 //   node tools/test-gx/inventory.js --check  exit 1 when an input/output has no emulation entry
 const fs = require('fs');
 const path = require('path');
+const { DEVICES } = require('./transform-tuya.js');
+const tuyaModel = require('./emulator/tuya-model.json');
 
 const repo = path.join(__dirname, '..', '..');
 let flows = JSON.parse(fs.readFileSync(path.join(repo, 'flows.json'), 'utf8'));
@@ -14,8 +16,9 @@ let emulator = fs.readFileSync(path.join(__dirname, 'emulator', 'emulator.py'), 
 const COVERAGE = {
   'victron-input': { status: 'emulated', by: 'D-Bus emulator' },
   'victron-output': { status: 'emulated', by: 'D-Bus emulator (/writes)' },
-  'tuya-smart-device': { status: 'planned', by: 'Tuya stub (B-tuya)' },
+  'tuya-smart-device': { status: 'emulated', by: 'Tuya proxy over MQTT (automations only, not the local protocol)' },
   'mqtt in': { status: 'emulated', by: 'internal mosquitto + emulator POST /mqtt' },
+  'mqtt out': { status: 'emulated', by: 'Tuya MQTT commands recorded in /writes' },
   'http request': { status: 'planned', by: 'forecast stub (B-forecast)' },
   'inject': { status: 'emulated', by: 'real Node-RED timers (libfaketime for clock scenarios)' },
   'http in': { status: 'emulated', by: 'real Node-RED HTTP endpoints' },
@@ -128,7 +131,7 @@ function inventory() {
       if (k.startsWith('victron-')) {
         row.service = n.service;
         row.path = n.path || (n.pathObj && n.pathObj.path);
-      } else if (k === 'mqtt in') row.topic = n.topic;
+      } else if (k === 'mqtt in' || k === 'mqtt out') row.topic = n.topic;
       else if (k === 'http request') row.url = n.url || '(from msg)';
       else if (k === 'http in') row.url = n.url;
       else if (k === 'exec:dbus') {
@@ -159,13 +162,20 @@ function warnings(rows) {
 // Uncovered = a D-Bus pair the emulator does not publish (and is not in PLANNED_DBUS), or a node type with no coverage and not internal.
 function problems(rows) {
   const out = [];
+  for (const n of flows.filter(n => n.type === 'tuya-smart-device')) {
+    if (!DEVICES[n.id] || !tuyaModel[DEVICES[n.id]]) out.push(`Tuya ${n.id}: no device model / proxy transformation`);
+  }
+  for (const [device, dps] of Object.entries(tuyaDps())) for (const dp of dps) {
+    if (!tuyaModel[device]?.[dp]) out.push(`Tuya ${device}: consumed DPS ${dp} is not in tuya-model.json`);
+  }
   const provided = emulatorPairs();
   const check = (where, pair) => {
     if (PLANNED_DBUS[pair]) return;
     if (!provided.has(pair) && !LOCALSETTINGS.has(pair)) out.push(`${where}: ${pair} is not published by emulator.py`);
   };
   for (const r of rows) {
-    if (r.kind === 'mqtt in' && r.topic !== 'qingping/+/up') out.push(`mqtt in ${r.id}: topic "${r.topic}" is not covered by emulator POST /mqtt`);
+    if (r.kind === 'mqtt in' && r.topic !== 'qingping/+/up' && !/^tuya\/(pump|valve|bypass|meter)\/(data|state)$/.test(r.topic)) out.push(`mqtt in ${r.id}: topic "${r.topic}" is not covered by emulator POST /mqtt or Tuya models`);
+    if (r.kind === 'mqtt out' && !/^tuya\/(pump|valve|bypass|meter)\/command$/.test(r.topic)) out.push(`mqtt out ${r.id}: topic "${r.topic}" is not covered by Tuya /writes`);
     if (r.kind.startsWith('victron-') && !r.path) out.push(`${r.kind} ${r.id}: node has no D-Bus path`);
     if (r.kind.startsWith('victron-') && r.path) check(`${r.kind} ${r.id}`, `${SERVICE_CLASS(r.service)} ${r.path}`);
     if (r.kind === 'exec:unknown') out.push(`exec ${r.id} (${r.name}) is not classified (command: ${r.command || 'built by a function node'})`);
@@ -173,9 +183,34 @@ function problems(rows) {
     if (r.kind === 'exec:dbus' && !r.dbus.length && !r.tolerant) out.push(`exec ${r.id} (${r.name}) is marked dbus but no service + path pair was found: the parser or the category is wrong`);
     if (r.kind === 'exec:dbus') for (const p of r.dbus) check(`exec ${r.id}`, p);
   }
+
   const unknown = new Set(flows.filter((n) => n.type !== 'exec' && !isInternal(n.type) && !COVERAGE[n.type] && !/^victron-(in|out)put-/.test(n.type)).map((n) => n.type));
   for (const t of unknown) out.push(`node type "${t}" has no coverage entry and is not listed as internal`);
   return out;
+}
+
+// Known DPS aliases in the state/automation consumers. DP dictionaries cover dynamic reads by the UI.
+function tuyaDps() {
+  const result = { pump: new Set(), valve: new Set(), bypass: new Set(), meter: new Set() };
+  for (const n of flows.filter(n => n.type === 'function')) {
+    let text = withoutComments(n.func || '');
+    const meter = text.match(/function meterReading\([^)]*\)\s*\{[\s\S]*?^\}/m);
+    if (meter) {
+      for (const m of meter[0].matchAll(/\bd\[['"]?(\d+)['"]?\]/g)) result.meter.add(m[1]);
+      text = text.replace(meter[0], '');
+    }
+    const table = text.match(/\bHP_DPS\s*=\s*\{([\s\S]*?)^\};/m);
+    if (/HP_DPS/.test(text) && !table) throw new Error('Tuya HP_DPS table cannot be parsed: ' + n.id);
+    if (table) for (const m of table[1].matchAll(/['"]?(\d+)['"]?\s*:/g)) result.pump.add(m[1]);
+    const pumpAliases = /HP_DPS/.test(text) ? 'H|hpd|hp|d' : 'H|hpd|hp';
+    for (const [device, aliases] of Object.entries({ pump: pumpAliases, valve: 'V|vd|valve', bypass: 'B|bd|bypass', meter: 'meter' })) {
+      for (const m of text.matchAll(new RegExp(`\\b(?:${aliases})(?:\\.dps)?\\[['"]?(\\d+)['"]?\\]`, 'g'))) result[device].add(m[1]);
+    }
+    for (const m of text.matchAll(/\bb\[['"](\d+)['"]\]/g)) result.bypass.add(m[1]);
+    for (const m of text.matchAll(/\bdev\.dps\[['"]?(\d+)['"]?\]/g)) { result.valve.add(m[1]); result.bypass.add(m[1]); }
+    for (const m of text.matchAll(/role:\s*['"](hp|valve|bypass|meter)['"],\s*dps:\s*(\d+)/g)) result[m[1] === 'hp' ? 'pump' : m[1]].add(m[2]);
+  }
+  return result;
 }
 
 if (require.main === module) {

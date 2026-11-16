@@ -9,7 +9,8 @@ A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RE
 | SSH as `root`, admin API | sshd in the same container | Yes, `tools/gx/*` and `scripts/gx-*.ps1` run unchanged |
 | Victron D-Bus services | [`victronenergy/venus-docker`](https://github.com/victronenergy/venus-docker), simulation `e` (MultiPlus + BMV) | Partly: demo values, other device instances |
 | Qingping MQTT | Internal Mosquitto + emulator `/mqtt` publications | Real MQTT and flow parsing; synthetic readings |
-| Tuya devices, solar forecast | Not connected | No (later step B) |
+| Four native Tuya devices | Same-ID MQTT proxies + four emulator models | Automation contracts only; native palette/protocol not tested |
+| Exec-based Tuya sensors, solar forecast | Not emulated yet | No (later step B) |
 | Real hardware, ARM specifics | Not available | No |
 
 It proves that the flow loads, function nodes run, the dashboard renders and the deploy chain (`live-snapshot` → `compare` → `deploy` → `verify`) works. It does **not** prove that the inverter or battery react correctly: that is still checked on the real GX with the monitor.
@@ -51,7 +52,7 @@ Pieces, to run separately:
 
 | Script | What it does |
 |---|---|
-| `up.ps1 -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts them with an internal Mosquitto broker |
+| `up.ps1 -Sim emu -Backup <sanitized dir>` / `up.ps1 -Down` | Builds the Venus simulator image (patched, see traps) and the Node-RED image, starts the D-Bus/Tuya emulator and internal Mosquitto broker |
 | `sanitize-backup.js <tar.gz> <outDir> [--days 14] [--no-logs]` | Backup → sanitized tree + `versions.json` + `sanitize-report.json`, and **beside** `<outDir>` the secret `<name>.map.json` (original → fake) |
 | `snapshot-file.js flows.json` | Same snapshot as `tools/gx/live-snapshot.js`, from a file |
 | `compare-image.js --backup <dir> [--live live.b64 [--map <name>.map.json]]` | Table `OK / WARN / DIFF / EXPECTED`, exit 0 / 1 / 2 |
@@ -70,19 +71,25 @@ The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapsh
 
 ### Sanitizer limitations
 
+- Live comparison deliberately does not check the original MQTT `broker`, `port`, `usetls` or `tls` fields: they are normalized to the internal test endpoint. Other broker properties remain checked.
 - The `replaced N <kind>` count is a count of occurrences: the same value may be counted in both `code` and `restJson`.
 - After `STOPPED`, `sanitize-report.json` still names `<name>.map.json`, although the sanitizer removes that map and does not create it.
 - The cleanup instruction above used to ask the operator to delete the map even though the script already deletes it. It is harmless but redundant.
+- Without `--map`, live Tuya transformation is skipped with a `Tuya proxy` WARN, including when the production broker is `127.0.0.1:1883`. Comparison still completes; raw unmapped code/config/node differences remain DIFF (exit 1), not a comparison exception (exit 2).
+- Tuya data is published every second, unlike the real palette's change/poll cadence; this can hide throttle or timing issues. Change-only publication with a slower heartbeat remains future work.
+- `compare-image.js` currently requires `sanitize-report.json`; an old/manual backup without it fails with ENOENT rather than a dedicated diagnostic.
+- The persistent emulator MQTT client constructor is not wrapped with the incompatible-paho guard used by `/mqtt`; incompatible paho fails loudly at startup, but its diagnostic can be improved.
+- With pump DP 132 = `'1'`, physics recalculates DP 125 from the weather curve every tick; a SET DP 125 is recorded/applied but overwritten on the next tick.
 
 ### What `compare-image.js` checks
 
 | Check | Rule |
 |---|---|
-| Flow (image vs backup, and vs live GX with `--live --map`) | No code differences; Tuya config differences are EXPECTED |
+| Flow (image vs backup, and vs live GX with `--live --map`) | Exact Tuya transformations listed in `sanitize-report.json` are EXPECTED; every other code/config/wiring difference is DIFF |
 | Node-RED and palette versions | Equal; same minor but other patch → WARN |
 | Files in `tools/`, `grid-control-config/` | SHA-256 equal; state files the flow rewrites → WARN |
 | Global context keys | Compared when the backup has a context store |
-| Start log | No error except the known ones: fake Tuya keys, missing D-Bus paths in the simulator |
+| Start log | No error except the exact known startup D-Bus messages; native Tuya nodes are removed from the test image |
 | Revision, tab label and git commit (with `--live`) | Differ → WARN: a deploy happened after the backup, take a new one |
 
 ## Rehearse a deploy
@@ -92,11 +99,12 @@ The sanitizer rewrites device ids, addresses, MACs and e-mails, so a live snapsh
 .\scripts\gx-deploy.ps1 -GxHost root@test-gx -SshKey tools\test-gx\test_key -Apply    # on the test GX this is safe
 ```
 
-The window check says WAIT until the emulator provides DHW state, valve, bypass and fault-code data (step B).
+The deploy window check still requires every guarded input: the four heat-pump models do not cover exec-based boiler/sensor inputs. Do not bypass a WAIT verdict.
 
 ## Traps
 
 - **Temporary probes and PowerShell wires.** Add probes with `POST /flow`, not `POST /flows` (which replaces the flow set); remove them with `DELETE /flow/<id>`. Keep the main `d#...` tab id and label unchanged before and after. Build each output as a nested array, for example `$wires = ,([string[]]@($targetId))`, then serialize with `ConvertTo-Json -Depth 10`: sufficient depth alone does not restore arrays already flattened by PowerShell. Use `node.warn` for console markers; debug defaults to the editor sidebar.
+- **Compressed recorder logs.** `.csv.gz` must be decompressed, sanitized and recompressed, not read directly as UTF-8. The leftover-secret scan also checks their decompressed text. Refresh older sanitized trees: their gzip headers may have been corrupted by text decoding.
 - **Volume hides the image.** The named volume `gx-data` is mounted on `/data` and hides the files copied into the image. `up.ps1 -Down` removes it; always use it before building a new backup.
 - **ID starting with a digit.** Flow code uses ids as bare object keys (`{ 6ca39...: {...} }`). A fake id that starts with a digit is a syntax error, so the sanitizer makes fake ids start with a letter.
 - **Palette not on npm.** `@victronenergy/node-red-contrib-victron@1.6.31` is not published; `up.ps1` falls back to `~1.6` and warns. Versions then differ from the GX (WARN).
@@ -165,7 +173,8 @@ These are manual checks, not CI coverage. The temporary probe must use `POST /fl
 | B1 test-GX image, D-Bus emulator, inventory and live comparison | done |
 | B2 `libfaketime` clock smoke test | done; `Date`, delay, cron, DST and month rollover checked; midnight cleanup is intentionally disabled since d#97 |
 | B3 Qingping MQTT | done; internal broker and emulator `/mqtt`, real Air quality dashboard verified |
-| B4 forecast, Tuya and automated scenarios | planned |
+| B4 four native Tuya devices | implemented as test-image MQTT proxies; see contracts and checks below |
+| B5 forecast, exec-based Tuya sensors and automated scenarios | planned; forecast follows the Tuya PR merge |
 
 ## Qingping MQTT
 
@@ -196,18 +205,86 @@ In Edge, Air quality (`/ui/#!/14` for the current backup) displayed all six publ
 
 The inventory marks `qingping/+/up` as emulated and rejects new MQTT input topics until a publisher covers them. Manual checks confirmed HTTP 400 for a wildcard topic, 503 with Mosquitto stopped, and successful publication after recovery. Image comparison gave 0 DIFF; fresh refresh and paired Venus/Node-RED restart warned only about the palette patch mismatch. A longer run also warned about runtime changes in `compressor-resource.json`. Click Refresh on Air quality to read newly appended samples.
 
+## Tuya devices over MQTT (Plan B)
+
+Only the image is transformed: production `flows.json` and numbered sources are unchanged. The four `tuya-smart-device` nodes become three-output functions with their original IDs and output 1/2 wires. Output 3 publishes non-retained QoS 1 commands to `tuya/<pump|valve|bypass|meter>/command`. Two deterministic MQTT inputs per device subscribe to `/data` and `/state`; all use the internal `mosquitto:1883` broker. Native `deviceKey`, `deviceIp` and protocol settings are not copied into proxies. An unknown Tuya node, unresolved device identity, unexpected output count or generated-ID collision stops sanitization; no native Tuya node may survive.
+
+Contracts were checked in the installed `node-red-contrib-tuya-smart-device@5.4.0` and TuyAPI source, the sanitized `tuya-nodes.json` / `tuya-devices-meta.json`, [heat-pump documentation](heat-pump.md#data-points) and a valid recorder keyframe from the backup (`2026-11-15/00.csv.gz`):
+
+| Direction | Actual contract |
+|---|---|
+| Poll | `msg.payload = {operation:'GET', schema:true}` |
+| Single SET | `{operation:'SET', dps:133, set:37}`; absent `dps` means DP 1 |
+| Multiple SET | `{operation:'SET', multiple:true, data:{'132':'1','134':4}}`; not `dps:{...}` |
+| Data, output 1 | `{payload:{data:{dps:{...},t:<seconds>},deviceId:<sanitized id>,deviceName:<name>}}`; partial DPS merge in Heat pump state |
+| Status, output 2 | `{payload:{state:'CONNECTING'|'CONNECTED'|'DISCONNECTED'|'ERROR'}}` |
+
+The proxy inserts the sanitized identity from `tuya-nodes.json`, resolving the backup's environment placeholders. The emulator sends DPS data every second and on GET/SET, with status on changes. Only status is retained: replaying an old retained DPS snapshot after an offline event could incorrectly refresh a newly deployed consumer. Broker reconnect republishes status and current data. GET/REFRESH and accepted SET commands are recorded in `/writes` with real timestamps, `device`, `operation`, `dps`, `value` and `applied`; offline SETs are recorded but not applied. Batch SET validation is atomic. CONTROL/discovery and the native Tuya protocol are not emulated.
+
+### DPS model
+
+`emulator/tuya-model.json` is shared with inventory validation. Writable limits follow the documented device model; read-only limits below are deliberately broad **test-model acceptance envelopes**, not manufacturer specifications. DP 4 is an opaque value (`6666`) observed in the recorder and is not interpreted.
+
+| Device | DPS | Meaning / model range |
+|---|---|---|
+| Pump | 1, 2, 5 | power boolean; mode `smart/strong/mute`; work mode `wth/heat/cool/wth_heat/wth_cool` |
+| Pump | 4, 15 | opaque reported value 0..10000 (default 6666); fault bitmap 0..65535 |
+| Pump | 101, 102, 103, 104, 105, 106, 107, 108, 113 | return, supply, outdoor, discharge, suction, outdoor/cooling coil, DHW tank, heatsink; -40..120 C, except outdoor up to 80 and discharge up to 150 |
+| Pump | 109, 111, 112, 114, 115, 116, 117 | EEV 0..500; current 0..50 A; DC bus 0..500 V; compressor 0..120 Hz; fans 0..1500 rpm |
+| Pump | 121, 122, 123, 124, 125, 126 | heating/DHW hysteresis 2..18 C; DHW setpoint 28..60; cooling 7..30; heating writes 15..55 (curve reports up to 60); compensation -5..15 |
+| Pump | 132, 133, 134, 135 | P22 `'0'/'1'`; P23 0..40 (manual UI 20..40); P24 1..30; frequency mode `'0'/'1'` |
+| Pump | 136, 137, 138 | heater ambient trigger -20..20 C; delay 0..60 min; pump mode `'0'/'1'` |
+| Pump | 139, 140, 141, 142, 143, 144 | defrost enter/exit -40..40 C; ambient-coil difference 0..40; frequency limits 30..120 Hz; DHW compensation -50..20 Hz |
+| Valve, bypass | 1, 9, 18, 19, 20 | relay boolean (valve ON = DHW, bypass ON = bypass); countdown seconds; mA; W x10; V x10 |
+| Meter | 1, 6, 32 | energy kWh x100; 8-byte base64 phase A (big endian V x10 / mA / W, 2/3/3 bytes); Hz x100 |
+| Meter | 18, 19, 20 | optional plug-meter fallback mA / W x10 / V x10; absent by default so the real SA1 DP 6 decoder is exercised |
+
+Simple physics couples pump power to meter DP 6 and energy DP 1, moves supply/return toward the weather curve, and heats DP 108 only with the valve on DHW and bypass off. It does not model real compressor dynamics, defrost physics or hydraulic transit.
+
+```powershell
+# Change tank temperature; wait for the actual automation, not a simulated SET.
+Invoke-RestMethod -Method Post http://127.0.0.1:8081/set -ContentType application/json `
+  -Body '{"path":"tuya.pump.dps.108","value":25}'
+Invoke-RestMethod http://127.0.0.1:8081/writes | Where-Object operation -eq SET
+
+# Freeze publications, disconnect a relay, or send invalid sensor values:
+Invoke-RestMethod -Method Post http://127.0.0.1:8081/stale -ContentType application/json `
+  -Body '{"path":"tuya.pump"}'
+Invoke-RestMethod -Method Post http://127.0.0.1:8081/fail -ContentType application/json `
+  -Body '{"path":"tuya.valve","mode":"offline"}'
+# Restore with mode "ok"; /reset restores all four devices and clears writes.
+```
+
+Stale suppresses even GET replies until `/fail` with `mode:"ok"` or `/reset`; optional `seconds` gives a finite interval. `mode:"invalid"` publishes pump temperatures -127, current `null` (JSON-safe substitute for NaN), compressor frequency 0; relay DP 1 becomes `null`, meter DP 6 empty. Actual downstream guards, not the emulator, decide what to do. The 15-minute defrost quiet period after a Node-RED deploy remains untouched: wait for it before asserting a normal DHW start.
+
+Comparison regenerates and validates every reported transformation against `tuya-source-flows.json`, retained outside the image. For `--live --map`, only those original IDs are transformed before comparison; live wiring/code changes still propagate to DIFF, and there is no blanket Tuya-config exemption. Inventory checks the HP_DPS dictionary and known DPS aliases in the actual consumers; adding an unmodelled DP or native device fails CI. New consumer aliases must be added to this parser rather than silently treated as covered. Exec-based boiler, accumulator/plate and battery sensors remain separate planned work.
+
+### Manual results
+
+| Check | Result |
+|---|---|
+| Heat Pump page | PASS; four CONNECTED devices, outdoor 0 C, 40 Hz, fan 600, SA1 900 W and live tank/supply values |
+| Dashboard manual command | PASS; P23 38 -> 37 produced an applied pump SET DP 133 in `/writes` |
+| DHW response to tank `/set` | PASS after waiting the real startup quiet period: tank 60 C held HEATING; 60 -> 25 caused applied pump SET DP 133 = 0, then valve SET DP 1 = true and VALVE state |
+| Pump offline and automation guard | PASS; page showed DISCONNECTED, curve control disabled and `waiting: device not connected / stale`; no SET attempts during 35 s with an already-started DHW cycle paused |
+| Image comparison | PASS; 0 DIFF, 16 exact transformations EXPECTED; palette patch mismatch WARN remains |
+
+The backup's Heat Pump history widget still produces its pre-existing unquoted `vertical-align` Angular `ng-style` error (and dashboard loading.html 404). These are not introduced by the transform; do not change production UI sources in this branch. Plan B tests the automations and their data/command contracts, **not `tuya-smart-device` itself or the real local Tuya protocol**.
+
+The `--live --map` path was exercised with a raw snapshot reconstructed from the backup (flow comparison 0 DIFF), not an SSH snapshot from the real GX; real-GX SSH access remains unavailable. An isolated Venus restart deliberately reproduces the already-documented D-Bus `ServiceUnknown`/`UnknownObject` failure; keep the strict log rule and refresh/restart both containers rather than classifying those errors as expected.
+
 ## Next: sensor scenarios and runner
 
-Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory, `/writes` and Qingping `/mqtt` are implemented; forecast fixtures, the Tuya stub and automated scenarios remain.
+Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory, `/writes`, Qingping `/mqtt` and four Tuya MQTT proxies are implemented; forecast fixtures, exec-based Tuya sensors and automated scenarios remain.
 
 1. **Inventory** (`inventory.js`): generated from `flows.json` (Victron D-Bus: 7 inputs, 4 outputs; 4 Tuya devices; Tuya cloud scripts; Qingping MQTT; solar forecast HTTP; 29 inject nodes). Exec nodes are classified by `command` plus the function node feeding them: `tuya-*.js` sensor scripts (planned), `send-mail.js` (stub), local file/shell work (`exec:local`, explicit tool list), `dbus` calls (checked as service + path pairs against `emulator.py`). The Devices model reader (`dv-exec-01`) is a tolerant reader: its COMMON/TYPE path tables are checked too, but a path the emulator lacks is only a WARN because the script returns null for it. Pairs the emulator lacks must be listed in `PLANNED_DBUS` (now the BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`); an exec that fits no category (for example one calling the network), a Victron node without a path, a `settings` path not in the localsettings list, or an unknown node type fails CI.
 2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`, `/mqtt`):
    - Victron D-Bus: fake services (`system`, `battery` instance 289, `vebus` 276, `settings`) with simple physics; every write the flow makes is recorded.
-   - Tuya: local-protocol stub; fallback: a test-image transform that replaces each Tuya node by an MQTT pair with the same id and wires.
+   - Tuya: Plan B test-image MQTT proxies for the four native nodes (done). Do not build a local-protocol stub unless Plan B proves insufficient. Exec-based sensors are a separate item.
    - Qingping via internal mosquitto and `/mqtt` (done); solar forecast from fixtures (planned), scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
 3. **Scenarios** (`scenarios/*.yml`): initial state, steps, expectations, plus rules that hold all the time (grid limit, current limit, at most N writes per minute). Areas: tariff, battery, solar, DHW and shower, sensor failures, midnight, DST, month change, dashboard console errors.
 4. **Runner**: runs all scenarios and writes a JUnit report. Every change passes the scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
-Risks: business behavior at DST/month-end needs scenario assertions; the Tuya protocol stub may be costly; the victron palette may need D-Bus paths that the emulator lacks.
+Risks: business behavior at DST/month-end needs scenario assertions; Plan B does not validate the native Tuya palette/protocol; the victron palette may need D-Bus paths that the emulator lacks. After the Tuya PR merges, create `test-gx-forecast` from fresh `master`.
 
 Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the complete test-GX work, not the MQTT step.
