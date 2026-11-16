@@ -208,15 +208,20 @@ test('settings use temporary inject nodes and remove the temporary flow', async 
         return { ok: true, text: async () => text };
     };
     const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
-    await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' }, heatCurve: { p23: 38, p24: 4 } });
+    await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' }, heatCurve: { p23: 35, p24: 4 } });
     assert.deepEqual(calls[0].body.nodes[0].wires, [['hpa-fn-01']]);
+    const load = calls.find(call => call.route === '/inject/inject-id' && call.body.__user_inject_props__[1].v === 'load');
+    assert.equal(load.body.__user_inject_props__[0].vt, 'str');
+    const node = loadNode('40 Heat pump automations.js');
+    node.run({ topic: 'load', payload: load.body.__user_inject_props__[0].v });
+    assert.deepEqual(node.context.get('settings').heatCurve, { p23: 35, p24: 4 });
     const actions = calls.filter(call => call.route === '/inject/inject-id')
         .map(call => ({
             topic: call.body.__user_inject_props__[1].v,
             payload: JSON.parse(call.body.__user_inject_props__[0].v)
         }));
     assert.deepEqual(actions, [
-        { topic: 'load', payload: { master: false, heatCurve: { p23: 38, p24: 4 } } },
+        { topic: 'load', payload: { master: false, heatCurve: { p23: 35, p24: 4 } } },
         { topic: 'ui', payload: { action: 'master', on: false } },
         { topic: 'ui', payload: { action: 'modeAll', mode: 'off' } },
         { topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: 'off' } },

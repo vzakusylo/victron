@@ -324,7 +324,7 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 for (const action of actions) {
                     await request('POST', `/inject/${node.id}`, {
                         __user_inject_props__: [
-                            { p: 'payload', v: JSON.stringify(action.payload), vt: 'json' },
+                            { p: 'payload', v: JSON.stringify(action.payload), vt: action.topic === 'load' ? 'str' : 'json' },
                             { p: 'topic', v: action.topic, vt: 'str' }
                         ]
                     });

@@ -1,9 +1,10 @@
 - name: no heat pump commands during deploy quiet period
   faketime: '@2026-11-16 20:00:00 x4'
-  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4}}
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
   initial:
     inputs:
       tuya.pump.dps.108: 25
+      tuya.pump.dps.133: 35
   steps:
     - when: 0s
       settle: 95s
@@ -12,10 +13,11 @@
 
 - name: DHW demand starts after deploy quiet period
   faketime: '@2026-11-16 20:00:00 x4'
-  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4}}
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
   initial:
     inputs:
       tuya.pump.dps.108: 25
+      tuya.pump.dps.133: 35
   steps:
     - when: 16m
       settle: 30s
