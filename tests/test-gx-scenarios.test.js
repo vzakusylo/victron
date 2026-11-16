@@ -240,7 +240,7 @@ test('trivial scenario YAML is checked in and matches the runner smoke contract'
 test('all checked-in scenarios parse and validate', () => {
     const scenarios = loadScenarios();
     assert.ok(scenarios.length >= 5);
-    assert.ok(scenarios.some(s => s.name === 'Er03 positive control after deploy quiet period'));
+    assert.ok(scenarios.some(s => s.name === 'Er03 first-step positive control after deploy quiet period'));
     assert.ok(scenarios.some(s => s.name === 'Er03 offline pump guard'));
 });
 
