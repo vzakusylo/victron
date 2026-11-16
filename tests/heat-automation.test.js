@@ -14,10 +14,10 @@ const NOW = new Date(2026, 10, 14, 20, 10).getTime();
 // Settings read from the GX on 14 Nov 20:10 (heat controller On, owner's curve P23 38 / P24 4).
 const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60 };
 
-function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT } = {}) {
+function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {} } = {}) {
     const node = loadNode('40 Heat pump automations.js');
     node.run({ topic: 'load', payload: JSON.stringify({
-        master: true, modes: { dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' },
+        master: true, modes: Object.assign({ dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' }, modes),
         heat: cfg, dhw: { showerForce: false }, heatCurve: { p23: 38, p24: 4, at: NOW - 3600000 }, dhwLastEnd
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
@@ -33,7 +33,11 @@ function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT } 
         });
         const call = node.run({ topic: 'tick' }, { now: t });
         for (const m of call.sent) {
-            if (m && m[0] === null && m[1] && m[1].payload && m[1].payload.operation === 'SET') writes.push({ t, dps: m[1].payload.dps, set: m[1].payload.set });
+            for (const [port, device] of [[1, 'pump'], [3, 'bypass'], [4, 'valve']]) {
+                if (m && m[port] && m[port].payload && m[port].payload.operation === 'SET') {
+                    writes.push({ t, device, dps: m[port].payload.dps, set: m[port].payload.set });
+                }
+            }
         }
         return call;
     }
@@ -115,6 +119,26 @@ test('heating controller holds during a DHW cycle and for 10 min after it', () =
     assert.ok(c.writes.every((w) => w.dps !== 2), 'the heating controller made no mode step meanwhile');
 });
 
+test('DHW controller starts a cycle after three fresh tank-demand ticks', () => {
+    const c = heating({ dhw: 'live' });
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 108: 25 });
+    assert.equal(c.node.context.get('dhw').state, 'STOP');
+    assert.ok(c.writes.some(w => w.device === 'pump' && String(w.dps) === '133' && w.set === 0),
+        'the pump curve is set to P23 0 before the valve moves');
+});
+
+test('DHW demand waits out the 15-minute quiet period after deploy', () => {
+    const c = heating({ dhw: 'live' });
+    c.node.context.set('lastDefrost', NOW);
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 108: 25 });
+    assert.equal(c.node.context.get('dhw').state, 'HEATING');
+    assert.deepEqual(c.writes, []);
+
+    for (let i = 0; i < 3; i++) c.tick(NOW + 16 * MIN + i * 10 * S, { 108: 25 });
+    assert.equal(c.node.context.get('dhw').state, 'STOP');
+    assert.ok(c.writes.some(w => w.device === 'pump' && String(w.dps) === '133' && w.set === 0));
+});
+
 test('a DHW cycle aborted by Er03 writes the owner heating curve back and the heating controller resumes', () => {
     const c = heating({ dhw: 'live' });
     const d = c.node.context.get('dhw');
@@ -138,4 +162,37 @@ test('a DHW cycle aborted by Er03 writes the owner heating curve back and the he
     // 10 min later, pump back on the owner's curve: the heating controller decides again
     c.tick(NOW + 11 * MIN);
     assert.doesNotMatch(c.heat().why, /^waiting/);
+});
+
+test('DHW compressor protection steps the curve down after three sustained minutes', () => {
+    const c = heating({ dhw: 'live' });
+    const d = c.node.context.get('dhw');
+    Object.assign(d, { state: 'DHW', since: NOW - 30 * S, startAt: NOW - 3 * MIN, startTank: 44,
+        run: (NOW - 3 * MIN) + ':dhw', live: true, outAvg: -2, outS: [[NOW, -2]],
+        p23Cmd: 40, p24Cmd: 12, p24Goal: 12, goal: 40, tickAt: NOW - 30 * S,
+        prot: { steps: 0, hotSince: NOW - 3 * MIN, at: 0, cut: 0, reason: '' } });
+    c.node.context.set('dhw', d);
+    c.tick(NOW, { 2: 'smart', 104: 100, 108: 44, 112: 9, 115: 81, 133: 40, 134: 12 }, true);
+
+    assert.equal(c.node.context.get('dhw').prot.steps, 1);
+    assert.equal(c.node.context.get('dhw').prot.cut, 2);
+    assert.ok(c.node.context.get('queue').some(w => w.rule === 'dhw' && String(w.dps) === '133' && w.set < 40));
+});
+
+test('defrost start turns the bypass on after three matching ticks', () => {
+    const c = heating({ modes: { df_exchange_off: 'live' } });
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 102: 26, 103: 5, 115: 40, 116: 0 });
+    assert.deepEqual(c.writes.map(w => [w.device, w.dps, w.set]), [['bypass', 1, true]]);
+});
+
+test('defrost recovery turns the bypass off after three matching ticks', () => {
+    const c = heating({ modes: { df_exchange_on: 'live' } });
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 102: 30, 103: 5, 115: 40, 116: 596, 125: 36, 132: '1' }, false, true);
+    assert.deepEqual(c.writes.map(w => [w.device, w.dps, w.set]), [['bypass', 1, false]]);
+});
+
+test('Er03 restart starts with a valve-to-heating command only after three matching ticks', () => {
+    const c = heating({ modes: { hp_er03_restart: 'live' } });
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 15: 1 }, true);
+    assert.deepEqual(c.writes.map(w => [w.device, w.dps, w.set]), [['valve', 1, false]]);
 });

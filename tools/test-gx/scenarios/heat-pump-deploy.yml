@@ -1,0 +1,71 @@
+- name: no heat pump commands during deploy quiet period
+  faketime: '@2026-11-16 20:00:00'
+  steps:
+    - when: 0s
+      settle: 12s
+      expect:
+        writes: []
+
+- name: Er03 command is not suppressed after deploy quiet period
+  faketime: '@2026-11-16 20:00:00'
+  initial:
+    inputs:
+      tuya.pump.dps.15: 0
+      tuya.valve.dps.1: false
+      tuya.bypass.dps.1: false
+  steps:
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+        tuya.valve.dps.1: true
+      settle: 70s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+
+- name: heat pump offline remains in safe mode
+  faketime: '@2026-11-16 20:00:00'
+  initial:
+    fail:
+      tuya.pump: offline
+  steps:
+    - when: 10m
+      settle: 12s
+      expect:
+        writes: []
+
+- name: stale bypass relay suppresses automation writes
+  faketime: '@2026-11-16 20:00:00'
+  initial:
+    stale:
+      tuya.bypass: 300
+  steps:
+    - when: 0s
+      settle: 12s
+      expect:
+        writes: []
+
+- name: invalid heat pump readings suppress automation writes
+  faketime: '@2026-11-16 20:00:00'
+  initial:
+    fail:
+      tuya.pump: invalid
+  steps:
+    - when: 0s
+      settle: 12s
+      expect:
+        writes: []
