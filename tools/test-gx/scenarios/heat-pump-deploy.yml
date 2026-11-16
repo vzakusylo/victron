@@ -1,6 +1,6 @@
 - name: no heat pump commands during deploy quiet period
-  faketime: '@2026-11-16 20:00:00'
-  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"}}
+  faketime: '@2026-11-16 20:00:00 x4'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4}}
   initial:
     inputs:
       tuya.pump.dps.108: 25
@@ -9,6 +9,71 @@
       settle: 75s
       expect:
         writes: []
+
+- name: DHW demand starts after deploy quiet period
+  faketime: '@2026-11-16 20:00:00 x4'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4}}
+  initial:
+    inputs:
+      tuya.pump.dps.108: 25
+  steps:
+    - when: 16m
+      settle: 30s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 0
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+
+- name: Er03 full restart sequence
+  faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+      tuya.pump.dps.15: 1
+  steps:
+    - when: 0s
+      settle: 205s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+          - device: bypass
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
 
 - name: Er03 first-step positive control after deploy quiet period
   faketime: '@2026-11-16 20:00:00 x60'

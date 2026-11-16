@@ -276,7 +276,7 @@ The `--live --map` path was exercised with a raw snapshot reconstructed from the
 
 ## Heat pump scenario runner
 
-The YAML runner covers heat-pump device inputs and writes, including the first Er03 sequence command and offline behavior. The full decision/input map is in [the heat-pump inventory](test-gx-heatpump-inventory.md). It does not replace the focused function-node tests; those also cover the deploy quiet period, output ports and missing/stale/NaN readings that the emulator API cannot inject.
+The YAML runner covers heat-pump device inputs and writes, including the full Er03 sequence, deploy quiet period and offline behavior. The full decision/input map is in [the heat-pump inventory](test-gx-heatpump-inventory.md). It does not replace the focused function-node tests; those also cover output ports and missing/stale/NaN readings that the emulator API cannot inject.
 
 Run against an already-running Test GX stack:
 
@@ -285,7 +285,7 @@ Run against an already-running Test GX stack:
 node .\tools\test-gx\run-scenarios.js --junit C:\learn\test-gx-data\runs\heatpump.xml
 
 # Run one scenario by its exact YAML `name`.
-node .\tools\test-gx\run-scenarios.js --scenario "Er03 first-step positive control after deploy quiet period" `
+node .\tools\test-gx\run-scenarios.js --scenario "Er03 full restart sequence" `
   --junit C:\learn\test-gx-data\runs\heatpump-er03.xml
 
 # Runner-only smoke test (uses a mock API; does not need Docker or mutate Test GX).
@@ -300,6 +300,10 @@ UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` 
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
 Tuya `SET` commands in `/writes` against `expect.writes`. Other D-Bus writes and Tuya GETs are
 not included in these assertions. Settings UI actions are persisted in the Test GX volume.
+When `settings.heatCurve` is specified, the runner first loads that curve with master off and
+other settings reset to their defaults, including the DHW block and last-cycle time; the UI
+actions then save the resulting settings in the volume. This makes the quiet-period twins
+independent of previously persisted settings.
 Optional `expected_fail: <bug-reference>`
 marks a known mismatch as a JUnit skipped case; an unexpected pass is a failure. The runner writes
 JUnit XML to `--junit`, `TEST_GX_JUNIT`, or the system temp directory. Faketime shifts recreate
@@ -310,7 +314,7 @@ The automation tick inject starts 60 real seconds after Node-RED startup, then r
 used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
 to its absolute path; the runner uses it when recreating Node-RED.
 
-The checked-in YAML currently has one trivial smoke scenario and five heat-pump scenarios. Unit
+The checked-in YAML currently has one trivial smoke scenario and seven heat-pump scenarios. Unit
 tests additionally cover the individual decisions and all 17 read paths (three variants each:
 missing, stale, and NaN). The deploy-window decision is covered directly in a unit test because
 the runner observes emulator writes, not the deploy CLI's WAIT verdict.
@@ -321,8 +325,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 - `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.
 - The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
 - A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.
-- Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; with `x60`, the watchdog drops the Er03 sequence after its first valve command. The rest of the sequence is not validated.
-- The quiet-period YAML scenario has no post-quiet positive control and can be suppressed by persisted settings independently of the quiet-period guard. The decision is tested in-process.
+- Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; with `x60`, the watchdog drops the Er03 sequence after its first valve command. The full-sequence scenario runs at normal speed instead.
 - `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
 
 ## Remaining Test GX work

@@ -181,11 +181,18 @@ function validateScenario(scenario, source = 'scenario') {
     }
     if (scenario.settings) {
         const allowed = ['dhw', 'heat', 'df_exchange_off', 'df_exchange_on', 'hp_er03_restart'];
-        if (Object.keys(scenario.settings).some(key => !['master', 'modes'].includes(key)) ||
+        if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve'].includes(key)) ||
             typeof scenario.settings.master !== 'boolean' || !scenario.settings.modes ||
             typeof scenario.settings.modes !== 'object' || Array.isArray(scenario.settings.modes) ||
             Object.entries(scenario.settings.modes).some(([id, mode]) => !allowed.includes(id) || !['off', 'dry', 'live'].includes(mode))) {
             throw new Error(`${source} settings must contain a boolean master and known rule modes`);
+        }
+        const curve = scenario.settings.heatCurve;
+        if (curve !== undefined && (!curve || typeof curve !== 'object' || Array.isArray(curve) ||
+            Object.keys(curve).some(key => !['p23', 'p24'].includes(key)) ||
+            !Number.isFinite(curve.p23) || curve.p23 < 0 || curve.p23 > 40 ||
+            !Number.isFinite(curve.p24) || curve.p24 < 1 || curve.p24 > 30)) {
+            throw new Error(`${source} settings.heatCurve must contain valid p23 and p24 values`);
         }
     }
     for (const [index, step] of scenario.steps.entries()) {
@@ -306,18 +313,19 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 const node = deployed.nodes && deployed.nodes.find(item => item.name === 'Load scenario settings' && item.type === 'inject');
                 if (!node) throw new Error('Node-RED did not deploy the scenario settings inject node');
                 const actions = [
-                    { action: 'master', on: false },
-                    { action: 'modeAll', mode: 'off' },
-                    { action: 'mode', id: 'dhw', mode: 'off' },
-                    { action: 'mode', id: 'heat', mode: 'off' },
-                    ...Object.entries(settings.modes || {}).map(([id, mode]) => ({ action: 'mode', id, mode })),
-                    { action: 'master', on: settings.master === true }
+                    ...(settings.heatCurve ? [{ topic: 'load', payload: { master: false, heatCurve: settings.heatCurve } }] : []),
+                    { topic: 'ui', payload: { action: 'master', on: false } },
+                    { topic: 'ui', payload: { action: 'modeAll', mode: 'off' } },
+                    { topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: 'off' } },
+                    { topic: 'ui', payload: { action: 'mode', id: 'heat', mode: 'off' } },
+                    ...Object.entries(settings.modes || {}).map(([id, mode]) => ({ topic: 'ui', payload: { action: 'mode', id, mode } })),
+                    { topic: 'ui', payload: { action: 'master', on: settings.master === true } }
                 ];
                 for (const action of actions) {
                     await request('POST', `/inject/${node.id}`, {
                         __user_inject_props__: [
-                            { p: 'payload', v: JSON.stringify(action), vt: 'json' },
-                            { p: 'topic', v: 'ui', vt: 'str' }
+                            { p: 'payload', v: JSON.stringify(action.payload), vt: 'json' },
+                            { p: 'topic', v: action.topic, vt: 'str' }
                         ]
                     });
                     await wait(200);

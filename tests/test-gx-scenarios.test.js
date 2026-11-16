@@ -63,8 +63,9 @@ test('faketime and when durations are validated and converted', () => {
 
 test('scenario settings reject unsupported fields and rule modes', () => {
     const scenario = { name: 'settings', faketime: '@2026-11-16 12:00:00', steps: [{ when: '0s' }] };
-    assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: {}, heatCurve: {} } }), /known rule modes/);
+    assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: {}, unsupported: {} } }), /known rule modes/);
     assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: { hp_er03_restart: 'invalid' } } }), /known rule modes/);
+    assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: {}, heatCurve: { p23: 41, p24: 4 } } }), /valid p23 and p24/);
 });
 
 test('write assertions compare write count, order and requested fields', () => {
@@ -73,6 +74,36 @@ test('write assertions compare write count, order and requested fields', () => {
     assert.throws(() => assertWrites([], [{ dps: '133' }], 'curve', 1), ScenarioAssertionError);
     assert.throws(() => assertWrites(actual, [{ dps: '134' }], 'curve', 1), /dps expected/);
     assert.throws(() => assertWrites([...actual, ...actual], [{ dps: '133' }], 'curve', 1), /expected 1 writes, received 2/);
+});
+
+test('full Er03 scenario rejects every missing or reordered command', () => {
+    const scenario = loadScenarios().find(s => s.name === 'Er03 full restart sequence');
+    assert.ok(scenario);
+    assert.equal(faketimeRate(scenario.faketime), 1);
+    const writes = scenario.steps.flatMap(step => step.expect.writes);
+    assert.deepEqual(writes.map(({ device, dps, value }) => [device, dps, value]), [
+        ['valve', '1', false], ['valve', '1', false], ['pump', '1', false],
+        ['pump', '1', true], ['bypass', '1', false], ['pump', '132', '1']
+    ]);
+    assert.doesNotThrow(() => assertWrites(writes, writes, scenario.name, 1));
+    for (let i = 0; i < writes.length; i++) {
+        assert.throws(() => assertWrites(writes.filter((_, n) => n !== i), writes, scenario.name, 1), ScenarioAssertionError);
+    }
+    const reordered = [...writes];
+    [reordered[2], reordered[3]] = [reordered[3], reordered[2]];
+    assert.throws(() => assertWrites(reordered, writes, scenario.name, 1), ScenarioAssertionError);
+});
+
+test('quiet-period scenarios use the same demand and settings on both sides of the guard', () => {
+    const scenarios = loadScenarios();
+    const quiet = scenarios.find(s => s.name === 'no heat pump commands during deploy quiet period');
+    const after = scenarios.find(s => s.name === 'DHW demand starts after deploy quiet period');
+    assert.ok(quiet && after);
+    assert.deepEqual(quiet.settings, after.settings);
+    assert.deepEqual(quiet.initial, after.initial);
+    assert.equal(quiet.faketime, after.faketime);
+    assert.deepEqual(quiet.steps[0].expect.writes, []);
+    assert.ok(after.steps[0].expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
 });
 
 test('a trivial scenario passes, calls the emulator API and produces JUnit XML', async () => {
@@ -177,17 +208,21 @@ test('settings use temporary inject nodes and remove the temporary flow', async 
         return { ok: true, text: async () => text };
     };
     const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
-    await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' } });
+    await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' }, heatCurve: { p23: 38, p24: 4 } });
     assert.deepEqual(calls[0].body.nodes[0].wires, [['hpa-fn-01']]);
     const actions = calls.filter(call => call.route === '/inject/inject-id')
-        .map(call => JSON.parse(call.body.__user_inject_props__[0].v));
+        .map(call => ({
+            topic: call.body.__user_inject_props__[1].v,
+            payload: JSON.parse(call.body.__user_inject_props__[0].v)
+        }));
     assert.deepEqual(actions, [
-        { action: 'master', on: false },
-        { action: 'modeAll', mode: 'off' },
-        { action: 'mode', id: 'dhw', mode: 'off' },
-        { action: 'mode', id: 'heat', mode: 'off' },
-        { action: 'mode', id: 'hp_er03_restart', mode: 'live' },
-        { action: 'master', on: true }
+        { topic: 'load', payload: { master: false, heatCurve: { p23: 38, p24: 4 } } },
+        { topic: 'ui', payload: { action: 'master', on: false } },
+        { topic: 'ui', payload: { action: 'modeAll', mode: 'off' } },
+        { topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: 'off' } },
+        { topic: 'ui', payload: { action: 'mode', id: 'heat', mode: 'off' } },
+        { topic: 'ui', payload: { action: 'mode', id: 'hp_er03_restart', mode: 'live' } },
+        { topic: 'ui', payload: { action: 'master', on: true } }
     ]);
     assert.equal(calls.at(-1).method, 'DELETE');
     assert.equal(calls.at(-1).route, '/flow/temporary-flow');
