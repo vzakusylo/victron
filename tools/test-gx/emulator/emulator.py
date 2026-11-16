@@ -297,8 +297,6 @@ class Api(BaseHTTPRequestHandler):
                                             stale={k: round(v - now) for k, v in stale_until.items() if v > now},
                                             tuya=tuya.snapshot(),
                                             vebus_current_limit_a=vebus_limit_a() if 'vebus' in services else None))
-            if url.path == '/tuya/boiler':
-                return self._send(200, tuya.local_reading('boiler'))
             if url.path == '/writes':
                 since = float(parse_qs(url.query).get('since', ['0'])[0])
                 return self._send(200, [w for w in writes if w['ts'] > since])

@@ -2,7 +2,7 @@
 // Compares the running Docker test GX with the sanitized backup it was built from.
 // Runs on the PC, reads the container over ssh and the Node-RED admin API; changes nothing.
 //
-// Usage: node tools/test-gx/compare-image.js --backup <sanitized dir> [--ssh test-gx] [--api http://127.0.0.1:1881]
+// Usage: node tools/test-gx/compare-image.js --backup <sanitized dir> [--ssh test-gx] [--ssh-key key] [--api http://127.0.0.1:1881]
 //          [--compose tools/test-gx] [--live LIVE.b64 [--map <name>.map.json]] [--report report.json]
 //   --live  snapshot of a real GX (tools/gx/live-snapshot.js output, taken with "node - --raw" when --map is used):
 //           also compare the image with it (read-only on the GX).
@@ -26,6 +26,7 @@ const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i === -1 ? fallback : args[i + 1]; };
 const backupDir = opt('--backup');
 const sshHost = opt('--ssh', 'test-gx');
+const sshKey = opt('--ssh-key');
 const api = opt('--api', 'http://127.0.0.1:1881');
 const composeDir = opt('--compose', __dirname);
 if (!backupDir) { console.error('Usage: node tools/test-gx/compare-image.js --backup <sanitized dir>'); process.exit(2); }
@@ -35,7 +36,8 @@ const add = (status, what, detail) => rows.push({ status, what, detail: detail |
 const normalize = (text) => String(text).replace(/\r\n/g, '\n');
 
 function ssh(command, input) {
-    const result = spawnSync('ssh', [sshHost, command], { input, encoding: 'utf8', maxBuffer: 1 << 28 });
+    const options = sshKey ? ['-i', sshKey, '-o', 'IdentitiesOnly=yes'] : [];
+    const result = spawnSync('ssh', [...options, sshHost, command], { input, encoding: 'utf8', maxBuffer: 1 << 28 });
     if (result.status !== 0) throw new Error('ssh ' + sshHost + ' "' + command + '": ' + (result.stderr || result.error || '').toString().trim());
     return result.stdout;
 }
@@ -88,7 +90,6 @@ async function main() {
     const sanitizeReport = JSON.parse(fs.readFileSync(path.join(backupDir, 'sanitize-report.json'), 'utf8'));
     const manifest = sanitizeReport.transformed || [];
     const flowManifest = manifest.filter(n => n.id);
-    const fileManifest = manifest.filter(n => n.path);
     const registryFile = path.join(redDir, 'grid-control-config', 'tuya-nodes.json');
     const registry = fs.existsSync(registryFile) ? JSON.parse(fs.readFileSync(registryFile, 'utf8')) : {};
     const sourceFlows = manifest.length ? JSON.parse(fs.readFileSync(path.join(backupDir, 'tuya-source-flows.json'), 'utf8')) : backupFlows;
@@ -96,15 +97,15 @@ async function main() {
         validateTransformation(sourceFlows, backupFlows, registry, flowManifest);
         add('EXPECTED', 'Tuya proxy transformations', flowManifest.length + ' exact replaced/added IDs: ' + flowManifest.map(n => n.id).join(', '));
     }
-    for (const item of fileManifest) {
-        if (item.path !== 'tools/tuya-local-poll.js' || item.from !== 'backup' || item.to !== 'test-gx-http-stub' || item.device !== 'boiler') {
-            throw new Error('Unknown sanitized file transformation: ' + JSON.stringify(item));
+    const pollerPath = 'tools/tuya-local-poll.js';
+    const omitted = sanitizeReport.omitted || [];
+    for (const item of omitted) {
+        if (item.path !== pollerPath || item.reason !== 'local Tuya sensor polling is planned (B-tuya)') {
+            throw new Error('Unknown sanitized file omission: ' + JSON.stringify(item));
         }
-        const expected = fs.readFileSync(path.join(__dirname, 'tuya-local-poll.js'));
-        const actual = fs.readFileSync(path.join(redDir, item.path));
-        if (!actual.equals(expected)) throw new Error('Sanitized Tuya poller is not the expected test GX stub');
-        add('EXPECTED', 'Tuya poller replacement', item.path + ' -> HTTP /tuya/boiler stub');
+        add('EXPECTED', 'local Tuya sensor poller', item.path + ' omitted; coverage remains planned');
     }
+    if (fs.existsSync(path.join(redDir, pollerPath))) throw new Error('Unemulated local Tuya poller must not be in the Test GX image');
     classifyFlow('flow: image vs backup', diffSnapshots(imageSnap, backupSnap));
 
     // 2. versions

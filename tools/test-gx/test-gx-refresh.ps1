@@ -73,6 +73,7 @@ if ((ssh -G test-gx | Select-String '^port 2222$') -eq $null) { throw 'ssh alias
 Step '7/8. compare'
 $runs = Join-Path $DataDir ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Force $runs | Out-Null
 $cmp = @((Join-Path $here 'compare-image.js'), '--backup', $out, '--compose', $here, '--report', (Join-Path $runs 'report.json'))
+$cmp += @('--ssh-key', (Join-Path $here 'test_key'))
 if ($GxHost) {
     $live = Join-Path $runs 'live.b64'
     # --raw: the snapshot also carries the config text of every node, so the sanitizer's map can be applied; keep live.b64 private
