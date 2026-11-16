@@ -109,12 +109,20 @@ class TuyaDevices:
     def set(self, name, dp, value):
         self.validate(name, dp, value)
         self.device(name)['dps'][str(dp)] = value
+        if name == 'boiler':
+            self.devices['pump']['dps'][str(dp)] = value
+            self.announce('pump')
+            return
+        if name == 'pump' and str(dp) == '108':
+            self.devices['boiler']['dps']['108'] = value
         self.announce(name)
 
     def stale(self, name, seconds=None):
         if seconds is not None and (not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0):
             raise ValueError('stale seconds must be finite and nonnegative')
         self.device(name)['stale_until'] = time.time() + seconds if seconds is not None else math.inf
+        if name == 'boiler':
+            self.stale('pump', seconds)
 
     def fail(self, name, mode):
         if mode not in ('ok', 'offline', 'invalid'):
@@ -123,7 +131,21 @@ class TuyaDevices:
         d['failed'] = None if mode == 'ok' else mode
         if mode == 'ok':
             d['stale_until'] = 0
+        if name == 'boiler':
+            self.fail('pump', mode)
+            return
         self.announce(name)
+
+    def local_reading(self, name):
+        d = self.device(name)
+        if name != 'boiler':
+            raise KeyError('unknown local Tuya reading ' + name)
+        pump = self.devices['pump']
+        state = 'DISCONNECTED' if pump['failed'] == 'offline' else 'STALE' if pump['stale_until'] > time.time() else 'CONNECTED'
+        dps = copy.deepcopy(d['dps'])
+        if pump['failed'] == 'invalid':
+            dps['108'] = -127
+        return dict(state=state, t=int(time.time() * 1000), dps=dps)
 
     def tick(self, dt):
         hp = self.devices['pump']
@@ -138,8 +160,15 @@ class TuyaDevices:
         approach = min(1, max(0, dt) / 60)
         p['102'] = round(p['102'] + ((target if self.power_w else p['101']) - p['102']) * approach, 2)
         p['101'] = round(p['101'] + (p['102'] - p['101'] - (5 if self.power_w else 0)) * approach, 2)
-        if running and dhw and self.power_w:
-            p['108'] = round(min(p['102'], p['108'] + dt * 0.005), 3) if p['108'] < p['102'] else p['108']
+        boiler = self.devices['boiler']['dps']
+        heating = running and dhw and self.power_w
+        tank = boiler['108']
+        if heating and tank < p['102']:
+            tank = min(p['102'], tank + max(0, dt) * 0.01)
+        else:
+            tank = max(0, tank - max(0, dt) * 0.005)
+        boiler['108'] = round(tank, 2)
+        p['108'] = boiler['108']
         self.energy_wh += self.power_w * dt / 3600
         meter = self.devices['meter']['dps']
         meter['1'] = MODEL['meter']['1']['default'] + int(self.energy_wh / 10)
