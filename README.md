@@ -31,6 +31,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 | [Backup & restore](docs/backup-restore.md) | one-file backup of history and setup, restore on a new GX; energy and heating data archive by e-mail weekly and by a button |
 | [Agent access (MCP)](docs/agent-mcp.md) | MCP server, Claude Code setup, `victron-status` skill, example answer; remote access in [Tailscale](#remote-access-tailscale) |
 | [Development & deployment](docs/development.md) | repository layout, flow versioning, sync and deploy workflow |
+| [Agent workflow](docs/agent-workflow.md) | how Claude (planning and review) and Copilot (implementation) work together; message templates and PR rules |
 | [Assumptions, limitations & roadmap](docs/limitations.md) | what the setup assumes, known limits, planned improvements |
 | [Heat pump (Tuya, local)](docs/heat-pump.md) | devices, setup, Heat Pump page, DP map, roadmap to local control |
 | [Boiler (DHW) control](docs/heat-pump-boiler.md) | what was done, how it changed and how the tank is heated now (d#142): curve settings, cycle, compressor protection, defrost, safety, settings |

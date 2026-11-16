@@ -21,3 +21,31 @@ Choose only the relevant scopes from this checklist:
 - **Network:** identify any required access to GitHub, npm, container registries, or upstream build sources.
 
 If approval is declined or not given, do not use that resource; continue only with independent work that does not require it. These instructions do not replace runtime permission prompts or other security requirements.
+
+# Workflow with the reviewer
+
+Claude (in a separate chat) plans and reviews; you implement. The owner relays messages. Full model: `docs/agent-workflow.md`.
+
+- Work only on the branch named in the instructions. Never push to `master`; everything goes through a PR, including docs and these rules.
+- One open PR at a time. Create the next branch from a fresh `master` only after the previous PR is merged. Merges use merge commits.
+- Do not change production `flows.json` or numbered `NN *.js` files in Test GX work. If a scenario exposes a production bug, mark it `expected_fail` with a reference; the fix goes in its own PR.
+- Fix Medium-or-higher findings in changed code on the same branch; Low/Nit may move to the next branch or to Known limitations.
+- Keep real backups, substitution maps and keys outside the repository and the Docker image.
+- Repository code, docs and commit messages are in English.
+- End every task with a short report in this format:
+
+```
+Branch: <name>
+Commit: <SHA>, pushed: yes/no
+PR: #<n> (open/draft) or none
+Done:
+- <item>
+Checked:
+- tests: <passed>/<total>
+- test-gx-refresh.ps1: DIFF <n>, status <OK/WARN/FAIL>, reason
+- manual: <what, result>
+Not checked / deferred:
+- <item, reason>
+Outside the branch:
+- <anything pushed elsewhere; should be "none">
+```
