@@ -6,7 +6,7 @@
       tuya.pump.dps.108: 25
   steps:
     - when: 0s
-      settle: 75s
+      settle: 95s
       expect:
         writes: []
 
