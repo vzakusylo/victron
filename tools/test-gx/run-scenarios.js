@@ -2,13 +2,13 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIOS = path.join(__dirname, 'scenarios');
+const DEFAULT_JUNIT = path.join(__dirname, 'out', 'test-gx-scenarios.xml');
 const DEFAULT_API = process.env.TEST_GX_API || 'http://127.0.0.1:8081';
 const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 
@@ -179,6 +179,12 @@ function validateScenario(scenario, source = 'scenario') {
     if (scenario.settings !== undefined && (!scenario.settings || typeof scenario.settings !== 'object' || Array.isArray(scenario.settings))) {
         throw new Error(`${source} settings must be a mapping`);
     }
+    if (scenario.observe !== undefined && (!Array.isArray(scenario.observe) || !scenario.observe.length ||
+        scenario.observe.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
+            Object.keys(item).some(key => !['service', 'path'].includes(key)) ||
+            typeof item.service !== 'string' || !item.service || typeof item.path !== 'string' || !item.path))) {
+        throw new Error(`${source} observe must contain service and path selectors`);
+    }
     if (scenario.settings) {
         const allowed = ['dhw', 'heat', 'df_exchange_off', 'df_exchange_on', 'hp_er03_restart'];
         if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve'].includes(key)) ||
@@ -199,7 +205,9 @@ function validateScenario(scenario, source = 'scenario') {
         if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error(`${source} step ${index + 1} must be a mapping`);
         parseDuration(step.when, `${source} step ${index + 1} when`);
         parseDuration(step.settle === undefined ? '12s' : step.settle, `${source} step ${index + 1} settle`);
-        if (step.expect && (!Array.isArray(step.expect.writes))) throw new Error(`${source} step ${index + 1} expect.writes must be a sequence`);
+        if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) || !Array.isArray(step.expect.writes)) {
+            throw new Error(`${source} step ${index + 1} requires an expect.writes sequence`);
+        }
         for (const key of ['inputs', 'fail', 'stale']) {
             if (step[key] !== undefined && (!step[key] || typeof step[key] !== 'object' || Array.isArray(step[key]))) {
                 throw new Error(`${source} step ${index + 1} ${key} must be a mapping`);
@@ -386,11 +394,13 @@ async function runScenario(scenario, options = {}) {
         if (due > Date.now()) await wait(due - Date.now());
         await applyActions(api, step);
         const settle = parseDuration(step.settle === undefined ? '12s' : step.settle, 'settle');
-        if (settle) await wait(settle);
+        if (settle) await wait(settle / rate);
         const writes = await api.getWrites();
-        const current = writes.slice(cursor).filter(write => write.operation === 'SET');
+        const current = writes.slice(cursor).filter(write => scenario.observe
+            ? scenario.observe.some(selector => write.service === selector.service && write.path === selector.path)
+            : write.operation === 'SET');
         cursor = writes.length;
-        if (step.expect) assertWrites(current, step.expect.writes, scenario.name, index + 1);
+        assertWrites(current, step.expect.writes, scenario.name, index + 1);
     }
 }
 
@@ -493,7 +503,7 @@ async function main(args = process.argv.slice(2)) {
         options.restoreFaketime = false;
     }
     const results = await runScenarios(scenarios, options);
-    const junitPath = options.junitPath || process.env.TEST_GX_JUNIT || path.join(os.tmpdir(), 'test-gx-scenarios.xml');
+    const junitPath = options.junitPath || process.env.TEST_GX_JUNIT || DEFAULT_JUNIT;
     fs.mkdirSync(path.dirname(path.resolve(junitPath)), { recursive: true });
     fs.writeFileSync(junitPath, junitXml(results), 'utf8');
     let counts = { pass: 0, fail: 0, expected_fail: 0 };

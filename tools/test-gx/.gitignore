@@ -4,3 +4,4 @@ test_key.pub
 __pycache__/
 *.pyc
 *.map.json
+out/

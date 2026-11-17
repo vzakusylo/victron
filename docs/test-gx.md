@@ -281,8 +281,8 @@ The YAML runner covers heat-pump device inputs and writes, including the full Er
 Run against an already-running Test GX stack:
 
 ```powershell
-# Run all checked-in YAML scenarios; write a JUnit report outside the repository.
-node .\tools\test-gx\run-scenarios.js --junit C:\learn\test-gx-data\runs\heatpump.xml
+# Run all checked-in YAML scenarios; JUnit defaults to the ignored tools/test-gx/out/ directory.
+node .\tools\test-gx\run-scenarios.js
 
 # Run one scenario by its exact YAML `name`.
 node .\tools\test-gx\run-scenarios.js --scenario "Er03 full restart sequence" `
@@ -298,17 +298,22 @@ node --test .\tests\test-gx-scenarios.test.js .\tests\heat-automation.test.js
 Each scenario restarts Node-RED with its `faketime`, applies `settings` through temporary Node-RED
 UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` through `/fail`,
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
-Tuya `SET` commands in `/writes` against `expect.writes`. Other D-Bus writes and Tuya GETs are
-not included in these assertions. Settings UI actions are persisted in the Test GX volume.
+Tuya `SET` commands in `/writes` against `expect.writes`. Every step requires `expect.writes`,
+including an explicit `[]` for guards; missing expectations and extra selected writes fail.
+To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence of exact
+`service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
+Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
+Without `observe`, all Tuya `SET` commands are selected. Settings UI actions are persisted in the Test GX volume.
 When `settings.heatCurve` is specified, the runner first loads that curve with master off and
 other settings reset to their defaults, including the DHW block and last-cycle time; the UI
 actions then save the resulting settings in the volume. This makes the quiet-period twins
 independent of previously persisted settings.
 Optional `expected_fail: <bug-reference>`
 marks a known mismatch as a JUnit skipped case; an unexpected pass is a failure. The runner writes
-JUnit XML to `--junit`, `TEST_GX_JUNIT`, or the system temp directory. Faketime shifts recreate
-only the Node-RED service and do not remove `gx-data`. `when` is measured in fake time from the
-runner's post-reset start, not the Node-RED deploy; `settle` is measured in real time.
+JUnit XML to `--junit`, `TEST_GX_JUNIT`, or `tools/test-gx/out/test-gx-scenarios.xml`, in that
+precedence order. Faketime shifts recreate only the Node-RED service and do not remove `gx-data`.
+Both `when` and `settle` are measured in fake time and divided by the scenario's `xN` rate
+for real waits. `when` is relative to the runner's post-reset start, not the Node-RED deploy.
 The automation tick inject starts 60 real seconds after Node-RED startup, then repeats every
 10 real seconds; the live Er03 controls wait for three ticks. Set `TEST_GX_TAG` to the image tag
 used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
