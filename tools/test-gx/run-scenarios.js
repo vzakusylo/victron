@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
+const { preserveSettings, ScenarioCleanupError, assertFunctionHashes, assertNoTemporaryFlows } = require('./scenario-state');
+const { preserveController } = require('./scenario-controller');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIOS = path.join(__dirname, 'scenarios');
@@ -168,6 +170,22 @@ function faketimeRate(value) {
     return rate;
 }
 
+function validateProtection(value, source) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${source} protection must be a mapping`);
+    const booleans = ['enabled', 'gridSupportDisableNoSun', 'exportGuardEnabled', 'forceChargeEnabled', 'forceChargeLimiterEnabled'];
+    const numbers = ['start', 'release', 'full', 'gridSupportW', 'gridSupportBatteryCapacityAh', 'gridSupportReserveAh',
+        'gridSupportStartHour', 'gridSupportEndHour', 'gridSupportMaxDischargeA', 'gridSupportForecastConfidencePct',
+        'gridSupportSolarAssistGainPct', 'gridSupportWeakForecastBlockAh', 'gridSupportMinGridImportW',
+        'gridSupportDisableNoSunBelowW', 'forceChargeGridW', 'forceChargeLimiterStart', 'forceChargeLimiterRelease', 'forceChargeLimiterFull'];
+    for (const [key, setting] of Object.entries(value)) {
+        if (booleans.includes(key) ? typeof setting !== 'boolean'
+            : numbers.includes(key) ? !Number.isFinite(setting)
+                : key === 'gridSupportMode' ? !['hv-only', 'adaptive-day', 'hybrid'].includes(setting) : true) {
+            throw new Error(`${source} has an unsupported protection setting or type: ${key}`);
+        }
+    }
+}
+
 function validateScenario(scenario, source = 'scenario') {
     if (!scenario || typeof scenario !== 'object' || Array.isArray(scenario)) throw new Error(`${source} must be a YAML mapping`);
     if (typeof scenario.name !== 'string' || !scenario.name.trim()) throw new Error(`${source} needs a name`);
@@ -179,6 +197,14 @@ function validateScenario(scenario, source = 'scenario') {
     if (scenario.settings !== undefined && (!scenario.settings || typeof scenario.settings !== 'object' || Array.isArray(scenario.settings))) {
         throw new Error(`${source} settings must be a mapping`);
     }
+    if (scenario.controller !== undefined && (!scenario.controller || typeof scenario.controller !== 'object' ||
+        Array.isArray(scenario.controller) || !scenario.observe ||
+        Object.keys(scenario.controller).some(key => !['protection', 'forecastWatts'].includes(key)) ||
+        scenario.controller.forecastWatts !== undefined && (!Number.isFinite(scenario.controller.forecastWatts) ||
+            scenario.controller.forecastWatts < 0 || scenario.controller.forecastWatts > 20000))) {
+        throw new Error(`${source} controller requires D-Bus observe selectors and supported protection/forecastWatts settings`);
+    }
+    if (scenario.controller?.protection !== undefined) validateProtection(scenario.controller.protection, source);
     if (scenario.observe !== undefined && (!Array.isArray(scenario.observe) || !scenario.observe.length ||
         scenario.observe.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
             Object.keys(item).some(key => !['service', 'path'].includes(key)) ||
@@ -208,6 +234,25 @@ function validateScenario(scenario, source = 'scenario') {
         if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) || !Array.isArray(step.expect.writes)) {
             throw new Error(`${source} step ${index + 1} requires an expect.writes sequence`);
         }
+        if (step.expect.if_changed !== undefined && (typeof step.expect.if_changed !== 'boolean' || !scenario.observe)) {
+            throw new Error(`${source} step ${index + 1} if_changed requires D-Bus observe selectors`);
+        }
+        if (step.controller !== undefined && (!scenario.controller || !step.controller ||
+            typeof step.controller !== 'object' || Array.isArray(step.controller) ||
+            Object.keys(step.controller).some(key => !['protection', 'refreshForecast', 'forecastFault', 'command'].includes(key)) ||
+            step.controller.forecastFault !== undefined && !['stale', 'future', 'previous-day', 'nan'].includes(step.controller.forecastFault))) {
+            throw new Error(`${source} step ${index + 1} controller actions require scenario controller settings`);
+        }
+        if (step.controller?.protection !== undefined) validateProtection(step.controller.protection, `${source} step ${index + 1}`);
+        if (step.controller?.refreshForecast !== undefined && typeof step.controller.refreshForecast !== 'boolean') {
+            throw new Error(`${source} step ${index + 1} refreshForecast must be boolean`);
+        }
+        const command = step.controller?.command;
+        if (command !== undefined && (!command || typeof command !== 'object' || Array.isArray(command) ||
+            Object.keys(command).some(key => !['topic', 'payload'].includes(key)) ||
+            !['manual-discharge', 'manual-discharge-stop-voltage'].includes(command.topic) || !Object.hasOwn(command, 'payload'))) {
+            throw new Error(`${source} step ${index + 1} command must be a supported manual-discharge topic and payload`);
+        }
         for (const key of ['inputs', 'fail', 'stale']) {
             if (step[key] !== undefined && (!step[key] || typeof step[key] !== 'object' || Array.isArray(step[key]))) {
                 throw new Error(`${source} step ${index + 1} ${key} must be a mapping`);
@@ -232,6 +277,35 @@ function assertWrites(actual, expected, scenarioName, stepIndex) {
             if (!Object.hasOwn(got, key) || !isEqual(got[key], value)) {
                 throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: write ${i + 1} ${key} expected ${formatValue(value)}, received ${formatValue(got[key])}`);
             }
+        }
+    }
+}
+
+function assertChangedWrites(actual, expected, before, after, scenarioName, stepIndex) {
+    if (!Array.isArray(before?.outputs) || !Array.isArray(after?.outputs)) {
+        throw new Error('D-Bus if_changed assertions require emulator /state outputs');
+    }
+    const unavailable = [...before.outputs, ...after.outputs].find(output => output.error);
+    if (unavailable) throw new Error(`Cannot read emulator output ${unavailable.service} ${unavailable.path}: ${unavailable.error}`);
+    const key = write => JSON.stringify([write.service, write.path]);
+    const baseline = new Map(before.outputs.map(write => [key(write), write.value]));
+    const final = new Map(after.outputs.map(write => [key(write), write.value]));
+    const changes = [];
+    for (const wanted of expected) {
+        if (!wanted || typeof wanted.service !== 'string' || typeof wanted.path !== 'string' || !Object.hasOwn(wanted, 'value')) {
+            throw new Error('D-Bus if_changed expectations require service, path, and value');
+        }
+        const id = key(wanted);
+        if (!baseline.has(id)) throw new Error(`Missing emulator output snapshot for ${id}`);
+        if (!isEqual(baseline.get(id), wanted.value)) changes.push(wanted);
+        baseline.set(id, wanted.value);
+    }
+    assertWrites(actual, changes, scenarioName, stepIndex);
+    for (const wanted of expected) {
+        const id = key(wanted);
+        const last = baseline.get(id);
+        if (!final.has(id) || !isEqual(final.get(id), last)) {
+            throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: final ${id} expected ${formatValue(last)}, received ${formatValue(final.get(id))}`);
         }
     }
 }
@@ -270,28 +344,36 @@ function createApi(baseUrl = DEFAULT_API, fetchImpl = globalThis.fetch) {
     };
 }
 
-function setFaketime(value, options = {}) {
+function runCompose(command, options = {}) {
     const composeDir = options.composeDir || __dirname;
     const project = options.project || process.env.TEST_GX_COMPOSE_PROJECT || 'test-gx';
     const args = ['compose', '-p', project, '-f', 'docker-compose.yml'];
     if (process.env.TEST_GX_COMPOSE_OVERRIDE) args.push('-f', process.env.TEST_GX_COMPOSE_OVERRIDE);
-    args.push('up', '-d', '--no-build', '--no-deps', '--force-recreate', 'nodered');
+    args.push(...command);
     const result = spawnSync('docker', args, {
         cwd: composeDir,
         encoding: 'utf8',
-        env: { ...process.env, TEST_GX_FAKETIME: value || '' },
+        env: { ...process.env, ...(options.faketime === undefined ? {} : { TEST_GX_FAKETIME: options.faketime }) },
         windowsHide: true
     });
-    if (result.error) throw new Error(`Could not shift Test GX faketime: ${result.error.message}`);
-    if (result.status !== 0) throw new Error(`Could not shift Test GX faketime (docker compose exit ${result.status}): ${(result.stderr || result.stdout || '').trim()}`);
+    if (result.error) throw new Error(`Test GX compose ${command[0]} failed: ${result.error.message}`);
+    if (result.status !== 0) throw new Error(`Test GX compose ${command[0]} failed (exit ${result.status}): ${(result.stderr || result.stdout || '').trim()}`);
+}
+
+function setFaketime(value, options = {}) {
+    runCompose(['up', '-d', '--no-build', '--no-deps', '--force-recreate', 'nodered'], { ...options, faketime: value || '' });
+}
+
+function stopNodeRed(options = {}) {
+    runCompose(['stop', 'nodered'], options);
 }
 
 function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
     wait = ms => new Promise(resolve => setTimeout(resolve, ms))) {
-    async function request(method, route, body) {
+    async function request(method, route, body, headers = {}) {
         const response = await fetchImpl(new URL(route, baseUrl), {
             method,
-            headers: body === undefined ? {} : { 'content-type': 'application/json' },
+            headers: { ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
             body: body === undefined ? undefined : JSON.stringify(body),
             signal: AbortSignal.timeout(10000)
         });
@@ -302,6 +384,31 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
     }
     return {
         async ready() { await request('GET', '/flows'); },
+        async verifyDeployed() {
+            try {
+                await assertNoTemporaryFlows(request);
+                const response = await request('GET', '/flows');
+                return assertFunctionHashes(Array.isArray(response) ? response : response.flows);
+            } catch (error) {
+                throw new ScenarioCleanupError([error], error.message);
+            }
+        },
+        async verifyControllerInputs(inputs) {
+            for (const [input, key, normalize] of [
+                ['batt_v', 'batteryVoltage', Number],
+                ['consumed_ah', 'batteryConsumedAh', value => Math.abs(value)],
+                ['grid_w', 'gridPowerW', Number],
+                ['load_w', 'acLoadPowerW', value => Math.max(0, value)],
+                ['pv_w', 'pvChargerPowerW', value => Math.max(0, value)]
+            ]) {
+                if (!Object.hasOwn(inputs, input)) continue;
+                const encoded = await request('GET', `/context/node/e4766632305fb432/${key}`);
+                assert.equal(encoded?.format, 'number', `Controller has not received ${input}`);
+                assert.equal(Number(encoded.msg), normalize(inputs[input]), `Controller received stale ${input}`);
+            }
+        },
+        preserveSettings: () => preserveSettings(request, wait),
+        preserveController: scenario => preserveController(request, wait, scenario),
         async loadSettings(settings) {
             const inject = randomBytes(8).toString('hex');
             const flow = {
@@ -374,33 +481,96 @@ async function applyActions(api, actions) {
 async function runScenario(scenario, options = {}) {
     validateScenario(scenario);
     const api = options.api || createApi(options.baseUrl);
+    const admin = options.admin || createAdmin(options.adminUrl);
     const clock = options.setFaketime || setFaketime;
     const wait = options.wait || (ms => new Promise(resolve => setTimeout(resolve, ms)));
-    await clock(scenario.faketime);
-    if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs);
-    if (scenario.settings) {
-        const admin = options.admin || createAdmin(options.adminUrl);
-        if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
-        await admin.loadSettings(scenario.settings);
-    }
-    await api.post('/reset', {});
-    await applyActions(api, scenario.initial || {});
+    if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+    await admin.verifyDeployed();
+    let saved;
+    let controller;
+    let failure;
+    let stopped = false;
+    try {
+        if (scenario.controller) {
+            if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs);
+            stopped = true;
+            await (options.stopNodeRed || stopNodeRed)();
+            await api.post('/reset', { outputs: true });
+            const baseline = (await api.getState()).outputs;
+            for (const [service, outputPath, value] of [
+                ['settings', '/Settings/SystemSetup/MaxChargeCurrent', -1],
+                ['settings', '/Settings/CGwacs/AcPowerSetPoint', 0],
+                ['vebus', '/Ac/In/1/CurrentLimit', 25]
+            ]) {
+                assert.equal(baseline?.find(output => output.service === service && output.path === outputPath)?.value,
+                    value, `Emulator /reset did not restore ${service} ${outputPath} before Node-RED startup`);
+            }
+            await applyActions(api, scenario.initial || {});
+        }
+        await clock(scenario.faketime);
+        stopped = false;
+        if (options.waitReady !== false) {
+            await waitReady(api, options.readyTimeoutMs);
+            await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+        }
+        if (scenario.settings || scenario.controller) {
+            saved = await admin.preserveSettings();
+            if (scenario.settings) await admin.loadSettings(scenario.settings);
+            if (scenario.controller) {
+                controller = await admin.preserveController(scenario);
+                await controller.apply({ protection: scenario.controller.protection || {} });
+                await wait(12000);
+            }
+        }
+        if (!scenario.controller) {
+            await api.post('/reset', {});
+            await applyActions(api, scenario.initial || {});
+        }
 
-    const rate = faketimeRate(scenario.faketime);
-    const start = Date.now();
-    let cursor = 0;
-    for (const [index, step] of scenario.steps.entries()) {
-        const due = start + parseDuration(step.when, 'when') / rate;
-        if (due > Date.now()) await wait(due - Date.now());
-        await applyActions(api, step);
-        const settle = parseDuration(step.settle === undefined ? '12s' : step.settle, 'settle');
-        if (settle) await wait(settle / rate);
-        const writes = await api.getWrites();
-        const current = writes.slice(cursor).filter(write => scenario.observe
-            ? scenario.observe.some(selector => write.service === selector.service && write.path === selector.path)
-            : write.operation === 'SET');
-        cursor = writes.length;
-        assertWrites(current, step.expect.writes, scenario.name, index + 1);
+        const rate = faketimeRate(scenario.faketime);
+        const start = Date.now();
+        let inputs = { ...scenario.initial?.inputs };
+        let cursor = scenario.controller ? (await api.getWrites()).length : 0;
+        for (const [index, step] of scenario.steps.entries()) {
+            const due = start + parseDuration(step.when, 'when') / rate;
+            if (due > Date.now()) await wait(due - Date.now());
+            const before = step.expect.if_changed ? await api.getState() : undefined;
+            await applyActions(api, step);
+            inputs = { ...inputs, ...step.inputs };
+            if (step.controller) await controller.apply(step.controller);
+            const settle = parseDuration(step.settle === undefined ? '12s' : step.settle, 'settle');
+            if (settle) await wait(settle / rate);
+            if (scenario.controller && options.waitReady !== false) await admin.verifyControllerInputs(inputs);
+            const writes = await api.getWrites();
+            const current = writes.slice(cursor).filter(write => scenario.observe
+                ? scenario.observe.some(selector => write.service === selector.service && write.path === selector.path)
+                : write.operation === 'SET');
+            cursor = writes.length;
+            if (step.expect.if_changed) {
+                assertChangedWrites(current, step.expect.writes, before, await api.getState(), scenario.name, index + 1);
+            } else assertWrites(current, step.expect.writes, scenario.name, index + 1);
+        }
+    } catch (error) {
+        failure = error;
+        throw error;
+    } finally {
+        const errors = [];
+        for (const state of [controller, saved]) {
+            if (state) {
+                try { await state.restore(); } catch (error) { errors.push(error); }
+            }
+        }
+        if (stopped) {
+            try {
+                await clock('');
+                if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+            } catch (error) { errors.push(error); }
+        }
+        try { await admin.verifyDeployed(); } catch (error) { errors.push(error); }
+        if (errors.length) {
+            if (failure) errors.unshift(failure);
+            throw new ScenarioCleanupError(errors, errors.map(error => error.message).join('; '));
+        }
     }
 }
 
@@ -431,8 +601,12 @@ async function runScenarios(scenarios, options = {}) {
     try {
         for (const scenario of scenarios) {
             const started = Date.now();
+            const progress = options.onProgress && setInterval(() => options.onProgress({
+                name: scenario.name, durationMs: Date.now() - started
+            }), 60000);
+            let cleanupFailed = false;
             try {
-                await runScenario(scenario, { ...options, setFaketime: async value => { await setClock(value); shifted = true; } });
+                await runScenario(scenario, { ...options, setFaketime: async value => { shifted = true; await setClock(value); } });
                 if (scenario.expected_fail) {
                     results.push({
                         name: scenario.name,
@@ -444,6 +618,7 @@ async function runScenarios(scenarios, options = {}) {
                     results.push({ name: scenario.name, status: 'pass', durationMs: Date.now() - started });
                 }
             } catch (error) {
+                cleanupFailed = error instanceof ScenarioCleanupError;
                 const expected = scenario.expected_fail && error instanceof ScenarioAssertionError;
                 results.push({
                     name: scenario.name,
@@ -452,7 +627,11 @@ async function runScenarios(scenarios, options = {}) {
                     message: error.message,
                     durationMs: Date.now() - started
                 });
+            } finally {
+                if (progress) clearInterval(progress);
             }
+            if (options.onResult) options.onResult(results.at(-1));
+            if (cleanupFailed) break;
         }
     } finally {
         if (shifted && options.restoreFaketime !== false) await setClock('');
@@ -483,11 +662,16 @@ async function main(args = process.argv.slice(2)) {
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--junit') options.junitPath = args[++i];
         else if (args[i] === '--scenario') options.scenarioName = args[++i];
+        else if (args[i] === '--suite') {
+            options.suite = args[++i];
+            if (!['charging', 'heatpump'].includes(options.suite)) throw new Error('--suite must be charging or heatpump');
+        }
         else if (args[i] === '--api') options.baseUrl = args[++i];
         else if (args[i] === '--self-test') selfTest = true;
         else throw new Error(`Unknown argument: ${args[i]}`);
     }
     let scenarios = selfTest ? [trivialScenario()] : loadScenarios();
+    if (options.suite) scenarios = scenarios.filter(scenario => Boolean(scenario.controller) === (options.suite === 'charging'));
     if (options.scenarioName) scenarios = scenarios.filter(s => s.name === options.scenarioName);
     if (!scenarios.length) throw new Error(`No scenarios selected${options.scenarioName ? ` for ${options.scenarioName}` : ''}`);
 
@@ -498,10 +682,14 @@ async function main(args = process.argv.slice(2)) {
             getWrites: async () => []
         };
         options.api = api;
+        options.admin = { verifyDeployed: async () => {} };
         options.waitReady = false;
         options.setFaketime = async () => {};
         options.restoreFaketime = false;
     }
+    options.onResult = result => console.log(
+        `${result.status === 'pass' ? 'PASS' : result.status === 'expected_fail' ? 'EXPECTED_FAIL' : 'FAIL'} ${result.name}${result.message ? `: ${result.message}` : ''}`);
+    options.onProgress = result => console.log(`RUNNING ${result.name}: ${Math.floor(result.durationMs / 60000)} real min elapsed`);
     const results = await runScenarios(scenarios, options);
     const junitPath = options.junitPath || process.env.TEST_GX_JUNIT || DEFAULT_JUNIT;
     fs.mkdirSync(path.dirname(path.resolve(junitPath)), { recursive: true });
@@ -509,7 +697,6 @@ async function main(args = process.argv.slice(2)) {
     let counts = { pass: 0, fail: 0, expected_fail: 0 };
     for (const result of results) {
         counts[result.status]++;
-        console.log(`${result.status === 'pass' ? 'PASS' : result.status === 'expected_fail' ? 'EXPECTED_FAIL' : 'FAIL'} ${result.name}${result.message ? `: ${result.message}` : ''}`);
     }
     console.log(`Scenarios: ${counts.pass} passed, ${counts.fail} failed, ${counts.expected_fail} expected_fail; JUnit: ${junitPath}`);
     if (counts.fail) process.exitCode = 1;
@@ -525,6 +712,7 @@ if (require.main === module) {
 module.exports = {
     ScenarioAssertionError,
     assertWrites,
+    assertChangedWrites,
     createAdmin,
     faketimeRate,
     junitXml,
@@ -534,6 +722,7 @@ module.exports = {
     runScenario,
     runScenarios,
     setFaketime,
+    stopNodeRed,
     trivialScenario,
     validateScenario
 };

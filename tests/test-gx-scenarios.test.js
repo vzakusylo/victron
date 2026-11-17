@@ -15,12 +15,15 @@ const {
     loadScenarios,
     parseDuration,
     parseYaml,
-    runScenario,
-    runScenarios,
+    runScenario: runWithAdmin,
+    runScenarios: runAllWithAdmin,
     trivialScenario,
     validateScenario
 } = require('../tools/test-gx/run-scenarios.js');
 const { loadNode } = require('./harness');
+const isolatedOptions = options => ({ ...options, admin: { verifyDeployed: async () => {}, ...options?.admin } });
+const runScenario = (scenario, options) => runWithAdmin(scenario, isolatedOptions(options));
+const runScenarios = (scenarios, options) => runAllWithAdmin(scenarios, isolatedOptions(options));
 
 test('scenario YAML parser handles nested maps, sequences, quoted values and comments', () => {
     const parsed = parseYaml(`
@@ -233,7 +236,10 @@ test('scenario applies its settings and asserts only new SET commands', async ()
     };
     await runScenario(scenario, {
         api, waitReady: false, setFaketime: async () => {},
-        admin: { loadSettings: async settings => { calls.push(settings); } }
+        admin: {
+            preserveSettings: async () => ({ restore: async () => {} }),
+            loadSettings: async settings => { calls.push(settings); }
+        }
     });
     assert.deepEqual(calls, [scenario.settings, '/reset']);
 });
@@ -314,6 +320,7 @@ test('scenario waits for Node-RED readiness before applying test settings', asyn
         wait: async ms => calls.push(`wait:${ms}`),
         admin: {
             ready: async () => { calls.push('node-red-ready'); },
+            preserveSettings: async () => ({ restore: async () => {} }),
             loadSettings: async () => { calls.push('apply-settings'); }
         }
     });
