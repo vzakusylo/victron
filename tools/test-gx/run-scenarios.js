@@ -312,6 +312,7 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 const deployed = await request('GET', `/flow/${created.id}`);
                 const node = deployed.nodes && deployed.nodes.find(item => item.name === 'Load scenario settings' && item.type === 'inject');
                 if (!node) throw new Error('Node-RED did not deploy the scenario settings inject node');
+                await wait(6000);
                 const actions = [
                     ...(settings.heatCurve ? [{ topic: 'load', payload: { master: false, heatCurve: settings.heatCurve } }] : []),
                     { topic: 'ui', payload: { action: 'master', on: false } },
@@ -332,6 +333,7 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 }
             } finally {
                 await request('DELETE', `/flow/${created.id}`);
+                await wait(6000);
             }
         }
     };

@@ -102,8 +102,11 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
     assert.deepEqual(quiet.settings, after.settings);
     assert.deepEqual(quiet.initial, after.initial);
     assert.equal(quiet.faketime, after.faketime);
-    assert.deepEqual(quiet.steps[0].expect.writes, []);
-    assert.ok(after.steps[0].expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
+    assert.deepEqual(quiet.settings.heatCurve, { p23: 35, p24: 4 });
+    assert.equal(quiet.initial.inputs['tuya.pump.dps.132'], '0');
+    assert.equal(quiet.initial.inputs['tuya.pump.dps.133'], 0);
+    assert.deepEqual(quiet.steps.at(-1).expect.writes, []);
+    assert.ok(after.steps.at(-1).expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
 });
 
 test('a trivial scenario passes, calls the emulator API and produces JUnit XML', async () => {
@@ -196,8 +199,34 @@ test('scenario applies its settings and asserts only new SET commands', async ()
     assert.deepEqual(calls, [scenario.settings, '/reset']);
 });
 
+test('scenario waits for Node-RED readiness before applying test settings', async () => {
+    const calls = [];
+    const scenario = {
+        name: 'startup settings order',
+        faketime: '@2026-11-16 12:00:00',
+        settings: { master: true, modes: { dhw: 'live' } },
+        steps: [{ when: '0s', settle: '0s', expect: { writes: [] } }]
+    };
+    await runScenario(scenario, {
+        api: {
+            getState: async () => { calls.push('emulator-ready'); },
+            post: async route => { calls.push(route); },
+            getWrites: async () => []
+        },
+        waitReady: true,
+        setFaketime: async () => {},
+        wait: async ms => calls.push(`wait:${ms}`),
+        admin: {
+            ready: async () => { calls.push('node-red-ready'); },
+            loadSettings: async () => { calls.push('apply-settings'); }
+        }
+    });
+    assert.ok(calls.indexOf('node-red-ready') < calls.indexOf('apply-settings'));
+});
+
 test('settings use temporary inject nodes and remove the temporary flow', async () => {
     const calls = [];
+    const waits = [];
     const fetch = async (url, options) => {
         const route = url.pathname;
         const body = options.body && JSON.parse(options.body);
@@ -207,7 +236,7 @@ test('settings use temporary inject nodes and remove the temporary flow', async 
             : options.method === 'POST' ? 'OK' : '';
         return { ok: true, text: async () => text };
     };
-    const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
+    const admin = createAdmin('http://127.0.0.1:1881', fetch, async ms => { waits.push(ms); calls.push({ wait: ms }); });
     await admin.loadSettings({ master: true, modes: { hp_er03_restart: 'live' }, heatCurve: { p23: 35, p24: 4 } });
     assert.deepEqual(calls[0].body.nodes[0].wires, [['hpa-fn-01']]);
     const load = calls.find(call => call.route === '/inject/inject-id' && call.body.__user_inject_props__[1].v === 'load');
@@ -229,8 +258,9 @@ test('settings use temporary inject nodes and remove the temporary flow', async 
         { topic: 'ui', payload: { action: 'mode', id: 'hp_er03_restart', mode: 'live' } },
         { topic: 'ui', payload: { action: 'master', on: true } }
     ]);
-    assert.equal(calls.at(-1).method, 'DELETE');
-    assert.equal(calls.at(-1).route, '/flow/temporary-flow');
+    assert.ok(calls.some(call => call.method === 'DELETE' && call.route === '/flow/temporary-flow'));
+    assert.deepEqual(waits, [6000, 200, 200, 200, 200, 200, 200, 200, 6000]);
+    assert.ok(calls.findIndex(call => call.wait === 6000) < calls.findIndex(call => call.route === '/inject/inject-id'));
 });
 
 test('settings remove the temporary flow if the inject node is absent', async () => {

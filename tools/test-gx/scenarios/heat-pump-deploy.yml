@@ -4,10 +4,13 @@
   initial:
     inputs:
       tuya.pump.dps.108: 25
-      tuya.pump.dps.133: 35
+      tuya.pump.dps.132: "0"
+      tuya.pump.dps.133: 0
   steps:
     - when: 0s
       settle: 95s
+    - when: 5m
+      settle: 10s
       expect:
         writes: []
 
@@ -17,8 +20,11 @@
   initial:
     inputs:
       tuya.pump.dps.108: 25
-      tuya.pump.dps.133: 35
+      tuya.pump.dps.132: "0"
+      tuya.pump.dps.133: 0
   steps:
+    - when: 0s
+      settle: 95s
     - when: 16m
       settle: 30s
       expect:
