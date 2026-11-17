@@ -322,6 +322,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 ## Known limitations
 
 - The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
+- Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.
 - `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.
 - The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
 - A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.

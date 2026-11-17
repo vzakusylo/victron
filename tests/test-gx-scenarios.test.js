@@ -101,11 +101,27 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
     assert.ok(quiet && after);
     assert.deepEqual(quiet.settings, after.settings);
     assert.deepEqual(quiet.initial, after.initial);
-    assert.equal(quiet.faketime, after.faketime);
+    assert.equal(quiet.faketime, '@2026-11-16 20:00:00 x4');
     assert.deepEqual(quiet.settings.heatCurve, { p23: 35, p24: 4 });
     assert.equal(quiet.initial.inputs['tuya.pump.dps.132'], '0');
     assert.equal(quiet.initial.inputs['tuya.pump.dps.133'], 0);
-    assert.deepEqual(quiet.steps.at(-1).expect.writes, []);
+    assert.equal(quiet.steps.length, 2);
+    assert.equal(quiet.steps[0].when, '0s');
+    assert.equal(quiet.steps[0].settle, '95s');
+    assert.deepEqual(quiet.steps[0].expect.writes.map(({ device, dps, value }) => [device, dps, value]), [
+        ['pump', '132', '1'], ['pump', '134', 4], ['pump', '133', 35]
+    ]);
+    assert.equal(quiet.steps[1].when, '380s');
+    assert.equal(quiet.steps[1].settle, '130s');
+    assert.deepEqual(quiet.steps[1].expect.writes, []);
+    assert.deepEqual(after.steps.at(-1).inputs, {
+        'tuya.pump.dps.103': -2,
+        'tuya.pump.dps.108': 25,
+        'tuya.pump.dps.115': 0,
+        'tuya.pump.dps.116': 0
+    });
+    assert.equal(after.faketime, '@2026-11-16 20:00:00');
+    assert.equal(after.steps.at(-1).settle, '60s');
     assert.ok(after.steps.at(-1).expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
 });
 
