@@ -2,10 +2,64 @@
 
 A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RED. Victron publishes no Docker image of the whole Venus OS, so the copy is built from parts. It lives in `tools/test-gx/`.
 
+## Repository-only synthetic fixture
+
+The default build context is the committed `tools/test-gx/fixture-synthetic/`.
+No external backup or `TEST_GX_BACKUP` is needed:
+
+```powershell
+node .\tools\test-gx\build-fixture.js
+.\tools\test-gx\up.ps1 -Sim emu
+```
+
+Once the existing `mqtt` Venus image and test SSH key have been prepared by
+`up.ps1`, `docker compose build` / `docker compose up -d` in `tools/test-gx`
+also use that fixture with `TEST_GX_BACKUP` unset. Explicit
+`up.ps1 -Backup <sanitized-directory>` retains the sanitized-backup path and its
+palette-version resolution. `up.ps1` still removes the selected stack's data
+volume before rebuilding; do not use it against a shared stack without clearance.
+
+`build-fixture.js` reads repository sources only. Existing function bodies,
+initializers, finalizers and copied tool bytes are unchanged. Only broker
+configuration, the TEST-GX tab suffix and the existing four-device MQTT
+transformation differ. `fixture-tuya.json` is the single synthetic identity/key/name
+mapping. `fixture-versions.json` preserves the approved GX version metadata; the
+generated `nodered/package.json` pins the test install and documents explicit
+runtime dependencies. There is no repository-root package manifest.
+
+Logs are excluded; configuration starts with synthetic defaults (automations
+OFF, empty sensor/cache dictionaries, source-default controller/HV settings).
+Historical tariff, energy and sensor state is intentionally not restored.
+The sensor-history helper and its `heatpump-decode.js` dependency come from
+the current repository, not the older backup tool list.
+
+Generated settings are **TEST GX ONLY - not for any real Node-RED**. They have
+`httpAdminRoot: '/'`, memory context, empty `functionGlobalContext`, enabled
+function modules, a fake credential secret/account, and anonymous default admin
+permissions for the unchanged scenario runner. Keep published ports bound to
+`127.0.0.1` as in compose. No backup `settings.js` exists in the inventoried tree;
+repository flows have no `global.get`/`global.set` or named persistent context
+store dependency. GX vendor `settings-user.js` is not imported.
+
+MQTT uses the internal anonymous broker. SMTP points to `smtp.test.invalid` with
+fake credentials: delivery must fail and is not emulated; mail helper failures
+are reported by the existing flow, not treated as successful delivery. Cloud
+sensor metadata is empty to avoid real cloud calls. Native Tuya protocol, SMTP,
+external forecast and exec-sensor emulation remain out of scope.
+
+After source changes, regenerate and commit the fixture together with the source
+change. `tests/test-gx-fixture.test.js` checks exact regeneration, unchanged
+function bodies, and sensitive strings against explicit test placeholders or
+`git grep -F` at `HEAD` excluding the fixture itself, reporting tracked non-fixture
+source filenames for review against the base. It does
+not sanitize or mask production function code. Backup-parity
+`compare-image.js` still needs its genuine sanitizer report and is not a
+synthetic-fixture comparator.
+
 | GX part | In the copy | Faithful? |
 |---|---|---|
-| Node-RED, our flow, dashboard | `nodered/node-red` image with the Node-RED and palette versions of the GX backup | Yes (palette patch version may differ, see traps) |
-| `/data/home/nodered/...` files (`tools/`, `grid-control-config/`, logs) | Copied from a **sanitized** GX backup | Yes, secrets replaced by fakes |
+| Node-RED, our flow, dashboard | Pinned Node-RED/palette install and repository-generated flow by default; optional sanitized backup | Function bodies unchanged (palette patch version may differ, see traps) |
+| `/data/home/nodered/...` files (`tools/`, `grid-control-config/`, logs) | Repository tools, synthetic config and empty logs by default; optional **sanitized** GX backup | Synthetic state is not historical backup parity |
 | SSH as `root`, admin API | sshd in the same container | Yes, `tools/gx/*` and `scripts/gx-*.ps1` run unchanged |
 | Victron D-Bus services | [`victronenergy/venus-docker`](https://github.com/victronenergy/venus-docker), simulation `e` (MultiPlus + BMV) | Partly: demo values, other device instances |
 | Qingping MQTT | Internal Mosquitto + emulator `/mqtt` publications | Real MQTT and flow parsing; synthetic readings |
@@ -110,7 +164,7 @@ The deploy window check still requires every guarded input: the four heat-pump m
 - **Compressed recorder logs.** `.csv.gz` must be decompressed, sanitized and recompressed, not read directly as UTF-8. The leftover-secret scan also checks their decompressed text. Refresh older sanitized trees: their gzip headers may have been corrupted by text decoding.
 - **Volume hides the image.** The named volume `gx-data` is mounted on `/data` and hides the files copied into the image. `up.ps1 -Down` removes it; always use it before building a new backup.
 - **ID starting with a digit.** Flow code uses ids as bare object keys (`{ 6ca39...: {...} }`). A fake id that starts with a digit is a syntax error, so the sanitizer makes fake ids start with a letter.
-- **Palette not on npm.** `@victronenergy/node-red-contrib-victron@1.6.31` is not published; `up.ps1` falls back to `~1.6` and warns. Versions then differ from the GX (WARN).
+- **Palette not on npm.** `@victronenergy/node-red-contrib-victron@1.6.31` is not published; explicit-backup `up.ps1` falls back to `~1.6` and warns. The synthetic manifest pins `1.6.65`; provenance remains `1.6.31` in `versions.json`. GX 1.6.31 / test 1.6.65 (1.6.31 not on npm): this is a deliberate test-install difference, not version parity.
 - **venus-docker.** Clone with `core.autocrlf=false` (CRLF breaks the `#!` scripts). The HTML5-app stage fails upstream and is removed by `up.ps1`, so the Venus app on `:8080` does not work. D-Bus over TCP is on port 3000; the palette reads it from `NODE_RED_DBUS_ADDRESS=venus:3000`.
 - **Device instances.** The flow expects `com.victronenergy.battery/289` and `vebus/276`. With `-Sim emu` the emulator publishes its own services with exactly these instances; the stock simulator uses others, which gives `DBUS ERROR UnknownObject`, "not found in cache" and `Set error status`. Never change the instance in the flow: the test would no longer match the real GX.
 - **sshd as root.** The Alpine image needs `apk add --upgrade openssh openssh-server bash curl`, an unlocked root account and a key without passphrase. The host key changes with every image, so `~/.ssh/known_hosts_test_gx` is separate and deleted by the refresh script.
@@ -344,6 +398,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 
 ## Known limitations
 
+- Palette versions: GX 1.6.31 / test 1.6.65 (1.6.31 not on npm). The synthetic fixture explicitly pins the published patch; it also explicitly pins `tuyapi@7.7.1`, required by `tools/tuya-local-sensors.js`, instead of relying on the Tuya palette's transitive dependency. A behavior difference attributable to this patch is a limitation to report, not a reason to alter production code.
 - The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
 - Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.
 - `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.

@@ -1,0 +1,14 @@
+{
+  "nodeRed": "3.1.15",
+  "palette": {
+    "node-red": "3.1.15",
+    "@victronenergy/node-red-contrib-victron": "1.6.31",
+    "victron-vrm-api": "0.2.13",
+    "node-red-dashboard": "3.6.6",
+    "node-red-contrib-tuya-smart-device": "5.4.0"
+  },
+  "packageJsonDependencies": {
+    "node-red-contrib-tuya-smart-device": "~5.4.0",
+    "node-red-dashboard": "~3.6.6"
+  }
+}

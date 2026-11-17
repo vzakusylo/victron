@@ -1,0 +1,21 @@
+{
+  "name": "test-gx-synthetic",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@victronenergy/node-red-contrib-victron": "1.6.65",
+    "victron-vrm-api": "0.2.13",
+    "node-red-dashboard": "3.6.6",
+    "node-red-contrib-tuya-smart-device": "5.4.0",
+    "tuyapi": "7.7.1"
+  },
+  "testGx": {
+    "nodeRed": "3.1.15",
+    "runtimeDependencySources": {
+      "tuyapi": [
+        "tools/tuya-local-sensors.js"
+      ]
+    },
+    "paletteDifference": "GX 1.6.31 / test 1.6.65 (1.6.31 not on npm)"
+  }
+}

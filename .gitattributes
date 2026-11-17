@@ -1,1 +1,4 @@
 *.sh text eol=lf
+tools/test-gx/fixture-synthetic/**/*.json text eol=lf
+tools/test-gx/fixture-synthetic/**/settings.js text eol=lf
+tools/test-gx/fixture-synthetic/**/*.txt text eol=lf

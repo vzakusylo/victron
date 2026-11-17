@@ -1,4 +1,4 @@
-ARG NODERED_VERSION=latest
+ARG NODERED_VERSION=3.1.15
 FROM nodered/node-red:${NODERED_VERSION}
 USER root
 RUN apk add --no-cache --upgrade openssh openssh-server bash curl python3 py3-dbus \
@@ -13,12 +13,13 @@ RUN apk add --no-cache --virtual .faketime-build-deps build-base git \
  && install -D -m 755 /tmp/libfaketime/src/libfaketimeMT.so.1 /usr/local/lib/faketime/libfaketimeMT.so.1 \
  && apk del .faketime-build-deps \
  && rm -rf /tmp/libfaketime
-# Same layout as the GX. BACKUP is a sanitized tree from sanitize-backup.js (build context "backup"):
-# its nodered/ folder becomes /data/home/nodered. PALETTE is "name@version name@version ...".
-ARG PALETTE="node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device"
+# The default context is the committed synthetic fixture; -Backup still accepts sanitized trees.
+# PALETTE is supplied by up.ps1 only for sanitized backups.
+ARG PALETTE=""
 COPY --from=backup nodered/ /data/home/nodered/
 RUN mkdir -p /data/home/nodered/tools /data/home/nodered/grid-control-config /data/home/nodered/grid-control-logs \
  && cd /data/home/nodered/.node-red \
+ && if [ -f ../package.json ]; then cp ../package.json package.json; fi \
  && npm install --no-audit --no-fund --no-package-lock ${PALETTE}
 COPY entrypoint.sh /entrypoint.sh
 # the base image checks /data/settings.js; our userDir is /data/home/nodered/.node-red

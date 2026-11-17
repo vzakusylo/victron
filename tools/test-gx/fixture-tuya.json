@@ -1,0 +1,30 @@
+{
+  "hp-tuya-pump-01": {
+    "deviceId": "test-only-pump",
+    "deviceKey": "test-only-key001",
+    "deviceName": "test-only-pump",
+    "deviceIp": "",
+    "tuyaVersion": "3.3"
+  },
+  "hp-tuya-valve-01": {
+    "deviceId": "test-only-valve",
+    "deviceKey": "test-only-key002",
+    "deviceName": "test-only-valve",
+    "deviceIp": "",
+    "tuyaVersion": "3.5"
+  },
+  "hp-tuya-bypass-01": {
+    "deviceId": "test-only-bypass",
+    "deviceKey": "test-only-key003",
+    "deviceName": "test-only-bypass",
+    "deviceIp": "",
+    "tuyaVersion": "3.3"
+  },
+  "hp-tuya-meter-01": {
+    "deviceId": "test-only-meter",
+    "deviceKey": "test-only-key004",
+    "deviceName": "test-only-meter",
+    "deviceIp": "",
+    "tuyaVersion": "3.5"
+  }
+}
