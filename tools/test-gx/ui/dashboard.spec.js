@@ -36,10 +36,13 @@ async function openDashboard(page, errors) {
     return items;
 }
 
-function assertNoErrors(errors) {
-    const unexpected = errors.filter(error =>
+function unexpectedErrors(errors) {
+    return errors.filter(error =>
         !allowlist.some(allowed => allowed.type === error.type && allowed.text === error.text && allowed.url === error.url));
-    expect.soft(unexpected, 'unexpected browser console or page errors').toEqual([]);
+}
+
+function assertNoErrors(errors) {
+    expect.soft(unexpectedErrors(errors), 'unexpected browser console or page errors').toEqual([]);
 }
 
 test('runtime menu matches the page inventory', async ({ page }) => {
@@ -55,6 +58,7 @@ test('runtime menu matches the page inventory', async ({ page }) => {
 for (const entry of visible) {
     test(`${entry.name} (${entry.id}) renders without browser errors`, async ({ page }) => {
         const errors = [];
+        let reachedWidget = false;
         try {
             const items = await openDashboard(page, errors);
             const item = items.nth(entry.menuIndex);
@@ -65,8 +69,20 @@ for (const entry of visible) {
             await expect(page.locator('#toolbar h1[node-id]').filter({ hasText: entry.name })).toBeVisible();
             await expect(page.locator('ui-card-panel:visible md-card[node-id]:visible').first()).toBeVisible();
             await page.waitForTimeout(2000);
+            reachedWidget = true;
         } finally {
-            assertNoErrors(errors);
+            const unexpected = unexpectedErrors(errors);
+            const known = unexpected.filter(error => error.type === 'console' &&
+                error.text.startsWith('Error: [$parse:syntax]') &&
+                error.text.includes("{background: e.color, height: '8px', vertical-align: '0'}"));
+            if (entry.id === 'ui-tab-heatpump-01' && reachedWidget && unexpected.length === known.length) {
+                // expected_fail: Angular $parse:syntax in hp-page-template-01 vertical-align expression — see flows-hp-template-parse
+                // The repository's corresponding history expression is in hp-hist-template-01; backup attribution is unverified.
+                test.fail();
+                expect(known, 'known Heat Pump Angular syntax error').toEqual([]);
+            } else {
+                assertNoErrors(errors);
+            }
         }
     });
 }

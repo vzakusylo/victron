@@ -3,7 +3,23 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const flows = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'flows.json'), 'utf8'));
+let input = path.join(__dirname, '..', '..', '..', 'flows.json');
+let check = false;
+let specifiedFlows = false;
+const args = process.argv.slice(2);
+for (let index = 0; index < args.length; index++) {
+    if (args[index] === '--check' && !check) {
+        check = true;
+    } else if (args[index] === '--flows' && !specifiedFlows && args[index + 1] && !args[index + 1].startsWith('--')) {
+        input = path.resolve(args[++index]);
+        specifiedFlows = true;
+    } else {
+        throw new Error('Usage: node gen-pages.js [--flows <file>] [--check]');
+    }
+}
+const payload = JSON.parse(fs.readFileSync(input, 'utf8'));
+const flows = Array.isArray(payload) ? payload : payload && payload.flows;
+if (!Array.isArray(flows)) throw new Error('Expected a Node-RED flow array or a v2 object with a flows array.');
 const disabledFlows = new Set(flows.filter(node => node.type === 'tab' && node.disabled).map(node => node.id));
 const groups = new Map(flows.filter(node => node.type === 'ui_group').map(node => [node.id, node]));
 const firstWidget = new Map();
@@ -35,7 +51,7 @@ const pages = tabs.map(tab => ({
 
 const output = path.join(__dirname, 'pages.json');
 const json = `${JSON.stringify(pages, null, 2)}\n`;
-if (process.argv.includes('--check')) {
+if (check) {
     if (fs.readFileSync(output, 'utf8') !== json) {
         throw new Error('pages.json is stale; run npm run gen:pages');
     }

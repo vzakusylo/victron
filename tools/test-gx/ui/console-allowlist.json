@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "type": "console",
+    "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "url": "http://127.0.0.1:1881/ui/loading.html",
+    "reason": "The installed third-party Node-RED Dashboard is missing its loading template."
+  }
+]

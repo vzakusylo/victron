@@ -472,10 +472,13 @@ Risks: business behavior at DST/month-end needs scenario assertions; Plan B does
 
 The Playwright checks compare the runtime menu to the generated inventory, then visit each
 visible, enabled page separately. Browser console errors and uncaught page errors fail the
-test. `console-allowlist.json` is initially an empty array: if an exception is approved, add
-an object with exact `type` (`console` or `pageerror`), `text` and, for console errors, `url`
-from the failure report, and document its cause.
-No known errors are currently suppressed. The checks use Microsoft Edge by default and only
+test. `console-allowlist.json` matches exact `type` (`console` or `pageerror`), `text` and,
+for console errors, `url`, with a reason for each entry. It currently allows only the
+third-party Dashboard's missing `/ui/loading.html` asset at the default local URL.
+The Heat Pump Angular `vertical-align` syntax error is an expected failure only when that
+page reaches its widget and no other unexpected errors occur; an unexpected pass fails.
+The SideNav error is not allowlisted because it has not been confirmed on a page without a
+custom `ui_template`. The checks use Microsoft Edge by default and only
 navigate between pages; they do not operate controls or call mutating APIs.
 
 Run it against an already-running Test GX stack from the repository root:
