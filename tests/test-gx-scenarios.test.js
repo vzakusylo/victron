@@ -112,8 +112,12 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
         ['pump', '132', '1'], ['pump', '134', 4], ['pump', '133', 35]
     ]);
     assert.equal(quiet.steps[1].when, '380s');
-    assert.equal(quiet.steps[1].settle, '130s');
+    assert.equal(quiet.steps[1].settle, '100s');
     assert.deepEqual(quiet.steps[1].expect.writes, []);
+    assert.deepEqual(
+        { ...quiet.initial.inputs, ...quiet.steps[1].inputs },
+        { ...after.initial.inputs, ...after.steps.at(-1).inputs }
+    );
     assert.deepEqual(after.steps.at(-1).inputs, {
         'tuya.pump.dps.103': -2,
         'tuya.pump.dps.108': 25,

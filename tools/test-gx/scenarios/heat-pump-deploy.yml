@@ -3,7 +3,10 @@
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
   initial:
     inputs:
+      tuya.pump.dps.103: -2
       tuya.pump.dps.108: 25
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
       tuya.pump.dps.132: "0"
       tuya.pump.dps.133: 0
   steps:
@@ -27,7 +30,12 @@
             value: 35
             applied: true
     - when: 380s
-      settle: 130s
+      inputs:
+        tuya.pump.dps.103: -2
+        tuya.pump.dps.108: 25
+        tuya.pump.dps.115: 0
+        tuya.pump.dps.116: 0
+      settle: 100s
       expect:
         writes: []
 
@@ -36,7 +44,10 @@
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
   initial:
     inputs:
+      tuya.pump.dps.103: -2
       tuya.pump.dps.108: 25
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
       tuya.pump.dps.132: "0"
       tuya.pump.dps.133: 0
   steps:
