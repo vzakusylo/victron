@@ -274,15 +274,22 @@ The backup's Heat Pump history widget still produces its pre-existing unquoted `
 
 The `--live --map` path was exercised with a raw snapshot reconstructed from the backup (flow comparison 0 DIFF), not an SSH snapshot from the real GX; real-GX SSH access remains unavailable. An isolated Venus restart deliberately reproduces the already-documented D-Bus `ServiceUnknown`/`UnknownObject` failure; keep the strict log rule and refresh/restart both containers rather than classifying those errors as expected.
 
-## Heat pump scenario runner
+## Logic scenario runner
 
-The YAML runner covers heat-pump device inputs and writes, including the full Er03 sequence, deploy quiet period and offline behavior. The full decision/input map is in [the heat-pump inventory](test-gx-heatpump-inventory.md). It does not replace the focused function-node tests; those also cover output ports and missing/stale/NaN readings that the emulator API cannot inject.
+The YAML runner covers heat-pump commands and charging D-Bus outputs. Decision/input maps
+are in the [heat-pump inventory](test-gx-heatpump-inventory.md) and
+[charging inventory](test-gx-charging-inventory.md). It does not replace focused function-node
+tests for output ports and missing/stale/NaN readings that the emulator API cannot inject.
 
 Run against an already-running Test GX stack:
 
 ```powershell
 # Run all checked-in YAML scenarios; JUnit defaults to the ignored tools/test-gx/out/ directory.
 node .\tools\test-gx\run-scenarios.js
+
+# Run charging, then the required heat-pump regression on the same retained volume.
+node .\tools\test-gx\run-scenarios.js --suite charging --junit .\tools\test-gx\out\charging.xml
+node .\tools\test-gx\run-scenarios.js --suite heatpump --junit .\tools\test-gx\out\heatpump.xml
 
 # Run one scenario by its exact YAML `name`.
 node .\tools\test-gx\run-scenarios.js --scenario "Er03 full restart sequence" `
@@ -295,7 +302,7 @@ node .\tools\test-gx\run-scenarios.js --self-test --junit $env:TEMP\test-gx-scen
 node --test .\tests\test-gx-scenarios.test.js .\tests\heat-automation.test.js
 ```
 
-Each scenario restarts Node-RED with its `faketime`, applies `settings` through temporary Node-RED
+Each heat-pump scenario restarts Node-RED with its `faketime`, applies `settings` through temporary Node-RED
 UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` through `/fail`,
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
 Tuya `SET` commands in `/writes` against `expect.writes`. Every step requires `expect.writes`,
@@ -303,15 +310,42 @@ including an explicit `[]` for guards; missing expectations and extra selected w
 To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence of exact
 `service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
 Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
-Without `observe`, all Tuya `SET` commands are selected. Settings UI actions are persisted in the Test GX volume.
+Without `observe`, all Tuya `SET` commands are selected.
+For change-notifying D-Bus settings, `expect.if_changed: true` also checks the actual
+terminal `/state.outputs` values. It omits an expected event only if that value already
+matched the pre-step output snapshot; missing changes, extra changes and wrong final values
+still fail. Default assertions retain their exact count/order semantics.
+Charging stops Node-RED, resets actuator values through `/reset` with `{"outputs":true}`,
+checks the actual defaults (-1 A DVCC, 0 W setpoint, 25 A input limit), and stages inputs
+before Node-RED starts; settings are then applied and
+the real 10-second output pacing is allowed to settle before the checked steps begin.
+Charging steps assert terminal values as well as all selected changes; setup is not a step.
+They also check the controller's received input context, not merely `/set` acceptance.
+Unavailable actuator reads carry an explicit error and `null`, never synthetic defaults.
+Resetting actuators while Node-RED is stopped prevents a preceding case's correct output
+from satisfying a broken controller. Plain `/reset` retains its existing input-only behavior.
+Heat-pump initial writes remain included in the first step's exact assertion.
 When `settings.heatCurve` is specified, the runner first loads that curve with master off and
 other settings reset to their defaults, including the DHW block and last-cycle time; the UI
 actions then save the resulting settings in the volume. This makes the quiet-period twins
-independent of previously persisted settings.
+independent of previously persisted settings. Before settings injection the runner saves
+file/context snapshots outside the repository. It restores them after each scenario,
+including on failure, and checks that no temporary flow remains. Cleanup failure stops the
+suite. The [charging inventory](test-gx-charging-inventory.md#isolation-and-restoration)
+lists the exact resources and the narrowly scoped cached-forecast fault fallback.
+Before and after every scenario the runner also checks that no temporary nodes remain
+and SHA-256 hashes the complete production function-node definitions against `flows.json`.
+The four Test GX Tuya adapters are checked against `transform-tuya.js`, not mistaken for
+production function nodes. A changed function, restore hook, missing temperature function
+or leftover helper is a hard failure. Node-RED's verified default context store is
+memory-only: restarting it before each scenario resets node-private manual-discharge state,
+shade cache and subflow rate-limit context. No restore hooks are used. A filesystem context
+store needs its own stopped-service baseline snapshot/restore; that mode is not automated here.
 Optional `expected_fail: <bug-reference>`
 marks a known mismatch as a JUnit skipped case; an unexpected pass is a failure. The runner writes
 JUnit XML to `--junit`, `TEST_GX_JUNIT`, or `tools/test-gx/out/test-gx-scenarios.xml`, in that
 precedence order. Faketime shifts recreate only the Node-RED service and do not remove `gx-data`.
+The CLI prints a running case's elapsed real minutes once per minute.
 Both `when` and `settle` are measured in fake time and divided by the scenario's `xN` rate
 for real waits. `when` is relative to the runner's post-reset start, not the Node-RED deploy.
 The automation tick inject starts 60 real seconds after Node-RED startup, then repeats every
@@ -319,7 +353,7 @@ The automation tick inject starts 60 real seconds after Node-RED startup, then r
 used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
 to its absolute path; the runner uses it when recreating Node-RED.
 
-The checked-in YAML currently has one trivial smoke scenario and seven heat-pump scenarios. Unit
+The checked-in YAML has 33 charging scenarios, one trivial smoke scenario and seven heat-pump scenarios. Unit
 tests additionally cover the individual decisions and all 17 read paths (three variants each:
 missing, stale, and NaN). The deploy-window decision is covered directly in a unit test because
 the runner observes emulator writes, not the deploy CLI's WAIT verdict.
@@ -328,10 +362,13 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 
 - The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
 - Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.
-- `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.
+- `/writes` records actuator commands (D-Bus and Tuya), not settings/log file effects, UI rendering, exec-node behavior or SMTP delivery.
 - The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
 - A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.
 - Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; with `x60`, the watchdog drops the Er03 sequence after its first valve command. The full-sequence scenario runs at normal speed instead.
+- The eight-scenario heat-pump suite takes about 30 real minutes because DHW and full Er03 controls run at `x1`; CI should use a separate slow-scenario job.
+- A previously observed Docker health-check failure refers to missing `/data/settings.js` even while the Node-RED API answers. Health-check cleanup belongs to `test-gx-ci`; API readiness is checked independently by the runner.
+- Charging coverage gaps C-U1-C-U3 are listed in the charging inventory. Forecast fixtures require the updated emulator; restart Venus and Node-RED together without removing any volume.
 - `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
 
 ## Remaining Test GX work
@@ -340,9 +377,9 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`, `/mqtt`):
    - Victron D-Bus: fake services (`system`, `battery` instance 289, `vebus` 276, `settings`) with simple physics; every write the flow makes is recorded.
    - Tuya: Plan B test-image MQTT proxies for the four native nodes (done). Do not build a local-protocol stub unless Plan B proves insufficient. Exec-based sensors are a separate item.
-   - Qingping via internal mosquitto and `/mqtt` (done); solar forecast from fixtures (planned), scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
+   - Qingping via internal mosquitto and `/mqtt` (done); solar forecast HTTP fixtures (charging row), scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
 3. **Scenarios** (`scenarios/*.yml`): initial state, steps, expectations, plus rules that hold all the time (grid limit, current limit, at most N writes per minute). Areas: tariff, battery, solar, DHW and shower, sensor failures, midnight, DST, month change, dashboard console errors.
-4. **Runner**: the heat-pump row is implemented in `tools/test-gx/run-scenarios.js`; remaining scenarios for other inputs (forecast, sensors, battery, tariff, DST/month-end) are future work. Every change passes its scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
+4. **Runner**: heat-pump and charging rows use `tools/test-gx/run-scenarios.js`; remaining sensor, tariff and DST/month-end decisions are future work. The charging forecast fixtures exercise the real HTTP fetch/parse path, not upstream availability. Every change passes its scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
 Risks: business behavior at DST/month-end needs scenario assertions; Plan B does not validate the native Tuya palette/protocol; the victron palette may need D-Bus paths that the emulator lacks. After the Tuya PR merges, create `test-gx-forecast` from fresh `master`.
 
