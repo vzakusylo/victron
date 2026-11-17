@@ -15,6 +15,7 @@ module.exports = defineConfig({
         browserName: 'chromium',
         channel: process.env.TEST_GX_UI_BROWSER || 'msedge',
         headless: true,
+        trace: 'retain-on-failure',
         viewport: { width: 1440, height: 1000 },
     },
 });

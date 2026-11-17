@@ -473,7 +473,8 @@ Risks: business behavior at DST/month-end needs scenario assertions; Plan B does
 The Playwright checks compare the runtime menu to the generated inventory, then visit each
 visible, enabled page separately. Browser console errors and uncaught page errors fail the
 test. `console-allowlist.json` is initially an empty array: if an exception is approved, add
-an object with exact `type` (`console` or `pageerror`) and `text`, and document its cause.
+an object with exact `type` (`console` or `pageerror`), `text` and, for console errors, `url`
+from the failure report, and document its cause.
 No known errors are currently suppressed. The checks use Microsoft Edge by default and only
 navigate between pages; they do not operate controls or call mutating APIs.
 
@@ -484,6 +485,9 @@ npm ci --prefix .\tools\test-gx\ui
 npm run gen:pages --prefix .\tools\test-gx\ui
 npm run test:ui --prefix .\tools\test-gx\ui
 ```
+
+Failure traces are retained under `tools/test-gx/ui/test-results`; keep them private because
+they can contain dashboard content and network data.
 
 `pages.json` is generated deterministically from the repository `flows.json`; test discovery
 fails if it is stale. Routes predict Dashboard's widget-registration order, including ties,
