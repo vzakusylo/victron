@@ -470,16 +470,51 @@ Risks: business behavior at DST/month-end needs scenario assertions; Plan B does
 
 ## Dashboard UI checks
 
-The Playwright check visits every enabled page in the Node-RED Dashboard menu and fails on
-browser console errors or uncaught page errors. It uses Microsoft Edge by default and only
-navigates between pages; it does not operate dashboard controls or call mutating APIs.
+The Playwright checks compare the runtime menu to the generated inventory, then visit each
+visible, enabled page separately. Browser console errors and uncaught page errors fail the
+test. `console-allowlist.json` is initially an empty array: if an exception is approved, add
+an object with exact `type` (`console` or `pageerror`) and `text`, and document its cause.
+No known errors are currently suppressed. The checks use Microsoft Edge by default and only
+navigate between pages; they do not operate controls or call mutating APIs.
 
 Run it against an already-running Test GX stack from the repository root:
 
 ```powershell
 npm ci --prefix .\tools\test-gx\ui
+npm run gen:pages --prefix .\tools\test-gx\ui
 npm run test:ui --prefix .\tools\test-gx\ui
 ```
+
+`pages.json` is generated deterministically from the repository `flows.json`; test discovery
+fails if it is stale. Routes predict Dashboard's widget-registration order, including ties,
+and must be verified against the running backup: backup-only widgets or different flow order
+can change the menu. The two Energy entries are distinct config IDs with the same name and
+order; neither group is referenced by a widget in the repository flow, so neither is assigned
+a route. They are not assumed to be the Energy page in a backup.
+
+| Tab ID | Name | Order | Route / reason |
+|---|---|---:|---|
+| `ui-tab-hourly-stats-01` | Energy | 1 | No enabled widget |
+| `6fb98cc3df6410d0` | Energy | 1 | No enabled widget |
+| `ui-tab-analytics-01` | Analytics | 3 | `#!/0` |
+| `ui-tab-hv-protection-01` | Protection | 4 | `#!/2` |
+| `ui-tab-files-root-01` | Files | 4 | `#!/1` |
+| `ui-tab-constants-01` | Constants | 5 | `#!/3` |
+| `ui-tab-backup-01` | Backup | 6 | `#!/4` |
+| `ui-tab-device-01` | Device | 7 | `#!/5` |
+| `ui-tab-driver-01` | Driver | 8 | `#!/6` |
+| `ui-tab-mcp-01` | Agent (MCP) | 9 | `#!/7` |
+| `ui-tab-heatpump-01` | Heat Pump | 10 | `#!/8` |
+| `ui-tab-hpdata-01` | Heat Pump data | 10 | `#!/9` |
+| `hpa-ui-tab-01` | Automations | 11 | `#!/10` |
+| `hpl-ui-tab-01` | Automation log | 12 | `#!/11` |
+| `pb-ui-tab-01` | Payback | 13 | `#!/12` |
+| `dv-ui-tab-01` | Devices | 14 | `#!/13` |
+| `dv-aq-ui-tab-01` | Air quality | 15 | `#!/14` |
+| `temps-tab-01` | Temperatures | 16 | `#!/15` |
+
+All 18 definitions currently have `disabled: false` and `hidden: false`. A tab with no
+registered widget has no predicted runtime menu entry despite those flags.
 
 Set `TEST_GX_UI_URL` to use a different dashboard URL, or `TEST_GX_UI_BROWSER` to select
 another Playwright Chromium channel. Docker is not started by this test. Browser installation,

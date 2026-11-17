@@ -1,40 +1,64 @@
 'use strict';
 
 const { test, expect } = require('@playwright/test');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+const pages = require('./pages.json');
+const allowlist = require('./console-allowlist.json');
 
-test('every dashboard page renders without browser console errors', async ({ page }) => {
-    const errors = [];
+execFileSync(process.execPath, [path.join(__dirname, 'gen-pages.js'), '--check'], { stdio: 'inherit' });
+
+const registered = pages.filter(entry => entry.route).sort((a, b) =>
+    Number(a.route.slice(3)) - Number(b.route.slice(3)));
+const menu = registered.filter(entry => !entry.hidden);
+const visible = menu.map((entry, index) => ({ ...entry, menuIndex: index }))
+    .filter(entry => !entry.disabled);
+
+async function openDashboard(page, errors) {
     page.on('console', message => {
-        if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+        if (message.type() === 'error') errors.push({ type: 'console', text: message.text() });
     });
-    page.on('pageerror', error => errors.push(`page error: ${error.message}`));
-
+    page.on('pageerror', error => errors.push({ type: 'pageerror', text: error.message }));
     await page.goto('./', { waitUntil: 'domcontentloaded' });
-    const menuItems = page.locator('md-sidenav md-list-item');
-    await expect(menuItems.first()).toBeAttached();
-
-    if (!(await menuItems.first().isVisible())) {
+    const items = page.locator('md-sidenav md-list-item');
+    await expect(items.first()).toBeAttached();
+    if (!(await items.first().isVisible())) {
         await page.getByRole('button', { name: 'menu button' }).click();
     }
+    return items;
+}
 
-    const pages = await menuItems.evaluateAll(items => items
-        .filter(item => item.getAttribute('aria-disabled') !== 'true')
-        .map((item, index) => ({ index, name: item.innerText.trim() })));
-    expect(pages.length, 'dashboard should expose at least one enabled page').toBeGreaterThan(0);
+function assertNoErrors(errors) {
+    const unexpected = errors.filter(error =>
+        !allowlist.some(allowed => allowed.type === error.type && allowed.text === error.text));
+    expect(unexpected, 'unexpected browser console or page errors').toEqual([]);
+}
 
-    for (const { index, name } of pages) {
-        const item = menuItems.nth(index);
-        if (!(await item.isVisible())) {
-            await page.getByRole('button', { name: 'menu button' }).click();
-        }
-        await item.click();
-        await expect(item).toHaveClass(/nr-menu-item-active/, { timeout: 15_000 });
-        await expect(page.locator('#toolbar h1')).toHaveText(/\S/, { timeout: 15_000 });
-        await expect(
-            page.locator('md-content > div[id^="Tab_"], md-content > .node-red-ui--inline-link')
-        ).toBeVisible({ timeout: 15_000 });
-        console.log(`Checked dashboard page: ${name}`);
+test('runtime menu matches the page inventory', async ({ page }) => {
+    const errors = [];
+    try {
+        const items = await openDashboard(page, errors);
+        await expect(items).toHaveText(menu.map(entry => entry.name));
+    } finally {
+        assertNoErrors(errors);
     }
-
-    expect(errors, 'browser errors while visiting dashboard pages').toEqual([]);
 });
+
+for (const entry of visible) {
+    test(`${entry.name} (${entry.id}) renders without browser errors`, async ({ page }) => {
+        const errors = [];
+        try {
+            const items = await openDashboard(page, errors);
+            const item = items.nth(entry.menuIndex);
+            await expect(item).toHaveText(entry.name);
+            await item.click();
+            await expect(item).toHaveClass(/nr-menu-item-active/);
+            await expect(page).toHaveURL(new RegExp(`${entry.route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+            await expect(page.locator('#toolbar h1[node-id]').filter({ hasText: entry.name })).toBeVisible();
+            await expect(page.locator('ui-card-panel ui-component').first()).toBeVisible();
+            await page.waitForTimeout(2000);
+        } finally {
+            assertNoErrors(errors);
+        }
+    });
+}

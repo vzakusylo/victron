@@ -2,6 +2,7 @@
   "name": "test-gx-ui",
   "private": true,
   "scripts": {
+    "gen:pages": "node gen-pages.js",
     "test:ui": "playwright test"
   },
   "devDependencies": {
