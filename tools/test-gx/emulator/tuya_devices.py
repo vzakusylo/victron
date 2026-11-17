@@ -7,6 +7,8 @@ from pathlib import Path
 import time
 
 MODEL = json.loads(Path(__file__).with_name('tuya-model.json').read_text())
+BOILER_AMBIENT_C = 20.0
+BOILER_THERMAL_TIME_CONSTANT_S = 14 * 24 * 60 * 60
 
 
 class TuyaDevices:
@@ -18,6 +20,7 @@ class TuyaDevices:
     def reset(self, announce=True):
         self.devices = {name: dict(dps={dp: copy.deepcopy(s['default']) for dp, s in schema.items() if not s.get('optional')},
                                    failed=None, stale_until=0) for name, schema in MODEL.items()}
+        self.boiler_temp = float(MODEL['pump']['108']['default'])
         self.power_w = 0
         self.energy_wh = 0
         self.last_status = {}
@@ -109,6 +112,8 @@ class TuyaDevices:
     def set(self, name, dp, value):
         self.validate(name, dp, value)
         self.device(name)['dps'][str(dp)] = value
+        if name == 'pump' and str(dp) == '108':
+            self.boiler_temp = float(value)
         self.announce(name)
 
     def stale(self, name, seconds=None):
@@ -138,8 +143,15 @@ class TuyaDevices:
         approach = min(1, max(0, dt) / 60)
         p['102'] = round(p['102'] + ((target if self.power_w else p['101']) - p['102']) * approach, 2)
         p['101'] = round(p['101'] + (p['102'] - p['101'] - (5 if self.power_w else 0)) * approach, 2)
-        if running and dhw and self.power_w:
-            p['108'] = round(min(p['102'], p['108'] + dt * 0.005), 3) if p['108'] < p['102'] else p['108']
+        heating = running and dhw and self.power_w
+        tank = self.boiler_temp
+        if heating and tank < p['102']:
+            tank = min(p['102'], tank + max(0, dt) * 0.01)
+        else:
+            tank = BOILER_AMBIENT_C + (tank - BOILER_AMBIENT_C) * math.exp(
+                -max(0, dt) / BOILER_THERMAL_TIME_CONSTANT_S)
+        self.boiler_temp = tank
+        p['108'] = round(tank, 2)
         self.energy_wh += self.power_w * dt / 3600
         meter = self.devices['meter']['dps']
         meter['1'] = MODEL['meter']['1']['default'] + int(self.energy_wh / 10)

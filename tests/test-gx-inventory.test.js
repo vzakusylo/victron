@@ -4,7 +4,8 @@ const inv = require('../tools/test-gx/inventory.js');
 
 const realFlows = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'flows.json'), 'utf8'));
 const realEmulator = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'tools', 'test-gx', 'emulator', 'emulator.py'), 'utf8');
-const restore = () => inv.useFixtures(realFlows, realEmulator);
+const realTuyaModel = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'tools', 'test-gx', 'emulator', 'tuya-model.json'), 'utf8'));
+const restore = () => inv.useFixtures(realFlows, realEmulator, realTuyaModel);
 
 test('every D-Bus pair of the flow is emulated or explicitly planned', () => {
   restore();
@@ -25,6 +26,23 @@ test('Tuya coverage fails for an unmodelled device or a new consumed DPS', () =>
     assert.ok(p.some(m => m.includes('pump') && m.includes('DPS 999')));
     assert.equal(inv.COVERAGE['tuya-smart-device'].status, 'emulated');
   } finally { restore(); }
+});
+
+test('boiler tank DPS 108 consumed by flow functions must exist in the pump model', () => {
+  const missing = structuredClone(realTuyaModel);
+  delete missing.pump['108'];
+  inv.useFixtures(realFlows, realEmulator, missing);
+  try {
+    assert.ok(inv.problems(inv.inventory()).some(m => m === 'Tuya pump: consumed DPS 108 is not in tuya-model.json'));
+  } finally { restore(); }
+});
+
+test('the local Tuya poll exec remains planned sensor coverage', () => {
+  restore();
+  const row = inv.inventory().find(r => r.id === 'dv-exec-01' && r.kind === 'exec:sensor');
+  assert.ok(row);
+  assert.equal(inv.COVERAGE['exec:sensor'].status, 'planned');
+  assert.ok(!inv.inventory().some(r => r.id === 'dv-exec-01' && r.kind === 'exec:boiler-poll'));
 });
 
 test('a Victron node on a service+path the emulator lacks is reported, even if the path exists on another service', () => {

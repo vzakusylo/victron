@@ -5,7 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const { DEVICES } = require('./transform-tuya.js');
-const tuyaModel = require('./emulator/tuya-model.json');
+const originalTuyaModel = require('./emulator/tuya-model.json');
+let tuyaModel = originalTuyaModel;
 
 const repo = path.join(__dirname, '..', '..');
 let flows = JSON.parse(fs.readFileSync(path.join(repo, 'flows.json'), 'utf8'));
@@ -231,6 +232,6 @@ if (require.main === module) {
 }
 
 // tests replace the flow / emulator source to prove that gaps are detected
-const useFixtures = (f, e) => { flows = f || flows; emulator = e || emulator; };
+const useFixtures = (f, e, m) => { flows = f || flows; emulator = e || emulator; tuyaModel = m || tuyaModel; };
 
 module.exports = { TOLERANT_DBUS_READERS, inventory, problems, warnings, COVERAGE, PLANNED_DBUS, useFixtures };

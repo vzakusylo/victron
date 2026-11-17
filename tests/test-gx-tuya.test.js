@@ -167,18 +167,33 @@ model.tick(1)
 raw = base64.b64decode(model.devices['meter']['dps']['6'])
 assert len(raw) == 8 and int.from_bytes(raw[5:8], 'big') == model.power_w > 0
 model.set('pump', '108', 25)
+assert model.devices['pump']['dps']['108'] == 25
 model.command('valve', {'operation':'SET','set':True})
 model.tick(1)
 assert model.devices['pump']['dps']['108'] > 25
+model.command('pump', {'operation':'SET','dps':1,'set':True})
+model.command('valve', {'operation':'SET','dps':1,'set':True})
+before = model.devices['pump']['dps']['108']
+model.tick(60)
+assert model.devices['pump']['dps']['108'] > before
+model.command('valve', {'operation':'SET','dps':1,'set':False})
+model.set('pump', '108', 46)
+model.command('pump', {'operation':'SET','dps':1,'set':False})
+model.tick(3600)
+cooled_after_hour = model.devices['pump']['dps']['108']
+assert 45.8 < cooled_after_hour < 46
+model.tick(2 * 3600)
+assert 45.5 < model.devices['pump']['dps']['108'] < cooled_after_hour
 model.command('bypass', {'operation':'SET','set':True})
 tank = model.devices['pump']['dps']['108']
 model.tick(1)
-assert model.devices['pump']['dps']['108'] == tank
+assert model.devices['pump']['dps']['108'] <= tank
 model.stale('pump')
 published.clear()
 model.command('pump', {'operation':'GET'})
 model.tick(1)
 assert not any(t.startswith('tuya/pump/') for t,p in published)
+model.command('pump', {'operation':'SET','dps':1,'set':True})
 model.fail('pump','ok')
 model.fail('pump','offline')
 assert published[-1] == ('tuya/pump/state', {'state':'DISCONNECTED'})
@@ -192,6 +207,10 @@ for value in [float('nan'), True, 999]:
     except ValueError: pass
     else: raise AssertionError('invalid sensor value accepted')
 model.fail('pump','ok')
+model.fail('valve','offline')
+assert published[-1] == ('tuya/valve/state', {'state':'DISCONNECTED'})
+model.fail('valve','ok')
+assert 'boiler' not in model.snapshot()
 model.error('pump')
 assert published[-1] == ('tuya/pump/state', {'state':'ERROR'})
 model.announce('pump')
@@ -202,4 +221,9 @@ assert model.power_w == 0 and model.devices['pump']['dps']['115'] == 0
 `;
     execFileSync(process.platform === 'win32' ? 'py' : 'python3',
         ['-B', '-c', script, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator')], { stdio: 'pipe' });
+});
+
+test('Test GX does not ship an unemulated local Tuya poller', () => {
+    const poller = path.join(__dirname, '..', 'tools', 'test-gx', 'tuya-local-poll.js');
+    assert.equal(fs.existsSync(poller), false);
 });

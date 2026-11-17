@@ -10,7 +10,10 @@ A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RE
 | Victron D-Bus services | [`victronenergy/venus-docker`](https://github.com/victronenergy/venus-docker), simulation `e` (MultiPlus + BMV) | Partly: demo values, other device instances |
 | Qingping MQTT | Internal Mosquitto + emulator `/mqtt` publications | Real MQTT and flow parsing; synthetic readings |
 | Four native Tuya devices | Same-ID MQTT proxies + four emulator models | Automation contracts only; native palette/protocol not tested |
-| Exec-based Tuya sensors, solar forecast | Not emulated yet | No (later step B) |
+| DHW boiler tank | Heat-pump pump DPS 108 | Tank-temperature and automation path emulated |
+| Boiler Tuya valve | `valve` model, DPS 1 | Routing and automation path emulated |
+| Exec-based local Tuya poll | Omitted; coverage remains planned | Local sensor protocol and file contract not tested |
+| Other exec-based Tuya sensors, solar forecast | Not emulated yet | No (later step B) |
 | Real hardware, ARM specifics | Not available | No |
 
 It proves that the flow loads, function nodes run, the dashboard renders and the deploy chain (`live-snapshot` → `compare` → `deploy` → `verify`) works. It does **not** prove that the inverter or battery react correctly: that is still checked on the real GX with the monitor.
@@ -209,6 +212,25 @@ The inventory marks `qingping/+/up` as emulated and rejects new MQTT input topic
 
 Only the image is transformed: production `flows.json` and numbered sources are unchanged. The four `tuya-smart-device` nodes become three-output functions with their original IDs and output 1/2 wires. Output 3 publishes non-retained QoS 1 commands to `tuya/<pump|valve|bypass|meter>/command`. Two deterministic MQTT inputs per device subscribe to `/data` and `/state`; all use the internal `mosquitto:1883` broker. Native `deviceKey`, `deviceIp` and protocol settings are not copied into proxies. An unknown Tuya node, unresolved device identity, unexpected output count or generated-ID collision stops sanitization; no native Tuya node may survive.
 
+### Boiler tank
+
+The DHW tank temperature is heat-pump pump DPS 108. The Tuya device named **Boiler** is the three-way valve relay (`valve`), with DPS 1 routing flow to DHW. The model heats the tank when the pump is running and valve DPS 1 is ON; otherwise, passive heat loss approaches a 20 °C ambient with a 14-day time constant. Water draw is not part of this base physics and belongs in a separate scenario.
+
+| DPS | Meaning | Backup observation | Test-model range |
+|---|---|---:|---:|
+| Pump 108 | DHW tank temperature, °C | 32–50 °C in the heat-pump recorder | -40–120 °C |
+| Valve 1 | Three-way valve relay; ON routes to DHW | 0–1 | boolean |
+| Valve 9 | Countdown, seconds | 0 | 0–86400 |
+| Valve 18 | Current, mA | 0 | 0–16000 |
+| Valve 19 | Power, W × 10 | 0 | 0–36800 |
+| Valve 20 | Voltage, V × 10 | 2220–2325 | 0–3000 |
+
+The ranges in the backup-observation column are observed recorder values, not manufacturer limits. The broader test ranges are input-validation envelopes. DPS 108 belongs to the pump model; there is no separate `boiler` DPS alias. Use `/set tuya.pump.dps.108` for the tank temperature. Use `/fail` and `/stale` on the actual `pump` or `valve` device to exercise its status and safety behavior.
+
+`tuya-local-poll.js` polls local-network sensors unrelated to the tank and valve. The Devices exec (`dv-exec-01`) discards its stdout, while node 50 reads `tuya-devices-last.json`; therefore the test image omits the real poller and leaves this exec-sensor coverage **planned** (B-tuya), rather than claiming an HTTP stdout-only stub fulfills its file contract. The tank shown on the Heat Pump page and consumed by the automation comes from pump DPS 108 through the existing Tuya proxy: node 34 builds the model, node 40 reads tank / valve state, node 47 handles connection alerts, and node 50 displays device data from the saved file.
+
+Automation SETs for the valve remain on the existing Tuya MQTT proxy and appear in `/writes`. Neither the local sensor poller nor its protocol is tested.
+
 Contracts were checked in the installed `node-red-contrib-tuya-smart-device@5.4.0` and TuyAPI source, the sanitized `tuya-nodes.json` / `tuya-devices-meta.json`, [heat-pump documentation](heat-pump.md#data-points) and a valid recorder keyframe from the backup (`2026-11-15/00.csv.gz`):
 
 | Direction | Actual contract |
@@ -258,7 +280,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8081/fail -ContentType applicati
 
 Stale suppresses even GET replies until `/fail` with `mode:"ok"` or `/reset`; optional `seconds` gives a finite interval. `mode:"invalid"` publishes pump temperatures -127, current `null` (JSON-safe substitute for NaN), compressor frequency 0; relay DP 1 becomes `null`, meter DP 6 empty. Actual downstream guards, not the emulator, decide what to do. The 15-minute defrost quiet period after a Node-RED deploy remains untouched: wait for it before asserting a normal DHW start.
 
-Comparison regenerates and validates every reported transformation against `tuya-source-flows.json`, retained outside the image. For `--live --map`, only those original IDs are transformed before comparison; live wiring/code changes still propagate to DIFF, and there is no blanket Tuya-config exemption. Inventory checks the HP_DPS dictionary and known DPS aliases in the actual consumers; adding an unmodelled DP or native device fails CI. New consumer aliases must be added to this parser rather than silently treated as covered. Exec-based boiler, accumulator/plate and battery sensors remain separate planned work.
+Comparison regenerates and validates flow transformations against `tuya-source-flows.json`, retained outside the image, and verifies that the unemulated local Tuya poller is omitted. For `--live --map`, only original Tuya node IDs are transformed before comparison; live wiring/code changes still propagate to DIFF, and there is no blanket Tuya-config exemption. Inventory checks the HP_DPS dictionary and consumed DPS against the shared model; adding an unmodelled DP or native device fails CI. New consumer aliases must be added to this parser rather than silently treated as covered. Accumulator/plate and battery sensor emulation remains separate planned work.
 
 ### Manual results
 
@@ -268,6 +290,7 @@ Comparison regenerates and validates every reported transformation against `tuya
 | Dashboard manual command | PASS; P23 38 -> 37 produced an applied pump SET DP 133 in `/writes` |
 | DHW response to tank `/set` | PASS after waiting the real startup quiet period: tank 60 C held HEATING; 60 -> 25 caused applied pump SET DP 133 = 0, then valve SET DP 1 = true and VALVE state |
 | Pump offline and automation guard | PASS; page showed DISCONNECTED, curve control disabled and `waiting: device not connected / stale`; no SET attempts during 35 s with an already-started DHW cycle paused |
+| Boiler valve offline and automation guard | PASS; `/fail` showed DISCONNECTED on Heat Pump and Devices; no Tuya SET appeared in `/writes` while offline |
 | Image comparison | PASS; 0 DIFF, 16 exact transformations EXPECTED; palette patch mismatch WARN remains |
 
 The backup's Heat Pump history widget still produces its pre-existing unquoted `vertical-align` Angular `ng-style` error (and dashboard loading.html 404). These are not introduced by the transform; do not change production UI sources in this branch. Plan B tests the automations and their data/command contracts, **not `tuya-smart-device` itself or the real local Tuya protocol**.
