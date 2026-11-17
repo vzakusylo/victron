@@ -137,7 +137,7 @@ Use the manual smoke script; it rebuilds the test GX from a sanitized backup and
   -FakeTime '@2026-12-01 00:59:00' -ObserveSeconds 80 -CheckMonthRollover
 ```
 
-`@YYYY-MM-DD HH:mm:ss` means start at that local time and advance at normal speed; accelerated time (`x10`) is not enabled. The smoke script checks the Node process's `Date`, a `setTimeout` backed by Node/libuv monotonic time, Node-RED health/startup, and that emulator write timestamps remain close to the host clock. It does not import a test tab into the repository's `flows.json`.
+`@YYYY-MM-DD HH:mm:ss` means start at that local time and advance at normal speed; this smoke script does not use accelerated time. The smoke script checks the Node process's `Date`, a `setTimeout` backed by Node/libuv monotonic time, Node-RED health/startup, and that emulator write timestamps remain close to the host clock. It does not import a test tab into the repository's `flows.json`.
 
 | Check | Result |
 |---|---|
@@ -174,7 +174,7 @@ These are manual checks, not CI coverage. The temporary probe must use `POST /fl
 | B2 `libfaketime` clock smoke test | done; `Date`, delay, cron, DST and month rollover checked; midnight cleanup is intentionally disabled since d#97 |
 | B3 Qingping MQTT | done; internal broker and emulator `/mqtt`, real Air quality dashboard verified |
 | B4 four native Tuya devices | implemented as test-image MQTT proxies; see contracts and checks below |
-| B5 forecast, exec-based Tuya sensors and automated scenarios | planned; forecast follows the Tuya PR merge |
+| B5 forecast, exec-based Tuya sensors and automated scenarios | heat-pump scenario runner implemented; forecast and exec-based sensors remain planned |
 
 ## Qingping MQTT
 
@@ -230,7 +230,8 @@ The proxy inserts the sanitized identity from `tuya-nodes.json`, resolving the b
 | Pump | 1, 2, 5 | power boolean; mode `smart/strong/mute`; work mode `wth/heat/cool/wth_heat/wth_cool` |
 | Pump | 4, 15 | opaque reported value 0..10000 (default 6666); fault bitmap 0..65535 |
 | Pump | 101, 102, 103, 104, 105, 106, 107, 108, 113 | return, supply, outdoor, discharge, suction, outdoor/cooling coil, DHW tank, heatsink; -40..120 C, except outdoor up to 80 and discharge up to 150 |
-| Pump | 109, 111, 112, 114, 115, 116, 117 | EEV 0..500; current 0..50 A; DC bus 0..500 V; compressor 0..120 Hz; fans 0..1500 rpm |
+| Pump | 109 / 111 | Main / EVI expansion valve, 0..500 |
+| Pump | 112 / 114 / 115 / 116 / 117 | Compressor current 0..50 A; DC bus 0..500 V; compressor 0..120 Hz; fans 0..1500 rpm |
 | Pump | 121, 122, 123, 124, 125, 126 | heating/DHW hysteresis 2..18 C; DHW setpoint 28..60; cooling 7..30; heating writes 15..55 (curve reports up to 60); compensation -5..15 |
 | Pump | 132, 133, 134, 135 | P22 `'0'/'1'`; P23 0..40 (manual UI 20..40); P24 1..30; frequency mode `'0'/'1'` |
 | Pump | 136, 137, 138 | heater ambient trigger -20..20 C; delay 0..60 min; pump mode `'0'/'1'` |
@@ -273,9 +274,62 @@ The backup's Heat Pump history widget still produces its pre-existing unquoted `
 
 The `--live --map` path was exercised with a raw snapshot reconstructed from the backup (flow comparison 0 DIFF), not an SSH snapshot from the real GX; real-GX SSH access remains unavailable. An isolated Venus restart deliberately reproduces the already-documented D-Bus `ServiceUnknown`/`UnknownObject` failure; keep the strict log rule and refresh/restart both containers rather than classifying those errors as expected.
 
-## Next: sensor scenarios and runner
+## Heat pump scenario runner
 
-Goal: every remaining input of the flow gets a value that a test controls, every output is recorded, and YAML scenarios say "given these inputs over time, the automations must do this". The D-Bus image, inventory, `/writes`, Qingping `/mqtt` and four Tuya MQTT proxies are implemented; forecast fixtures, exec-based Tuya sensors and automated scenarios remain.
+The YAML runner covers heat-pump device inputs and writes, including the full Er03 sequence, deploy quiet period and offline behavior. The full decision/input map is in [the heat-pump inventory](test-gx-heatpump-inventory.md). It does not replace the focused function-node tests; those also cover output ports and missing/stale/NaN readings that the emulator API cannot inject.
+
+Run against an already-running Test GX stack:
+
+```powershell
+# Run all checked-in YAML scenarios; write a JUnit report outside the repository.
+node .\tools\test-gx\run-scenarios.js --junit C:\learn\test-gx-data\runs\heatpump.xml
+
+# Run one scenario by its exact YAML `name`.
+node .\tools\test-gx\run-scenarios.js --scenario "Er03 full restart sequence" `
+  --junit C:\learn\test-gx-data\runs\heatpump-er03.xml
+
+# Runner-only smoke test (uses a mock API; does not need Docker or mutate Test GX).
+node .\tools\test-gx\run-scenarios.js --self-test --junit $env:TEMP\test-gx-scenarios.xml
+
+# Focused function and runner tests; no Docker required.
+node --test .\tests\test-gx-scenarios.test.js .\tests\heat-automation.test.js
+```
+
+Each scenario restarts Node-RED with its `faketime`, applies `settings` through temporary Node-RED
+UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` through `/fail`,
+`stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
+Tuya `SET` commands in `/writes` against `expect.writes`. Other D-Bus writes and Tuya GETs are
+not included in these assertions. Settings UI actions are persisted in the Test GX volume.
+When `settings.heatCurve` is specified, the runner first loads that curve with master off and
+other settings reset to their defaults, including the DHW block and last-cycle time; the UI
+actions then save the resulting settings in the volume. This makes the quiet-period twins
+independent of previously persisted settings.
+Optional `expected_fail: <bug-reference>`
+marks a known mismatch as a JUnit skipped case; an unexpected pass is a failure. The runner writes
+JUnit XML to `--junit`, `TEST_GX_JUNIT`, or the system temp directory. Faketime shifts recreate
+only the Node-RED service and do not remove `gx-data`. `when` is measured in fake time from the
+runner's post-reset start, not the Node-RED deploy; `settle` is measured in real time.
+The automation tick inject starts 60 real seconds after Node-RED startup, then repeats every
+10 real seconds; the live Er03 controls wait for three ticks. Set `TEST_GX_TAG` to the image tag
+used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
+to its absolute path; the runner uses it when recreating Node-RED.
+
+The checked-in YAML currently has one trivial smoke scenario and seven heat-pump scenarios. Unit
+tests additionally cover the individual decisions and all 17 read paths (three variants each:
+missing, stale, and NaN). The deploy-window decision is covered directly in a unit test because
+the runner observes emulator writes, not the deploy CLI's WAIT verdict.
+
+## Known limitations
+
+- The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
+- Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.
+- `/writes` records device commands only. Settings/log file effects, UI rendering, exec-node behavior, and SMTP delivery are not asserted by the YAML runner.
+- The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
+- A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.
+- Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; with `x60`, the watchdog drops the Er03 sequence after its first valve command. The full-sequence scenario runs at normal speed instead.
+- `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
+
+## Remaining Test GX work
 
 1. **Inventory** (`inventory.js`): generated from `flows.json` (Victron D-Bus: 7 inputs, 4 outputs; 4 Tuya devices; Tuya cloud scripts; Qingping MQTT; solar forecast HTTP; 29 inject nodes). Exec nodes are classified by `command` plus the function node feeding them: `tuya-*.js` sensor scripts (planned), `send-mail.js` (stub), local file/shell work (`exec:local`, explicit tool list), `dbus` calls (checked as service + path pairs against `emulator.py`). The Devices model reader (`dv-exec-01`) is a tolerant reader: its COMMON/TYPE path tables are checked too, but a path the emulator lacks is only a WARN because the script returns null for it. Pairs the emulator lacks must be listed in `PLANNED_DBUS` (now the BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`); an exec that fits no category (for example one calling the network), a Victron node without a path, a `settings` path not in the localsettings list, or an unknown node type fails CI.
 2. **Emulator** with an HTTP API (`/state`, `/set`, `/stale`, `/fail`, `/writes`, `/reset`, `/mqtt`):
@@ -283,7 +337,7 @@ Goal: every remaining input of the flow gets a value that a test controls, every
    - Tuya: Plan B test-image MQTT proxies for the four native nodes (done). Do not build a local-protocol stub unless Plan B proves insufficient. Exec-based sensors are a separate item.
    - Qingping via internal mosquitto and `/mqtt` (done); solar forecast from fixtures (planned), scenario start time via `libfaketime` (Clock checks above pass for Node `Date`, the 06:00 inject and real-time timers; business assertions across DST/month-end remain).
 3. **Scenarios** (`scenarios/*.yml`): initial state, steps, expectations, plus rules that hold all the time (grid limit, current limit, at most N writes per minute). Areas: tariff, battery, solar, DHW and shower, sensor failures, midnight, DST, month change, dashboard console errors.
-4. **Runner**: runs all scenarios and writes a JUnit report. Every change passes the scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
+4. **Runner**: the heat-pump row is implemented in `tools/test-gx/run-scenarios.js`; remaining scenarios for other inputs (forecast, sensors, battery, tariff, DST/month-end) are future work. Every change passes its scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
 Risks: business behavior at DST/month-end needs scenario assertions; Plan B does not validate the native Tuya palette/protocol; the victron palette may need D-Bus paths that the emulator lacks. After the Tuya PR merges, create `test-gx-forecast` from fresh `master`.
 

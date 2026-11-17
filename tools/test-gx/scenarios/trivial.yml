@@ -1,0 +1,7 @@
+name: trivial scenario runner smoke
+faketime: '@2026-11-16 12:00:00'
+steps:
+  - when: 0s
+    settle: 0s
+    expect:
+      writes: []

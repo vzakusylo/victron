@@ -1,0 +1,181 @@
+- name: no heat pump commands during deploy quiet period
+  faketime: '@2026-11-16 20:00:00 x4'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
+  initial:
+    inputs:
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 25
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
+      tuya.pump.dps.132: "0"
+      tuya.pump.dps.133: 0
+  steps:
+    - when: 0s
+      settle: 95s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "134"
+            value: 4
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 35
+            applied: true
+    - when: 380s
+      inputs:
+        tuya.pump.dps.103: -2
+        tuya.pump.dps.108: 25
+        tuya.pump.dps.115: 0
+        tuya.pump.dps.116: 0
+      settle: 100s
+      expect:
+        writes: []
+
+- name: DHW demand starts after deploy quiet period
+  faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
+  initial:
+    inputs:
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 25
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
+      tuya.pump.dps.132: "0"
+      tuya.pump.dps.133: 0
+  steps:
+    - when: 0s
+      settle: 95s
+    - when: 16m
+      inputs:
+        tuya.pump.dps.103: -2
+        tuya.pump.dps.108: 25
+        tuya.pump.dps.115: 0
+        tuya.pump.dps.116: 0
+      settle: 60s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 0
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+
+- name: Er03 full restart sequence
+  faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+      tuya.pump.dps.15: 1
+  steps:
+    - when: 0s
+      settle: 205s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+          - device: bypass
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
+
+- name: Er03 first-step positive control after deploy quiet period
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  steps:
+    - when: 16m
+      inputs:
+        tuya.valve.dps.1: true
+        tuya.pump.dps.15: 1
+      settle: 75s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+
+- name: Er03 offline pump guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    fail:
+      tuya.pump: offline
+  steps:
+    - when: 16m
+      inputs:
+        tuya.valve.dps.1: true
+        tuya.pump.dps.15: 1
+      settle: 75s
+      expect:
+        writes: []
+
+- name: Er03 disconnected valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+    fail:
+      tuya.valve: offline
+  steps:
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 75s
+      expect:
+        writes: []
+
+- name: Er03 invalid valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+    fail:
+      tuya.valve: invalid
+  steps:
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 75s
+      expect:
+        writes: []
