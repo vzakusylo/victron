@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from mqtt_publish import publish_message, validate_message
 from tuya_devices import TuyaDevices
+from forecast_fixture import forecast_fixture
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 import dbus  # noqa: E402
@@ -114,11 +115,13 @@ def drop(name):
         buses.pop(name).close()
 
 
-def settings_value(path, fallback):
+def settings_value(path, fallback, strict=False):
     try:
         obj = dbus.SystemBus().get_object('com.victronenergy.settings', path)
         return float(obj.GetValue(dbus_interface='com.victronenergy.BusItem'))
     except Exception:
+        if strict:
+            raise
         return fallback
 
 
@@ -126,6 +129,43 @@ def vebus_limit_a():
     svc = services.get('vebus')
     value = svc['/Ac/In/1/CurrentLimit'] if svc else None
     return 25.0 if value is None else float(value)
+
+
+class ActuatorResetError(RuntimeError):
+    pass
+
+
+def actuator_outputs():
+    outputs = []
+    for service, path in (('settings', '/Settings/SystemSetup/MaxChargeCurrent'),
+                          ('settings', '/Settings/CGwacs/AcPowerSetPoint'),
+                          ('vebus', '/Ac/In/1/CurrentLimit')):
+        item = dict(service=service, path=path)
+        try:
+            if service == 'settings':
+                value = settings_value(path, None, strict=True)
+            else:
+                if 'vebus' not in services:
+                    raise ValueError('VE.Bus service is unavailable')
+                value = services['vebus'][path]
+            item['value'] = float(value)
+        except (dbus.DBusException, TypeError, ValueError) as error:
+            item.update(value=None, error=str(error))
+        outputs.append(item)
+    return outputs
+
+
+def reset_outputs():
+    if 'vebus' not in services:
+        raise ActuatorResetError('VE.Bus service is unavailable')
+    bus = dbus.SystemBus()
+    for path, number in (('/Settings/SystemSetup/MaxChargeCurrent', -1.0),
+                         ('/Settings/CGwacs/AcPowerSetPoint', 0.0)):
+        obj = bus.get_object('com.victronenergy.settings', path)
+        result = obj.SetValue(dbus.Double(number), dbus_interface='com.victronenergy.BusItem')
+        if result != 0:
+            raise ActuatorResetError('Could not reset emulator output ' + path + ': ' + str(result))
+    services['vebus']['/Ac/In/1/CurrentLimit'] = 25.0
 
 
 def physics(dt):
@@ -288,6 +328,11 @@ class Api(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == '/forecast':
+            try:
+                return self._send(200, forecast_fixture(parse_qs(url.query)))
+            except (ValueError, TypeError) as error:
+                return self._send(400, dict(error=str(error)))
         with lock:
             if not ready:
                 return self._send(503, dict(error='starting'))
@@ -295,6 +340,7 @@ class Api(BaseHTTPRequestHandler):
                 now = time.time()
                 return self._send(200, dict(inputs=state, computed=computed, forced=forced, failed=failed, now=now,
                                             stale={k: round(v - now) for k, v in stale_until.items() if v > now},
+                                            outputs=actuator_outputs(),
                                             tuya=tuya.snapshot(),
                                             vebus_current_limit_a=vebus_limit_a() if 'vebus' in services else None))
             if url.path == '/writes':
@@ -308,6 +354,14 @@ class Api(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b'{}')
             if self.path in ('/set', '/stale', '/fail') and (not isinstance(body, dict) or not isinstance(body.get('path'), str)):
                 raise ValueError('path must be a string')
+            if self.path == '/reset':
+                if not isinstance(body, dict) or 'outputs' in body and not isinstance(body['outputs'], bool):
+                    raise ValueError('reset outputs must be a boolean')
+                if body.get('outputs'):
+                    with lock:
+                        if not ready:
+                            return self._send(503, dict(error='starting'))
+                    reset_outputs()
             if self.path == '/mqtt':
                 with lock:
                     if not ready:
@@ -355,6 +409,9 @@ class Api(BaseHTTPRequestHandler):
             self._send(200, dict(ok=True))
         except (KeyError, ValueError, TypeError) as error:
             self._send(400, dict(error=str(error)))
+        except (ActuatorResetError, dbus.DBusException) as error:
+            print('Actuator reset failed:', str(error), flush=True)
+            self._send(503, dict(error='Emulator actuator reset failed: ' + str(error)))
         except (ImportError, OSError, RuntimeError) as error:
             print('MQTT publish failed:', str(error), flush=True)
             self._send(503, dict(error='MQTT broker unavailable or publication failed'))
