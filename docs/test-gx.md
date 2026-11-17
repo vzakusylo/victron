@@ -468,6 +468,24 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 
 Risks: business behavior at DST/month-end needs scenario assertions; Plan B does not validate the native Tuya palette/protocol; the victron palette may need D-Bus paths that the emulator lacks. After the Tuya PR merges, create `test-gx-forecast` from fresh `master`.
 
+## Dashboard UI checks
+
+The Playwright check visits every enabled page in the Node-RED Dashboard menu and fails on
+browser console errors or uncaught page errors. It uses Microsoft Edge by default and only
+navigates between pages; it does not operate dashboard controls or call mutating APIs.
+
+Run it against an already-running Test GX stack from the repository root:
+
+```powershell
+npm ci --prefix .\tools\test-gx\ui
+npm run test:ui --prefix .\tools\test-gx\ui
+```
+
+Set `TEST_GX_UI_URL` to use a different dashboard URL, or `TEST_GX_UI_BROWSER` to select
+another Playwright Chromium channel. Docker is not started by this test. Browser installation,
+dashboard interaction and runtime validation are deferred until the shared Test GX stack is
+available.
+
 Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the complete test-GX work, not the MQTT step.
 
 ## CI
