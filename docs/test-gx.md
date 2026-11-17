@@ -455,6 +455,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 - A previously observed Docker health-check failure refers to missing `/data/settings.js` even while the Node-RED API answers. Health-check cleanup belongs to `test-gx-ci`; API readiness is checked independently by the runner.
 - Charging coverage gaps C-U1-C-U3 are listed in the charging inventory. Forecast fixtures require the updated emulator; restart Venus and Node-RED together without removing any volume.
 - `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
+- UI tests use the stack's backup-derived flows (currently `d#181`), not repository `flows.json`; Temperatures is untested until `test-gx-repo-flows`.
 
 ## Remaining Test GX work
 
@@ -474,12 +475,12 @@ The Playwright checks compare the runtime menu to the generated inventory, then 
 visible, enabled page separately. Browser console errors and uncaught page errors fail the
 test. `console-allowlist.json` matches exact `type` (`console` or `pageerror`), `text` and,
 for console errors, `url`, with a reason for each entry. It currently allows only the
-third-party Dashboard's missing `/ui/loading.html` asset at the default local URL.
-The Heat Pump test is an unconditional expected failure for the Angular `vertical-align`
-syntax error (`flows-hp-template-parse`, `hp-hist-template-01`); an unexpected pass fails.
-An expected failure can also mask other errors in that test, so inspect its trace.
-The SideNav error is not allowlisted because the running pages all contain a custom
-`ui_template`. The checks use Microsoft Edge by default and only
+third-party Dashboard's missing `/ui/loading.html` asset and the SideNav boot error before
+the first menu click at the default local URL. SideNav timing is recorded per test; the same
+error after a click remains a failure. `expected-errors.json` lists the exact known Heat Pump
+Angular `vertical-align` syntax error (`flows-hp-template-parse`, `hp-hist-template-01`).
+Other errors still fail, as does a missing expected error. The checks use Microsoft Edge by
+default and only
 navigate between pages; they do not operate controls or call mutating APIs.
 
 Run it against an already-running Test GX stack from the repository root:
