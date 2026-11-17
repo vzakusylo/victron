@@ -1,7 +1,7 @@
 [
   {
     "id": "ui-tab-hourly-stats-01",
-    "name": "Energy",
+    "name": "Energy [git 97bd93be46f1]",
     "order": 1,
     "disabled": false,
     "hidden": false,
@@ -9,7 +9,7 @@
   },
   {
     "id": "6fb98cc3df6410d0",
-    "name": "Energy",
+    "name": "Energy [git 97bd93be46f1]",
     "order": 1,
     "disabled": false,
     "hidden": false,
@@ -17,7 +17,7 @@
   },
   {
     "id": "ui-tab-analytics-01",
-    "name": "Analytics",
+    "name": "Analytics [git 97bd93be46f1]",
     "order": 3,
     "disabled": false,
     "hidden": false,
@@ -25,7 +25,7 @@
   },
   {
     "id": "ui-tab-hv-protection-01",
-    "name": "Protection",
+    "name": "Protection [git 97bd93be46f1]",
     "order": 4,
     "disabled": false,
     "hidden": false,
@@ -33,7 +33,7 @@
   },
   {
     "id": "ui-tab-files-root-01",
-    "name": "Files",
+    "name": "Files [git 97bd93be46f1]",
     "order": 4,
     "disabled": false,
     "hidden": false,
@@ -41,7 +41,7 @@
   },
   {
     "id": "ui-tab-constants-01",
-    "name": "Constants",
+    "name": "Constants [git 97bd93be46f1]",
     "order": 5,
     "disabled": false,
     "hidden": false,
@@ -49,7 +49,7 @@
   },
   {
     "id": "ui-tab-backup-01",
-    "name": "Backup",
+    "name": "Backup [git 97bd93be46f1]",
     "order": 6,
     "disabled": false,
     "hidden": false,
@@ -57,7 +57,7 @@
   },
   {
     "id": "ui-tab-device-01",
-    "name": "Device",
+    "name": "Device [git 97bd93be46f1]",
     "order": 7,
     "disabled": false,
     "hidden": false,
@@ -65,7 +65,7 @@
   },
   {
     "id": "ui-tab-driver-01",
-    "name": "Driver",
+    "name": "Driver [git 97bd93be46f1]",
     "order": 8,
     "disabled": false,
     "hidden": false,
@@ -73,7 +73,7 @@
   },
   {
     "id": "ui-tab-mcp-01",
-    "name": "Agent (MCP)",
+    "name": "Agent (MCP) [git 97bd93be46f1]",
     "order": 9,
     "disabled": false,
     "hidden": false,
@@ -81,23 +81,15 @@
   },
   {
     "id": "ui-tab-heatpump-01",
-    "name": "Heat Pump",
+    "name": "Heat Pump [git 97bd93be46f1]",
     "order": 10,
     "disabled": false,
     "hidden": false,
     "route": "#!/8"
   },
   {
-    "id": "ui-tab-hpdata-01",
-    "name": "Heat Pump data",
-    "order": 10,
-    "disabled": false,
-    "hidden": false,
-    "route": "#!/9"
-  },
-  {
     "id": "hpa-ui-tab-01",
-    "name": "Automations",
+    "name": "Automations [git 97bd93be46f1]",
     "order": 11,
     "disabled": false,
     "hidden": false,
@@ -105,7 +97,7 @@
   },
   {
     "id": "hpl-ui-tab-01",
-    "name": "Automation log",
+    "name": "Automation log [git 97bd93be46f1]",
     "order": 12,
     "disabled": false,
     "hidden": false,
@@ -113,7 +105,7 @@
   },
   {
     "id": "pb-ui-tab-01",
-    "name": "Payback",
+    "name": "Payback [git 97bd93be46f1]",
     "order": 13,
     "disabled": false,
     "hidden": false,
@@ -121,7 +113,7 @@
   },
   {
     "id": "dv-ui-tab-01",
-    "name": "Devices",
+    "name": "Devices [git 97bd93be46f1]",
     "order": 14,
     "disabled": false,
     "hidden": false,
@@ -129,18 +121,18 @@
   },
   {
     "id": "dv-aq-ui-tab-01",
-    "name": "Air quality",
+    "name": "Air quality [git 97bd93be46f1]",
     "order": 15,
     "disabled": false,
     "hidden": false,
     "route": "#!/14"
   },
   {
-    "id": "temps-tab-01",
-    "name": "Temperatures",
-    "order": 16,
+    "id": "ui-tab-hpdata-01",
+    "name": "Heat Pump data [git 97bd93be46f1]",
+    "order": 10,
     "disabled": false,
     "hidden": false,
-    "route": "#!/15"
+    "route": "#!/9"
   }
 ]

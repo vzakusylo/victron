@@ -475,29 +475,47 @@ visible, enabled page separately. Browser console errors and uncaught page error
 test. `console-allowlist.json` matches exact `type` (`console` or `pageerror`), `text` and,
 for console errors, `url`, with a reason for each entry. It currently allows only the
 third-party Dashboard's missing `/ui/loading.html` asset at the default local URL.
-The Heat Pump Angular `vertical-align` syntax error is an expected failure only when that
-page reaches its widget and no other unexpected errors occur; an unexpected pass fails.
-The SideNav error is not allowlisted because it has not been confirmed on a page without a
-custom `ui_template`. The checks use Microsoft Edge by default and only
+The Heat Pump test is an unconditional expected failure for the Angular `vertical-align`
+syntax error (`flows-hp-template-parse`, `hp-hist-template-01`); an unexpected pass fails.
+An expected failure can also mask other errors in that test, so inspect its trace.
+The SideNav error is not allowlisted because the running pages all contain a custom
+`ui_template`. The checks use Microsoft Edge by default and only
 navigate between pages; they do not operate controls or call mutating APIs.
 
 Run it against an already-running Test GX stack from the repository root:
 
 ```powershell
 npm ci --prefix .\tools\test-gx\ui
-npm run gen:pages --prefix .\tools\test-gx\ui
 npm run test:ui --prefix .\tools\test-gx\ui
 ```
 
 Failure traces are retained under `tools/test-gx/ui/test-results`; keep them private because
 they can contain dashboard content and network data.
 
-`pages.json` is generated deterministically from the repository `flows.json`; test discovery
-fails if it is stale. Routes predict Dashboard's widget-registration order, including ties,
-and must be verified against the running backup: backup-only widgets or different flow order
-can change the menu. The two Energy entries are distinct config IDs with the same name and
-order; neither group is referenced by a widget in the repository flow, so neither is assigned
-a route. They are not assumed to be the Energy page in a backup.
+The image is built from a sanitized GX backup; the persistent `/data` volume can retain a
+different flow. The current running stack returned `d#181` from `/flows`, while the repository
+contains `d#187`; its inventory has no Temperatures tab. `pages.json` is derived from the
+running flow, not the repository flow. Regenerate it with a read-only GET and a private
+temporary file outside the repository:
+
+```powershell
+$flows = Join-Path $env:TEMP "test-gx-flows-$([guid]::NewGuid()).json"
+try {
+    Invoke-WebRequest -Method Get -Uri http://127.0.0.1:1881/flows -OutFile $flows
+    node .\tools\test-gx\ui\gen-pages.js --flows $flows
+    if ($LASTEXITCODE -ne 0) { throw 'Page inventory generation failed' }
+    node .\tools\test-gx\ui\gen-pages.js --flows $flows --check
+    if ($LASTEXITCODE -ne 0) { throw 'Page inventory check failed' }
+} finally {
+    if (Test-Path -LiteralPath $flows) { Remove-Item -LiteralPath $flows }
+}
+```
+
+Review the derived tab IDs and names before committing `pages.json`; never commit the flow
+snapshot. The runtime-menu test detects an inventory that no longer matches the stack. Routes
+predict Dashboard's widget-registration order, including ties. The two Energy entries are
+distinct config IDs with the same name and order; neither has a widget, so neither gets a
+route.
 
 | Tab ID | Name | Order | Route / reason |
 |---|---|---:|---|
@@ -518,15 +536,12 @@ a route. They are not assumed to be the Energy page in a backup.
 | `pb-ui-tab-01` | Payback | 13 | `#!/12` |
 | `dv-ui-tab-01` | Devices | 14 | `#!/13` |
 | `dv-aq-ui-tab-01` | Air quality | 15 | `#!/14` |
-| `temps-tab-01` | Temperatures | 16 | `#!/15` |
 
-All 18 definitions currently have `disabled: false` and `hidden: false`. A tab with no
+All 17 definitions currently have `disabled: false` and `hidden: false`. A tab with no
 registered widget has no predicted runtime menu entry despite those flags.
 
 Set `TEST_GX_UI_URL` to use a different dashboard URL, or `TEST_GX_UI_BROWSER` to select
-another Playwright Chromium channel. Docker is not started by this test. Browser installation,
-dashboard interaction and runtime validation are deferred until the shared Test GX stack is
-available.
+another Playwright Chromium channel. Docker is not started by this test.
 
 Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the complete test-GX work, not the MQTT step.
 
