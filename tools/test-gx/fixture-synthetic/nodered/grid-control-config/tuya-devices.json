@@ -1,0 +1,18 @@
+{
+  "test-only-pump": {
+    "name": "test-only-pump",
+    "key": "test-only-key001"
+  },
+  "test-only-valve": {
+    "name": "test-only-valve",
+    "key": "test-only-key002"
+  },
+  "test-only-bypass": {
+    "name": "test-only-bypass",
+    "key": "test-only-key003"
+  },
+  "test-only-meter": {
+    "name": "test-only-meter",
+    "key": "test-only-key004"
+  }
+}

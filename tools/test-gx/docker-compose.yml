@@ -32,11 +32,10 @@ services:
     build:
       context: .
       additional_contexts:
-        # deliberately a non-existing path: build only through up.ps1 -Backup <sanitized dir>; logs/restart/exec work without it
-        backup: ${TEST_GX_BACKUP:-./backup-required-use-up.ps1}
+        backup: ${TEST_GX_BACKUP:-./fixture-synthetic}
       args:
-        NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-latest}
-        PALETTE: ${TEST_GX_PALETTE:-node-red-dashboard @victronenergy/node-red-contrib-victron node-red-contrib-tuya-smart-device}
+        NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-3.1.15}
+        PALETTE: ${TEST_GX_PALETTE:-}
     image: test-gx-nodered:${TEST_GX_TAG:-local}
     depends_on:
       venus: { condition: service_healthy }

@@ -1,0 +1,8 @@
+{
+  "host": "smtp.test.invalid",
+  "port": 465,
+  "user": "test-only-not-a-secret",
+  "pass": "test-only-not-a-secret",
+  "from": "test-only-mail@example.invalid",
+  "to": "test-only-mail@example.invalid"
+}
