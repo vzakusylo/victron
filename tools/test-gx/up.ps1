@@ -7,7 +7,11 @@ Set-Location $PSScriptRoot
 $env:TEST_GX_SIM = $Sim
 if ($Down) { docker compose down -v; return }
 $synthetic = -not $Backup
-if ($synthetic) { $Backup = Join-Path $PSScriptRoot 'fixture-synthetic' }
+if ($synthetic) {
+    node (Join-Path $PSScriptRoot 'build-fixture.js')
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic fixture generation failed (exit $LASTEXITCODE)" }
+    $Backup = Join-Path $PSScriptRoot 'fixture-synthetic'
+}
 # the gx-data volume is mounted on /data and would hide the new image content: always start from a fresh volume
 docker compose down -v
 $Backup = (Resolve-Path $Backup).Path

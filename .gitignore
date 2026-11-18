@@ -12,3 +12,7 @@ HANDOFF.md
 
 # Cloud chat handoff (private: IPs, bills)
 HANDOFF-CLOUD.md
+
+# Test GX copies generated from repository sources before a build
+tools/test-gx/fixture-synthetic/nodered/.node-red/flows.json
+tools/test-gx/fixture-synthetic/nodered/tools/

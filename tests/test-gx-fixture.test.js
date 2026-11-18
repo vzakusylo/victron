@@ -6,10 +6,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH } = require('../tools/test-gx/build-fixture');
+const { buildFixture, fixtureFiles, FIXTURE: COMMITTED_FIXTURE, FAKE_PASSWORD_HASH } = require('../tools/test-gx/build-fixture');
 const { loadNode } = require('./harness');
 
 const ROOT = path.resolve(__dirname, '..');
+const FIXTURE = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-fixture-'));
+
+test.before(() => buildFixture(FIXTURE));
+test.after(() => fs.rmSync(FIXTURE, { recursive: true, force: true }));
 
 function readTree(root, directory = '') {
     const files = new Map();
@@ -74,22 +78,23 @@ function provenance(value, cache) {
     return cache.get(value);
 }
 
-test('synthetic fixture regeneration is byte-identical with no missing or stale files', () => {
-    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-fixture-'));
-    try {
-        buildFixture(temp);
-        const first = readTree(temp);
-        buildFixture(temp);
-        assert.deepEqual(readTree(temp), first);
-        assert.deepEqual(readTree(FIXTURE), first);
-    } finally {
-        fs.rmSync(temp, { recursive: true, force: true });
+test('fixture regenerates committed defaults and builds byte-identical derived sources', () => {
+    const first = readTree(FIXTURE);
+    buildFixture(FIXTURE);
+    assert.deepEqual(readTree(FIXTURE), first);
+    const nonDerived = files => new Map([...files].filter(([name]) =>
+        name !== 'nodered/.node-red/flows.json' && !name.startsWith('nodered/tools/')));
+    assert.deepEqual(nonDerived(readTree(COMMITTED_FIXTURE)), nonDerived(first));
+    for (const [name, content] of first) {
+        if (name.startsWith('nodered/tools/')) {
+            assert.deepEqual(content, fs.readFileSync(path.join(ROOT, name.slice('nodered/'.length))), name);
+        }
     }
 });
 
 test('fixture keeps every original function body, initializer and finalizer byte-identical', () => {
     const source = JSON.parse(fs.readFileSync(path.join(ROOT, 'flows.json'), 'utf8'));
-    const generated = JSON.parse(fixtureFiles().get('nodered/.node-red/flows.json'));
+    const generated = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'nodered', '.node-red', 'flows.json'), 'utf8'));
     for (const node of source.filter(n => n.type === 'function')) {
         const copy = generated.find(n => n.id === node.id);
         assert.ok(copy, 'Missing function ' + node.id);

@@ -4,17 +4,19 @@ A Cerbo GX runs Venus OS (Linux, ARM) with Victron services on D-Bus and Node-RE
 
 ## Repository-only synthetic fixture
 
-The default build context is the committed `tools/test-gx/fixture-synthetic/`.
+The default build context is `tools/test-gx/fixture-synthetic/`: committed
+synthetic defaults plus ignored flows/tools copied from repository sources.
 No external backup or `TEST_GX_BACKUP` is needed:
 
 ```powershell
-node .\tools\test-gx\build-fixture.js
 .\tools\test-gx\up.ps1 -Sim emu
 ```
 
+Without `-Backup`, `up.ps1` runs `build-fixture.js` before building. For direct
+Compose use from a clean clone, run `node .\tools\test-gx\build-fixture.js` first.
 Once the existing `mqtt` Venus image and test SSH key have been prepared by
 `up.ps1`, `docker compose build` / `docker compose up -d` in `tools/test-gx`
-also use that fixture with `TEST_GX_BACKUP` unset. Explicit
+use that generated fixture with `TEST_GX_BACKUP` unset. Explicit
 `up.ps1 -Backup <sanitized-directory>` retains the sanitized-backup path and its
 palette-version resolution. `up.ps1` still removes the selected stack's data
 volume before rebuilding; do not use it against a shared stack without clearance.
@@ -47,8 +49,11 @@ are reported by the existing flow, not treated as successful delivery. Cloud
 sensor metadata is empty to avoid real cloud calls. Native Tuya protocol, SMTP,
 external forecast and exec-sensor emulation remain out of scope.
 
-After source changes, regenerate and commit the fixture together with the source
-change. `tests/test-gx-fixture.test.js` checks exact regeneration, unchanged
+After source changes, regenerate the fixture; commit changed synthetic defaults
+together with the source change, but never commit the derived
+`nodered/.node-red/flows.json` or `nodered/tools/` copies.
+`tests/test-gx-fixture.test.js` builds a temporary fixture and checks exact
+regeneration of committed non-derived files, byte-identical copied tools, unchanged
 function bodies, and sensitive strings against explicit test placeholders or
 `git grep -F` at `HEAD` excluding the fixture itself, reporting tracked non-fixture
 source filenames for review against the base. It does
