@@ -79,7 +79,6 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
             if (fractionalCurrent !== undefined && step === scenario.steps[0]) {
                 assert.equal(values['/Settings/SystemSetup/MaxChargeCurrent'], fractionalCurrent);
             }
-            values['/Settings/SystemSetup/MaxChargeCurrent'] = Math.trunc(values['/Settings/SystemSetup/MaxChargeCurrent']);
             for (const expected of step.expect.writes) {
                 assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
             }
@@ -91,9 +90,10 @@ test('change-only D-Bus assertions check final state, missing changes, extra cha
     const target = { service: 'settings', path: '/Settings/SystemSetup/MaxChargeCurrent' };
     const state = value => ({ outputs: [{ ...target, value }] });
     const expected = [{ ...target, value: 25 }];
-    assertChangedWrites([], expected, state(25), state(25), 'charge', 1);
+    assert.throws(() => assertChangedWrites([], expected, state(25), state(25), 'charge', 1),
+        /if_changed requires a new write/);
     assertChangedWrites(expected, expected, state(0), state(25), 'charge', 1);
-    assert.throws(() => assertChangedWrites([], expected, state(25), state(0), 'charge', 1), /final .* expected 25/);
+    assert.throws(() => assertChangedWrites(expected, expected, state(0), state(0), 'charge', 1), /final .* expected 25/);
     assert.throws(() => assertChangedWrites([], expected, state(0), state(25), 'charge', 1), ScenarioAssertionError);
     assert.throws(() => assertChangedWrites([...expected, { ...target, value: 0 }], expected,
         state(0), state(25), 'charge', 1), /expected 1 writes, received 2/);
@@ -105,6 +105,7 @@ test('change-only D-Bus assertions check final state, missing changes, extra cha
 test('charging stops Node-RED and resets actuators before startup, so a preceding result cannot satisfy the case', async () => {
     const calls = [];
     const target = { service: 'settings', path: '/Settings/SystemSetup/MaxChargeCurrent' };
+    const writes = [];
     const scenario = {
         name: 'fresh actuator baseline', faketime: '@2026-11-16 08:00:00',
         controller: {}, observe: [target],
@@ -119,21 +120,29 @@ test('charging stops Node-RED and resets actuators before startup, so a precedin
         api: {
             post: async (route, body) => {
                 calls.push([route, body]);
-                if (body.outputs) dvcc = -1;
+                if (body.outputs) {
+                    dvcc = -1;
+                    writes.length = 0;
+                }
             },
             getState: async () => ({ outputs: [
                 { ...target, value: dvcc },
                 { service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint', value: 0 },
                 { service: 'vebus', path: '/Ac/In/1/CurrentLimit', value: 25 }
             ] }),
-            getWrites: async () => []
+            getWrites: async () => writes
         },
         admin: {
             verifyDeployed: async () => {},
             preserveSettings: async () => ({ restore: async () => {} }),
             preserveController: async () => ({
                 restore: async () => {},
-                apply: async () => { if (applyOutput) dvcc = 25; }
+                apply: async () => {
+                    if (applyOutput) {
+                        dvcc = 25;
+                        writes.push({ ...target, value: 25 });
+                    }
+                }
             })
         }
     };

@@ -297,7 +297,11 @@ function assertChangedWrites(actual, expected, before, after, scenarioName, step
         }
         const id = key(wanted);
         if (!baseline.has(id)) throw new Error(`Missing emulator output snapshot for ${id}`);
-        if (!isEqual(baseline.get(id), wanted.value)) changes.push(wanted);
+        if (isEqual(baseline.get(id), wanted.value)) {
+            throw new ScenarioAssertionError(
+                `${scenarioName} step ${stepIndex}: if_changed requires a new write, but ${id} is already ${formatValue(wanted.value)}`);
+        }
+        changes.push(wanted);
         baseline.set(id, wanted.value);
     }
     assertWrites(actual, changes, scenarioName, stepIndex);
@@ -488,6 +492,8 @@ async function runScenario(scenario, options = {}) {
     await admin.verifyDeployed();
     let saved;
     let controller;
+    let controllerBaseline;
+    let controllerWriteCursor;
     let failure;
     let stopped = false;
     try {
@@ -496,7 +502,8 @@ async function runScenario(scenario, options = {}) {
             stopped = true;
             await (options.stopNodeRed || stopNodeRed)();
             await api.post('/reset', { outputs: true });
-            const baseline = (await api.getState()).outputs;
+            const resetState = await api.getState();
+            const baseline = resetState.outputs;
             for (const [service, outputPath, value] of [
                 ['settings', '/Settings/SystemSetup/MaxChargeCurrent', -1],
                 ['settings', '/Settings/CGwacs/AcPowerSetPoint', 0],
@@ -505,6 +512,8 @@ async function runScenario(scenario, options = {}) {
                 assert.equal(baseline?.find(output => output.service === service && output.path === outputPath)?.value,
                     value, `Emulator /reset did not restore ${service} ${outputPath} before Node-RED startup`);
             }
+            controllerBaseline = resetState;
+            controllerWriteCursor = (await api.getWrites()).length;
             await applyActions(api, scenario.initial || {});
         }
         await clock(scenario.faketime);
@@ -530,11 +539,13 @@ async function runScenario(scenario, options = {}) {
         const rate = faketimeRate(scenario.faketime);
         const start = Date.now();
         let inputs = { ...scenario.initial?.inputs };
-        let cursor = scenario.controller ? (await api.getWrites()).length : 0;
+        let cursor = scenario.controller ? controllerWriteCursor : 0;
         for (const [index, step] of scenario.steps.entries()) {
             const due = start + parseDuration(step.when, 'when') / rate;
             if (due > Date.now()) await wait(due - Date.now());
-            const before = step.expect.if_changed ? await api.getState() : undefined;
+            const before = step.expect.if_changed
+                ? scenario.controller && index === 0 ? controllerBaseline : await api.getState()
+                : undefined;
             await applyActions(api, step);
             inputs = { ...inputs, ...step.inputs };
             if (step.controller) await controller.apply(step.controller);

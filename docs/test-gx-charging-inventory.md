@@ -21,7 +21,7 @@ Each fixture also runs against the actual function source in
 
 | Controller output | Target | Assertion |
 |---|---|---|
-| 1: DVCC current | settings `/Settings/SystemSetup/MaxChargeCurrent` | Function rounds to 0.1 A; Test GX localsettings stores whole A (truncation). Scheduled maximum 25 A by default; force charge is not capped at that scheduled maximum |
+| 1: DVCC current | settings `/Settings/SystemSetup/MaxChargeCurrent` | Function rounds to 0.1 A and the Test GX emulator reads/writes the setting as a float. Scheduled maximum 25 A by default; force charge is not capped at that scheduled maximum |
 | 2: ESS setpoint | settings `/Settings/CGwacs/AcPowerSetPoint` | W; relevant manual, season and adaptive-support cases also assert this |
 | 3: AC input limit | VE.Bus instance 276, `/Ac/In/1/CurrentLimit` | A; summer day/night fixtures assert 9.5 / 13.5 A |
 | 4-7 | notifications, energy records, dashboard trace, history command | Not charging actuators; file/exec/SMTP and accounting assertions remain separate work |
