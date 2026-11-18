@@ -6,7 +6,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
 
 - name: charging night leaves a restorable deficit for morning
   faketime: '@2026-11-16 23:00:00'
@@ -16,7 +16,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging morning restores a deficit
   faketime: '@2026-11-16 08:00:00'
@@ -26,7 +26,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
 
 - name: charging morning respects the Ah deadband
   faketime: '@2026-11-16 08:00:00'
@@ -36,7 +36,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging accepts a positive-sign BMS deficit
   faketime: '@2026-11-16 08:00:00'
@@ -46,7 +46,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
 
 - name: charging stops outside restoration windows
   faketime: '@2026-11-16 13:00:00'
@@ -56,7 +56,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging evening does not restore capacity
   faketime: '@2026-11-16 18:00:00'
@@ -66,7 +66,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging summer morning keeps the current limit
   faketime: '@2026-06-16 08:00:00'
@@ -76,7 +76,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1950},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":9.5}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1950},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":9.5}]}
 
 - name: charging summer night uses the night profile
   faketime: '@2026-06-16 23:00:00'
@@ -86,7 +86,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":2850},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":13.5}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":2850},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":13.5}]}
 
 - name: charging morning solar hold has an HTTP positive control
   faketime: '@2026-11-16 08:00:00'
@@ -96,7 +96,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -110,7 +110,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -124,7 +124,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -138,7 +138,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -182,28 +182,28 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
     - when: 20s
       inputs: {"batt_v":53}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
     - when: 40s
       inputs: {"batt_v":52.5}
-      settle: 20s
+      settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":22}]}
-    - when: 60s
+    - when: 80s
       inputs: {"batt_v":52}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
-    - when: 80s
-      inputs: {"batt_v":53.5}
-      settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
     - when: 100s
+      inputs: {"batt_v":53.5}
+      settle: 40s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
+    - when: 140s
       inputs: {"batt_v":54}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
-    - when: 120s
+    - when: 160s
       inputs: {"batt_v":53.5}
       settle: 20s
       expect: {"if_changed":false,"writes":[]}
@@ -227,7 +227,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
 
 - name: charging disabled HV protection does not taper
   faketime: '@2026-11-16 08:00:00'
@@ -265,13 +265,13 @@
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":900}]}
     - when: 40s
       inputs: {"load_w":3500}
-      settle: 20s
+      settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":18},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4500}]}
-    - when: 60s
+    - when: 100s
       inputs: {"load_w":2000}
-      settle: 20s
+      settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":900}]}
-    - when: 80s
+    - when: 160s
       inputs: {"batt_v":53.9}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":3000}]}
@@ -284,7 +284,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
     - when: 20s
       inputs: {"grid_w":-200}
       settle: 20s
@@ -321,7 +321,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}
 
 - name: charging adaptive support can discharge outside restoration
   faketime: '@2026-11-16 13:00:00'
@@ -331,7 +331,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":500}]}
+      expect: {"if_changed":false,"writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":500}],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":500}]}
 
 - name: charging rejects stale future previous-day and NaN forecast metadata
   faketime: '@2026-11-16 22:00:00'
@@ -341,7 +341,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -371,7 +371,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging force mode cannot charge above available grid power
   faketime: '@2026-11-16 13:00:00'
@@ -381,7 +381,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging export guard never lowers scheduled charging
   faketime: '@2026-11-16 08:00:00'
@@ -391,7 +391,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
 
 - name: charging rejects a previous-day forecast younger than 18 hours
   faketime: '@2026-11-16 08:00:00'
@@ -401,7 +401,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -419,7 +419,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 20s
       controller: {"refreshForecast":true}
       settle: 20s
@@ -433,7 +433,7 @@
   steps:
     - when: 0s
       settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
     - when: 20s
       controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000}}
       settle: 20s

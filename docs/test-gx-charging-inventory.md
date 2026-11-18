@@ -21,7 +21,7 @@ Each fixture also runs against the actual function source in
 
 | Controller output | Target | Assertion |
 |---|---|---|
-| 1: DVCC current | settings `/Settings/SystemSetup/MaxChargeCurrent` | Function rounds to 0.1 A and the Test GX emulator reads/writes the setting as a float. Scheduled maximum 25 A by default; force charge is not capped at that scheduled maximum |
+| 1: DVCC current | settings `/Settings/SystemSetup/MaxChargeCurrent` | Function rounds to 0.1 A and the flow output is configured as float. Scheduled maximum 25 A by default; force charge is not capped at that scheduled maximum |
 | 2: ESS setpoint | settings `/Settings/CGwacs/AcPowerSetPoint` | W; relevant manual, season and adaptive-support cases also assert this |
 | 3: AC input limit | VE.Bus instance 276, `/Ac/In/1/CurrentLimit` | A; summer day/night fixtures assert 9.5 / 13.5 A |
 | 4-7 | notifications, energy records, dashboard trace, history command | Not charging actuators; file/exec/SMTP and accounting assertions remain separate work |
@@ -64,6 +64,23 @@ Names below omit the common `charging ` prefix.
 | Previous-day timestamp is still younger than 18 h | Same-day guard independently rejects it: 25 A | `rejects a previous-day forecast younger than 18 hours` |
 | Valid zero-energy HTTP forecast | Do not suppress morning restoration: 25 A | `a valid zero forecast does not suppress restoration` |
 | Invalid saved protection voltage ordering | Reject the file, fall back to defaults and turn force charging off: 0 -> 20 -> 0 A | `invalid protection file falls back to safe defaults` |
+
+## Confirmed live mismatch
+
+`CHG-1` is the production-path fractional-current mismatch. The controller's `round1`
+helper and final-current calculation preserve tenths of an amp (`01 Battery + Grid
+Controller.js:180, 1095-1100, 1392`), and the configured D-Bus output node is `float`
+(`flows.json:1682-1695`). The live `/writes` path nevertheless reports whole amps:
+
+| Case | Controller calculation | Function target | Live write |
+|---|---|---:|---:|
+| HV full | `25 x (1000 / 4950) = 5.0505...`, rounded to 0.1 A | 5.1 A | 5 A |
+| Day high load | `25 x (4850 / 4950) = 24.4949...`, rounded to 0.1 A | 24.5 A | 24 A |
+| HV grid support | `25 x (500 / 4950) = 2.5252...`, rounded to 0.1 A | 2.5 A | 2 A |
+
+The function and output-node configuration contain no whole-amp rounding at these writes;
+the mismatch is after the function output. These three live scenarios remain
+`expected_fail: CHG-1`; production code and flow definitions are unchanged.
 
 ## Isolation and restoration
 

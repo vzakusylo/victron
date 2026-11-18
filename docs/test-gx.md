@@ -311,10 +311,12 @@ To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence 
 `service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
 Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
 Without `observe`, all Tuya `SET` commands are selected.
-For change-notifying D-Bus settings, `expect.if_changed: true` also checks the actual
-terminal `/state.outputs` values. It omits an expected event only if that value already
-matched the pre-step output snapshot; missing changes, extra changes and wrong final values
-still fail. Default assertions retain their exact count/order semantics.
+For change-notifying D-Bus settings, `expect.if_changed: true` requires every expected
+output to differ from its pre-step `/state.outputs` value, then checks the actual write
+and terminal value. A step whose output should remain unchanged uses
+`expect.if_changed: false` with `expect.writes: []`; add `expect.outputs` to assert the
+terminal D-Bus values without requiring a write. Default assertions retain their exact
+count/order semantics.
 Charging stops Node-RED, resets actuator values through `/reset` with `{"outputs":true}`,
 checks the actual defaults (-1 A DVCC, 0 W setpoint, 25 A input limit), and stages inputs
 before Node-RED starts; settings are then applied and

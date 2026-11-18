@@ -60,6 +60,36 @@ test('settings snapshots restore file bytes and context before deleting and chec
     }
 });
 
+test('settings snapshots preserve an initially absent heat-pump context without injecting defaults', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-state-absent-'));
+    const files = Object.fromEntries(SETTINGS_FILES.map(file => [file, { exists: false }]));
+    const calls = [];
+    let active = false;
+    const request = async (method, route, body) => {
+        calls.push({ method, route, body });
+        if (method === 'GET' && route === '/flows') return active
+            ? [{ type: 'tab', label: 'Temporary Test GX scenario state backup', id: 'temporary' }] : [];
+        if (route === '/flow') { active = true; return { id: 'temporary' }; }
+        if (method === 'GET' && route === '/flow/temporary') {
+            return { nodes: [{ id: 'restore', name: 'Restore scenario heat pump settings' }] };
+        }
+        if (route.startsWith('/test-gx-state-')) return files;
+        if (route === '/context/node/hpa-fn-01/settings') return { format: 'undefined', msg: '(undefined)' };
+        if (method === 'DELETE') active = false;
+    };
+    try {
+        const saved = await preserveSettings(request, async () => {}, { backupDirectory: root });
+        assert.deepEqual(JSON.parse(fs.readFileSync(saved.backupPath, 'utf8')), { files });
+        await saved.restore();
+        assert.ok(calls.some(call => call.body?.action === 'restore'));
+        assert.equal(calls.some(call => call.route.startsWith('/inject/')), false);
+        assert.equal(active, false);
+        assert.equal(calls.at(-1).route, '/flows');
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('a remaining temporary flow fails before settings can be injected', async () => {
     await assert.rejects(preserveSettings(async () => [
         { id: 'leftover', type: 'tab', label: 'Temporary Test GX scenario settings' }

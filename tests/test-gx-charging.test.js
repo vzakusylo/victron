@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const {
-    assertChangedWrites, ScenarioAssertionError, createAdmin, loadScenarios, parseDuration, runScenario
+    assertChangedWrites, assertOutputs, ScenarioAssertionError, createAdmin, loadScenarios, parseDuration, runScenario
 } = require('../tools/test-gx/run-scenarios');
 const { preserveController, CONTEXT_KEYS, contextBridgeSource } = require('../tools/test-gx/scenario-controller');
 const { loadNode } = require('./harness');
@@ -82,6 +82,9 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
             for (const expected of step.expect.writes) {
                 assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
             }
+            for (const expected of step.expect.outputs || []) {
+                assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
+            }
         }
     });
 }
@@ -100,6 +103,15 @@ test('change-only D-Bus assertions check final state, missing changes, extra cha
     assert.throws(() => assertChangedWrites([], expected, {}, state(25), 'charge', 1), /require emulator/);
     assert.throws(() => assertChangedWrites([], expected, state(25),
         { outputs: [{ ...target, value: 25, error: 'settings unavailable' }] }, 'charge', 1), /Cannot read emulator output/);
+});
+
+test('no-change scenario steps can still assert final actuator outputs', () => {
+    const target = { service: 'settings', path: '/Settings/SystemSetup/MaxChargeCurrent', value: 0 };
+    assertOutputs({ outputs: [target] }, [target], 'charge', 1);
+    assert.throws(() => assertOutputs({ outputs: [{ ...target, value: 25 }] }, [target], 'charge', 1),
+        /final .* expected 0, received 25/);
+    assert.throws(() => assertOutputs({ outputs: [{ ...target, error: 'settings unavailable' }] }, [target], 'charge', 1),
+        /settings unavailable/);
 });
 
 test('charging stops Node-RED and resets actuators before startup, so a preceding result cannot satisfy the case', async () => {

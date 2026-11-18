@@ -234,6 +234,13 @@ function validateScenario(scenario, source = 'scenario') {
         if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) || !Array.isArray(step.expect.writes)) {
             throw new Error(`${source} step ${index + 1} requires an expect.writes sequence`);
         }
+        if (step.expect.outputs !== undefined && (!Array.isArray(step.expect.outputs) ||
+            step.expect.outputs.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
+                Object.keys(item).some(key => !['service', 'path', 'value'].includes(key)) ||
+                typeof item.service !== 'string' || !item.service || typeof item.path !== 'string' || !item.path ||
+                !Object.hasOwn(item, 'value')))) {
+            throw new Error(`${source} step ${index + 1} expect.outputs must contain service, path, and value`);
+        }
         if (step.expect.if_changed !== undefined && (typeof step.expect.if_changed !== 'boolean' || !scenario.observe)) {
             throw new Error(`${source} step ${index + 1} if_changed requires D-Bus observe selectors`);
         }
@@ -310,6 +317,18 @@ function assertChangedWrites(actual, expected, before, after, scenarioName, step
         const last = baseline.get(id);
         if (!final.has(id) || !isEqual(final.get(id), last)) {
             throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: final ${id} expected ${formatValue(last)}, received ${formatValue(final.get(id))}`);
+        }
+    }
+}
+
+function assertOutputs(state, expected, scenarioName, stepIndex) {
+    if (!Array.isArray(state?.outputs)) throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: /state did not return outputs`);
+    for (const wanted of expected) {
+        const got = state.outputs.find(output => output.service === wanted.service && output.path === wanted.path);
+        if (!got || got.error || !isEqual(got.value, wanted.value)) {
+            const actual = got?.error ? `unavailable: ${got.error}` : formatValue(got?.value);
+            throw new ScenarioAssertionError(
+                `${scenarioName} step ${stepIndex}: final ${JSON.stringify([wanted.service, wanted.path])} expected ${formatValue(wanted.value)}, received ${actual}`);
         }
     }
 }
@@ -492,8 +511,7 @@ async function runScenario(scenario, options = {}) {
     await admin.verifyDeployed();
     let saved;
     let controller;
-    let controllerBaseline;
-    let controllerWriteCursor;
+    let controllerSettingsApplied = false;
     let failure;
     let stopped = false;
     try {
@@ -512,8 +530,6 @@ async function runScenario(scenario, options = {}) {
                 assert.equal(baseline?.find(output => output.service === service && output.path === outputPath)?.value,
                     value, `Emulator /reset did not restore ${service} ${outputPath} before Node-RED startup`);
             }
-            controllerBaseline = resetState;
-            controllerWriteCursor = (await api.getWrites()).length;
             await applyActions(api, scenario.initial || {});
         }
         await clock(scenario.faketime);
@@ -527,8 +543,6 @@ async function runScenario(scenario, options = {}) {
             if (scenario.settings) await admin.loadSettings(scenario.settings);
             if (scenario.controller) {
                 controller = await admin.preserveController(scenario);
-                await controller.apply({ protection: scenario.controller.protection || {} });
-                await wait(12000);
             }
         }
         if (!scenario.controller) {
@@ -539,13 +553,15 @@ async function runScenario(scenario, options = {}) {
         const rate = faketimeRate(scenario.faketime);
         const start = Date.now();
         let inputs = { ...scenario.initial?.inputs };
-        let cursor = scenario.controller ? controllerWriteCursor : 0;
+        let cursor = scenario.controller ? (await api.getWrites()).length : 0;
         for (const [index, step] of scenario.steps.entries()) {
             const due = start + parseDuration(step.when, 'when') / rate;
             if (due > Date.now()) await wait(due - Date.now());
-            const before = step.expect.if_changed
-                ? scenario.controller && index === 0 ? controllerBaseline : await api.getState()
-                : undefined;
+            const before = step.expect.if_changed ? await api.getState() : undefined;
+            if (scenario.controller && !controllerSettingsApplied) {
+                await controller.apply({ protection: scenario.controller.protection || {} });
+                controllerSettingsApplied = true;
+            }
             await applyActions(api, step);
             inputs = { ...inputs, ...step.inputs };
             if (step.controller) await controller.apply(step.controller);
@@ -557,9 +573,11 @@ async function runScenario(scenario, options = {}) {
                 ? scenario.observe.some(selector => write.service === selector.service && write.path === selector.path)
                 : write.operation === 'SET');
             cursor = writes.length;
+            const finalState = step.expect.if_changed || step.expect.outputs ? await api.getState() : undefined;
             if (step.expect.if_changed) {
-                assertChangedWrites(current, step.expect.writes, before, await api.getState(), scenario.name, index + 1);
+                assertChangedWrites(current, step.expect.writes, before, finalState, scenario.name, index + 1);
             } else assertWrites(current, step.expect.writes, scenario.name, index + 1);
+            if (step.expect.outputs) assertOutputs(finalState, step.expect.outputs, scenario.name, index + 1);
         }
     } catch (error) {
         failure = error;
@@ -724,6 +742,7 @@ module.exports = {
     ScenarioAssertionError,
     assertWrites,
     assertChangedWrites,
+    assertOutputs,
     createAdmin,
     faketimeRate,
     junitXml,

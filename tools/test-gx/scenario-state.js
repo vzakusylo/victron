@@ -81,6 +81,7 @@ async function assertNoTemporaryFlows(request) {
 }
 
 function decodeContext(response, name) {
+    if (response?.format === 'undefined' && response.msg === '(undefined)') return undefined;
     if (!response || response.format !== 'Object' || typeof response.msg !== 'string') {
         throw new Error(`Cannot snapshot ${name}: expected an object from the Node-RED context API`);
     }
@@ -133,19 +134,23 @@ async function preserveSettings(request, wait, options = {}) {
                     try { await action(); } catch (error) { errors.push(error); }
                 };
                 try {
-                    await attempt(async () => {
-                        await injectSettings('ui', { action: 'master', on: false });
-                        await wait(200);
-                    });
-                    await attempt(async () => {
-                        await injectSettings('load', settings);
-                        await wait(1000);
-                    });
+                    if (settings !== undefined) {
+                        await attempt(async () => {
+                            await injectSettings('ui', { action: 'master', on: false });
+                            await wait(200);
+                        });
+                        await attempt(async () => {
+                            await injectSettings('load', settings);
+                            await wait(1000);
+                        });
+                    }
                     await attempt(async () => assert.deepEqual(await request('POST', route, { action: 'restore', files }),
                         files, 'Settings files differ after restoration'));
-                    await attempt(async () => assert.deepEqual(
-                        decodeContext(await request('GET', '/context/node/hpa-fn-01/settings'), 'restored heat-pump settings'),
-                        settings, 'Heat-pump settings context differs after restoration'));
+                    if (settings !== undefined) {
+                        await attempt(async () => assert.deepEqual(
+                            decodeContext(await request('GET', '/context/node/hpa-fn-01/settings'), 'restored heat-pump settings'),
+                            settings, 'Heat-pump settings context differs after restoration'));
+                    }
                 } finally {
                     try { await request('DELETE', `/flow/${created.id}`); } catch (error) { errors.push(error); }
                     try { await assertNoTemporaryFlows(request); } catch (error) { errors.push(error); }
