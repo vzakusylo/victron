@@ -53,6 +53,7 @@ jobs:
           node-version: 22
 
       - name: Claude review
+        id: claude_review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -109,6 +110,59 @@ jobs:
             - Do not push commits, approve, or request changes.
 
           claude_args: |
-            --model claude-opus-5-5
+            --model claude-sonnet-5-5
             --max-turns 40
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(node -e:*),Bash(node --test:*),Bash(node tools/flows.js check),Bash(jq:*),Read,Grep,Glob"
+
+      - name: Claude error diagnostics
+        if: ${{ failure() && steps.claude_review.outcome == 'failure' }}
+        env:
+          EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          function fail(error) {
+            console.error(JSON.stringify({ error }));
+            process.exit(1);
+          }
+          const file = process.env.EXECUTION_FILE ||
+            (process.env.RUNNER_TEMP && path.join(process.env.RUNNER_TEMP, 'claude-execution-output.json'));
+          if (!file) fail('Claude execution-file path is unavailable');
+          let messages;
+          try {
+            messages = JSON.parse(fs.readFileSync(file, 'utf8'));
+          } catch (error) {
+            fail(error instanceof SyntaxError ?
+              'Claude execution output is not valid JSON' : 'Claude execution output could not be read');
+          }
+          if (!Array.isArray(messages)) fail('Claude execution output is not a message array');
+          let found = false;
+          for (const message of messages) {
+            if (!message || typeof message !== 'object') continue;
+            const result = message.type === 'result' &&
+              (message.is_error === true || message.subtype !== 'success');
+            const apiError = message.type === 'assistant' && message.error;
+            if (!result && !apiError) continue;
+            const diagnostic = {};
+            if (result) {
+              if (typeof message.subtype === 'string') diagnostic.subtype = message.subtype;
+              if (typeof message.is_error === 'boolean') diagnostic.is_error = message.is_error;
+              if (typeof message.result === 'string') diagnostic.result = message.result;
+              if (Array.isArray(message.errors)) {
+                diagnostic.error = message.errors.filter(error => typeof error === 'string').join('; ');
+              }
+            }
+            if (typeof message.error === 'string') {
+              diagnostic[apiError ? 'api_error_type' : 'error'] = message.error;
+            } else if (message.error && typeof message.error === 'object') {
+              if (typeof message.error.message === 'string') diagnostic.error = message.error.message;
+              if (typeof message.error.type === 'string') diagnostic.api_error_type = message.error.type;
+            }
+            if (Object.keys(diagnostic).length) {
+              console.log(JSON.stringify(diagnostic));
+              found = true;
+            }
+          }
+          if (!found) fail('No Claude error/result diagnostic fields were present');
+          NODE
