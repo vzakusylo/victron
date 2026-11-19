@@ -428,9 +428,12 @@ Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the
 
 ## CI
 
-Relevant pull requests run every checked-in scenario on an isolated Test GX stack built from
-the repository-only synthetic fixture. Scenarios run in parallel, each with a 30-minute job
-limit. Expected failures are reported as skipped; an unexpected pass fails the check.
-The check summary shows the JUnit results, and the `test-gx-logs` artifact retains each
-scenario's JUnit report, Compose and Node-RED logs, and `/writes` dump for 14 days.
-Use **Actions > Test GX scenarios > Run workflow** to rerun it manually with `workflow_dispatch`.
+**Status: manual only, not green yet — known failure:** the Venus image build could not reach
+`archive.ubuntu.com:80` in [the last run](https://github.com/vzakusylo/victron/actions/runs/44516634703)
+(attempt 2).
+
+Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. The single
+75-minute job builds the repository-only synthetic fixture, runs all checked-in scenarios,
+and summarizes their JUnit results. Expected failures are skipped; an unexpected pass fails
+the job. The `test-gx-logs` artifact retains JUnit, Compose and Node-RED logs, and the
+`/writes` dump for 14 days. Every new Test GX branch adds its scenarios to this job.
