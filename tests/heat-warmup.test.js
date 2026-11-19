@@ -115,3 +115,38 @@ test('out-of-range requests are refused', () => {
         assert.equal(c.settings().heatWarm || null, null);
     }
 });
+
+test('a boost step-down during a warm-up keeps the warm-up curve bookkept (PR #65 review)', () => {
+    const c = heating();
+    c.ui({ on: true, deltaC: 2, hours: 2 });
+    c.run(NOW, NOW + 3 * MIN);
+    const warm = { p23: c.pump[133], p24: c.pump[134] };
+    const h = c.node.context.get('heat');
+    Object.assign(h, { boost: 1, lastStep: 0, samples: [] });
+    // supply well above the warm-up point for a full window → one step down: boost 1 → 0
+    for (let t = NOW + 3 * MIN + 10 * S; t <= NOW + 20 * MIN; t += 10 * S) c.tick(t, { 102: 44, 101: 41 });
+    const after = c.node.context.get('heat');
+    assert.equal(after.boost, 0);
+    assert.equal(after.warmApplied, 2, 'warm-up still counted as written');
+    assert.ok(after.curveCmd, 'curveCmd kept for the warm-up curve, so it is never taken for a hand-moved slider');
+    assert.deepEqual({ p23: c.pump[133], p24: c.pump[134] }, warm);
+    assert.deepEqual(c.settings().heatCurve, { p23: 38, p24: 4, at: NOW - H });
+});
+
+test('switching On → Test during a warm-up puts the owner curve back (PR #65 review)', () => {
+    const c = heating();
+    c.ui({ on: true, deltaC: 2, hours: 1 });
+    c.run(NOW, NOW + 3 * MIN);
+    c.node.run({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: 'dry' } }, { now: NOW + 3 * MIN });
+    c.run(NOW + 3 * MIN + 10 * S, NOW + 8 * MIN);
+    assert.equal(c.pump[133], 38);
+    assert.equal(c.pump[134], 4);
+});
+
+test('a warm-up without a stored curve says why it waits (PR #65 review)', () => {
+    const c = heating({ saved: { heatCurve: null } });
+    c.ui({ on: true, deltaC: 2, hours: 1 });
+    c.run(NOW, NOW + MIN);
+    assert.match(c.view().warm.note, /warm-up waits/);
+    assert.deepEqual(c.writes.filter(w => w.dps === 133 || w.dps === 134), []);
+});

@@ -109,3 +109,14 @@ test('a saved hysteresis survives a restart and is restored after the band is tu
         assert.equal(b.settings().heatBandSaved, null, String(bad));
     }
 });
+
+test('switching On → Test puts your hysteresis and curve back (PR #66 review)', () => {
+    const c = heating({ heat: { band: true, bandDown: 0, bandUp: 2 } });
+    c.run(NOW, NOW + 6 * MIN);
+    assert.equal(c.pump[121], 2);
+    c.node.run({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: 'dry' } }, { now: NOW + 6 * MIN });
+    c.run(NOW + 6 * MIN + 10 * S, NOW + 14 * MIN);
+    assert.equal(c.pump[121], 5);
+    assert.equal(c.pump[133], 38);
+    assert.equal(c.pump[134], 4);
+});

@@ -295,6 +295,7 @@ Covered by tests only, never executed on the GX:
 
 - **Er03 on 14 Nov 19:56**, first DHW cycle after the d#180 deploy: cause not established. The next cycles ran. Watch the automation log (`WARN automation log` in the monitor).
 - **Kick setting** `kickMin 1` / `kickSec 60`: a supply stuck below the curve is switched Silent → Smart → Silent every ~2.3 min for as long as it lasts (`tests/heat-automation.test.js`). The owner's choice; not seen in the log yet.
+- **Heating band (P6)** `band` (off by default), `bandDown` 0 (0–4 °C), `bandUp` 2 (2–8 °C), with `up − down ≥ 2`: while the heating controller is On, the pump curve is written at point + up and DP 121 (heating hysteresis, 2–18 °C) at up − down. The owner's DP 121 is kept in `heatBandSaved` (settings file) and written back when the band is off or the controller is Off / Test. First live write of DP 121: after the deploy, turn the band on once and check that the pump reports the new value (`tests/heat-band.test.js`).
 - **Tailnet policy** allows every device to reach every device, so a `tag:ci` runner sees the whole tailnet during an install. A rule for `tag:ci` → GX `tcp:22` only would narrow it.
 - **GitHub Actions runner changes:** checkout and setup actions now use Node.js 24 (`@v7`); the project tests still use Node.js 22. Run `check` after future action or `ubuntu-latest` image changes.
 - **13 nodes** differ from the repository by a trailing newline only. Harmless; `--include-trailing` in a plan would align them at the cost of a restart.
