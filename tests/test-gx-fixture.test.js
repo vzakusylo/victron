@@ -35,7 +35,7 @@ function candidates(text, filename) {
         /\b(?:[a-f0-9]{2}[:-]){5}[a-f0-9]{2}\b/gi,
         /\b[a-f0-9]{12}\b/gi,
         /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi,
-        /\b[a-z][a-z0-9+.-]*:\/\/([a-z0-9][a-z0-9.-]*)/gi,
+        /\b[a-z][a-z0-9+.-]*:\/\/(?:[^@\s\/"'`]+@)?([a-z0-9][a-z0-9.-]*)/gi,
         /["'`]((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?=["'`:\/?#])/gi,
         /\b[a-f0-9]{24,}\b/gi,
         /['"]([a-z0-9+/_-]{32,}={0,2})['"]/gi,
@@ -166,7 +166,8 @@ test('sensitive-string scanner detects hosts, node IDs and credentials, includin
         id: 'a1b2c3d4e5f6a7b8',
         func: 'const password = "unapproved-production-password";\nconst host = "203.0.113.99";\n' +
             'const url = "https://forecast.example.invalid/data";\nconst domain = "heating.example.invalid";\n' +
-            'const websocket = "wss://socket.example.invalid/live";',
+            'const websocket = "wss://socket.example.invalid/live";\n' +
+            'const withUserInfo = "https://test:fake@secure.example.invalid/data";',
         deviceKey: 'not-an-approved-key',
         token: 'unapproved-token',
         mac: 'aa:bb:cc:dd:ee:ff',
@@ -176,7 +177,8 @@ test('sensitive-string scanner detects hosts, node IDs and credentials, includin
     const found = candidates(sample, 'flows.json');
     for (const value of ['203.0.113.99', 'aa:bb:cc:dd:ee:ff', 'aabbccddeeff',
         'private@unapproved.invalid', 'unapproved-production-password', 'not-an-approved-key', 'unapproved-token',
-        'forecast.example.invalid', 'heating.example.invalid', 'socket.example.invalid', 'a1b2c3d4e5f6a7b8']) {
+        'forecast.example.invalid', 'heating.example.invalid', 'socket.example.invalid', 'secure.example.invalid',
+        'a1b2c3d4e5f6a7b8']) {
         assert.ok(found.has(value), 'Scanner missed a required category');
     }
     const newSecret = 'never-' + require('node:crypto').randomBytes(16).toString('hex');
