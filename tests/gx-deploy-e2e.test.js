@@ -82,6 +82,11 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const oldSha = '0123456789abcdef0123456789abcdef01234567';
     liveNode(repoTab.id).label = repoTab.label.replace(/d#\d+/, 'd#' + (number - 1)) + ' [git ' + oldSha.slice(0, 12) + ']';
     liveNode(repoTab.id).info = '<!-- victron-deployment-source -->\n' + JSON.stringify({ dashboard: oldSha, automations: oldSha }) + '\n<!-- /victron-deployment-source -->';
+    for (const node of live) {
+        const suffix = ' [git ' + oldSha.slice(0, 12) + ']';
+        if (node.type === 'ui_base') node.site.name += suffix;
+        if (node.type === 'ui_tab') node.name += suffix;
+    }
     const behind = ['hp-cmd-fn-01', 'hpls-fn-01'];                    // function code behind the commit
     for (const id of behind) liveNode(id).func = repoById.get(id).func.split('\n').slice(1).join('\n');
     const page = 'hp-page-template-01';                                // a dashboard template behind the commit
@@ -237,8 +242,11 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.equal(after.get(tuya.id).deviceId, '${VICTRON_TEST_ID}', 'the file-secret reference is kept');
     assert.equal(after.get(repoTab.id).label, repoTab.label + ' [git ' + sha.slice(0, 12) + ']');
     assert.deepEqual(JSON.parse(TAB_STAMP.exec(after.get(repoTab.id).info)[1]), { dashboard: sha, automations: sha });
-    assert.ok(state.flows.filter((node) => node.type === 'ui_tab').every((node) => node.name.endsWith(' [git ' + sha.slice(0, 12) + ']')));
-    // only the planned nodes, the tab and the dashboard names changed
+    for (const node of state.flows) {
+        if (node.type === 'ui_base') assert.equal(node.site.name, repoById.get(node.id).site.name);
+        if (node.type === 'ui_tab') assert.equal(node.name, repoById.get(node.id).name);
+    }
+    // Only the planned nodes, the version tab, and the legacy dashboard names changed.
     const before = new Map(JSON.parse(original).map((node) => [node.id, node]));
     const changedTypes = new Set(state.flows.filter((node) => JSON.stringify(node) !== JSON.stringify(before.get(node.id)))
         .filter((node) => !behind.includes(node.id) && node.id !== page).map((node) => node.type));
@@ -261,9 +269,12 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const verify = await run(GX('verify.js'), [], env);
     assert.equal(verify.code, 0, verify.stderr);
     assert.match(verify.stdout, new RegExp('label   : d#' + number + ' .*\\[git ' + sha.slice(0, 12) + '\\]'));
+    assert.match(verify.stdout, new RegExp('source  : .*' + sha));
     assert.match(verify.stdout, /errors since then: none/);
     const monitor = require('../tools/gx/monitor.js');
-    const health = monitor.evaluate(await monitor.collect({ port: api.address().port, home, log: logFile, svstat: () => '/service/node-red-venus: up (pid 1) 900 seconds' }));
+    const observed = await monitor.collect({ port: api.address().port, home, log: logFile, svstat: () => '/service/node-red-venus: up (pid 1) 900 seconds' });
+    assert.deepEqual(JSON.parse(observed.flow.source), { dashboard: sha, automations: sha });
+    const health = monitor.evaluate(observed);
     assert.equal(health.status, 'OK', monitor.format(health));
 
     const snap2 = await run(GX('live-snapshot.js'), [], env);
