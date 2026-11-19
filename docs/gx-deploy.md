@@ -286,7 +286,7 @@ The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with dif
 
 ## GitHub Actions
 
-After the code commit is on `master`, run **Actions → Deploy GX code**. The workflow is manual-only and defaults to `dry-run`. It pins the deployment to the run's `GITHUB_SHA`, even if `master` advances while awaiting approval. Select `apply` only after reviewing a dry-run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` environment approval is still required.
+After the code commit is on `master`, run **Actions → Deploy GX code**. The workflow is manual-only and defaults to `dry-run`. It pins the deployment to the run's `GITHUB_SHA`, even if `master` advances while awaiting approval. Select `apply` only after reviewing a dry-run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` environment approval is still required. Tick `allow_live_only_lines` only when the dry-run stopped on GX-only code lines and you have confirmed (for example by hash against the deployed commit) that the commit is meant to replace them; it passes `-AllowLiveOnlyLines` to `gx-deploy.ps1`. Leave it off otherwise.
 
 Select `version: test` (default) or `stable` to label the report. This is an operator-selected **report label only**, not a health guarantee: it creates no Git tag/status and changes neither the deployment behavior nor the GX UI.
 
