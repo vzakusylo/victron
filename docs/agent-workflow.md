@@ -96,7 +96,7 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
 
 ## Standing rules
 
-1. One open PR at a time. The next branch starts from a fresh `master` after the previous merge.
+1. Several PRs may be open at once. Each branch starts from a fresh `master`, touches only its own files, and merges `origin/master` in before its PR is merged if `master` moved.
 2. Merge with a merge commit; delete the branch on GitHub and locally afterwards.
 3. Everything goes through a PR, including docs and agent rules. Nothing is pushed directly to `master`.
 4. Medium or higher in changed code is fixed on the same branch. Low and Nit may move to the next branch or to Known limitations.
