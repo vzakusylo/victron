@@ -1108,29 +1108,32 @@ function heatTick() {
     if (V['1'] === true) hold.push('valve on DHW');
     if (H['1'] !== true) hold.push('heat pump off');
     if (!HEAT_LADDER.includes(H['2'])) hold.push('pump mode ' + H['2'] + ' unknown');
+    // controller not On (Off or Test) → the owner's curve back now; a boost or warm-up only exists while it is On
+    // (local control OFF: nothing can be written, the boost and its bookkeeping stay)
+    const ownerCurveBack = () => {
+        const hc0 = settings.heatCurve;
+        if (!(h.boost || h.warmApplied) || !hc0 || md === 'live' || !settings.master || !ready('hp')) return;
+        const q = context.get('queue') || [];
+        for (const w of [p24w(hc0.p24), p23w(hc0.p23)]) {
+            q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
+            logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: 'controller ' + MODE_LABEL[md] + ' → curve boost / warm-up off, ' + w.text });
+        }
+        context.set('queue', q);
+        pump();
+        h.boost = 0; h.warmApplied = 0; h.curveCmd = null;
+    };
     if (hold.length) {
         // d#171: a curve boost ends with the hold: a DHW cycle writes the owner's curve back at its end itself;
         // controller Off (or not On) → the owner's P23 back now
         // d#177 (review of #21): other holds (pump off, stale, valve, unknown mode) keep the boost and its bookkeeping, so the
         // boosted P23 / P24 is never stored as the owner's curve
         const dhwRun = !!(d.state && d.state !== 'HEATING');
-        if ((h.boost || h.warmApplied) && (dhwRun || md !== 'live')) {
-            const hc0 = settings.heatCurve;
-            if (hc0 && !dhwRun && md !== 'live' && settings.master && ready('hp')) {
-                const q = context.get('queue') || [];
-                for (const w of [p24w(hc0.p24), p23w(hc0.p23)]) {
-                    q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
-                    logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: 'controller ' + MODE_LABEL[md] + ' → curve boost off, ' + w.text });
-                }
-                context.set('queue', q);
-                pump();
-                h.boost = 0; h.warmApplied = 0; h.curveCmd = null;
-            } else if (dhwRun) { h.boost = 0; h.warmApplied = 0; }   // the DHW cycle writes the owner's curve back at its end
-            // (Off / Test with local control OFF: nothing can be written, the boost and its bookkeeping stay)
-        }
+        if (dhwRun) { h.boost = 0; h.warmApplied = 0; }   // the DHW cycle writes the owner's curve back at its end
+        else ownerCurveBack();
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
         context.set('heat', h); return;
     }
+    ownerCurveBack();   // Test mode adds no hold: On → Test must still put the owner's curve back (PR #65 review)
     // d#170: a defrost (bypass ON, compressor stop, supply drop) and the recovery after it are ignored: no samples,
     // no step, and the samples from before the defrost are kept, so the window continues after it
     const defNowH = n(H['116']) === 0 && n(H['115']) > 30;
@@ -1201,6 +1204,7 @@ function heatTick() {
         context.set('heat', h); return;
     }
     h.warmNote = wd && !(md === 'live' && settings.master) ? 'warm-up needs the heating controller On and local control ON' : '';
+    if (settings.heatWarm && settings.heatWarm.until > now && !wd) h.warmNote = !hc ? 'warm-up waits: your heating curve is not stored yet' : 'warm-up waits: no outdoor average yet';
     if (cur > top) { steps = [mode(HEAT_LADDER[top])]; act = MODE_NAME[HEAT_LADDER[top]]; }
     else if (dec.step > 0 && cur < top) { steps = [mode(HEAT_LADDER[cur + 1])]; act = MODE_NAME[HEAT_LADDER[cur + 1]]; }
     else if (dec.step > 0 && hc && Number.isFinite(set) && Number.isFinite(d.outAvg) && boost < c.maxBoost) {
@@ -1223,7 +1227,7 @@ function heatTick() {
     const live = md === 'live' && settings.master;
     h.run = now + ':' + HEAT_ID; h.lastStep = now;
     if (steps[0].dps === 2) { h.modeCmd = steps[0].set; h.modeAt = now; }
-    else { h.boost = nb; h.p23At = now; h.curveCmd = nb ? curveSteps(nb).cc : null; }
+    else { h.boost = nb; h.p23At = now; h.curveCmd = wd + nb > 0 ? curveSteps(nb).cc : null; }   // the warm-up stays written after a boost step-down
     h.samples = [];   // the next decision only sees the new mode / curve
     h.why = dec.why + ' → ' + act;
     for (const s of steps) {
