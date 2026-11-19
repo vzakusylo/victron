@@ -45,7 +45,7 @@ const NOW = '2026-07-12T22:30:00Z'; // Monday 00:30 in Oslo
 const backupNode = '26 Manage backup dashboard.js';
 const action = (action, days) => ({ topic: 'backup-command', payload: { action, days } });
 
-function runArchive(t, entries, command, now = NOW, { withoutFlock = false } = {}) {
+function runArchive(t, entries, command, now = NOW, { withoutFlock = false, lockHeld = false } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-mail-test-'));
     t.after(() => fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5 }));
     for (const [file, content] of Object.entries(entries)) {
@@ -84,8 +84,10 @@ console.log('{"ok":true}');
         .replaceAll('/tmp/grid-data-', './grid-data-')
         .replace('/data/home/nodered/tools/send-mail.js', './fake-mail.js');
     assert.ok(!script.includes('/tmp/grid-data-') && !script.includes('node /data/home/nodered/'));
-    if (mailing) assert.match(script, /trap 'exit 1' HUP INT TERM/);
+    if (mailing) assert.match(script, /trap 'echo "@@ERROR Data archive interrupted \(stopped or timed out\)"; exit 1' HUP INT TERM/);
     if (withoutFlock) script = script.replace('command -v flock', 'false');
+    // another send holds the archive lock for a few seconds
+    if (lockHeld) script = '( flock -x ./data/home/nodered/grid-control-logs sleep 4 ) & sleep 1\n' + script;
     const windows = process.platform === 'win32';
     const shell = spawnSync(windows ? 'wsl.exe' : 'sh', windows ? ['-e', 'sh', '-s'] : ['-s'], {
         cwd: root, input: (windows ? 'node() { node.exe "$@"; }\n' : '') +
@@ -97,10 +99,17 @@ console.log('{"ok":true}');
     const sentFile = path.join(home, 'sent.json');
     const sent = fs.existsSync(sentFile) ? JSON.parse(fs.readFileSync(sentFile, 'utf8')) : null;
     const remaining = fs.readdirSync(home).filter(file => file.startsWith('grid-data-'));
-    assert.deepEqual(remaining, withoutFlock ? ['grid-data-mail.orphan', 'grid-data-old.tar.gz'] : [],
+    assert.deepEqual(remaining, withoutFlock || lockHeld ? ['grid-data-mail.orphan', 'grid-data-old.tar.gz'] : [],
         'the current archive is always cleaned up; old files are swept only under lock');
     return { sent, stdout: shell.stdout, packs: (shell.stdout.match(/@@TEST_PACK/g) || []).length, message, root };
 }
+
+test('26: a second send while the archive lock is held fails with a clear reason and sweeps nothing', t => {
+    const { sent, stdout } = runArchive(t, { [LOGS + 'energy-2026-07.csv']: 'synthetic' },
+        action('mail', 7), NOW, { lockHeld: true });
+    assert.equal(sent, null);
+    assert.match(stdout, /@@ERROR Another data archive mail is running/);
+});
 
 test('26: dated mail still sends without flock and does not sweep shared mail files', t => {
     const { sent, stdout } = runArchive(t, { [LOGS + 'energy-2026-07.csv']: 'synthetic' },

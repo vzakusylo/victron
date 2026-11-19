@@ -364,7 +364,8 @@
             <tr title="During a cycle the pump runs on its own weather curve with this P24 (slope, 12 = 1.2 °C per °C); the controller computes the P23 that gives the wanted supply.">
               <th>Boiler P24</th><td><input type="number" ng-model="hp.dhw.boilerP24" ng-change="hp.dhwDirty = true"></td></tr>
             <tr title="Soft start: raise P23 by 1 per minute while supply − return is at most this, so the compressor does not jump to full power.">
-              <th>Ramp</th><td><label><input type="checkbox" ng-model="hp.dhw.gapRamp" ng-change="hp.dhwDirty = true"> P23 +1 / min while supply − return ≤ <input type="number" ng-model="hp.dhw.gap" ng-change="hp.dhwDirty = true"> °C</label></td></tr>
+              <th>Ramp</th><td><label><input type="checkbox" ng-model="hp.dhw.gapRamp" ng-change="hp.dhwDirty = true"> P23 +1 / min while supply − return ≤ <input type="number" ng-model="hp.dhw.gap" ng-change="hp.dhwDirty = true"> °C</label>
+                <label title="While the compressor is still off in a DHW cycle, the boiler curve may ask this much above the warmest water, so the pump starts (3–15 °C, not below the gap)."> · start ≤ water + <input type="number" ng-model="hp.dhw.startGap" ng-change="hp.dhwDirty = true" min="3" max="15" step="1"> °C</label></td></tr>
             <tr title="Below this outdoor temperature the heat pump does not heat the tank at all (electric heater only).">
               <th>Frost limit</th><td><input type="number" ng-model="hp.dhw.frostLimit" ng-change="hp.dhwDirty = true"> °C</td></tr>
             <tr title="At or below this outdoor temperature: Silent mode only, supply capped, cycles less often and shorter, and only when the heating keeps up with its curve.">
@@ -458,7 +459,7 @@
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
         var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp, afterDefrost: !!c.afterDefrost };
-        ['hyst', 'gap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        ['hyst', 'gap', 'startGap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);

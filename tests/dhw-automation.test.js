@@ -86,6 +86,69 @@ test('after the quiet time the average returns and the cycle follows the logged 
     assert.ok(c.dhw().p23Cmd > 0 && c.dhw().p23Cmd <= c.dhw().goal);
 });
 
+// 19 Nov 23:30: a stale outdoor average (−6 °C) while the pump read −1 °C; P23 8 gave the pump 30.8 °C,
+// below the 32 °C water, and the compressor never started.
+// A DHW cycle with the valve on the tank, water 32 / 32 °C, pump outdoor (DP 103) −1 °C and the compressor off.
+// outAvg is the controller's 10-min average; recentDefrost keeps it stale, as on the GX.
+function valveCycle({ outAvg = -6, recentDefrost = true } = {}) {
+    const c = redeployed({ lastDefrost: NOW - 60 * MIN });
+    const dps = { 101: 32, 102: 32, 103: -1, 108: 31, 115: 0, 116: 0 };
+    c.tick(NOW, dps, true);
+    Object.assign(c.dhw(), { state: 'VALVE', since: NOW - 100 * S, run: NOW + ':dhw', live: true, startAt: NOW - 3 * MIN,
+        startTank: 30, outS: [[NOW - MIN, outAvg]], outAvg, p23Cmd: 0, p24Cmd: null, rampAt: 0, prot: null });
+    if (recentDefrost) c.node.context.set('lastDefrost', NOW - 10 * MIN);
+    return { c, dps };
+}
+const staleOutdoorCycle = () => valveCycle();
+// water 32 + startGap 7 = 39 °C at −1 °C with P24 12: P23 = round(−1 + 19 / 1.2) = 15 (pump target 39.2 °C)
+const P23_START = 15;
+const curve = (p23, p24, x) => Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x)));
+
+test('the DHW start curve uses the pump\'s live outdoor value, not a stale average', () => {
+    const { c, dps } = staleOutdoorCycle();
+    c.tick(NOW + 30 * S, dps, true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    const target = curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1);   // what the pump computes
+    assert.ok(target >= 32 + 6, 'pump target ' + target + ' °C must be at least 6 °C above the 32 °C water');
+});
+
+test('while the compressor is off the ramp may ask startGap above the water, and only gap once it runs', () => {
+    const { c, dps } = staleOutdoorCycle();
+    let t = NOW + 30 * S;
+    c.tick(t, dps, true);
+    for (let i = 0; i < 15; i++) { t += MIN; c.tick(t, dps, true); }
+    const off = c.dhw().p23Cmd;
+    assert.ok(curve(off, c.dhw().p24Cmd, -1) <= 32 + 7 + 1.2, 'off: no more than water + startGap (one P23 step of slack)');
+    assert.ok(curve(off, c.dhw().p24Cmd, -1) >= 32 + 6, 'off: at least water + 6 °C');
+    // compressor running: the ordinary 5 °C gap caps the ramp, so P23 comes down to it
+    for (let i = 0; i < 4; i++) { t += MIN; c.tick(t, Object.assign({}, dps, { 115: 40, 116: 550 }), true); }
+    assert.ok(curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1) <= 32 + 5 + 1.2, 'running: ramp capped at water + gap');
+});
+
+test('an implausible live outdoor reading falls back to the average', () => {
+    const { c, dps } = staleOutdoorCycle();
+    c.tick(NOW + 30 * S, Object.assign({}, dps, { 103: 40 }), true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    // water 32 + startGap 7 = 39 °C at the −6 °C average: P23 = round(−6 + 19 / 1.2) = 10 (with 40 °C it would be 40)
+    assert.equal(c.dhw().p23Cmd, 10);
+});
+
+// Recorded on the GX, 19 Nov: with the valve on the tank, outdoor (DP 103) −1 °C and water 32 / 32 °C, the
+// compressor stayed at 0 Hz from P23 6 to 12 (pump target 29.6 → 35.6 °C) and started at 23:47:35 on P23 13
+// (36.8 °C, water + 4.8). The fixed start must ask at least that much on the first command, not 17 min later.
+test('19 Nov replay: the first boiler command already reaches the observed start point', () => {
+    const { c, dps } = valveCycle({ outAvg: -1, recentDefrost: false });
+    c.tick(NOW + 30 * S, dps, true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    assert.equal(c.dhw().p24Cmd, 12);
+    const first = c.dhw().p23Cmd;
+    assert.equal(first, P23_START, 'first P23 is the water + startGap point (the compressor started on the GX at 13)');
+    // it neither climbs nor drops while the compressor is still off
+    let t = NOW + 30 * S;
+    for (let i = 0; i < 10; i++) { t += MIN; c.tick(t, dps, true); }
+    assert.equal(c.dhw().p23Cmd, first, 'P23 holds at the start point while the compressor is off');
+});
+
 test('Er03 in an ordinary cycle ends it, blocks new starts, and Allow DHW again clears the block', () => {
     const c = redeployed({ lastDefrost: NOW - 5 * MIN });
     let t = NOW + 11 * MIN;
