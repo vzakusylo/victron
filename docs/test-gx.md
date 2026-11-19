@@ -455,6 +455,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 - A previously observed Docker health-check failure refers to missing `/data/settings.js` even while the Node-RED API answers. Health-check cleanup belongs to `test-gx-ci`; API readiness is checked independently by the runner.
 - Charging coverage gaps C-U1-C-U3 are listed in the charging inventory. Forecast fixtures require the updated emulator; restart Venus and Node-RED together without removing any volume.
 - `test-gx-refresh.ps1` invokes `up.ps1 -Down`, which removes the `gx-data` volume. Do not use refresh when preserving that volume; refresh requires explicit acceptance of the volume removal.
+- UI tests use the stack's backup-derived flows (currently `d#181`), not repository `flows.json`; Temperatures is untested until `test-gx-repo-flows`.
 
 ## Remaining Test GX work
 
@@ -467,6 +468,81 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 4. **Runner**: heat-pump and charging rows use `tools/test-gx/run-scenarios.js`; remaining sensor, tariff and DST/month-end decisions are future work. The charging forecast fixtures exercise the real HTTP fetch/parse path, not upstream availability. Every change passes its scenarios, then the deploy rehearsal, then CI, and only then goes to the real GX. A bug found on the real GX first gets a scenario that reproduces it, then the fix.
 
 Risks: business behavior at DST/month-end needs scenario assertions; Plan B does not validate the native Tuya palette/protocol; the victron palette may need D-Bus paths that the emulator lacks. After the Tuya PR merges, create `test-gx-forecast` from fresh `master`.
+
+## Dashboard UI checks
+
+The Playwright checks compare the runtime menu to the generated inventory, then visit each
+visible, enabled page separately. Browser console errors and uncaught page errors fail the
+test. `console-allowlist.json` matches exact `type` (`console` or `pageerror`), `text` and,
+for console errors, `url`, with a reason for each entry. It currently allows only the
+third-party Dashboard's missing `/ui/loading.html` asset and the SideNav boot error before
+the first menu click at the default local URL. SideNav timing is recorded per test; the same
+error after a click remains a failure. `expected-errors.json` lists the exact known Heat Pump
+Angular `vertical-align` syntax error (`flows-hp-template-parse`, `hp-hist-template-01`).
+Other errors still fail, as does a missing expected error. The checks use Microsoft Edge by
+default and only
+navigate between pages; they do not operate controls or call mutating APIs.
+
+Run it against an already-running Test GX stack from the repository root:
+
+```powershell
+npm ci --prefix .\tools\test-gx\ui
+npm run test:ui --prefix .\tools\test-gx\ui
+```
+
+Failure traces are retained under `tools/test-gx/ui/test-results`; keep them private because
+they can contain dashboard content and network data.
+
+The image is built from a sanitized GX backup; the persistent `/data` volume can retain a
+different flow. The current running stack returned `d#181` from `/flows`, while the repository
+contains `d#187`; its inventory has no Temperatures tab. `pages.json` is derived from the
+running flow, not the repository flow. Regenerate it with a read-only GET and a private
+temporary file outside the repository:
+
+```powershell
+$flows = Join-Path $env:TEMP "test-gx-flows-$([guid]::NewGuid()).json"
+try {
+    Invoke-WebRequest -Method Get -Uri http://127.0.0.1:1881/flows -OutFile $flows
+    node .\tools\test-gx\ui\gen-pages.js --flows $flows
+    if ($LASTEXITCODE -ne 0) { throw 'Page inventory generation failed' }
+    node .\tools\test-gx\ui\gen-pages.js --flows $flows --check
+    if ($LASTEXITCODE -ne 0) { throw 'Page inventory check failed' }
+} finally {
+    if (Test-Path -LiteralPath $flows) { Remove-Item -LiteralPath $flows }
+}
+```
+
+Review the derived tab IDs and names before committing `pages.json`; never commit the flow
+snapshot. The runtime-menu test detects an inventory that no longer matches the stack. Routes
+predict Dashboard's widget-registration order, including ties. The two Energy entries are
+distinct config IDs with the same name and order; neither has a widget, so neither gets a
+route.
+
+| Tab ID | Name | Order | Route / reason |
+|---|---|---:|---|
+| `ui-tab-hourly-stats-01` | Energy | 1 | No enabled widget |
+| `6fb98cc3df6410d0` | Energy | 1 | No enabled widget |
+| `ui-tab-analytics-01` | Analytics | 3 | `#!/0` |
+| `ui-tab-hv-protection-01` | Protection | 4 | `#!/2` |
+| `ui-tab-files-root-01` | Files | 4 | `#!/1` |
+| `ui-tab-constants-01` | Constants | 5 | `#!/3` |
+| `ui-tab-backup-01` | Backup | 6 | `#!/4` |
+| `ui-tab-device-01` | Device | 7 | `#!/5` |
+| `ui-tab-driver-01` | Driver | 8 | `#!/6` |
+| `ui-tab-mcp-01` | Agent (MCP) | 9 | `#!/7` |
+| `ui-tab-heatpump-01` | Heat Pump | 10 | `#!/8` |
+| `ui-tab-hpdata-01` | Heat Pump data | 10 | `#!/9` |
+| `hpa-ui-tab-01` | Automations | 11 | `#!/10` |
+| `hpl-ui-tab-01` | Automation log | 12 | `#!/11` |
+| `pb-ui-tab-01` | Payback | 13 | `#!/12` |
+| `dv-ui-tab-01` | Devices | 14 | `#!/13` |
+| `dv-aq-ui-tab-01` | Air quality | 15 | `#!/14` |
+
+All 17 definitions currently have `disabled: false` and `hidden: false`. A tab with no
+registered widget has no predicted runtime menu entry despite those flags.
+
+Set `TEST_GX_UI_URL` to use a different dashboard URL, or `TEST_GX_UI_BROWSER` to select
+another Playwright Chromium channel. Docker is not started by this test.
 
 Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the complete test-GX work, not the MQTT step.
 

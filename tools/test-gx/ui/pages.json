@@ -1,0 +1,138 @@
+[
+  {
+    "id": "ui-tab-hourly-stats-01",
+    "name": "Energy [git 97bd93be46f1]",
+    "order": 1,
+    "disabled": false,
+    "hidden": false,
+    "reason": "No enabled dashboard widget references this tab."
+  },
+  {
+    "id": "6fb98cc3df6410d0",
+    "name": "Energy [git 97bd93be46f1]",
+    "order": 1,
+    "disabled": false,
+    "hidden": false,
+    "reason": "No enabled dashboard widget references this tab."
+  },
+  {
+    "id": "ui-tab-analytics-01",
+    "name": "Analytics [git 97bd93be46f1]",
+    "order": 3,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/0"
+  },
+  {
+    "id": "ui-tab-hv-protection-01",
+    "name": "Protection [git 97bd93be46f1]",
+    "order": 4,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/2"
+  },
+  {
+    "id": "ui-tab-files-root-01",
+    "name": "Files [git 97bd93be46f1]",
+    "order": 4,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/1"
+  },
+  {
+    "id": "ui-tab-constants-01",
+    "name": "Constants [git 97bd93be46f1]",
+    "order": 5,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/3"
+  },
+  {
+    "id": "ui-tab-backup-01",
+    "name": "Backup [git 97bd93be46f1]",
+    "order": 6,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/4"
+  },
+  {
+    "id": "ui-tab-device-01",
+    "name": "Device [git 97bd93be46f1]",
+    "order": 7,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/5"
+  },
+  {
+    "id": "ui-tab-driver-01",
+    "name": "Driver [git 97bd93be46f1]",
+    "order": 8,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/6"
+  },
+  {
+    "id": "ui-tab-mcp-01",
+    "name": "Agent (MCP) [git 97bd93be46f1]",
+    "order": 9,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/7"
+  },
+  {
+    "id": "ui-tab-heatpump-01",
+    "name": "Heat Pump [git 97bd93be46f1]",
+    "order": 10,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/8"
+  },
+  {
+    "id": "hpa-ui-tab-01",
+    "name": "Automations [git 97bd93be46f1]",
+    "order": 11,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/10"
+  },
+  {
+    "id": "hpl-ui-tab-01",
+    "name": "Automation log [git 97bd93be46f1]",
+    "order": 12,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/11"
+  },
+  {
+    "id": "pb-ui-tab-01",
+    "name": "Payback [git 97bd93be46f1]",
+    "order": 13,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/12"
+  },
+  {
+    "id": "dv-ui-tab-01",
+    "name": "Devices [git 97bd93be46f1]",
+    "order": 14,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/13"
+  },
+  {
+    "id": "dv-aq-ui-tab-01",
+    "name": "Air quality [git 97bd93be46f1]",
+    "order": 15,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/14"
+  },
+  {
+    "id": "ui-tab-hpdata-01",
+    "name": "Heat Pump data [git 97bd93be46f1]",
+    "order": 10,
+    "disabled": false,
+    "hidden": false,
+    "route": "#!/9"
+  }
+]
