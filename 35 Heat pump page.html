@@ -307,6 +307,12 @@
           </span>
           <span class="lbl" style="flex-basis:100%" ng-if="!msg.payload.dhwChart.shower.expectedAt">Learning: no repeating motion-correlated water-use window on 3 distinct days yet ({{msg.payload.dhwChart.shower.observations}} observations). A toilet visit alone is not a shower.</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.reason">{{msg.payload.dhwChart.shower.reason}}</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.dhwChart.shower.usage && msg.payload.dhwChart.shower.usage.days">
+            Last {{msg.payload.dhwChart.shower.usage.days}} day(s): {{msg.payload.dhwChart.shower.usage.visitsPerDay}} toilet visits/day ·
+            {{msg.payload.dhwChart.shower.usage.drawsPerDay}} hot-water draws/day ({{msg.payload.dhwChart.shower.usage.dropCPerDay}} °C/day)<span ng-if="msg.payload.dhwChart.shower.usage.motionShare !== null"> ·
+            {{msg.payload.dhwChart.shower.usage.motionShare}}% of draws after motion</span><span ng-if="msg.payload.dhwChart.shower.usage.peakHour !== null"> ·
+            busiest hour {{msg.payload.dhwChart.shower.usage.peakHour}}:00</span>
+          </span>
           <span class="lbl" style="flex-basis:100%">Early starts require at least {{msg.payload.dhwChart.shower.minDeficitC}} °C below target. They may bypass the cycle interval and ordinary hysteresis, not the target, defrost, faults or heating priority. DHW controller On and local control On are still required.</span>
           <span class="lbl" style="flex-basis:100%">Stopping a forced cycle keeps ordinary DHW enabled; its normal interval still applies after the cycle ends. Missing measurements stop only the forced cycle, without a manual DHW reset.</span>
         </div>
