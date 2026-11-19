@@ -17,6 +17,10 @@ on:
         type: choice
         options: [test, stable]
         default: test
+      allow_live_only_lines:
+        description: "Pass -AllowLiveOnlyLines: only when the commit is meant to remove the GX-only code lines (check compare-before.txt first)."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -92,6 +96,7 @@ jobs:
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
           MODE: ${{ inputs.mode }}
+          ALLOW_LIVE_ONLY_LINES: ${{ inputs.allow_live_only_lines }}
           TMPDIR: ${{ runner.temp }}
         shell: pwsh
         run: |
@@ -106,6 +111,7 @@ jobs:
             '-RunDirectory', $runFolder
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
+          if ($env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
           & pwsh @arguments
           exit $LASTEXITCODE
 
