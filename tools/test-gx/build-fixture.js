@@ -114,7 +114,7 @@ function buildFixture(destination = FIXTURE) {
     return files;
 }
 
-module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH };
+module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH, TOOLS };
 
 if (require.main === module) {
     buildFixture();

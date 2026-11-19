@@ -58,8 +58,8 @@ together with the source change, but never commit the derived
 `tests/test-gx-fixture.test.js` builds a temporary fixture and checks exact
 regeneration of committed non-derived files, byte-identical copied tools, unchanged
 function bodies, and sensitive strings against explicit test placeholders or
-`git grep -F` at `HEAD` excluding the fixture itself, reporting tracked non-fixture
-source filenames for review against the base. It does
+`git grep -F` at `HEAD` in the flow, Tuya transform and copied tool sources,
+reporting source filenames for review against the base. It does
 not sanitize or mask production function code. Backup-parity
 `compare-image.js` still needs its genuine sanitizer report and is not a
 synthetic-fixture comparator.
