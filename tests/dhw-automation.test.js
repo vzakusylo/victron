@@ -86,6 +86,49 @@ test('after the quiet time the average returns and the cycle follows the logged 
     assert.ok(c.dhw().p23Cmd > 0 && c.dhw().p23Cmd <= c.dhw().goal);
 });
 
+// 19 Nov 23:30: a stale outdoor average (−6 °C) while the pump read −1 °C; P23 8 gave the pump 30.8 °C,
+// below the 32 °C water, and the compressor never started.
+function staleOutdoorCycle() {
+    const c = redeployed({ lastDefrost: NOW - 60 * MIN });
+    const dps = { 101: 32, 102: 32, 103: -1, 108: 31, 115: 0, 116: 0 };
+    c.tick(NOW, dps, true);
+    Object.assign(c.dhw(), { state: 'VALVE', since: NOW - 100 * S, run: NOW + ':dhw', live: true, startAt: NOW - 3 * MIN,
+        startTank: 30, outS: [[NOW - MIN, -6]], outAvg: -6, p23Cmd: 0, p24Cmd: null, rampAt: 0, prot: null });
+    // keep the average stale: a recent defrost stops new outdoor samples, exactly as on the GX
+    c.node.context.set('lastDefrost', NOW - 10 * MIN);
+    return { c, dps };
+}
+const curve = (p23, p24, x) => Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x)));
+
+test('the DHW start curve uses the pump\'s live outdoor value, not a stale average', () => {
+    const { c, dps } = staleOutdoorCycle();
+    c.tick(NOW + 30 * S, dps, true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    const target = curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1);   // what the pump computes
+    assert.ok(target >= 32 + 6, 'pump target ' + target + ' °C must be at least 6 °C above the 32 °C water');
+});
+
+test('while the compressor is off the ramp may ask startGap above the water, and only gap once it runs', () => {
+    const { c, dps } = staleOutdoorCycle();
+    let t = NOW + 30 * S;
+    c.tick(t, dps, true);
+    for (let i = 0; i < 15; i++) { t += MIN; c.tick(t, dps, true); }
+    const off = c.dhw().p23Cmd;
+    assert.ok(curve(off, c.dhw().p24Cmd, -1) <= 32 + 7 + 1.2, 'off: no more than water + startGap (one P23 step of slack)');
+    assert.ok(curve(off, c.dhw().p24Cmd, -1) >= 32 + 6, 'off: at least water + 6 °C');
+    // compressor running: the ordinary 5 °C gap caps the ramp, so P23 comes down to it
+    for (let i = 0; i < 4; i++) { t += MIN; c.tick(t, Object.assign({}, dps, { 115: 40, 116: 550 }), true); }
+    assert.ok(curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1) <= 32 + 5 + 1.2, 'running: ramp capped at water + gap');
+});
+
+test('an implausible live outdoor reading falls back to the average', () => {
+    const { c, dps } = staleOutdoorCycle();
+    c.tick(NOW + 30 * S, Object.assign({}, dps, { 103: 40 }), true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    // water 32 + startGap 7 = 39 °C at the −6 °C average: P23 = round(−6 + 19 / 1.2) = 10 (with 40 °C it would be 40)
+    assert.equal(c.dhw().p23Cmd, 10);
+});
+
 test('Er03 in an ordinary cycle ends it, blocks new starts, and Allow DHW again clears the block', () => {
     const c = redeployed({ lastDefrost: NOW - 5 * MIN });
     let t = NOW + 11 * MIN;
