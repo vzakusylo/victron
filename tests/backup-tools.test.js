@@ -45,7 +45,7 @@ const NOW = '2026-07-12T22:30:00Z'; // Monday 00:30 in Oslo
 const backupNode = '26 Manage backup dashboard.js';
 const action = (action, days) => ({ topic: 'backup-command', payload: { action, days } });
 
-function runArchive(t, entries, command, now = NOW) {
+function runArchive(t, entries, command, now = NOW, { withoutFlock = false } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-mail-test-'));
     t.after(() => fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5 }));
     for (const [file, content] of Object.entries(entries)) {
@@ -54,6 +54,13 @@ function runArchive(t, entries, command, now = NOW) {
         fs.writeFileSync(target, typeof content === 'number' ? randomBytes(content * MIB) : content);
     }
     const home = path.join(root, 'data', 'home', 'nodered');
+    const mailing = command.topic === 'backup-mail-tick' || command.payload?.action === 'mail';
+    if (mailing) {
+        const orphan = path.join(home, 'grid-data-mail.orphan');
+        fs.mkdirSync(orphan, { recursive: true });
+        fs.writeFileSync(path.join(orphan, 'mail.json'), '{}');
+        fs.writeFileSync(path.join(home, 'grid-data-old.tar.gz'), 'stale');
+    }
     fs.writeFileSync(path.join(home, 'fake-mail.js'), `
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
@@ -71,29 +78,41 @@ console.log('{"ok":true}');
     }
     const message = node.run(command, { now }).result[1];
     assert.ok(message);
-    const script = message.payload.slice(1, -1).replaceAll("'\\''", "'")
+    let script = message.payload.slice(1, -1).replaceAll("'\\''", "'")
         .replace('R=""', 'R="$PWD"')
         .replace('cd "/data/home/nodered"', 'cd "./data/home/nodered"')
         .replaceAll('/tmp/grid-data-', './grid-data-')
         .replace('/data/home/nodered/tools/send-mail.js', './fake-mail.js');
     assert.ok(!script.includes('/tmp/grid-data-') && !script.includes('node /data/home/nodered/'));
+    if (mailing) assert.match(script, /trap 'exit 1' HUP INT TERM/);
+    if (withoutFlock) script = script.replace('command -v flock', 'false');
     const windows = process.platform === 'win32';
     const shell = spawnSync(windows ? 'wsl.exe' : 'sh', windows ? ['-e', 'sh', '-s'] : ['-s'], {
-        cwd: root, input: (windows ? 'node() { node.exe "$@"; }\n' : '') + script,
+        cwd: root, input: (windows ? 'node() { node.exe "$@"; }\n' : '') +
+            'tar() { if [ "$1" = -czf ]; then echo "@@TEST_PACK"; fi; command tar "$@"; }\n' + script,
         encoding: 'utf8', timeout: 60000
     });
     assert.ifError(shell.error);
     assert.equal(shell.status, 0, shell.stderr);
     const sentFile = path.join(home, 'sent.json');
     const sent = fs.existsSync(sentFile) ? JSON.parse(fs.readFileSync(sentFile, 'utf8')) : null;
-    assert.ok(!fs.readdirSync(home).some(file => file.startsWith('grid-data-')), 'staged archives and mail are cleaned up');
-    return { sent, stdout: shell.stdout, message, root };
+    const remaining = fs.readdirSync(home).filter(file => file.startsWith('grid-data-'));
+    assert.deepEqual(remaining, withoutFlock ? ['grid-data-mail.orphan', 'grid-data-old.tar.gz'] : [],
+        'the current archive is always cleaned up; old files are swept only under lock');
+    return { sent, stdout: shell.stdout, packs: (shell.stdout.match(/@@TEST_PACK/g) || []).length, message, root };
 }
 
+test('26: dated mail still sends without flock and does not sweep shared mail files', t => {
+    const { sent, stdout } = runArchive(t, { [LOGS + 'energy-2026-07.csv']: 'synthetic' },
+        action('mail', 7), NOW, { withoutFlock: true });
+    assert.ok(sent);
+    assert.match(stdout, /@@LOG flock unavailable; skipping stale mail sweep/);
+});
+
 for (const mode of [7, 31, 'weekly']) {
-    test('26: ' + mode + ' mail takes core and air from UTC dates, sensors from Oslo dates', t => {
+    test('26: ' + mode + ' mail takes core, air and events from UTC dates, temperatures from Oslo dates', t => {
         const weekly = mode === 'weekly';
-        const now = weekly ? '2026-07-13T05:00:00Z' : NOW;
+        const now = weekly ? '2026-07-13T05:00:00Z' : '2026-07-12T23:30:00Z';
         const utc = weekly ? '2026-07-13' : '2026-07-12';
         const oslo = '2026-07-13';
         const firstUtc = mode === 31 ? '2026-06-11' : weekly ? '2026-07-06' : '2026-07-05';
@@ -102,15 +121,15 @@ for (const mode of [7, 31, 'weekly']) {
             'heatpump/' + utc + '/00.csv', 'automations/' + utc + '.jsonl', 'energy-2026-07.csv',
             'energy-' + firstUtc + '.log', 'air/' + firstUtc + '.csv', 'air/' + utc + '.csv',
             'temperatures/' + firstOslo + '.jsonl', 'temperatures/' + oslo + '.jsonl', 'temperatures/catalog.json',
-            'sensor-events/' + firstOslo + '.jsonl', 'sensor-events/' + oslo + '.jsonl'
+            'sensor-events/' + firstUtc + '.jsonl', 'sensor-events/' + utc + '.jsonl'
         ])];
         if (mode === 31) expected.push('energy-2026-06.csv');
         const outOfRange = [
             'air/2026-07-14.csv', 'grid-control-2026-07-14.log', 'sensor-events/2026-07-14.jsonl',
-            'air/2026-06-10.csv', 'temperatures/2026-06-11.jsonl', 'sensor-events/2026-06-11.jsonl'
+            'air/2026-06-10.csv', 'temperatures/2026-06-11.jsonl', 'sensor-events/2026-06-10.jsonl'
         ];
         if (!weekly) outOfRange.push('air/' + oslo + '.csv', 'energy-' + oslo + '.log',
-            'temperatures/' + firstUtc + '.jsonl', 'sensor-events/' + firstUtc + '.jsonl');
+            'temperatures/' + firstUtc + '.jsonl', 'sensor-events/' + oslo + '.jsonl');
         const files = Object.fromEntries([...expected, ...outOfRange].map(file => [LOGS + file, 'synthetic']));
         files['grid-control-config/email.json'] = 'synthetic config';
         const { sent, stdout, message } = runArchive(t, files,
@@ -134,7 +153,8 @@ test('26: dated mail trims largest files first and goes through events, temperat
         'air/2026-07-11.csv': 2,
         'air/2026-07-12.csv': 5
     };
-    const { sent } = runArchive(t, Object.fromEntries(Object.entries(files).map(([k, v]) => [LOGS + k, v])), action('mail', 7));
+    const { sent, packs } = runArchive(t, Object.fromEntries(Object.entries(files).map(([k, v]) => [LOGS + k, v])), action('mail', 7));
+    assert.equal(packs, 5, 'core and full archive, then one repack per trimmed set');
     assert.ok(sent.size <= 18 * MIB);
     assert.deepEqual(sent.entries, [LOGS + 'energy-2026-07.csv', LOGS + 'air/2026-07-11.csv']);
     assert.deepEqual(sent.mail.text.split('\n\nLeft out')[1].split('\n- ').slice(1), [
