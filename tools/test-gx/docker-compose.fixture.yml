@@ -1,0 +1,51 @@
+services:
+  nodered:
+    env_file: !reset []
+    build:
+      additional_contexts:
+        backup: ${TEST_GX_BACKUP:-./fixture-synthetic}
+      args:
+        NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-3.1.15}
+        PALETTE: ${TEST_GX_PALETTE:-}
+    image: test-gx-nodered:${TEST_GX_TAG:-fixture-synthetic}
+    ports: !reset []
+  venus:
+    ports: !reset []
+  fixture-gateway:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    user: "65534:65534"
+    init: true
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        ingress_ip="$$(ip -4 -o addr show ingress0 | awk '{sub(/\/.*/, "", $$4); print $$4}')"
+        test -n "$$ingress_ip"
+        socat TCP-LISTEN:1881,bind="$$ingress_ip",reuseaddr,fork TCP:nodered:1880 &
+        socat TCP-LISTEN:2222,bind="$$ingress_ip",reuseaddr,fork TCP:nodered:22 &
+        socat TCP-LISTEN:8081,bind="$$ingress_ip",reuseaddr,fork TCP:venus:8081 &
+        socat TCP-LISTEN:3000,bind="$$ingress_ip",reuseaddr,fork TCP:venus:3000 &
+        socat TCP-LISTEN:8080,bind="$$ingress_ip",reuseaddr,fork TCP:venus:80 &
+        wait -n
+        exit 1
+    depends_on:
+      nodered: { condition: service_started }
+      venus: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:1881:1881"
+      - "127.0.0.1:2222:2222"
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:8080:8080"
+    networks:
+      default:
+        interface_name: internal0
+      fixture-ingress:
+        interface_name: ingress0
+
+networks:
+  default:
+    internal: true
+  fixture-ingress:

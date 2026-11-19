@@ -36,13 +36,13 @@ function fixtureFiles() {
         keys[device.deviceId] = { name: device.deviceName, key: device.deviceKey };
         const node = flows.find(n => n.id === id && n.type === 'tuya-smart-device');
         if (!node) throw new Error('Missing fixture Tuya source node: ' + id);
-        node.deviceName = device.deviceName;
     }
+    const brokers = flows.filter(node => node.type === 'mqtt-broker');
+    if (brokers.length !== 1 || brokers[0].usetls !== false || brokers[0].credentials !== undefined) {
+        throw new Error('Expected exactly one credential-free, non-TLS MQTT broker');
+    }
+    Object.assign(brokers[0], { broker: 'mosquitto', port: '1883' });
     for (const node of flows) {
-        if (node.type === 'mqtt-broker') {
-            Object.assign(node, { broker: 'mosquitto', port: '1883', usetls: false, tls: '' });
-            delete node.credentials;
-        }
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }
     json('nodered/.node-red/flows.json', transformTuya(flows, registry).flows);
@@ -114,7 +114,7 @@ function buildFixture(destination = FIXTURE) {
     return files;
 }
 
-module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH };
+module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH, TOOLS };
 
 if (require.main === module) {
     buildFixture();
