@@ -293,16 +293,15 @@ function datedMailPacking(dayList, osloDays, name, period) {
     return [
         'CORE="$L"; OPT=""; LEFT_OUT=""',
         'AIR=""; TEMP=""; EVENTS=""; CATALOG=""',
-        'for d in ' + dayList.join(' ') + '; do f="$G/air/$d.csv"; [ ! -f "$f" ] || AIR="$AIR $f"; done',
+        'for d in ' + dayList.join(' ') + '; do',
+        '  f="$G/air/$d.csv"; [ ! -f "$f" ] || AIR="$AIR $f"',
+        '  f="$G/sensor-events/$d.jsonl"; [ ! -f "$f" ] || EVENTS="$EVENTS $f"',
+        'done',
         'for d in ' + osloDays.join(' ') + '; do',
         '  f="$G/temperatures/$d.jsonl"; [ ! -f "$f" ] || TEMP="$TEMP $f"',
-        '  f="$G/sensor-events/$d.jsonl"; [ ! -f "$f" ] || EVENTS="$EVENTS $f"',
         'done',
         '[ ! -f "$G/temperatures/catalog.json" ] || CATALOG="$G/temperatures/catalog.json"',
         '[ -n "$CORE$AIR$TEMP$EVENTS$CATALOG" ] || fail "No data files found for ' + period + '"',
-        'W=$(mktemp -d /tmp/grid-data-mail.XXXXXX) || fail "Cannot create mail staging directory"',
-        'T="$W/' + name + '"; M="$W/mail.json"',
-        'trap \'rm -f "$T" "$M"; rmdir "$W"\' EXIT',
         'pack() {',
         '  # Accept the recorder changing a file during packing, as long as tar is readable.',
         '  tar -czf "$T" "$@" 2>/dev/null; tar -tzf "$T" >/dev/null 2>&1 || fail "Data archive could not be created"',
@@ -320,7 +319,7 @@ function datedMailPacking(dayList, osloDays, name, period) {
         '  pack "$@"',
         '}',
         'if [ -n "$EVENTS$TEMP$CATALOG$AIR" ]; then pack_selected; fi',
-        // Paths are generated date names without whitespace. Remove one file, then measure the actual gzip.
+        // Use compressed sizes to pick a batch; only the full archive can prove it fits.
         'largest_first() {',
         '  for f do printf "%s %s\\n" "$(wc -c < "$f")" "$f"; done | LC_ALL=C sort -k1,1nr -k2,2 | awk \'{print $2}\'',
         '}',
@@ -328,17 +327,28 @@ function datedMailPacking(dayList, osloDays, name, period) {
         '  KEPT=""; for p in $OPT; do [ "$p" = "$1" ] || KEPT="$KEPT $p"; done; OPT="$KEPT"',
         '  LEFT_OUT="$LEFT_OUT ${1#"$G/"}"',
         '}',
-        'drop_until_fits() {',
-        '  fits && return',
-        '  for f in $(largest_first "$@"); do',
+        'omit_optional() {',
+        '  f="$1"',
         '    omit "$f"',
         '    case "$f" in "$G"/temperatures/*.jsonl)',
         '      # Keep the shared catalogue only while at least one selected temperature day remains.',
         '      case "$OPT" in *" $G/temperatures/"*.jsonl*) ;; *) [ -z "$CATALOG" ] || omit "$CATALOG";; esac ;;',
         '    esac',
-        '    pack_selected',
-        '    fits && break',
+        '}',
+        'drop_until_fits() {',
+        '  if fits || [ "$#" -eq 0 ]; then return; fi',
+        '  set -- $(largest_first "$@")',
+        '  NEED=$((SZ - ' + MAIL_MAX_BYTES + '))',
+        '  while [ "$#" -gt 0 ] && [ "$NEED" -gt 0 ]; do',
+        '    EST=$(gzip -c "$1" | wc -c)',
+        '    NEED=$((NEED - EST))',
+        '    omit_optional "$1"',
+        '    shift',
         '  done',
+        '  pack_selected',
+        '  if fits || [ "$#" -eq 0 ]; then return; fi',
+        '  for item do omit_optional "$item"; done',
+        '  pack_selected',
         '}',
         'drop_until_fits $EVENTS',
         'drop_until_fits ${TEMP:-$CATALOG}',
@@ -374,15 +384,29 @@ function buildMailScript(days, auto, nowTs) {
             ...(days > 0 ? [
                 '- air/YYYY-MM-DD.csv: air readings (same UTC dates as the core logs)',
                 '- temperatures/YYYY-MM-DD.jsonl and temperatures/catalog.json: sensor readings and catalogue (Europe/Oslo dates)',
-                '- sensor-events/YYYY-MM-DD.jsonl: sensor events (Europe/Oslo dates)'
+                '- sensor-events/YYYY-MM-DD.jsonl: sensor events (same UTC dates as the core logs)'
             ] : []),
             '',
             'This is a data copy only. A full device backup (settings, flows, drivers) is made on the Backup tab.'
         ].join('\n')
     };
     const lines = [
-        'T="/tmp/' + name + '"; M="/tmp/grid-data-mail.json"; G="grid-control-logs"',
+        'G="grid-control-logs"',
         'cd "' + LOGS_PARENT + '" || fail "Cannot open ' + LOGS_PARENT + '"',
+        '[ -d "$G" ] || fail "No data files found for ' + period + '"',
+        // Lock the logs directory without leaving a stale lock file after restart.
+        'exec 9<"$G" || fail "Cannot open the data archive lock"',
+        'flock -n -x 9 || fail "Cannot acquire the data archive lock"',
+        'rm -f /tmp/grid-data-*.tar.gz /tmp/grid-data-mail.json || fail "Cannot clean up old mail files"',
+        'for D in /tmp/grid-data-mail.*; do',
+        '  [ -d "$D" ] && [ ! -L "$D" ] || continue',
+        '  rm -f "$D"/grid-data-*.tar.gz "$D/mail.json" || fail "Cannot clean up old mail staging files"',
+        '  rmdir "$D" 2>/dev/null || :',
+        'done',
+        'W=$(mktemp -d /tmp/grid-data-mail.XXXXXX) || fail "Cannot create mail staging directory"',
+        'T="$W/' + name + '"; M="$W/mail.json"',
+        'trap \'rm -f "$T" "$M"; rmdir "$W"\' EXIT',
+        'trap \'exit 1\' HUP INT TERM',
         'L=""',
         'addm() { [ -e "$1" ] && L="$L $1"; return 0; }'
     ];
@@ -391,13 +415,13 @@ function buildMailScript(days, auto, nowTs) {
         const osloDays = dayList.map((_, i) => new Date(Date.UTC(oslo.y, oslo.mo, oslo.d - days + i)).toISOString().slice(0, 10));
         lines.push('for d in ' + dayList.join(' ') + '; do addm "$G/heatpump/$d"; addm "$G/automations/$d.jsonl"; addm "$G/energy-$d.log"; addm "$G/grid-control-$d.log"; addm "$G/heatpump-$d.log"; done');
         lines.push('for m in ' + months.join(' ') + '; do addm "$G/energy-$m.csv"; done');
-        lines.push(...datedMailPacking(dayList, osloDays, name, period));
+        lines.push(...datedMailPacking(dayList, osloDays, name, period),
+            'fits || fail "Data archive still exceeds the 18 MiB e-mail limit"');
     }
     else {
         lines.push(
             'addm "$G"',
             '[ -n "$L" ] || fail "No data files found for ' + period + '"',
-            'rm -f /tmp/grid-data-*.tar.gz',
             // The recorder may append to the current hour while tar reads it.
             'tar -czf "$T" $L 2>/dev/null; tar -tzf "$T" >/dev/null 2>&1 || { rm -f "$T"; fail "Data archive could not be created"; }',
             'SZ=$(wc -c < "$T")'
