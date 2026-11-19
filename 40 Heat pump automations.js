@@ -538,6 +538,66 @@ const p23w = (v) => ({ role: 'hp', dps: 133, set: v, text: 'curve P23 ' + v });
 const p24w = (v) => ({ role: 'hp', dps: 134, set: v, text: 'curve P24 ' + v });
 const SHOWER_HISTORY_MS = 14 * 24 * 3600 * 1000;
 const SHOWER_MIN_DEFICIT_C = 1;
+const USAGE_DAYS = 90;              // daily motion / hot-water statistics kept in the settings file
+const USAGE_VISIT_GAP_MS = 5 * MIN; // PIR reports closer than this belong to one visit
+function usageDay(t) {
+    const u = settings.dhwUsage || (settings.dhwUsage = {});
+    const key = dayKey(t);
+    if (!u[key]) {
+        u[key] = { visits: 0, draws: 0, drawsWithMotion: 0, dropC: 0, hours: new Array(24).fill(0) };
+        const keys = Object.keys(u).sort();
+        while (keys.length > USAGE_DAYS) delete u[keys.shift()];
+    }
+    return u[key];
+}
+function countVisit(motion) {
+    if (motion.source !== 'local' || !Number.isFinite(motion.lastMotionAt) || motion.lastMotionAt <= 0 || motion.lastMotionAt > now) return false;
+    // A visit ends after 5 min without any PIR report: the gap is measured from the last report SEEN, so one long
+    // stay (a shower with reports every 1–2 min) is one visit. The last seen report is kept in the settings, so a
+    // restart does not count the same report twice (it is written to the file with the next counted visit or draw).
+    const last = Number(settings.dhwUsageLastSeen) || 0;
+    if (last && motion.lastMotionAt <= last) return false;
+    settings.dhwUsageLastSeen = motion.lastMotionAt;
+    if (last && motion.lastMotionAt - last < USAGE_VISIT_GAP_MS) return false;
+    usageDay(motion.lastMotionAt).visits++;
+    return true;
+}
+function usageCfg(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    const count = (v) => Number.isInteger(v) && v >= 0 ? v : 0;
+    for (const key of Object.keys(raw).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort().slice(-USAGE_DAYS)) {
+        const r = raw[key] || {};
+        const hours = Array.isArray(r.hours) && r.hours.length === 24 ? r.hours.map(count) : new Array(24).fill(0);
+        out[key] = { visits: count(r.visits), draws: count(r.draws), drawsWithMotion: Math.min(count(r.drawsWithMotion), count(r.draws)),
+            dropC: Number.isFinite(r.dropC) && r.dropC >= 0 ? r.dropC : 0, hours };
+    }
+    return out;
+}
+function countDraw(ep) {
+    const day = usageDay(ep.at);
+    day.draws++;
+    if (ep.motionAt) day.drawsWithMotion++;
+    day.dropC = Math.round((day.dropC + (ep.peak - ep.low)) * 10) / 10;
+    day.hours[new Date(ep.at).getHours()]++;
+}
+function usageSummary(days = 7) {
+    const u = settings.dhwUsage || {};
+    const keys = [];
+    // calendar days, not 24 h steps: a 23 h or 25 h DST day is neither skipped nor counted twice
+    for (let i = 0; i < days; i++) { const t = new Date(now); t.setHours(12, 0, 0, 0); t.setDate(t.getDate() - i); keys.push(dayKey(t.getTime())); }
+    const rows = keys.map(k => u[k]).filter(Boolean);
+    if (!rows.length) return { days: 0 };
+    const sum = (f) => rows.reduce((a, r) => a + (Number(r[f]) || 0), 0);
+    const hours = new Array(24).fill(0);
+    for (const r of rows) (r.hours || []).forEach((v, h) => { hours[h] += Number(v) || 0; });
+    const peak = hours.some(v => v > 0) ? hours.indexOf(Math.max(...hours)) : null;
+    const visits = sum('visits'), draws = sum('draws'), withMotion = sum('drawsWithMotion');
+    return { days: rows.length, visitsPerDay: Math.round(visits / rows.length * 10) / 10,
+        drawsPerDay: Math.round(draws / rows.length * 10) / 10,
+        motionShare: draws ? Math.round(withMotion / draws * 100) : null,
+        dropCPerDay: Math.round(sum('dropC') / rows.length * 10) / 10, peakHour: peak };
+}
 function dhwMeasurement(value) {
     return value === null || value === undefined || value === '' || typeof value === 'boolean' ? NaN : n(value);
 }
@@ -587,10 +647,12 @@ function showerModel(d, c) {
         expectedAt: forecast ? forecast.at : 0, evidenceDays: forecast ? forecast.days : 0,
         observations: (settings.showerHistory || []).filter(e => !e.cancelled).length,
         dropC: s.dropC, reason: active ? d.showerStart.reason : requested ? s.demand.reason : '',
-        leadMin: c.showerLeadMin || DHW_DEFAULTS.showerLeadMin, minDeficitC: SHOWER_MIN_DEFICIT_C };
+        leadMin: c.showerLeadMin || DHW_DEFAULTS.showerLeadMin, minDeficitC: SHOWER_MIN_DEFICIT_C,
+        usage: usageSummary(7) };
 }
 function observeShower(d, c, tank, valveOn, bypassOn, defNow, devOk) {
     const s = showerState(), motion = flow.get('bathroomMotion') || {};
+    let usageChanged = countVisit(motion);
     if (s.lastValve !== valveOn) { s.lastValve = valveOn; s.valveAt = now; }
     const last = s.samples[s.samples.length - 1];
     const stable = devOk && Number.isFinite(tank) && !bypassOn && !defNow && !recentDefrost && !defRecovering
@@ -607,12 +669,17 @@ function observeShower(d, c, tank, valveOn, bypassOn, defNow, devOk) {
         if (fell && s.dropC >= 1) {
             if (!s.episode) s.episode = { at: now, peak, low: tank, lastFall: now, motionAt: motionRecent ? motion.lastMotionAt : 0 };
             s.episode.low = Math.min(s.episode.low, tank); s.episode.lastFall = now;
+            if (!s.episode.counted && s.episode.peak - s.episode.low >= 2) {
+                s.episode.counted = true;
+                countDraw(s.episode);
+                usageChanged = true;
+            }
             const history = settings.showerHistory || [];
             if (!s.episode.cancelled && s.episode.motionAt && s.episode.peak - s.episode.low >= 2 && !history.some(e => e.at === s.episode.at)) {
                 settings.showerHistory = history.filter(e => now - e.at <= SHOWER_HISTORY_MS).concat({
                     at: s.episode.at, motionAt: s.episode.motionAt, dropC: s.episode.peak - s.episode.low, cancelled: false
                 }).slice(-64);
-                saveSettingsFile();
+                usageChanged = true;
                 logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'recorded motion-correlated tank drop; possible hot-water use, not a confirmed shower' });
             }
             if (c.showerForce && d.state === 'HEATING' && (motionRecent || s.dropC >= 2)) {
@@ -630,6 +697,7 @@ function observeShower(d, c, tank, valveOn, bypassOn, defNow, devOk) {
             reason: 'learned hot-water window on ' + forecast.days + ' distinct days' };
     }
     context.set('shower', s);
+    if (usageChanged) saveSettingsFile();
     return s.demand;
 }
 function dhwState() {
@@ -1262,7 +1330,8 @@ if (msg.topic === 'load') {
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
-            showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null };
+            showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null,
+            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
