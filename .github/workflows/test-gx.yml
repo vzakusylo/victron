@@ -1,63 +1,25 @@
 name: Test GX scenarios
 
 on:
-  pull_request:
-    paths:
-      - 'tools/test-gx/**'
-      - 'flows.json'
-      - '*.js'
-      - '**/*.js'
-      - '.github/workflows/test-gx.yml'
-  push: # TEMP: remove before PR
-    branches: [test-gx-ci]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: test-gx-${{ github.event.pull_request.number || github.ref }}
+  group: test-gx-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  discover:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.scenarios.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Discover scenarios
-        id: scenarios
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { loadScenarios } = require('./tools/test-gx/run-scenarios.js');
-          const scenarios = loadScenarios();
-          if (!scenarios.length) throw new Error('No Test GX scenarios found');
-          const names = new Set();
-          const include = scenarios.map((scenario, index) => {
-            if (names.has(scenario.name)) throw new Error(`Duplicate scenario name: ${scenario.name}`);
-            names.add(scenario.name);
-            return { id: index + 1, name: scenario.name };
-          });
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
-          console.log(`Discovered ${include.length} Test GX scenarios.`);
-          NODE
-
   scenarios:
-    name: Scenario ${{ matrix.id }}
-    needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    timeout-minutes: 75
     env:
       TEST_GX_SIM: emu
       TEST_GX_TAG: synthetic-ci
       TEST_GX_COMPOSE_PROJECT: test-gx
-      SCENARIO_NAME: ${{ matrix.name }}
+      UBUNTU_MIRROR: http://azure.archive.ubuntu.com/ubuntu
+      VENUS_DOCKER_REV: 7bd3b4fb3de24218d992d5039ee2d5a515d958b7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -65,6 +27,10 @@ jobs:
           node-version: 22
       - name: Generate synthetic fixture
         run: |
+          if [[ -v TEST_GX_BACKUP ]]; then
+            echo "::error::TEST_GX_BACKUP must be unset in CI."
+            exit 1
+          fi
           node tools/test-gx/build-fixture.js
           node <<'NODE'
           const fs = require('node:fs');
@@ -72,10 +38,16 @@ jobs:
           if (!/^\d+\.\d+\.\d+$/.test(nodeRed)) throw new Error('Invalid synthetic Node-RED version');
           fs.appendFileSync(process.env.GITHUB_ENV, `TEST_GX_NODERED_VERSION=${nodeRed}\n`);
           NODE
-      - name: Build Venus simulator image
+      - name: Prepare pinned Venus simulator source
         run: |
           git clone -c core.autocrlf=false --depth 1 \
             https://github.com/victronenergy/venus-docker "$RUNNER_TEMP/venus-docker"
+          git -C "$RUNNER_TEMP/venus-docker" fetch --depth 1 origin "$VENUS_DOCKER_REV"
+          git -C "$RUNNER_TEMP/venus-docker" checkout --detach "$VENUS_DOCKER_REV"
+          if [[ "$(git -C "$RUNNER_TEMP/venus-docker" rev-parse HEAD)" != "$VENUS_DOCKER_REV" ]]; then
+            echo "::error::Venus source revision does not match the pinned commit."
+            exit 1
+          fi
           git -C "$RUNNER_TEMP/venus-docker" -c core.autocrlf=false \
             submodule update --init --recursive --depth 1
           python3 <<'PY'
@@ -85,19 +57,44 @@ jobs:
 
           dockerfile = pathlib.Path(os.environ['RUNNER_TEMP']) / 'venus-docker/dockerfile'
           source = dockerfile.read_text()
-          source, count = re.subn(r'(?s)# Compile html5 app.*?RUN npm run build\s*', '', source, count=1)
+          source, html_count = re.subn(r'(?s)# Compile html5 app.*?RUN npm run build\s*', '', source, count=1)
           html_copy = 'COPY --from=html5-app ./dist/ /var/www/venus_app/'
-          if count != 1 or html_copy not in source:
-              raise SystemExit('Upstream Venus Dockerfile changed; cannot remove the unused HTML5 build')
-          dockerfile.write_text(source.replace(html_copy, 'RUN mkdir -p /var/www/venus_app', 1))
+          if html_count != 1 or source.count(html_copy) != 1:
+              raise SystemExit('Pinned Venus Dockerfile HTML5 pattern not found')
+          source = source.replace(html_copy, 'RUN mkdir -p /var/www/venus_app', 1)
+
+          mirror_setup = r'''ARG UBUNTU_MIRROR
+          RUN if [ -n "$UBUNTU_MIRROR" ]; then \
+                sources=/etc/apt/sources.list.d/ubuntu.sources; \
+                grep -Fq 'http://archive.ubuntu.com/ubuntu' "$sources" || { echo "Ubuntu archive source pattern missing" >&2; exit 1; }; \
+                grep -Fq 'http://security.ubuntu.com/ubuntu' "$sources" || { echo "Ubuntu security source pattern missing" >&2; exit 1; }; \
+                sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR%/}|g" \
+                  -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR%/}|g" "$sources"; \
+              fi'''
+          source, stage_count = re.subn(
+              r'(?m)^FROM ubuntu:24\.04(?: AS [^\n]+)?$',
+              lambda match: match.group(0) + '\n' + mirror_setup,
+              source,
+          )
+          source, apt_count = re.subn(
+              r'\bapt-get (update|install)\b',
+              r'apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 \1',
+              source,
+          )
+          if stage_count != 4 or apt_count < 4:
+              raise SystemExit('Pinned Venus Dockerfile Ubuntu stages or apt patterns not found')
+          dockerfile.write_text(source)
           PY
-          docker build -t mqtt "$RUNNER_TEMP/venus-docker"
+      - name: Build Venus simulator image
+        run: |
+          if ! docker build --build-arg "UBUNTU_MIRROR=$UBUNTU_MIRROR" \
+              -t mqtt "$RUNNER_TEMP/venus-docker"; then
+            echo "::warning::Venus image build failed; retrying once."
+            docker build --build-arg "UBUNTU_MIRROR=$UBUNTU_MIRROR" \
+              -t mqtt "$RUNNER_TEMP/venus-docker"
+          fi
       - name: Start Test GX stack
         run: |
-          if [[ -v TEST_GX_BACKUP ]]; then
-            echo "::error::TEST_GX_BACKUP must be unset in CI."
-            exit 1
-          fi
           ssh-keygen -q -t ed25519 -N '' -C test-gx -f "$RUNNER_TEMP/test-gx-key"
           cp "$RUNNER_TEMP/test-gx-key.pub" tools/test-gx/test_key.pub
           docker compose -p test-gx -f tools/test-gx/docker-compose.yml up -d --build
@@ -129,8 +126,46 @@ jobs:
             process.exitCode = 1;
           });
           NODE
-      - name: Run scenario
-        run: node tools/test-gx/run-scenarios.js --scenario "$SCENARIO_NAME" --junit test-gx-artifacts/junit.xml
+      - name: Run all scenarios
+        run: node tools/test-gx/run-scenarios.js --junit test-gx-artifacts/junit.xml
+      - name: Summarize JUnit results
+        if: always()
+        run: |
+          python3 <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          report = pathlib.Path('test-gx-artifacts/junit.xml')
+          if not report.is_file():
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+                  output.write('## Test GX scenarios\n\nJUnit report was not produced.\n')
+              raise SystemExit('JUnit report was not produced')
+          suite = ET.parse(report).getroot()
+          tests = int(suite.attrib['tests'])
+          failures = int(suite.attrib['failures'])
+          expected_failures = int(suite.attrib['skipped'])
+          lines = [
+              '## Test GX scenarios',
+              '',
+              f'Scenarios: {tests - failures - expected_failures} passed, '
+              f'{failures} failed, {expected_failures} expected_fail',
+              '',
+          ]
+          for case in suite.findall('testcase'):
+              failure, skipped = case.find('failure'), case.find('skipped')
+              status = 'FAIL' if failure is not None else 'EXPECTED_FAIL' if skipped is not None else 'PASS'
+              detail = failure.get('message', '') if failure is not None else ''
+              if 'unexpected pass for expected_fail scenario' in detail:
+                  detail += ' - fixed? remove marker'
+              lines.append(f"- **{status}** {case.get('name')}" + (f': {detail}' if detail else ''))
+          text = '\n'.join(lines) + '\n'
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write(text)
+          if failures:
+              raise SystemExit(1)
+          PY
       - name: Collect Test GX diagnostics
         if: always()
         run: |
@@ -153,90 +188,14 @@ jobs:
             failed=1
           fi
           exit "$failed"
-      - name: Upload scenario diagnostics
+      - name: Upload Test GX diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: test-gx-shard-${{ matrix.id }}
+          name: test-gx-logs
           path: test-gx-artifacts/
           retention-days: 14
           if-no-files-found: error
       - name: Tear down Test GX stack
         if: always()
         run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml down -v
-
-  report:
-    needs: [discover, scenarios]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Download scenario diagnostics
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: test-gx-shard-*
-          path: test-gx-logs
-      - name: Summarize JUnit results
-        if: always()
-        env:
-          SCENARIO_MATRIX: ${{ needs.discover.outputs.matrix }}
-          SCENARIO_JOB_RESULT: ${{ needs.scenarios.result }}
-        run: |
-          python3 <<'PY'
-          import json
-          import os
-          import pathlib
-          import xml.etree.ElementTree as ET
-
-          lines = ['## Test GX scenarios', '']
-          errors = []
-          counts = {'pass': 0, 'fail': 0, 'expected_fail': 0}
-          try:
-              scenarios = json.loads(os.environ['SCENARIO_MATRIX'])['include']
-              if not scenarios:
-                  raise ValueError('no scenarios discovered')
-          except (KeyError, ValueError, TypeError) as error:
-              scenarios = []
-              errors.append(f'Scenario discovery failed: {error}')
-
-          for scenario in scenarios:
-              directory = pathlib.Path('test-gx-logs') / f"test-gx-shard-{scenario['id']}"
-              for filename in ('compose.log', 'nodered.log', 'writes.json'):
-                  if not (directory / filename).is_file():
-                      errors.append(f"{scenario['name']}: missing {filename}")
-              try:
-                  suite = ET.parse(directory / 'junit.xml').getroot()
-                  cases = suite.findall('testcase')
-                  if len(cases) != 1 or cases[0].get('name') != scenario['name']:
-                      raise ValueError('JUnit does not contain exactly the selected scenario')
-                  case = cases[0]
-                  failure, skipped = case.find('failure'), case.find('skipped')
-                  status = 'fail' if failure is not None else 'expected_fail' if skipped is not None else 'pass'
-                  counts[status] += 1
-                  detail = failure.get('message', '') if failure is not None else ''
-                  if 'unexpected pass for expected_fail scenario' in detail:
-                      detail += ' - fixed? remove marker'
-                  lines.append(f"- **{status.upper()}** {scenario['name']}" + (f": {detail}" if detail else ''))
-              except (OSError, ET.ParseError, ValueError) as error:
-                  errors.append(f"{scenario['name']}: invalid or missing JUnit: {error}")
-
-          if os.environ.get('SCENARIO_JOB_RESULT') != 'success':
-              errors.append(f"Scenario jobs: {os.environ.get('SCENARIO_JOB_RESULT', 'unknown')}")
-          summary = f"Scenarios: {counts['pass']} passed, {counts['fail']} failed, {counts['expected_fail']} expected_fail"
-          lines[2:2] = [summary, '']
-          lines.extend(f"- **ERROR** {error}" for error in errors)
-          text = '\n'.join(lines) + '\n'
-          print(text)
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
-              output.write(text)
-          if errors or counts['fail']:
-              raise SystemExit(1)
-          PY
-      - name: Upload consolidated Test GX logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: test-gx-logs
-          path: test-gx-logs/
-          retention-days: 14
-          if-no-files-found: error
