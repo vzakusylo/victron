@@ -297,8 +297,13 @@ function wantedSupply(c, x) {
 const HEAT_ID = 'heat';
 const HEAT_NAME = 'Heating power controller';
 const HEAT_DEFAULTS = { lagUp: 1.5, overC: 1, gapMax: 4, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4,
-    kickMin: 10, kickSec: 60 };   // d#175: supply stuck kickMin below its point → Smart for kickSec, then Silent (0 = off)
-const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMax: [2, 10], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8], kickMin: [0, 60], kickSec: [20, 300] };
+    kickMin: 10, kickSec: 60,     // d#175: supply stuck kickMin below its point → Smart for kickSec, then Silent (0 = off)
+    // P6: follow the curve point with a band: the pump set is curve + bandUp and its hysteresis (DP 121) is
+    // bandUp − bandDown, so the compressor stops at curve + up and restarts at curve − down (DP 121 is 2…18 °C)
+    band: false, bandDown: 0, bandUp: 2 };
+const HEAT_LIMITS = { lagUp: [0.5, 5], overC: [0, 5], gapMax: [2, 10], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8], kickMin: [0, 60], kickSec: [20, 300],
+    bandDown: [0, 4], bandUp: [2, 8] };
+const BAND_MIN_HYST = 2;   // the pump's DP 121 accepts 2…18 °C
 const HEAT_WINDOW_MIN = 10;
 const HEAT_LADDER = ['mute', 'smart', 'strong'];
 const MODE_NAME = { mute: 'Silent', smart: 'Smart', strong: 'Powerful' };
@@ -311,6 +316,9 @@ function heatCfg(raw, base) {
         if (r[k] !== undefined && r[k] !== null && r[k] !== '' && Number.isFinite(v) && v >= HEAT_LIMITS[k][0] && v <= HEAT_LIMITS[k][1]) c[k] = v;
     }
     if (typeof r.allowPowerful === 'boolean') c.allowPowerful = r.allowPowerful;
+    if (typeof r.band === 'boolean') c.band = r.band;
+    // the pump cannot hold a hysteresis below 2 °C: keep up − down ≥ 2 by raising up
+    if (c.bandUp - c.bandDown < BAND_MIN_HYST) c.bandUp = Math.min(HEAT_LIMITS.bandUp[1], c.bandDown + BAND_MIN_HYST);
     return c;
 }
 // one decision from the averages: +1 step up, −1 step down, 0 stay (pure, see tests)
@@ -536,6 +544,7 @@ const RETRY_MAX = 2;           // … at most this many times in a row
 const HARD_EXTRA_MIN = 30;     // a cycle never lasts longer than max duration + this (defrosts included)
 const p23w = (v) => ({ role: 'hp', dps: 133, set: v, text: 'curve P23 ' + v });
 const p24w = (v) => ({ role: 'hp', dps: 134, set: v, text: 'curve P24 ' + v });
+const hystw = (v) => ({ role: 'hp', dps: 121, set: v, text: 'heating hysteresis ' + v + ' °C' });   // P6
 const SHOWER_HISTORY_MS = 14 * 24 * 3600 * 1000;
 const SHOWER_MIN_DEFICIT_C = 1;
 function dhwMeasurement(value) {
@@ -1128,6 +1137,19 @@ function heatTick() {
             } else if (dhwRun) { h.boost = 0; h.warmApplied = 0; }   // the DHW cycle writes the owner's curve back at its end
             // (Off / Test with local control OFF: nothing can be written, the boost and its bookkeeping stay)
         }
+        // P6: controller not On → the owner's heating hysteresis back (the band only exists while the controller is On)
+        if (md !== 'live' && settings.master && ready('hp') && Number.isFinite(settings.heatBandSaved)) {
+            const hy = H['121'] === null || H['121'] === undefined || H['121'] === '' ? NaN : Number(H['121']);
+            if (Number.isFinite(hy) && hy !== settings.heatBandSaved && !(h.hystAt && now - h.hystAt < 2 * MIN)) {
+                const w = hystw(settings.heatBandSaved);
+                const q = context.get('queue') || [];
+                q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
+                context.set('queue', q);
+                logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: 'controller ' + MODE_LABEL[md] + ' → band off, ' + w.text });
+                pump();
+                h.hystAt = now;
+            } else if (hy === settings.heatBandSaved) { settings.heatBandSaved = null; saveSettingsFile(); }
+        }
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
         context.set('heat', h); return;
     }
@@ -1156,10 +1178,16 @@ function heatTick() {
     const wd = hc && Number.isFinite(d.outAvg) ? warmDelta() : 0;
     const set = Number.isFinite(base) ? +(base + wd).toFixed(1) : base;
     h.target = Number.isFinite(set) ? set : null;
+    // P6: with the band on, the pump is set to point + up with hysteresis up − down; the controller judges the
+    // supply against the middle of the band, and the offset written to the pump includes up
+    const bandOn = !!(c.band && hc && Number.isFinite(d.outAvg) && md === 'live' && settings.master);
+    const bandHyst = c.bandUp - c.bandDown;
+    const off = wd + (bandOn ? c.bandUp : 0);
+    const center = bandOn ? (c.bandUp - c.bandDown) / 2 : 0;   // band runs from point − down to point + up
     // boost bookkeeping: the pump shows the owner's curve again (DHW end, slider) → boost 0
     // (or any other curve than the one written: the owner moved the slider, a DHW cycle wrote its own)
     if ((h.boost || h.warmApplied) && !(h.p23At && now - h.p23At < 2 * MIN) && !(h.curveCmd && P23 === h.curveCmd.p23 && num(H['134']) === h.curveCmd.p24)) { h.boost = 0; h.warmApplied = 0; h.curveCmd = null; }
-    if ([sup, ret, set].every(Number.isFinite)) h.samples.push([now, sup - set, sup - ret, Number.isFinite(amp) ? amp : null]);
+    if ([sup, ret, set].every(Number.isFinite)) h.samples.push([now, sup - set - center, sup - ret, Number.isFinite(amp) ? amp : null]);
     h.samples = h.samples.filter((x) => now - x[0] <= HEAT_WINDOW_MIN * MIN);
     const full = h.samples.length >= 20 && now - h.samples[0][0] >= (HEAT_WINDOW_MIN - 1) * MIN;
     const avg = (i) => Math.round(h.samples.reduce((a, x) => a + x[i], 0) / h.samples.length * 10) / 10;
@@ -1176,7 +1204,7 @@ function heatTick() {
     // Down: the curve boost first, then the mode. Powerful while it is not allowed → down at once.
     let steps = null, act = '', nb = boost;
     const curveSteps = (b) => {
-        const total = wd + b;   // warm-up offset + controller boost, both above the owner's curve
+        const total = off + b;   // warm-up + band offset + controller boost, all above the owner's curve
         const cc = total > 0 ? curveCoeffs(base + total, d.outAvg, hc.p24) : { p23: hc.p23, p24: hc.p24 };
         const out = [];
         if (cc.p24 !== num(H['134'])) out.push(p24w(cc.p24));
@@ -1184,10 +1212,12 @@ function heatTick() {
         return { cc, out };
     };
     // P3: a new or ended warm-up is written at once (not after the 10-min step); the controller then works on top of it
-    if (hc && Number.isFinite(base) && Number.isFinite(d.outAvg) && wd !== (h.warmApplied || 0) && md === 'live' && settings.master) {
+    // (h.warmApplied is the whole offset written above the owner's curve: warm-up + band up)
+    if (hc && Number.isFinite(base) && Number.isFinite(d.outAvg) && off !== (h.warmApplied || 0) && md === 'live' && settings.master) {
         const cs = curveSteps(boost);
-        const act = wd ? 'warm-up +' + wd + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'warm-up over, curve back to ' + (boost ? 'boost +' + boost : 'yours') + ' (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')';
-        h.run = now + ':' + HEAT_ID + ':warm'; h.warmApplied = wd; h.p23At = now; h.curveCmd = wd + boost > 0 ? cs.cc : null;
+        const parts = [wd ? 'warm-up +' + wd + ' °C' : '', bandOn ? 'band +' + c.bandUp + ' / −' + c.bandDown + ' °C' : ''].filter(Boolean);
+        const act = (parts.length ? parts.join(', ') : 'offset over, curve back to ' + (boost ? 'boost +' + boost : 'yours')) + ' (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')';
+        h.run = now + ':' + HEAT_ID + ':warm'; h.warmApplied = off; h.p23At = now; h.curveCmd = off + boost > 0 ? cs.cc : null;
         h.samples = []; h.why = act;
         if (cs.out.length) {
             const q = context.get('queue') || [];
@@ -1200,6 +1230,25 @@ function heatTick() {
         }
         context.set('heat', h); return;
     }
+    // P6: the pump's heating hysteresis follows the band; the owner's own value is saved once and written back
+    const hyst = num(H['121']);
+    const wantHyst = bandOn ? bandHyst : (Number.isFinite(settings.heatBandSaved) ? settings.heatBandSaved : null);
+    if (md === 'live' && settings.master && wantHyst !== null && Number.isFinite(hyst) && hyst !== wantHyst
+        && !(h.hystAt && now - h.hystAt < 2 * MIN)) {
+        if (bandOn && !Number.isFinite(settings.heatBandSaved)) settings.heatBandSaved = hyst;
+        if (!bandOn) settings.heatBandSaved = null;
+        saveSettingsFile();
+        const w = hystw(wantHyst);
+        h.run = now + ':' + HEAT_ID + ':band'; h.hystAt = now;
+        h.why = (bandOn ? 'band: compressor restarts ' + bandHyst + ' °C below its stop point' : 'band off: your heating hysteresis back') + ' → ' + w.text;
+        const q = context.get('queue') || [];
+        q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text });
+        context.set('queue', q);
+        logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: h.why });
+        pump();
+        context.set('heat', h); return;
+    }
+    if (!bandOn && Number.isFinite(settings.heatBandSaved) && hyst === settings.heatBandSaved) { settings.heatBandSaved = null; saveSettingsFile(); }
     h.warmNote = wd && !(md === 'live' && settings.master) ? 'warm-up needs the heating controller On and local control ON' : '';
     if (cur > top) { steps = [mode(HEAT_LADDER[top])]; act = MODE_NAME[HEAT_LADDER[top]]; }
     else if (dec.step > 0 && cur < top) { steps = [mode(HEAT_LADDER[cur + 1])]; act = MODE_NAME[HEAT_LADDER[cur + 1]]; }
@@ -1307,7 +1356,8 @@ if (msg.topic === 'load') {
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
             showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null,
-            heatWarm: warmCfg(s.heatWarm) };
+            heatWarm: warmCfg(s.heatWarm),
+            heatBandSaved: Number.isFinite(s.heatBandSaved) && s.heatBandSaved >= 2 && s.heatBandSaved <= 18 ? s.heatBandSaved : null };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
