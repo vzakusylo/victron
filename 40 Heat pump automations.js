@@ -210,6 +210,7 @@ const DHW_DEFAULTS = {
     hyst: 3,             // start when tank < target − hyst
     gap: 5,              // DHW: curve supply ≤ return + gap while the ramp runs
     gapRamp: true,       // raise the boiler P23 1 per minute while supply − return ≤ gap
+    startGap: 7,         // d#191: while the compressor is off in a DHW cycle, the curve may ask water + startGap
     supplyAdd: 4,        // wanted DHW supply = tank target + supplyAdd
     maxSupply: 55,       // wanted supply cap
     boilerP24: 12,       // boiler curve coefficient (1.2 °C per °C); P23 is computed per cycle
@@ -233,7 +234,7 @@ const DHW_DEFAULTS = {
     showerForce: false,     // opt-in: early demand bypasses only the interval / tank hysteresis
     showerLeadMin: 30       // observed median successful warmup is about 28 min
 };
-const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], supplyAdd: [1, 10], maxSupply: [45, 55],
+const DHW_LIMITS = { frostLimit: [-30, 10], hyst: [1, 10], gap: [3, 10], startGap: [3, 15], supplyAdd: [1, 10], maxSupply: [45, 55],
     boilerP24: [5, 30], minIntervalH: [0, 12], maxMin: [15, 180], maxMinCold: [10, 180], coldLimit: [-25, 5],
     coldCap: [40, 55], coldIntervalH: [0, 12], lagC: [1, 10], protHz: [50, 90], protAmpPct: [50, 100], protDischarge: [70, 110],
     defrostLead: [0, 60], supplyReady: [0, 5], defrostEndPct: [0, 100], defrostNextMin: [15, 240], afterDefrostWinMin: [5, 120],
@@ -772,6 +773,11 @@ function dhwTick() {
     if (!devOk) { d.waitNote = 'device not connected / stale'; context.set('dhw', d); return; }
     d.waitNote = '';
     const x = d.outAvg === null ? out : d.outAvg;
+    // d#191: the pump computes its curve from its own live outdoor sensor (DP 103), not from our average. The
+    // average freezes after a defrost (no samples while recentDefrost), so on 19 Nov it read −6 °C while the pump
+    // read −1 °C: P23 8 meant 36.8 °C to us but 30.8 °C to the pump, below the 32 °C water, and the compressor never
+    // started. The boiler P23 therefore uses the live value while it is plausible.
+    const xc = Number.isFinite(out) && out >= -35 && out <= 25 ? out : x;
     const cold = d.outAvg !== null && d.outAvg <= c.coldLimit;
     const target = d.outAvg === null ? null : (d.outAvg < c.frostLimit ? null : curveAt(c.curve, d.outAvg));
     const W = target === null ? 45 : wantedSupply(c, d.outAvg);
@@ -941,17 +947,20 @@ function dhwTick() {
         if (!valveOn && elapsed >= MIN) { endCycle('valve did not switch to the tank', true); break; }
         if (elapsed >= VALVE_TRAVEL_S * S) {
             // d#172: a goal above P23 40 makes the boiler curve steeper (P24) instead of capping it
-            const cc0 = curveCoeffs(W, x, c.boilerP24); d.p24Goal = cc0.p24;
+            const cc0 = curveCoeffs(W, xc, c.boilerP24); d.p24Goal = cc0.p24;
             d.goal = Math.max(0, cc0.p23 - (d.prot ? d.prot.cut : 0));
             // d#143: after the valve switch the loop fills with tank water (seen 10 Nov 14:17: 40–42 °C), so the
             // gap is counted from the warmest of return / supply / tank; a lower start left the curve below
             // the water and the compressor off for 9 min
             const water = Math.max(Number.isFinite(ret) ? ret : 0, Number.isFinite(sup) ? sup : 0, Number.isFinite(tank) ? tank : 0);
-            const startP23 = c.gapRamp ? Math.min(d.goal, p23For(Math.round(water) + c.gap, x, d.p24Goal)) : d.goal;
+            // d#191: the compressor is off here; it starts only with a target well above the water (37 starts
+            // 10–18 Nov: median +9.8 °C above return, rarely below +5), so the start uses startGap, not gap
+            const startGap = Math.max(c.gap, c.startGap);
+            const startP23 = c.gapRamp ? Math.min(d.goal, p23For(Math.round(water) + startGap, xc, d.p24Goal)) : d.goal;
             curveTo(startP23, d.p24Goal);
             d.prog = { t: now, sup }; d.defTicks = 0;
-            go('DHW', 'valve settled, boiler curve P24 ' + d.p24Goal + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, d.p24Goal, x).toFixed(1)
-                + ' °C at ' + x + ' °C; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', start ≤ water ' + Math.round(water) + ' + ' + c.gap + ', then +1 per minute' : '') + ')');
+            go('DHW', 'valve settled, boiler curve P24 ' + d.p24Goal + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, d.p24Goal, xc).toFixed(1)
+                + ' °C at ' + xc + ' °C; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', start ≤ water ' + Math.round(water) + ' + ' + startGap + ', then +1 per minute' : '') + ')');
         }
         d.why = 'valve moving to the tank, curve P23 0 (' + Math.round(elapsed / S) + ' / ' + VALVE_TRAVEL_S + ' s)';
         break;
@@ -1005,12 +1014,15 @@ function dhwTick() {
             }
         } else pr.hotSince = 0;
         // boiler P23: goal from the wanted supply, ramp +1 per minute while supply − return ≤ gap
-        const cc1 = curveCoeffs(W, x, c.boilerP24);
+        const cc1 = curveCoeffs(W, xc, c.boilerP24);
         const p24g = Math.max(cc1.p24, d.p24Goal || c.boilerP24);   // the slope only goes up within a cycle
         d.p24Goal = p24g;
-        d.goal = Math.max(0, Math.min(40, p23For(W, x, p24g)) - pr.cut);
+        d.goal = Math.max(0, Math.min(40, p23For(W, xc, p24g)) - pr.cut);
         const water = Math.max(Number.isFinite(ret) ? ret : 0, Number.isFinite(tank) ? tank : 0);
-        const allowed = c.gapRamp ? p23For(Math.round(water) + c.gap, x, p24g) : 40;
+        // d#191: until the compressor runs, the ramp may ask startGap above the water (the pump's own start
+        // hysteresis); once it runs, the ordinary gap keeps the supply rise gentle
+        const gapNow = hz > 0 ? c.gap : Math.max(c.gap, c.startGap);
+        const allowed = c.gapRamp ? p23For(Math.round(water) + gapNow, xc, p24g) : 40;
         d.want = Math.min(d.goal, allowed);
         if (d.p23Cmd === null || d.p24Cmd !== p24g) curveTo(d.p23Cmd === null ? d.want : Math.min(d.p23Cmd, d.want), p24g);
         else if (d.want > d.p23Cmd && now - d.rampAt >= MIN) curveTo(d.p23Cmd + 1, p24g);
@@ -1028,7 +1040,7 @@ function dhwTick() {
         }
         if (!cold && !pr.steps && H['2'] !== 'mute' && sup >= W - 1) modeTo('mute');
         d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C (' + (dhwProgress(d.startTank, tank, target) === null ? '?' : dhwProgress(d.startTank, tank, target)) + ' %), supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
-            + heatCurveAt(d.p23Cmd, d.p24Cmd || c.boilerP24, x).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
+            + heatCurveAt(d.p23Cmd, d.p24Cmd || c.boilerP24, xc).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
             + (pr.steps ? ', protection ' + pr.steps + ' step(s)' : '') + (pr.hotSince ? ', hot: ' + pr.reason : '');
         break;
     }
