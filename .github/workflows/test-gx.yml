@@ -34,6 +34,7 @@ jobs:
           fi
           node tools/test-gx/build-fixture.js
           node tools/test-gx/fixture/check.js
+          node --test tools/test-gx/fixture/compose-config.test.js tools/test-gx/fixture/source-selection.test.js
           node <<'NODE'
           const fs = require('node:fs');
           const { nodeRed } = require('./tools/test-gx/fixture-versions.json');

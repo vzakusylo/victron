@@ -11,6 +11,9 @@ const { verify } = require('../tools/test-gx/fixture/check');
 const { assertFunctionHashes } = require('../tools/test-gx/scenario-state');
 const { loadNode } = require('./harness');
 
+require('../tools/test-gx/fixture/compose-config.test');
+require('../tools/test-gx/fixture/source-selection.test');
+
 const ROOT = path.resolve(__dirname, '..');
 const FIXTURE = fs.mkdtempSync(path.join(os.tmpdir(), 'test-gx-fixture-'));
 

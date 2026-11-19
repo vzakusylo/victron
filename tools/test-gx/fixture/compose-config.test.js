@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 
 const composeAvailable = spawnSync('docker', ['compose', 'version'], { encoding: 'utf8' }).status === 0;
+if (process.env.CI && !composeAvailable) throw new Error('Docker Compose is required for fixture isolation tests in CI');
 const cwd = path.join(ROOT, 'tools', 'test-gx');
 
 function config({ fixture = false, backup } = {}) {
