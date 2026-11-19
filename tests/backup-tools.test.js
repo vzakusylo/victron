@@ -45,7 +45,7 @@ const NOW = '2026-07-12T22:30:00Z'; // Monday 00:30 in Oslo
 const backupNode = '26 Manage backup dashboard.js';
 const action = (action, days) => ({ topic: 'backup-command', payload: { action, days } });
 
-function runArchive(t, entries, command, now = NOW) {
+function runArchive(t, entries, command, now = NOW, { withoutFlock = false } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-mail-test-'));
     t.after(() => fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5 }));
     for (const [file, content] of Object.entries(entries)) {
@@ -78,13 +78,14 @@ console.log('{"ok":true}');
     }
     const message = node.run(command, { now }).result[1];
     assert.ok(message);
-    const script = message.payload.slice(1, -1).replaceAll("'\\''", "'")
+    let script = message.payload.slice(1, -1).replaceAll("'\\''", "'")
         .replace('R=""', 'R="$PWD"')
         .replace('cd "/data/home/nodered"', 'cd "./data/home/nodered"')
         .replaceAll('/tmp/grid-data-', './grid-data-')
         .replace('/data/home/nodered/tools/send-mail.js', './fake-mail.js');
     assert.ok(!script.includes('/tmp/grid-data-') && !script.includes('node /data/home/nodered/'));
     if (mailing) assert.match(script, /trap 'exit 1' HUP INT TERM/);
+    if (withoutFlock) script = script.replace('command -v flock', 'false');
     const windows = process.platform === 'win32';
     const shell = spawnSync(windows ? 'wsl.exe' : 'sh', windows ? ['-e', 'sh', '-s'] : ['-s'], {
         cwd: root, input: (windows ? 'node() { node.exe "$@"; }\n' : '') +
@@ -95,9 +96,18 @@ console.log('{"ok":true}');
     assert.equal(shell.status, 0, shell.stderr);
     const sentFile = path.join(home, 'sent.json');
     const sent = fs.existsSync(sentFile) ? JSON.parse(fs.readFileSync(sentFile, 'utf8')) : null;
-    assert.ok(!fs.readdirSync(home).some(file => file.startsWith('grid-data-')), 'staged archives and mail are cleaned up');
+    const remaining = fs.readdirSync(home).filter(file => file.startsWith('grid-data-'));
+    assert.deepEqual(remaining, withoutFlock ? ['grid-data-mail.orphan', 'grid-data-old.tar.gz'] : [],
+        'the current archive is always cleaned up; old files are swept only under lock');
     return { sent, stdout: shell.stdout, packs: (shell.stdout.match(/@@TEST_PACK/g) || []).length, message, root };
 }
+
+test('26: dated mail still sends without flock and does not sweep shared mail files', t => {
+    const { sent, stdout } = runArchive(t, { [LOGS + 'energy-2026-07.csv']: 'synthetic' },
+        action('mail', 7), NOW, { withoutFlock: true });
+    assert.ok(sent);
+    assert.match(stdout, /@@LOG flock unavailable; skipping stale mail sweep/);
+});
 
 for (const mode of [7, 31, 'weekly']) {
     test('26: ' + mode + ' mail takes core, air and events from UTC dates, temperatures from Oslo dates', t => {
