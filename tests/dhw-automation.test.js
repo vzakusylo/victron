@@ -129,6 +129,25 @@ test('an implausible live outdoor reading falls back to the average', () => {
     assert.equal(c.dhw().p23Cmd, 10);
 });
 
+// Recorded on the GX, 19 Nov: with the valve on the tank, outdoor (DP 103) −1 °C and water 32 / 32 °C, the
+// compressor stayed at 0 Hz from P23 6 to 12 (pump target 29.6 → 35.6 °C) and started at 23:47:35 on P23 13
+// (36.8 °C, water + 4.8). The fixed start must ask at least that much on the first command, not 17 min later.
+test('19 Nov replay: the first boiler command already reaches the observed start point', () => {
+    const c = redeployed({ lastDefrost: NOW - 60 * MIN });
+    const dps = { 101: 32, 102: 32, 103: -1, 108: 31, 115: 0, 116: 0 };
+    c.tick(NOW, dps, true);
+    Object.assign(c.dhw(), { state: 'VALVE', since: NOW - 100 * S, run: NOW + ':dhw', live: true, startAt: NOW - 3 * MIN,
+        startTank: 30, outS: [[NOW - MIN, -1]], outAvg: -1, p23Cmd: 0, p24Cmd: null, rampAt: 0, prot: null });
+    c.tick(NOW + 30 * S, dps, true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    assert.equal(c.dhw().p24Cmd, 12);
+    assert.ok(c.dhw().p23Cmd >= 13, 'first P23 ' + c.dhw().p23Cmd + ' must be at least 13, where the compressor started');
+    // and it does not keep climbing while the compressor is still off: capped at water + startGap
+    let t = NOW + 30 * S;
+    for (let i = 0; i < 10; i++) { t += MIN; c.tick(t, dps, true); }
+    assert.ok(curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1) <= 32 + 7 + 1.2, 'capped at water + startGap');
+});
+
 test('Er03 in an ordinary cycle ends it, blocks new starts, and Allow DHW again clears the block', () => {
     const c = redeployed({ lastDefrost: NOW - 5 * MIN });
     let t = NOW + 11 * MIN;
