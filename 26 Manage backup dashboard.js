@@ -121,6 +121,7 @@ const MAIL_DAYS_ALLOWED = [7, 31, 0];
 const MAIL_TRIES = 3;
 const MAIL_RETRY_MS = 60 * 60 * 1000;
 const MAIL_MAX_BYTES = 18 * 1024 * 1024;
+const DROP_RETRIES = 3;   // single-file repacks after a short size estimate, before the rest of a set is left out
 
 const pad2 = n => String(n).padStart(2, '0');
 
@@ -347,8 +348,15 @@ function datedMailPacking(dayList, osloDays, name, period) {
         '  done',
         '  pack_selected',
         '  if fits || [ "$#" -eq 0 ]; then return; fi',
+        // the estimate came up short: drop one more file at a time (at most ' + DROP_RETRIES + ' repacks), then the rest
+        '  TRY=0',
+        '  while [ "$#" -gt 0 ] && [ "$TRY" -lt ' + DROP_RETRIES + ' ]; do',
+        '    omit_optional "$1"; shift; TRY=$((TRY + 1))',
+        '    pack_selected',
+        '    if fits; then return; fi',
+        '  done',
         '  for item do omit_optional "$item"; done',
-        '  pack_selected',
+        '  [ "$#" -eq 0 ] || pack_selected',
         '}',
         'drop_until_fits $EVENTS',
         'drop_until_fits ${TEMP:-$CATALOG}',
@@ -397,7 +405,7 @@ function buildMailScript(days, auto, nowTs) {
         // Only sweep shared temp paths while holding the archive lock.
         'if command -v flock >/dev/null 2>&1; then',
         '  exec 9<"$G" || fail "Cannot open the data archive lock"',
-        '  flock -n -x 9 || fail "Cannot acquire the data archive lock"',
+        '  flock -n -x 9 || fail "Another data archive mail is running; try again when it has finished"',
         '  rm -f /tmp/grid-data-*.tar.gz /tmp/grid-data-mail.json || fail "Cannot clean up old mail files"',
         '  for D in /tmp/grid-data-mail.*; do',
         '    [ -d "$D" ] && [ ! -L "$D" ] || continue',
@@ -410,7 +418,8 @@ function buildMailScript(days, auto, nowTs) {
         'W=$(mktemp -d /tmp/grid-data-mail.XXXXXX) || fail "Cannot create mail staging directory"',
         'T="$W/' + name + '"; M="$W/mail.json"',
         'trap \'rm -f "$T" "$M"; rmdir "$W"\' EXIT',
-        'trap \'exit 1\' HUP INT TERM',
+        // a stop or the exec timeout still tells the dashboard why, and the EXIT trap removes the staging files
+        'trap \'echo "@@ERROR Data archive interrupted (stopped or timed out)"; exit 1\' HUP INT TERM',
         'L=""',
         'addm() { [ -e "$1" ] && L="$L $1"; return 0; }'
     ];
