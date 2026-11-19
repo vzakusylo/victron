@@ -100,11 +100,10 @@ function stampDeployment(input, commits, liveSnapshot) {
     const suffix = record.dashboard && record.dashboard === record.automations
         ? ' [' + (record.dashboard.startsWith('local:') ? short(record.dashboard) : 'git ' + short(record.dashboard)) + ']'
         : ' [UI ' + short(record.dashboard) + '; Auto ' + short(record.automations) + ']';
-    const label = (value) => value.replace(SUFFIX, '') + suffix;
-    tab.label = label(tab.label);
-    base.site.name = label(base.site.name);
-    // With an unlocked menu the dashboard toolbar shows the selected page, not site.name.
-    for (const page of pages) page.name = label(page.name);
+    tab.label = tab.label.replace(SUFFIX, '') + suffix;
+    // Remove legacy suffixes already in a selective deployment's live snapshot.
+    base.site.name = base.site.name.replace(SUFFIX, '');
+    for (const page of pages) page.name = page.name.replace(SUFFIX, '');
     const block = START + '\n' + JSON.stringify(record) + '\n' + END;
     tab.info = metadata.start === -1
         ? info + (info ? '\n\n' : '') + block

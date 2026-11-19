@@ -1,0 +1,53 @@
+<style>
+#victron-dashboard-version {
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 12px;
+    font: 500 12px/1.3 monospace;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+</style>
+<script>
+(function () {
+    var id = 'victron-dashboard-version';
+    var key = 'victronDashboardVersionTimer';
+    var root = window.location.pathname.replace(/\/ui(?:\/.*)?$/, '');
+    var badge = document.getElementById(id) || document.createElement('span');
+    var pending = false;
+    badge.id = id;
+    badge.title = 'Dashboard deployment version';
+
+    function render(text) {
+        var toolbar = document.getElementById('nr-dashboard-toolbar');
+        badge.textContent = text;
+        if (!text) badge.remove();
+        else if (toolbar && badge.parentNode !== toolbar) toolbar.appendChild(badge);
+    }
+
+    // Global templates are reinstalled when Dashboard refreshes its configuration.
+    clearInterval(window[key]);
+    var timer = window[key] = setInterval(function () {
+        if (!document.hidden) refresh();
+    }, 30000);
+
+    async function refresh() {
+        if (pending) return;
+        pending = true;
+        try {
+            var response = await fetch(root + '/' + id, { cache: 'no-store' });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            var payload = await response.json();
+            if (window[key] === timer) render(typeof payload.text === 'string' ? payload.text : '');
+        } catch (error) {
+            if (window[key] === timer) render('');
+            console.warn('Could not read the Dashboard version:', error.message);
+        } finally {
+            pending = false;
+        }
+    }
+
+    refresh();
+})();
+</script>

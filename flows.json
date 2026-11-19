@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#187 Day / Night Grid Control",
+    "label": "d#188 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -6244,6 +6244,75 @@
     "willMsg": {},
     "userProps": "",
     "sessionExpiry": ""
+  },
+  {
+    "id": "dashboard-version-http-in-01",
+    "type": "http in",
+    "z": "995ac4ed6222a706",
+    "name": "GET dashboard version",
+    "url": "/victron-dashboard-version",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 3540,
+    "wires": [
+      [
+        "dashboard-version-fn-01"
+      ]
+    ]
+  },
+  {
+    "id": "dashboard-version-fn-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Read dashboard version",
+    "func": "// The deployment stamper keeps the Git source in the suffix of the editor flow label.\nconst label = env.get('NR_FLOW_NAME');\nconst version = typeof label === 'string' && label.match(/d#\\d+/);\nconst source = version && label.match(/ \\[(?:git ([a-f0-9]{12})|UI ([a-f0-9]{12}); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\\]$/);\nconst sha = source && (source[1] || source[2]);\n\nmsg.headers = { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' };\nmsg.payload = { text: version ? version[0] + (sha ? ' \\u00b7 ' + sha.slice(0, 7) : '') : '' };\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 3540,
+    "wires": [
+      [
+        "dashboard-version-http-response-01"
+      ]
+    ]
+  },
+  {
+    "id": "dashboard-version-http-response-01",
+    "type": "http response",
+    "z": "995ac4ed6222a706",
+    "name": "Dashboard version response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 3540,
+    "wires": []
+  },
+  {
+    "id": "dashboard-version-template-01",
+    "type": "ui_template",
+    "z": "995ac4ed6222a706",
+    "group": "",
+    "name": "Dashboard version badge",
+    "order": 0,
+    "width": 0,
+    "height": 0,
+    "format": "<style>\n#victron-dashboard-version {\n    margin-left: auto;\n    padding: 2px 8px;\n    border: 1px solid currentColor;\n    border-radius: 12px;\n    font: 500 12px/1.3 monospace;\n    flex-shrink: 0;\n    white-space: nowrap;\n}\n</style>\n<script>\n(function () {\n    var id = 'victron-dashboard-version';\n    var key = 'victronDashboardVersionTimer';\n    var root = window.location.pathname.replace(/\\/ui(?:\\/.*)?$/, '');\n    var badge = document.getElementById(id) || document.createElement('span');\n    var pending = false;\n    badge.id = id;\n    badge.title = 'Dashboard deployment version';\n\n    function render(text) {\n        var toolbar = document.getElementById('nr-dashboard-toolbar');\n        badge.textContent = text;\n        if (!text) badge.remove();\n        else if (toolbar && badge.parentNode !== toolbar) toolbar.appendChild(badge);\n    }\n\n    // Global templates are reinstalled when Dashboard refreshes its configuration.\n    clearInterval(window[key]);\n    var timer = window[key] = setInterval(function () {\n        if (!document.hidden) refresh();\n    }, 30000);\n\n    async function refresh() {\n        if (pending) return;\n        pending = true;\n        try {\n            var response = await fetch(root + '/' + id, { cache: 'no-store' });\n            if (!response.ok) throw new Error('HTTP ' + response.status);\n            var payload = await response.json();\n            if (window[key] === timer) render(typeof payload.text === 'string' ? payload.text : '');\n        } catch (error) {\n            if (window[key] === timer) render('');\n            console.warn('Could not read the Dashboard version:', error.message);\n        } finally {\n            pending = false;\n        }\n    }\n\n    refresh();\n})();\n</script>",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": false,
+    "templateScope": "global",
+    "className": "",
+    "x": 430,
+    "y": 3590,
+    "wires": [
+      []
+    ]
   },
   {
     "id": "temps-tab-01",

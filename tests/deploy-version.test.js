@@ -27,31 +27,38 @@ function record(flows) {
     return JSON.parse(info.slice(info.indexOf('-->') + 3, info.lastIndexOf('<!--')));
 }
 
-test('same-source deployment labels the editor and visible dashboard pages without changing logic or credentials', () => {
+test('same-source deployment labels the editor without changing plain dashboard names', () => {
     const input = fixture();
     const original = structuredClone(input);
     const output = stampDeployment(input, { dashboard: UI, automations: UI });
     assert.deepEqual(input, original);
     assert.equal(output[0].label, 'd#180 Grid Control [git aaaaaaaaaaaa]');
-    assert.equal(output[1].site.name, 'Node-RED Dashboard [git aaaaaaaaaaaa]');
-    assert.equal(output[2].name, 'Heat Pump [git aaaaaaaaaaaa]');
-    assert.equal(output[3].name, 'Automations [git aaaaaaaaaaaa]');
+    assert.deepEqual(output.slice(1, 4), original.slice(1, 4));
     assert.deepEqual(record(output), { dashboard: UI, automations: UI });
     assert.ok(output[0].info.startsWith('Existing notes\n\n'));
     assert.deepEqual(output.slice(4), original.slice(4));
-    assert.deepEqual(output[1].theme, original[1].theme);
-    assert.equal(output[1].site.lockMenu, 'false');
+});
+
+test('deploying a previously stamped dashboard restores its original site and page names', () => {
+    const plain = fixture();
+    const legacy = stampDeployment(plain, { dashboard: UI, automations: AUTO });
+    legacy[1].site.name += ' [UI aaaaaaaaaaaa; Auto bbbbbbbbbbbb]';
+    legacy[2].name += ' [git aaaaaaaaaaaa]';
+    legacy[3].name += ' [local bbbbbbbbbbbb]';
+    const output = stampDeployment(legacy, { automations: NEXT }, legacy);
+    assert.deepEqual(output.slice(1, 4), plain.slice(1, 4));
+    assert.deepEqual(record(output), { dashboard: UI, automations: NEXT });
 });
 
 test('partial deployments retain the other component source and explicitly mark unrecorded live code', () => {
     const live = fixture();
     const first = stampDeployment(live, { automations: AUTO }, live);
     assert.deepEqual(record(first), { dashboard: null, automations: AUTO });
-    assert.equal(first[2].name, 'Heat Pump [UI unrecorded; Auto bbbbbbbbbbbb]');
+    assert.equal(first[2].name, 'Heat Pump');
     const second = stampDeployment(first, { dashboard: UI }, first);
     assert.deepEqual(record(second), { dashboard: UI, automations: AUTO });
     assert.equal(second[0].label, 'd#180 Grid Control [UI aaaaaaaaaaaa; Auto bbbbbbbbbbbb]');
-    assert.equal(second[2].name, 'Heat Pump [UI aaaaaaaaaaaa; Auto bbbbbbbbbbbb]');
+    assert.equal(second[2].name, 'Heat Pump');
 });
 
 test('replacing the live version tab with a bumped repo tab preserves the other SHA from the original live snapshot', () => {
@@ -91,7 +98,7 @@ test('repeated stamping is idempotent and updating a component replaces rather t
     assert.deepEqual(stampDeployment(first, { dashboard: UI, automations: AUTO }), first);
     const next = stampDeployment(first, { automations: NEXT }, first);
     assert.equal(next[0].label, 'd#180 Grid Control [UI aaaaaaaaaaaa; Auto cccccccccccc]');
-    assert.equal(next[2].name, 'Heat Pump [UI aaaaaaaaaaaa; Auto cccccccccccc]');
+    assert.equal(next[2].name, 'Heat Pump');
     assert.deepEqual(record(next), { dashboard: UI, automations: NEXT });
     assert.equal(next[0].info.split('<!-- victron-deployment-source -->').length, 2);
 });

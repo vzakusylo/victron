@@ -76,7 +76,8 @@ from that recorded number normally.
 
 At deployment, also record the **full source commit SHA** for the dashboard and
 Node-RED automations. `tools/deploy-version.js` shows 12-character versions in the
-dashboard page titles, browser title and Node-RED tab label, alongside `d#<n>`.
+Node-RED editor tab label, alongside `d#<n>`. The dashboard header badge shows
+the flow version and the dashboard Git SHA shortened to seven characters.
 Full SHAs are stored in a marked JSON block in the version tab's `info`.
 It preserves the existing code revision instead of incrementing `d#` again.
 
@@ -175,8 +176,9 @@ Recommended workflow when editing the logic:
    these labels unchanged.
 5. verify:
    - the live tab label shows the expected `d#<n>` and source SHA labels
-   - the dashboard page title shows the same source labels; re-read the live
-     flow's metadata and compare full SHAs with the deployed sources
+   - dashboard page names are plain and the header badge shows the flow version
+     and dashboard Git SHA; re-read the live flow's metadata and compare full
+     SHAs with the deployed sources
    - battery voltage input is updating
    - GRID CT import power is updating
    - status text shows correct hour range and `Wh`

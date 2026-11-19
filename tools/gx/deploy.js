@@ -154,8 +154,8 @@ function readPlan(file) {
         const touched = stamped.flows.filter((node) => stable(node) !== stable(before.get(node.id)));
         const newTab = stamped.flows.find((node) => node.id === repoTab.id);
         console.log('code changes    :\n  ' + (changes.join('\n  ') || 'none'));
-        console.log('nodes restarted : ' + touched.length + ' (' + touched.filter((node) => node.type === 'ui_tab').length + ' dashboard pages renamed by the source label)');
-        console.log('  ' + touched.filter((node) => node.type !== 'ui_tab').map((node) => node.id + ' [' + node.type + ']').join('\n  '));
+        console.log('nodes restarted : ' + touched.length);
+        console.log('  ' + touched.map((node) => node.id + ' [' + node.type + ']').join('\n  '));
         console.log('live label      : ' + oldLabel + ' -> ' + newTab.label);
         if (DRY) { console.log('DRY RUN - nothing changed. Run again with DRY=0 to deploy.'); return; }
 

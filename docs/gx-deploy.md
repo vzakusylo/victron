@@ -41,7 +41,7 @@ The repository `flows.json` is a portable template: its Tuya nodes have no keys 
 | [`tools/gx/verify.js`](../tools/gx/verify.js) | GX (piped over SSH) | no | After a deploy: label and recorded commits, DHW state and wait reason, master switch, errors in the Node-RED log since the deploy |
 | [`tools/gx/monitor.js`](../tools/gx/monitor.js) | GX (piped over SSH, or installed) | no | Health of the automations at any time: service, version label, devices, pump fault, tank, DHW and heating state, log errors, aborted cycles. One line per check, `STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2 |
 | [`scripts/gx-monitor.ps1`](../scripts/gx-monitor.ps1) | PC | no | Runs the monitor over SSH; `-Drift` adds the comparison of the live code with `origin/master`; `-Watch <s>` repeats and prints on a change; `-Json` for other tools |
-| [`tools/deploy-version.js`](../tools/deploy-version.js) | used by `deploy.js` | no | Adds ` [git <sha12>]` to the tab label and the dashboard page names and stores the full commit SHA in the tab `info` |
+| [`tools/deploy-version.js`](../tools/deploy-version.js) | used by `deploy.js` | no | Stamps the editor tab label and stores full source SHAs in its `info`. Removes legacy suffixes from the dashboard site and page names |
 | [`tools/flows.js`](../tools/flows.js) | PC | repository only | `sync` copies the numbered sources into `flows.json` and bumps `d#`; `check` verifies it. Always before a commit |
 | [`scripts/install-gx-secrets.sh`](../scripts/install-gx-secrets.sh) | GX, started by the workflow | yes | Installs the private files with Node-RED stopped. Part of the secret workflow, not of a code deploy |
 
@@ -311,7 +311,11 @@ In this order; the first failure stops it before anything is written.
 
 With `DRY=0` it then makes the backup, replaces the tool files (owner and mode set first, then a rename; the previous file is saved in the backup directory), posts with the revision and `Node-RED-Deployment-Type: nodes`, waits, reads the flow back and compares the planned fields. If the POST fails and the live revision is unchanged, the previous tool files are put back, so the flow and its tools still match; if the flow state is unknown after a failed POST, the tool files stay and the script says so. A missing or unreadable DHW state stops the deploy.
 
-What restarts: the patched nodes, and every dashboard page and widget, because the source label renames the pages. Function nodes lose their node context; the heat pump automations read their settings file again on start. Credentials stay: `GET /flows` returns none and Node-RED keeps those of the nodes it does not replace.
+What restarts: the patched nodes. The first deployment that removes legacy source suffixes also changes the dashboard site and page configuration, which can restart widgets. Subsequent source stamps do not rename pages. Function nodes lose their node context; the heat pump automations read their settings file again on start. Credentials stay: `GET /flows` returns none and Node-RED keeps those of the nodes it does not replace.
+
+The dashboard header shows `d#<n> · <sha7>` in the top-right corner on every page. The short SHA is the dashboard source commit (not the automation commit); it is omitted when no dashboard Git source was stamped. The badge reads the runtime flow name and refreshes on load and within 30 seconds while the page is visible. The tab's `info` remains the source of the full SHAs for `verify`, `monitor`, and `compare`.
+
+The first rollout needs the four `dashboard-version-*` nodes installed through the existing guarded process for added nodes: the selective deploy plan cannot add them. Later releases can update their code with the regular selective deploy workflow.
 
 ## Rollback
 
@@ -339,7 +343,7 @@ Tool files: the previous copies are in the same backup directory; `cp -p <backup
 | LAN address did not answer | From the PC on Wi-Fi the GX LAN address and `venus.local` timed out | Use the Tailscale host |
 | Large pushes stall | Hundreds of KB from the PC to the GX take minutes | Small files by `scp`, everything else downloaded by the GX |
 | Waiting after the deploy | The automations showed `no outdoor value yet; defrost now or < 15 min ago` | Normal: the outdoor average starts empty and no samples are taken during a defrost and 15 minutes after it. Check again later |
-| Page names | The source label is appended to every dashboard page name | Nothing switches pages by name here (no `ui_control` node). Keep it that way or strip the label first |
+| Page names | An older live flow may still have the source label appended | The current stamper strips legacy suffixes; check that page names are plain and look for the version badge in the header |
 
 ## What was done on 14 Nov 2026
 
