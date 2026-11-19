@@ -551,10 +551,13 @@ function usageDay(t) {
 }
 function countVisit(motion) {
     if (motion.source !== 'local' || !Number.isFinite(motion.lastMotionAt) || motion.lastMotionAt <= 0 || motion.lastMotionAt > now) return false;
-    // The last counted visit lives in the settings file, so a restart never counts the same PIR report twice.
-    const last = Number(settings.dhwUsageLastVisit) || 0;
-    if (last && (motion.lastMotionAt <= last || motion.lastMotionAt - last < USAGE_VISIT_GAP_MS)) return false;
-    settings.dhwUsageLastVisit = motion.lastMotionAt;
+    // A visit ends after 5 min without any PIR report: the gap is measured from the last report SEEN, so one long
+    // stay (a shower with reports every 1–2 min) is one visit. The last seen report is kept in the settings, so a
+    // restart does not count the same report twice (it is written to the file with the next counted visit or draw).
+    const last = Number(settings.dhwUsageLastSeen) || 0;
+    if (last && motion.lastMotionAt <= last) return false;
+    settings.dhwUsageLastSeen = motion.lastMotionAt;
+    if (last && motion.lastMotionAt - last < USAGE_VISIT_GAP_MS) return false;
     usageDay(motion.lastMotionAt).visits++;
     return true;
 }
@@ -580,7 +583,8 @@ function countDraw(ep) {
 function usageSummary(days = 7) {
     const u = settings.dhwUsage || {};
     const keys = [];
-    for (let i = 0; i < days; i++) keys.push(dayKey(now - i * 24 * 3600 * 1000));
+    // calendar days, not 24 h steps: a 23 h or 25 h DST day is neither skipped nor counted twice
+    for (let i = 0; i < days; i++) { const t = new Date(now); t.setHours(12, 0, 0, 0); t.setDate(t.getDate() - i); keys.push(dayKey(t.getTime())); }
     const rows = keys.map(k => u[k]).filter(Boolean);
     if (!rows.length) return { days: 0 };
     const sum = (f) => rows.reduce((a, r) => a + (Number(r[f]) || 0), 0);
@@ -1315,7 +1319,7 @@ if (msg.topic === 'load') {
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
             showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null,
-            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastVisit: Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
+            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();

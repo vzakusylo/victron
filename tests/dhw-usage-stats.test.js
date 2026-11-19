@@ -40,6 +40,24 @@ test('PIR reports closer than 5 minutes count as one toilet visit', () => {
     assert.equal(c.today().visits, 2);
 });
 
+test('a long stay with reports every 2 minutes is one visit', () => {
+    const c = controller();
+    for (let m = 0; m <= 16; m += 2) c.tick(NOW + m * MIN, 50, NOW + m * MIN - 1000);   // 16 min shower
+    c.tick(NOW + 30 * MIN, 50, NOW + 30 * MIN - 1000);                                // later, after a 14 min gap
+    assert.equal(c.today().visits, 2);
+});
+
+test('the 7-day summary uses calendar days across the October DST change', () => {
+    // Oslo falls back on 25 Oct 2026; at 23:30 on 26 Oct, fixed 24 h steps would hit 25 Oct twice
+    const dstNow = new Date(2026, 9, 26, 23, 30).getTime();
+    const key = (d) => '2026-10-' + String(d).padStart(2, '0');
+    const usage = {};
+    for (let d = 20; d <= 26; d++) usage[key(d)] = { visits: 1, draws: 0, drawsWithMotion: 0, dropC: 0, hours: new Array(24).fill(0) };
+    const c = controller({ now: dstNow, usage });
+    c.tick(dstNow);
+    assert.equal(c.node.flow.get('dhwView').shower.usage.days, 7, 'all seven calendar days, none twice');
+});
+
 test('a restart does not count the same motion report again', () => {
     const c = controller({ lastVisit: NOW - 1000 });
     c.tick(NOW, 50, NOW - 1000);
