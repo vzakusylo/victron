@@ -170,6 +170,7 @@ For comparison, the compressor since 8 Nov (55 h measured): 45 h at 40–70 Hz, 
 | supply = target + | 4 °C | 1–10 | wanted DHW supply |
 | boiler P24 | 12 | 5–30 | slope of the boiler curve |
 | ramp P23 +1/min, gap | on, 5 °C | 3–10 | supply − return limit while ramping |
+| start gap | 7 °C | 3–15 | while the compressor is still off in a cycle, the curve may ask water + this (never less than the gap), so the pump starts; d#191 |
 | max supply | 55 °C | 45–55 | cap of the wanted supply |
 | frost limit | −20 °C | −30…10 | no DHW by the heat pump below |
 | cold limit | −10 °C | −25…5 | Silent only, supply ≤ cold cap, cold interval, heating first |
