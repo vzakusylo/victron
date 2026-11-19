@@ -11,7 +11,7 @@
       tuya.pump.dps.133: 0
   steps:
     - when: 0s
-      settle: 95s
+      settle: 380s
       expect:
         writes:
           - device: pump
@@ -35,7 +35,7 @@
         tuya.pump.dps.108: 25
         tuya.pump.dps.115: 0
         tuya.pump.dps.116: 0
-      settle: 100s
+      settle: 400s
       expect:
         writes: []
 
@@ -53,6 +53,23 @@
   steps:
     - when: 0s
       settle: 95s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "134"
+            value: 4
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 35
+            applied: true
     - when: 16m
       inputs:
         tuya.pump.dps.103: -2
@@ -124,7 +141,7 @@
       inputs:
         tuya.valve.dps.1: true
         tuya.pump.dps.15: 1
-      settle: 75s
+      settle: 4500s
       expect:
         writes:
           - device: valve
@@ -144,7 +161,7 @@
       inputs:
         tuya.valve.dps.1: true
         tuya.pump.dps.15: 1
-      settle: 75s
+      settle: 4500s
       expect:
         writes: []
 
@@ -160,7 +177,7 @@
     - when: 16m
       inputs:
         tuya.pump.dps.15: 1
-      settle: 75s
+      settle: 4500s
       expect:
         writes: []
 
@@ -176,6 +193,6 @@
     - when: 16m
       inputs:
         tuya.pump.dps.15: 1
-      settle: 75s
+      settle: 4500s
       expect:
         writes: []

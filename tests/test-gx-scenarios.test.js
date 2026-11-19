@@ -15,12 +15,15 @@ const {
     loadScenarios,
     parseDuration,
     parseYaml,
-    runScenario,
-    runScenarios,
+    runScenario: runWithAdmin,
+    runScenarios: runAllWithAdmin,
     trivialScenario,
     validateScenario
 } = require('../tools/test-gx/run-scenarios.js');
 const { loadNode } = require('./harness');
+const isolatedOptions = options => ({ ...options, admin: { verifyDeployed: async () => {}, ...options?.admin } });
+const runScenario = (scenario, options) => runWithAdmin(scenario, isolatedOptions(options));
+const runScenarios = (scenarios, options) => runAllWithAdmin(scenarios, isolatedOptions(options));
 
 test('scenario YAML parser handles nested maps, sequences, quoted values and comments', () => {
     const parsed = parseYaml(`
@@ -107,12 +110,12 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
     assert.equal(quiet.initial.inputs['tuya.pump.dps.133'], 0);
     assert.equal(quiet.steps.length, 2);
     assert.equal(quiet.steps[0].when, '0s');
-    assert.equal(quiet.steps[0].settle, '95s');
+    assert.equal(quiet.steps[0].settle, '380s');
     assert.deepEqual(quiet.steps[0].expect.writes.map(({ device, dps, value }) => [device, dps, value]), [
         ['pump', '132', '1'], ['pump', '134', 4], ['pump', '133', 35]
     ]);
     assert.equal(quiet.steps[1].when, '380s');
-    assert.equal(quiet.steps[1].settle, '100s');
+    assert.equal(quiet.steps[1].settle, '400s');
     assert.deepEqual(quiet.steps[1].expect.writes, []);
     assert.deepEqual(
         { ...quiet.initial.inputs, ...quiet.steps[1].inputs },
@@ -125,6 +128,7 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
         'tuya.pump.dps.116': 0
     });
     assert.equal(after.faketime, '@2026-11-16 20:00:00');
+    assert.deepEqual(after.steps[0].expect.writes, quiet.steps[0].expect.writes);
     assert.equal(after.steps.at(-1).settle, '60s');
     assert.ok(after.steps.at(-1).expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
 });
@@ -164,6 +168,24 @@ test('runner CLI creates the JUnit output directory for its self-test', () => {
         assert.match(fs.readFileSync(report, 'utf8'), /tests="1" failures="0" skipped="0"/);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('runner CLI defaults to tools/test-gx/out even from another working directory', () => {
+    const report = path.join(__dirname, '..', 'tools', 'test-gx', 'out', 'test-gx-scenarios.xml');
+    const previous = fs.existsSync(report) ? fs.readFileSync(report) : undefined;
+    const hadDirectory = fs.existsSync(path.dirname(report));
+    try {
+        const result = spawnSync(process.execPath, [
+            path.join(__dirname, '..', 'tools', 'test-gx', 'run-scenarios.js'), '--self-test'
+        ], { cwd: os.tmpdir(), env: { ...process.env, TEST_GX_JUNIT: '' }, encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(result.stdout.includes(`JUnit: ${report}`), result.stdout);
+        assert.match(fs.readFileSync(report, 'utf8'), /tests="1" failures="0" skipped="0"/);
+    } finally {
+        if (previous !== undefined) fs.writeFileSync(report, previous);
+        else if (fs.existsSync(report)) fs.unlinkSync(report);
+        if (!hadDirectory && fs.existsSync(path.dirname(report))) fs.rmdirSync(path.dirname(report));
     }
 });
 
@@ -214,9 +236,69 @@ test('scenario applies its settings and asserts only new SET commands', async ()
     };
     await runScenario(scenario, {
         api, waitReady: false, setFaketime: async () => {},
-        admin: { loadSettings: async settings => { calls.push(settings); } }
+        admin: {
+            preserveSettings: async () => ({ restore: async () => {} }),
+            loadSettings: async settings => { calls.push(settings); }
+        }
     });
     assert.deepEqual(calls, [scenario.settings, '/reset']);
+});
+
+test('every step must assert its selected writes, including an explicit empty list', async () => {
+    const scenario = {
+        name: 'unchecked writes',
+        faketime: '@2026-11-16 12:00:00',
+        steps: [{ when: '0s', settle: '0s' }]
+    };
+    assert.throws(() => validateScenario(scenario), /requires an expect\.writes sequence/);
+    scenario.steps[0].expect = { writes: [] };
+    await assert.rejects(runScenario(scenario, {
+        api: {
+            post: async () => {},
+            getWrites: async () => [{ operation: 'SET', device: 'valve' }]
+        },
+        waitReady: false,
+        setFaketime: async () => {}
+    }), /expected 0 writes, received 1/);
+});
+
+test('settle duration uses the scenario faketime rate', async () => {
+    const waits = [];
+    await runScenario({
+        name: 'accelerated settle',
+        faketime: '@2026-11-16 12:00:00 x60',
+        steps: [{ when: '0s', settle: '30s', expect: { writes: [] } }]
+    }, {
+        api: { post: async () => {}, getWrites: async () => [] },
+        waitReady: false,
+        setFaketime: async () => {},
+        wait: async ms => waits.push(ms)
+    });
+    assert.deepEqual(waits, [500]);
+});
+
+test('charging scenarios assert selected D-Bus writes rather than unrelated traffic', async () => {
+    const selector = { service: 'settings', path: '/Settings/SystemSetup/MaxChargeCurrent' };
+    const scenario = {
+        name: 'charging output',
+        faketime: '@2026-11-16 12:00:00',
+        observe: [selector],
+        steps: [{ when: '0s', settle: '0s', expect: { writes: [{ ...selector, value: 25 }] } }]
+    };
+    let records = [
+        { service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint', value: 4950 },
+        { ...selector, value: 25 },
+        { device: 'pump', operation: 'SET', dps: '133', value: 0 }
+    ];
+    const options = {
+        api: { post: async () => {}, getWrites: async () => records },
+        waitReady: false,
+        setFaketime: async () => {}
+    };
+    await runScenario(scenario, options);
+    records = [...records, { ...selector, value: 0 }];
+    await assert.rejects(runScenario(scenario, options), /expected 1 writes, received 2/);
+    assert.throws(() => validateScenario({ ...scenario, observe: [{}] }), /service and path selectors/);
 });
 
 test('scenario waits for Node-RED readiness before applying test settings', async () => {
@@ -238,6 +320,7 @@ test('scenario waits for Node-RED readiness before applying test settings', asyn
         wait: async ms => calls.push(`wait:${ms}`),
         admin: {
             ready: async () => { calls.push('node-red-ready'); },
+            preserveSettings: async () => ({ restore: async () => {} }),
             loadSettings: async () => { calls.push('apply-settings'); }
         }
     });
