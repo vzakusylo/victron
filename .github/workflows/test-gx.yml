@@ -18,6 +18,7 @@ jobs:
       TEST_GX_SIM: emu
       TEST_GX_TAG: synthetic-ci
       TEST_GX_COMPOSE_PROJECT: test-gx
+      TEST_GX_COMPOSE_OVERRIDE: ${{ github.workspace }}/tools/test-gx/docker-compose.fixture.yml
       UBUNTU_MIRROR: http://azure.archive.ubuntu.com/ubuntu
       VENUS_DOCKER_REV: 7bd3b4fb3de24218d992d5039ee2d5a515d958b7
     steps:
@@ -32,6 +33,7 @@ jobs:
             exit 1
           fi
           node tools/test-gx/build-fixture.js
+          node tools/test-gx/fixture/check.js
           node <<'NODE'
           const fs = require('node:fs');
           const { nodeRed } = require('./tools/test-gx/fixture-versions.json');
@@ -97,7 +99,7 @@ jobs:
         run: |
           ssh-keygen -q -t ed25519 -N '' -C test-gx -f "$RUNNER_TEMP/test-gx-key"
           cp "$RUNNER_TEMP/test-gx-key.pub" tools/test-gx/test_key.pub
-          docker compose -p test-gx -f tools/test-gx/docker-compose.yml up -d --build
+          docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" up -d --build
       - name: Wait for emulator and Node-RED
         run: |
           node <<'NODE'
@@ -171,12 +173,12 @@ jobs:
         run: |
           mkdir -p test-gx-artifacts
           failed=0
-          if ! docker compose -p test-gx -f tools/test-gx/docker-compose.yml logs --no-color \
+          if ! docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" logs --no-color \
               > test-gx-artifacts/compose.log 2>&1; then
             echo "::warning::Could not collect Compose logs."
             failed=1
           fi
-          if ! docker compose -p test-gx -f tools/test-gx/docker-compose.yml logs --no-color nodered \
+          if ! docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" logs --no-color nodered \
               > test-gx-artifacts/nodered.log 2>&1; then
             echo "::warning::Could not collect Node-RED logs."
             failed=1
@@ -198,4 +200,4 @@ jobs:
           if-no-files-found: error
       - name: Tear down Test GX stack
         if: always()
-        run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml down -v
+        run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" down -v

@@ -32,11 +32,14 @@ services:
     build:
       context: .
       additional_contexts:
-        backup: ${TEST_GX_BACKUP:-./fixture-synthetic}
+        backup: ${TEST_GX_BACKUP:-./backup-required-use-fixture-override}
       args:
         NODERED_VERSION: ${TEST_GX_NODERED_VERSION:-3.1.15}
         PALETTE: ${TEST_GX_PALETTE:-}
     image: test-gx-nodered:${TEST_GX_TAG:-local}
+    # Direct Compose must select a backup or the isolated fixture override.
+    env_file:
+      - "${TEST_GX_BACKUP:+./fixture/}SET_TEST_GX_BACKUP_OR_USE_FIXTURE_OVERRIDE.env"
     depends_on:
       venus: { condition: service_healthy }
       mosquitto: { condition: service_healthy }

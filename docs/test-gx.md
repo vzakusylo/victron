@@ -12,20 +12,23 @@ No external backup or `TEST_GX_BACKUP` is needed:
 .\tools\test-gx\up.ps1 -Sim emu
 ```
 
-Without `-Backup`, `up.ps1` runs `build-fixture.js` before building. For direct
-Compose use from a clean clone, run `node .\tools\test-gx\build-fixture.js` first.
-Once the existing `mqtt` Venus image and test SSH key have been prepared by
-`up.ps1`, `docker compose build` / `docker compose up -d` in `tools/test-gx`
-use that generated fixture with `TEST_GX_BACKUP` unset. Explicit
-`up.ps1 -Backup <sanitized-directory>` retains the sanitized-backup path and its
-palette-version resolution. `up.ps1` still removes the selected stack's data
-volume before rebuilding; do not use it against a shared stack without clearance.
+Without `-Backup` or `TEST_GX_BACKUP`, `up.ps1` runs `build-fixture.js` and
+selects the isolated fixture override before building. For direct Compose use,
+see [Fixture isolation and verification](#fixture-isolation-and-verification).
+Bare Compose requires an explicit backup; it cannot start the fixture without
+the isolation override. `up.ps1 -Backup <sanitized-directory>` retains the
+sanitized-backup path and its palette-version resolution. `up.ps1` still removes
+the selected stack's data volume before rebuilding; do not use it against a
+shared stack without clearance.
 
 `build-fixture.js` reads repository sources only. Existing function bodies,
 initializers, finalizers and copied tool bytes are unchanged. Only broker
 configuration, the TEST-GX tab suffix and the existing four-device MQTT
-transformation differ. `fixture-tuya.json` is the single synthetic identity/key/name
-mapping. `fixture-versions.json` preserves the approved GX version metadata; the
+transformation differ. The broker's other fields, including its inactive TLS
+reference, remain unchanged. `fixture-tuya.json` supplies synthetic identities,
+keys and config names; the proxy messages retain repository device labels so
+the scenario runner can verify their function hashes. `fixture-versions.json`
+preserves the approved GX version metadata; the
 generated `nodered/package.json` pins the test install and documents explicit
 runtime dependencies. There is no repository-root package manifest.
 
@@ -557,3 +560,37 @@ Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. The
 and summarizes their JUnit results. Expected failures are skipped; an unexpected pass fails
 the job. The `test-gx-logs` artifact retains JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. Every new Test GX branch adds its scenarios to this job.
+
+## Fixture isolation and verification
+
+The fixture runs Node-RED, Venus and Mosquitto on an internal network. A
+two-network, read-only gateway exposes only the existing ports on `127.0.0.1`;
+the test services cannot use it to reach external hosts. Backup-based starts
+keep their existing network behavior. The override requires Docker Compose
+2.36 or later for explicit gateway interface names.
+
+Regenerate after changing `flows.json` or any numbered function source, and
+whenever the copied tools or synthetic defaults change:
+
+```powershell
+node .\tools\test-gx\build-fixture.js
+node .\tools\test-gx\fixture\check.js
+```
+
+The check permits only the four Tuya transformations, their MQTT nodes, the
+broker endpoint and the `TEST-GX` tab marker; all other nodes and original
+function bodies must match. It also accepts `--image-file <flows.json>` or
+`--admin <url>` to check an extracted image or a running Node-RED flow.
+
+For direct Compose use, first prepare the Venus image and test SSH key as
+described above, then select both files:
+
+```powershell
+cd .\tools\test-gx
+docker compose -f docker-compose.yml -f docker-compose.fixture.yml up -d --build
+```
+
+Use the same two Compose files for logs and shutdown. When running scenarios
+from a separate shell, set `TEST_GX_COMPOSE_OVERRIDE` to the absolute path of
+`docker-compose.fixture.yml` and `TEST_GX_TAG` to the image tag. This keeps
+Node-RED on the isolated network when the runner recreates it.
