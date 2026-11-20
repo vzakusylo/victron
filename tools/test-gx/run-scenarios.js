@@ -13,6 +13,7 @@ const SCENARIOS = path.join(__dirname, 'scenarios');
 const DEFAULT_JUNIT = path.join(__dirname, 'out', 'test-gx-scenarios.xml');
 const DEFAULT_API = process.env.TEST_GX_API || 'http://127.0.0.1:8081';
 const DEFAULT_SCENARIO_TIMEOUT_MS = Number(process.env.TEST_GX_SCENARIO_TIMEOUT_MS) || 20 * 60 * 1000;
+const DEFAULT_CLEANUP_GRACE_MS = 3 * 60 * 1000;
 const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 
 class ScenarioTimeoutError extends Error {}
@@ -480,11 +481,28 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
     };
 }
 
-async function waitReady(api, timeoutMs = 120000) {
+// Wraps every function of `target` so a call rejects as soon as `signal` aborts.
+function abortable(target, signal) {
+    if (!signal) return target;
+    return Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value !== 'function' ? value
+        : (...args) => {
+            signal.throwIfAborted();
+            return new Promise((resolve, reject) => {
+                const onAbort = () => reject(signal.reason);
+                signal.addEventListener('abort', onAbort, { once: true });
+                Promise.resolve().then(() => value.apply(target, args)).then(resolve, reject)
+                    .finally(() => signal.removeEventListener('abort', onAbort));
+            });
+        }]));
+}
+
+async function waitReady(api, timeoutMs = 120000, signal) {
     const end = Date.now() + timeoutMs;
     let lastError;
     while (Date.now() < end) {
+        signal?.throwIfAborted();
         try { await api.getState(); return; } catch (error) {
+            signal?.throwIfAborted();
             lastError = error;
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -506,11 +524,16 @@ async function applyActions(api, actions) {
 
 async function runScenario(scenario, options = {}) {
     validateScenario(scenario);
-    const api = options.api || createApi(options.baseUrl);
-    const admin = options.admin || createAdmin(options.adminUrl);
-    const clock = options.setFaketime || setFaketime;
-    const wait = options.wait || (ms => new Promise(resolve => setTimeout(resolve, ms)));
-    if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+    const signal = options.signal;
+    const rawAdmin = options.admin || createAdmin(options.adminUrl);
+    const rawClock = options.setFaketime || setFaketime;
+    // The body is abortable; the cleanup in `finally` uses the raw handles and always runs to completion.
+    const api = abortable(options.api || createApi(options.baseUrl), signal);
+    const admin = abortable(rawAdmin, signal);
+    const clock = abortable({ clock: rawClock }, signal).clock;
+    const rawWait = options.wait || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    const wait = abortable({ wait: rawWait }, signal).wait;
+    if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs, signal);
     await admin.verifyDeployed();
     let saved;
     let controller;
@@ -519,7 +542,7 @@ async function runScenario(scenario, options = {}) {
     let stopped = false;
     try {
         if (scenario.controller) {
-            if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs);
+            if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs, signal);
             stopped = true;
             await (options.stopNodeRed || stopNodeRed)();
             await api.post('/reset', { outputs: true });
@@ -538,8 +561,8 @@ async function runScenario(scenario, options = {}) {
         await clock(scenario.faketime);
         stopped = false;
         if (options.waitReady !== false) {
-            await waitReady(api, options.readyTimeoutMs);
-            await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+            await waitReady(api, options.readyTimeoutMs, signal);
+            await waitReady({ getState: admin.ready }, options.readyTimeoutMs, signal);
         }
         if (scenario.settings || scenario.controller) {
             saved = await admin.preserveSettings();
@@ -594,11 +617,11 @@ async function runScenario(scenario, options = {}) {
         }
         if (stopped) {
             try {
-                await clock('');
-                if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs);
+                await rawClock('');
+                if (options.waitReady !== false) await waitReady({ getState: rawAdmin.ready }, options.readyTimeoutMs);
             } catch (error) { errors.push(error); }
         }
-        try { await admin.verifyDeployed(); } catch (error) { errors.push(error); }
+        try { await rawAdmin.verifyDeployed(); } catch (error) { errors.push(error); }
         if (errors.length) {
             if (failure) errors.unshift(failure);
             throw new ScenarioCleanupError(errors, errors.map(error => error.message).join('; '));
@@ -638,9 +661,16 @@ async function runScenarios(scenarios, options = {}) {
             }), 60000);
             let cleanupFailed = false;
             const timeoutMs = options.scenarioTimeoutMs ?? DEFAULT_SCENARIO_TIMEOUT_MS;
+            const graceMs = options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS;
+            const abort = new AbortController();
             let timer;
+            let graceTimer;
+            let running;
             try {
-                const running = runScenario(scenario, { ...options, setFaketime: async value => { shifted = true; await setClock(value); } });
+                running = runScenario(scenario, {
+                    ...options, signal: abort.signal,
+                    setFaketime: async value => { shifted = true; await setClock(value); }
+                });
                 running.catch(() => {});
                 await Promise.race([running, new Promise((resolve, reject) => {
                     timer = setTimeout(() => reject(new ScenarioTimeoutError(
@@ -658,6 +688,17 @@ async function runScenarios(scenarios, options = {}) {
                 }
             } catch (error) {
                 cleanupFailed = error instanceof ScenarioCleanupError;
+                let stopError;
+                if (error instanceof ScenarioTimeoutError) {
+                    abort.abort(error);
+                    const outcome = await Promise.race([
+                        running.then(() => 'done', cause => cause),
+                        new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), graceMs); })
+                    ]);
+                    if (outcome === 'grace') {
+                        stopError = new Error(`Scenario "${scenario.name}" timed out and its cleanup did not finish within ${Math.round(graceMs / 1000)} s; stopping the run because the stack was not restored`);
+                    } else if (outcome instanceof ScenarioCleanupError) cleanupFailed = true;
+                }
                 const expected = scenario.expected_fail && error instanceof ScenarioAssertionError;
                 results.push({
                     name: scenario.name,
@@ -666,8 +707,14 @@ async function runScenarios(scenarios, options = {}) {
                     message: error.message,
                     durationMs: Date.now() - started
                 });
+                if (stopError) {
+                    if (options.onResult) options.onResult(results.at(-1));
+                    stopError.results = results;
+                    throw stopError;
+                }
             } finally {
                 clearTimeout(timer);
+                clearTimeout(graceTimer);
                 if (progress) clearInterval(progress);
             }
             if (options.onResult) options.onResult(results.at(-1));
