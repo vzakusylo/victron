@@ -117,6 +117,12 @@ cycle (default 1 h, Force run overrides) and an option to start DHW right after 
 One status line on the Heat Pump page (`flow.dhwView.status`). The Temperatures page lists
 room sensors only (`isRoomSensorKey` in `tools/sensor-history.js`).
 
+PR #79 review fixes (d#203): DHW after a defrost needs the Force-run tank deficit (≥ 1 °C) and keeps the
+cold-limit heating-first check; it starts about 15 min after the defrost (quiet time), armed once by the real
+defrost end. Old `lagUp` / `overC` always become band down / up, also with the P6 band on (logged).
+Smart returns to Silent only at lag ≥ up / 2 (no Silent ⇄ Smart hunting). One room-sensor id list in
+`50 Devices model.js` and `tools/sensor-history.js`; the second Save in Advanced is gone; the Idle reason is cut at 90 characters.
+
 ### PR #33 review corrections (d#186-d#187)
 
 Corrupt archive rows are skipped with visible counts and warnings, and fatal

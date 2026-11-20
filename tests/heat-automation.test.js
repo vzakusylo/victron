@@ -76,7 +76,7 @@ test('a redeployed heating controller collects a full window before its first an
 
 test('with the GX kick settings a supply stuck below the curve gets Smart for about a minute, at most every 2 min', () => {
     // kickMin 1 / kickSec 60 as saved on the GX; supply flat 3 °C below the curve, inside a wide band (no step)
-    const c = heating({ cfg: Object.assign({}, GX_HEAT, { lagUp: 5 }) });
+    const c = heating({ cfg: Object.assign({}, GX_HEAT, { lagUp: undefined, bandDown: 5 }) });
     let mode = 'mute';
     for (let i = 0; i <= 72; i++) {
         c.tick(NOW + i * 10 * S, { 102: 33, 101: 30, 2: mode });

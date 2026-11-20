@@ -323,11 +323,11 @@ test('40: heating power controller steps Silent → Smart while the supply lags,
     const view = node.flow.get('dhwView').heat;
     assert.equal(view.lag, -3);
     assert.equal(view.gap, 3);
-    // Smart now, supply − return 6 °C (> gapMax + 1) → after the step time one step down
+    // Smart now, supply 0.6 °C above the point (≥ band up / 2) → after the step time one step down
     all = [];
     for (let i = 63; i <= 130; i++) {
         const now = T0 + i * 10000;
-        setDev(now, hp(36, 30, 'smart'));
+        setDev(now, hp(36.6, 30, 'smart'));
         all = all.concat(writes(node.run({ topic: 'tick' }, { now })));
     }
     assert.deepEqual(all, [{ operation: 'SET', dps: 2, set: 'mute' }], 'one step down to Silent');

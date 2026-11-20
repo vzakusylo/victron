@@ -180,13 +180,13 @@ For comparison, the compressor since 8 Nov (55 h measured): 45 h at 40–70 Hz, 
 | protection | 80 Hz, 85 % of 9.67 A, discharge 90 °C | 50–90, 50–100, 70–110 | for 3 min → P23 − 2 |
 | allow Powerful | off | — | |
 | gap after a cycle | 1 h | 0–12 | d#201: no new DHW cycle if one ended (tank reached target) less than this ago; Force boiler run overrides; the Automation log says "waits: last cycle ended hh:mm, gap 1 h" |
-| start DHW after defrost | Off | Off / On | d#201: when a defrost ends, the tank is below target and the gap allows it, a cycle starts at once (same safety gates as Force run) |
+| start DHW after defrost | Off | Off / On | d#201: when a defrost ends, the tank is below target and the gap allows it, a cycle starts once the 15-min quiet time after the defrost has passed and the supply is back (so about 15 min after the defrost, not at once). Needs the same tank deficit as Force run (target − tank ≥ 1 °C); in the cold the heating-first check still applies. The Automation log says "start DHW after defrost". Only the real defrost end arms it (the defrost flag timing out does not) |
 | heating curve (stored) | P23 38 / P24 4 | — | written back after every cycle |
 
 ### 3.9a Heating (d#201)
 
-- Silent is the default. Below the lower limit the controller steps up (Silent → Smart, then curve +1 °C up to the boost cap); above the upper limit it steps down (boost first, then mode). Inside the band nothing is written. One step per step interval.
-- Lower limit = curve point − *down*, upper limit = point + *up*; sliders 0–5 °C, step 0.5 (defaults 1.5 / 1). Old `lagUp` / `overC` settings migrate to down / up at load; `gapMax` is removed. Interval, max current, allow Powerful, boost cap and kick are in the collapsed *Advanced* section.
+- Silent is the default. Below the lower limit the controller steps up (Silent → Smart, then curve +1 °C up to the boost cap); above the upper limit it steps down (boost first, then mode). Inside the band nothing is written; Smart goes back to Silent only when the supply is at least *up* / 2 above the point (otherwise Silent ⇄ Smart would flip every step). One step per step interval.
+- Lower limit = curve point − *down*, upper limit = point + *up*; sliders 0–5 °C, step 0.5 (defaults 1.5 / 1). Old `lagUp` / `overC` settings always migrate to down / up at load (also when the P6 band option was on, and the Automation log says so); `gapMax` is removed. Interval, max current, allow Powerful, boost cap and kick are in the collapsed *Advanced* section.
 - Pump hysteresis (#66, DP 121, option `band`) is now written as `max(2, up + down)` (it was `up − down`).
 - One status line at the top of the Heat Pump page (DHW heating / Heating / Defrost / Idle with the reason) comes from `flow.dhwView.status`.
 

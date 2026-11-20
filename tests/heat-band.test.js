@@ -49,7 +49,7 @@ test('band is off by default and writes nothing', () => {
 });
 
 test('band 0 / 2: pump set at point + 2, hysteresis 2, your hysteresis saved', () => {
-    const c = heating({ heat: { band: true, bandDown: 0, bandUp: 2 } });
+    const c = heating({ heat: { band: true, bandDown: 0, bandUp: 2, lagUp: undefined, overC: undefined } });
     c.run(NOW, NOW + 6 * MIN);
     assert.equal(c.pump[121], 2, 'restart 2 °C below the stop point = at the curve point');
     assert.ok(c.pump[133] > 38 || c.pump[134] > 4, 'pump curve raised by up');
