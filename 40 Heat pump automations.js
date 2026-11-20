@@ -1417,7 +1417,7 @@ if (msg.topic === 'ui') {
             const s = showerState(); s.demand = null; s.samples = [];
             if (s.episode) s.episode.cancelled = true;
             const d = dhwState();
-            if (d.showerStart) {
+            if (d.showerStart && d.showerStart.type !== 'manual') {
                 d.showerStopRequested = true;
                 cancelShowerWrites(d.run);
                 for (const e of settings.showerHistory || []) if (e.at === d.showerStart.evidenceAt) e.cancelled = true;

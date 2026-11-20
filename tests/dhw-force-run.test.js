@@ -114,6 +114,17 @@ test('cancel stops a running forced run; shower assistance off does not', () => 
     assert.equal(c.dhw().state, 'HEATING');
 });
 
+test('turning shower assistance off in the UI does not stop a running forced run', () => {
+    const c = controller();
+    c.ui(true);
+    c.tick();
+    assert.equal(c.dhw().state, 'STOP');
+    c.node.run({ topic: 'ui', payload: { action: 'dhwShowerForce', on: false } }, { now: NOW + 5000 });
+    assert.notEqual(c.dhw().showerStopRequested, true);
+    c.tick(NOW + 10000);
+    assert.notEqual(c.dhw().state, 'HEATING');
+});
+
 test('a request that cannot start expires after 3 hours', () => {
     const c = controller();
     c.settings().dhwBlock = { at: NOW - MIN, why: 'Er03' };
