@@ -56,7 +56,8 @@ test('heating controller with the GX settings keeps Silent and writes nothing wh
     assert.equal(view.lag, 0);
     assert.equal(view.pumpMode, 'Silent');
     assert.equal(view.boost, 0);
-    assert.deepEqual(view.cfg, GX_HEAT, 'the saved settings are all inside the limits');
+    assert.deepEqual(view.cfg, Object.assign({}, GX_HEAT, { band: false, bandDown: 0, bandUp: 2 }),
+        'the saved settings are all inside the limits; the P6 band ships off');
 });
 
 test('a redeployed heating controller collects a full window before its first and only step', () => {

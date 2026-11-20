@@ -252,6 +252,8 @@
             <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
             <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
             <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="Follow the curve point with a band: the pump stops at point + up and restarts at point − down (pump hysteresis DP 121 = up − down, at least 2 °C). Your hysteresis comes back when the band is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> band</label>
+            <label ng-if="hp.heat.band">down −<input type="number" ng-model="hp.heat.bandDown" ng-change="hp.heatDirty=true" min="0" max="4" step="0.5" style="width:3.5em"> / up +<input type="number" ng-model="hp.heat.bandUp" ng-change="hp.heatDirty=true" min="2" max="8" step="0.5" style="width:3.5em"> °C</label>
             <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
@@ -527,8 +529,9 @@
     scope.hpHeatSave = function () {
         var c = scope.hp.heat;
         if (!c) return;
-        var cfg = { allowPowerful: !!c.allowPowerful };
-        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        var cfg = { allowPowerful: !!c.allowPowerful, band: !!c.band };
+        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec', 'bandDown', 'bandUp'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        if (cfg.band && cfg.bandUp - cfg.bandDown < 2) { alert('Band: up − down must be at least 2 °C (the pump hysteresis cannot go lower).'); return; }
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
