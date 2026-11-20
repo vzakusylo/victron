@@ -2,9 +2,14 @@ name: Test GX scenarios
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - flows.json
+      - '*.js'
+      - tools/test-gx/**
+      - .github/workflows/test-gx.yml
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: test-gx-${{ github.ref }}
@@ -14,6 +19,8 @@ jobs:
   scenarios:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    permissions:
+      contents: read
     env:
       TEST_GX_SIM: emu
       TEST_GX_TAG: synthetic-ci
@@ -23,6 +30,8 @@ jobs:
       VENUS_DOCKER_REV: 7bd3b4fb3de24218d992d5039ee2d5a515d958b7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
