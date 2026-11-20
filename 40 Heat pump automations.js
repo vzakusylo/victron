@@ -135,6 +135,12 @@
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
 // 19. d#168: On Start sets lastDefrost = now and clears the outdoor average outside a cycle: after a deploy the
 //    outdoor sensor may still be warm from a defrost (14 Nov 08:42 a DHW cycle started at a read 17.8 °C).
+// 22. d#195: the pump's own outdoor value. Its curve is computed from a steady ambient value (−1 °C on 20 Nov, DP 125 36 °C
+//    at P23 39 / P24 4) while the sensor DP 103 swings −8 … +50 °C. pumpOutdoor() = P23 − (set − 20) / (P24 / 10) is latched
+//    in context.pumpOut while it is trustworthy (curve on, valve on heating, bypass off, no defrost / quiet time, P23 / P24
+//    unchanged 2 min, set not clamped) and used for 3 h: heating lag and the heating controller's point, and the DHW boiler
+//    curve (kept for the whole cycle). Without a valid value the old rules stay (average / live sensor); texts say "fallback".
+//    flow.dhwView.pumpOut carries it to the Heat Pump page (34).
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -272,6 +278,36 @@ function curveAt(curve, x) {
 }
 // built-in heating curve of the pump (P22): 20 + P24 / 10 × (P23 − outdoor), 20…60 °C
 function heatCurveAt(p23, p24, x) { return Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x))); }
+// d#195: the outdoor value the pump really computes its curve from = P23 − (set − 20) / (P24 / 10), from the reported set
+// point DP 125 (not its live sensor DP 103, which reads −8 °C with the compressor running and +50 °C in a defrost).
+// null when the set point is clamped (20 / 60), the curve is off or a value is missing. The page (34) reads the latched
+// value from flow.dhwView.pumpOut, so this function exists only here.
+function pumpOutdoor(p23, p24, set, p22on) {
+    if (p22on === false || ![p23, p24, set].every(Number.isFinite) || p24 <= 0 || set <= 20 || set >= 60) return null;
+    return Math.round((p23 - (set - 20) / (p24 / 10)) * 10) / 10;
+}
+const PUMP_OUT_MAX_MS = 3 * 3600 * 1000;
+const PUMP_OUT_SETTLE_MS = 2 * 60 * 1000;
+// Latches pumpOutdoor() into context.pumpOut = { v, at } while the reading is trustworthy: heating curve on, valve on
+// heating, bypass off, no defrost and none within DEFROST_QUIET_MIN, P23 / P24 unchanged for PUMP_OUT_SETTLE_MS.
+function pumpOutTick() {
+    const H = (st.hp && st.hp.dps) || {}, V = (st.valve && st.valve.dps) || {}, B = (st.bypass && st.bypass.dps) || {};
+    if (!ready('hp')) { context.set('pumpCurve', null); return; }
+    const P23 = dhwMeasurement(H['133']), P24 = dhwMeasurement(H['134']), set = dhwMeasurement(H['125']);
+    const key = P23 + '/' + P24;
+    const k = context.get('pumpCurve');
+    if (!k || k.key !== key) { context.set('pumpCurve', { key, since: now }); return; }
+    const defNow = dhwMeasurement(H['116']) === 0 && dhwMeasurement(H['115']) > 30;
+    if (defNow || recentDefrost || now - k.since < PUMP_OUT_SETTLE_MS) return;
+    if (!ready('valve') || !ready('bypass') || V['1'] !== false || B['1'] !== false) return;
+    const v = pumpOutdoor(P23, P24, set, String(H['132']) === '1');
+    if (v !== null) context.set('pumpOut', { v, at: now });
+}
+// the latched pump outdoor value while it is younger than 3 h, else null (callers fall back to the sensor average)
+function pumpOutNow() {
+    const p = context.get('pumpOut');
+    return p && Number.isFinite(p.v) && now - p.at < PUMP_OUT_MAX_MS ? { v: p.v, at: p.at } : null;
+}
 // boiler curve (d#142): P23 that makes the pump's curve give supply `w` at outdoor `x` with P24 `p24`
 // d#172: P23 / P24 that make the pump's curve give at least w at outdoor x: P23 first (slope p24), and once P23 would
 // pass 40 P23 40 with a steeper P24 (≤ 30)
@@ -842,9 +878,12 @@ function dhwTick() {
     d.outS = d.outS.filter((x) => now - x[0] <= 10 * MIN);
     if (d.outS.length) d.outAvg = Math.round(d.outS.reduce((a, x) => a + x[1], 0) / d.outS.length * 10) / 10;
     // heating lag: 30-min average of supply − heating curve while heating runs on the heating values
-    if (d.state === 'HEATING' && ready('hp') && Number.isFinite(sup) && !valveOn && !bypassOn && !recentDefrost && !defRecovering && hz > 0 && d.outAvg !== null
+    // d#195: lag against the curve point the pump itself computes (its outdoor value from the set point), else the average
+    const pnow = pumpOutNow();
+    const lagOut = pnow ? pnow.v : d.outAvg;
+    if (d.state === 'HEATING' && ready('hp') && Number.isFinite(sup) && !valveOn && !bypassOn && !recentDefrost && !defRecovering && hz > 0 && lagOut !== null
         && Number.isFinite(P23) && Number.isFinite(P24) && P24 !== c.boilerP24 && P23 > 0) {
-        d.lagS.push([now, sup - heatCurveAt(P23, P24, d.outAvg)]);
+        d.lagS.push([now, sup - heatCurveAt(P23, P24, lagOut)]);
     }
     d.lagS = d.lagS.filter((x) => now - x[0] <= 30 * MIN);
     const showerMeasurementsOk = [sup, ret, hz, fan, out, amp, dis, P23, P24, dhwMeasurement(H['15'])].every(Number.isFinite)
@@ -875,7 +914,14 @@ function dhwTick() {
     // average freezes after a defrost (no samples while recentDefrost), so on 19 Nov it read −6 °C while the pump
     // read −1 °C: P23 8 meant 36.8 °C to us but 30.8 °C to the pump, below the 32 °C water, and the compressor never
     // started. The boiler P23 therefore uses the live value while it is plausible.
-    const xc = Number.isFinite(out) && out >= -35 && out <= 25 ? out : x;
+    const xOld = Number.isFinite(out) && out >= -35 && out <= 25 ? out : x;
+    // d#195: the pump's curve uses a steady ambient value (−1 °C on 20 Nov while DP 103 swung −8 … +50 °C). It is latched
+    // while heating and kept for the whole cycle: once the compressor runs the sensor drops ~6 °C and the old rule
+    // would have lowered the boiler P23 by ~7. Without a valid latch the live-sensor rule above stays.
+    if (d.state === 'HEATING') d.pumpLatch = pnow ? pnow.v : null;
+    const latched = d.pumpLatch === undefined ? (pnow ? pnow.v : null) : d.pumpLatch;
+    const xc = latched !== null ? latched : xOld;
+    const xcTxt = latched !== null ? 'pump outdoor ' + xc + ' °C (from its set point)' : 'sensor ' + xc + ' °C (fallback)';
     const cold = d.outAvg !== null && d.outAvg <= c.coldLimit;
     const target = d.outAvg === null ? null : (d.outAvg < c.frostLimit ? null : curveAt(c.curve, d.outAvg));
     const W = target === null ? 45 : wantedSupply(c, d.outAvg);
@@ -1061,7 +1107,7 @@ function dhwTick() {
             curveTo(startP23, d.p24Goal);
             d.prog = { t: now, sup }; d.defTicks = 0;
             go('DHW', 'valve settled, boiler curve P24 ' + d.p24Goal + ' / P23 ' + startP23 + ' (≈ ' + heatCurveAt(startP23, d.p24Goal, xc).toFixed(1)
-                + ' °C at ' + xc + ' °C; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', start ≤ water ' + Math.round(water) + ' + ' + startGap + ', then +1 per minute' : '') + ')');
+                + ' °C at ' + xcTxt + '; goal P23 ' + d.goal + ' ≈ ' + W + ' °C' + (c.gapRamp ? ', start ≤ water ' + Math.round(water) + ' + ' + startGap + ', then +1 per minute' : '') + ')');
         }
         d.why = 'valve moving to the tank, curve P23 0 (' + Math.round(elapsed / S) + ' / ' + VALVE_TRAVEL_S + ' s)';
         break;
@@ -1141,7 +1187,7 @@ function dhwTick() {
         }
         if (!cold && !pr.steps && H['2'] !== 'mute' && sup >= W - 1) modeTo('mute');
         d.why = 'DHW: tank ' + tank + ' → ' + target + ' °C (' + (dhwProgress(d.startTank, tank, target) === null ? '?' : dhwProgress(d.startTank, tank, target)) + ' %), supply ' + sup + ' / return ' + ret + ', curve P23 ' + d.p23Cmd + ' (≈ '
-            + heatCurveAt(d.p23Cmd, d.p24Cmd || c.boilerP24, xc).toFixed(1) + ' °C), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
+            + heatCurveAt(d.p23Cmd, d.p24Cmd || c.boilerP24, xc).toFixed(1) + ' °C at ' + xcTxt + '), goal P23 ' + d.goal + ' (≈ ' + W + ' °C), heating ' + Math.round(dhwMin) + ' / ' + Math.round(maxDur) + ' min (cycle ' + Math.round(cycleMin) + ')'
             + (pr.steps ? ', protection ' + pr.steps + ' step(s)' : '') + (pr.hotSince ? ', hot: ' + pr.reason : '');
         break;
     }
@@ -1171,9 +1217,9 @@ function heatModel() {
     const H = (st.hp && st.hp.dps) || {};
     return { mode: modeOf(HEAT_ID), cfg: c, lag: h.lag, gap: h.gap, why: h.why, decision: h.decision, lastStep: h.lastStep,
         kick: (() => { const k = context.get('kick') || {}; return { phase: k.phase || null, last: k.last || 0, why: k.why || '' }; })(),
-        pumpMode: MODE_NAME[H['2']] || H['2'] || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
+        pumpMode: MODE_NAME[H['2']] || H['2'] || null, outSrc: h.outSrc || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
 }
-function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel() })); }
+function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel(), pumpOut: pumpOutNow() })); }
 function heatTick() {
     const h = heatState(), c = settings.heat || heatCfg({});
     const md = modeOf(HEAT_ID);
@@ -1230,7 +1276,11 @@ function heatTick() {
     // d#171: the point to follow is the owner's heating curve (settings.heatCurve at the 10-min outdoor average),
     // not DP 125, which rises with the curve boost; without a stored curve DP 125
     const hc = settings.heatCurve;
-    const set = hc && Number.isFinite(d.outAvg) ? +heatCurveAt(hc.p23, hc.p24, d.outAvg).toFixed(1) : num(H['125']);
+    // d#195: ... at the outdoor value the pump itself computes its curve from (fallback: the 10-min sensor average)
+    const po = pumpOutNow();
+    const xh = po ? po.v : d.outAvg;
+    h.outSrc = po ? 'pump' : 'sensor';
+    const set = hc && Number.isFinite(xh) ? +heatCurveAt(hc.p23, hc.p24, xh).toFixed(1) : num(H['125']);
     h.target = Number.isFinite(set) ? set : null;
     // boost bookkeeping: the pump shows the owner's curve again (DHW end, slider) → boost 0
     // (or any other curve than the one written: the owner moved the slider, a DHW cycle wrote its own)
@@ -1252,7 +1302,7 @@ function heatTick() {
     // Down: the curve boost first, then the mode. Powerful while it is not allowed → down at once.
     let steps = null, act = '', nb = boost;
     const curveSteps = (b) => {
-        const cc = b > 0 ? curveCoeffs(set + b, d.outAvg, hc.p24) : { p23: hc.p23, p24: hc.p24 };
+        const cc = b > 0 ? curveCoeffs(set + b, xh, hc.p24) : { p23: hc.p23, p24: hc.p24 };
         const out = [];
         if (cc.p24 !== num(H['134'])) out.push(p24w(cc.p24));
         if (cc.p23 !== P23) out.push(p23w(cc.p23));
@@ -1260,12 +1310,12 @@ function heatTick() {
     };
     if (cur > top) { steps = [mode(HEAT_LADDER[top])]; act = MODE_NAME[HEAT_LADDER[top]]; }
     else if (dec.step > 0 && cur < top) { steps = [mode(HEAT_LADDER[cur + 1])]; act = MODE_NAME[HEAT_LADDER[cur + 1]]; }
-    else if (dec.step > 0 && hc && Number.isFinite(set) && Number.isFinite(d.outAvg) && boost < c.maxBoost) {
+    else if (dec.step > 0 && hc && Number.isFinite(set) && Number.isFinite(xh) && boost < c.maxBoost) {
         nb = Math.min(c.maxBoost, boost + 1);
         const cs = curveSteps(nb);
         if (cs.out.length) { steps = cs.out; act = 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')'; }
     }
-    else if (dec.step < 0 && boost > 0 && hc && Number.isFinite(set) && Number.isFinite(d.outAvg)) {
+    else if (dec.step < 0 && boost > 0 && hc && Number.isFinite(set) && Number.isFinite(xh)) {
         nb = Math.max(0, boost - 1);
         const cs = curveSteps(nb);
         steps = cs.out.length ? cs.out : null; act = nb ? 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'curve back to yours (P23 ' + hc.p23 + ' / P24 ' + hc.p24 + ')';
@@ -1332,7 +1382,8 @@ function kickTick() {
         context.set('kick', k); return;
     }
     const sup = H['102'] === null ? NaN : Number(H['102']);
-    const point = inDhw ? (Number.isFinite(d.p23Cmd) && Number.isFinite(d.outAvg) ? heatCurveAt(d.p23Cmd, d.p24Cmd || 12, d.outAvg) : NaN)
+    const point = inDhw ? (Number.isFinite(d.p23Cmd) && Number.isFinite(d.pumpLatch) ? heatCurveAt(d.p23Cmd, d.p24Cmd || 12, d.pumpLatch)
+        : Number.isFinite(d.p23Cmd) && Number.isFinite(d.outAvg) ? heatCurveAt(d.p23Cmd, d.p24Cmd || 12, d.outAvg) : NaN)
         : (Number.isFinite(h.target) ? h.target : NaN);
     const ok = c.kickMin > 0 && modeOf(owner) !== 'off' && ready('hp') && H['1'] === true && H['2'] === 'mute' && n(H['115']) > 0
         && n(H['116']) > 0 && B['1'] !== true && !recentDefrost && !defRecovering && (inDhw || d.state === 'HEATING' || !d.state)
@@ -1623,6 +1674,7 @@ for (const r of RULES) {
 }
 if (context.get('defRecPrev') && !defRecovering && !recentDefrost) context.set('recoveredAt', now);
 context.set('defRecPrev', defRecovering || recentDefrost);
+pumpOutTick();
 dhwTick();
 heatTick();
 kickTick();
