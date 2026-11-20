@@ -56,15 +56,15 @@ test('heating controller with the GX settings keeps Silent and writes nothing wh
     assert.equal(view.lag, 0);
     assert.equal(view.pumpMode, 'Silent');
     assert.equal(view.boost, 0);
-    assert.deepEqual(view.cfg, Object.assign({}, GX_HEAT, { band: false, bandDown: 0, bandUp: 2 }),
-        'the saved settings are all inside the limits; the P6 band ships off');
+    assert.deepEqual(view.cfg, { bandDown: 1, bandUp: 0, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60, band: false },
+        'saved lagUp / overC become the band limits; gapMax is gone; the P6 pump band ships off');
 });
 
 test('a redeployed heating controller collects a full window before its first and only step', () => {
     // kick off (kickMin 0), so only the controller itself can write
     const c = heating({ cfg: Object.assign({}, GX_HEAT, { kickMin: 0 }) });
     let mode = 'mute';
-    // supply 3 °C below the curve from the first tick, supply − return 2 °C (below gapMax 3)
+    // supply 3 °C below the curve from the first tick: below the band (−1)
     for (let i = 0; i <= 70; i++) {
         c.tick(NOW + i * 10 * S, { 102: 33, 101: 31, 2: mode });
         if (c.writes.length) mode = c.writes[c.writes.length - 1].set;   // the pump follows the command
@@ -75,8 +75,8 @@ test('a redeployed heating controller collects a full window before its first an
 });
 
 test('with the GX kick settings a supply stuck below the curve gets Smart for about a minute, at most every 2 min', () => {
-    // kickMin 1 / kickSec 60 as saved on the GX; supply flat 3 °C below the curve, supply − return 3 °C (no step)
-    const c = heating();
+    // kickMin 1 / kickSec 60 as saved on the GX; supply flat 3 °C below the curve, inside a wide band (no step)
+    const c = heating({ cfg: Object.assign({}, GX_HEAT, { lagUp: 5 }) });
     let mode = 'mute';
     for (let i = 0; i <= 72; i++) {
         c.tick(NOW + i * 10 * S, { 102: 33, 101: 30, 2: mode });

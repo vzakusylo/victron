@@ -23,6 +23,7 @@ Update this file when a task starts, finishes or changes.
 | #66 | `heating-curve-band` | P6: follow the heating curve point with a down/up band | Stacked on #65. After #65 merges: merge master, `sync` (bump), tests, push, auto-merge. After deploy: first live write of DP 121 — turn the band on once and check the pump reports it. |
 | #73 | `hp-page-errors` | B1: guard SVG points on the Heat Pump pages | Conflicts with master, no CI yet. Next: merge master, resolve, push, auto-merge. |
 | #75 | `test-gx-timeout-cleanup-2` | Test GX: JUnit on grace stop, abort only open-ended waits (PR #74 review Medium) | Mergeable; finish review and auto-merge. |
+| (new) | `heating-simplify` | P7: simpler heating and boiler (d#201) | Silent/Smart follows the curve point; down/up band sliders; boiler gap; DHW after defrost; one status line; Temperatures page = room sensors only. Next: CI, merge, deploy dry run then apply. Replaces the lagUp / overC / gapMax settings of #66 (band semantics: DP 121 = up + down). |
 
 ## 2. Deploy
 

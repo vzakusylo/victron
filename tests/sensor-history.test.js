@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), os = require('os'), path = require('path');
-const { build, read, prune, validateDay } = require('../tools/sensor-history');
+const { build, read, prune, validateDay, isRoomSensorKey } = require('../tools/sensor-history');
 const { decode } = require('../tools/heatpump-decode');
 const { loadNode } = require('./harness');
 const { prepare, repair } = require('../tools/gx/dashboard-assets');
@@ -50,6 +50,18 @@ test('cloud PIR history can identify the sole known motion sensor before a local
     const ambiguous = n.run({topic:'read',payload:'@@META\n'+JSON.stringify(meta)+'\n@@DBUSJSON {"services":[]}'},{now:t});
     assert.equal(ambiguous.result[0].payload.motionSensorId,'');
     assert.match(ambiguous.warnings[0],/multiple PIR/);
+});
+
+test('the Temperatures page lists room sensors only: no pump, water, outdoor, tank, supply or return', () => {
+    const n = loadNode('50 Devices model.js');
+    n.flow.set('heatPump',{hp:{state:'CONNECTED',lastData:t,dps:{101:30,102:36,103:-2,108:47}}});
+    const keys = n.run({topic:'read',payload:'@@META\n{}\n@@DBUSJSON {"services":[]}'},{now:t}).result[0].payload.temperatureSensors.map(s=>s.key);
+    assert.ok(!keys.some(k=>isRoomSensorKey(k)===false), keys.join());
+    const c = {sensors:[{key:'hp:102',name:'Supply'},{key:'acc:Temperature',name:'Tank'},{key:'plate:Temperature',name:'Plate'},{key:'room',name:'Room'}]};
+    const s = ['hp:102','acc:Temperature','plate:Temperature','room'].map(key=>({key,name:key,t,value:20}));
+    const r = build(day,c,s,[],false,[day]);
+    assert.deepEqual(r.sensors.map(x=>x.key),['room']);
+    assert.deepEqual(r.series.map(x=>x.key),['room']);
 });
 
 test('history keeps empty sensors, averages measured buckets and does not connect long gaps', () => {
@@ -115,15 +127,12 @@ test('corrupt JSONL and invalid typed rows preserve valid history, navigation an
 test('bad archive times and nonnumeric cells are counted without poisoning later delta samples', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-cells-'));
     try {
-        fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
         fs.mkdirSync(path.join(dir,'air'));
         const text = '#hp1 '+day+' 13 cols=t,st,102,104\n0,CCCCCC,30,55\noops,CCCCCC,99,99\n30,,,\n60,,bad,56\n90,,31,\n';
-        fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),text);
         fs.writeFileSync(path.join(dir,'air',day+'.csv'),'99:00:00,800,1,2,3,22\n13:00:00,800,1,2,3,bad\n13:02:00,800,1,2,3,22\n');
         const result = read(day,dir);
-        assert.equal(result.invalidRows,4);
-        assert.equal(result.sensors.find(s=>s.key==='hp:102').samples,3);
-        assert.equal(result.series.find(s=>s.key==='hp:102').points[0].value,30.33);
+        assert.equal(result.invalidRows,2);
+        assert.deepEqual(result.sensors.map(s=>s.key),['air-monitor:Temperature']);
         assert.equal(result.series.find(s=>s.key==='air-monitor:Temperature').points[0].value,22);
         assert.throws(()=>[...decode(text)],/invalid sample time/);
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
@@ -155,7 +164,7 @@ test('recorder and reader count archived temperatures once, including redundant 
         fs.writeFileSync(path.join(dir,'air',day+'.csv'),'13:00:00,800,1,2,3,22\n');
         const result = read(day,dir);
         assert.equal(result.invalidRows,0);
-        assert.deepEqual(result.sensors.map(s=>s.samples),[1,1,1,1,1]);
+        assert.deepEqual(result.sensors.map(s=>[s.key,s.samples]),[['air-monitor:Temperature',1],['room',1]], 'room sensors only, each counted once');
         assert.equal(result.series.find(s=>s.key==='room').name,'Room');
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
@@ -210,7 +219,7 @@ test('default history day follows Oslo midnight even when the Node-RED server cl
     }
 });
 
-test('existing heat-pump and air archives are read without fabricating other sensor history', () => {
+test('heat pump archives are not read; the air archive still is', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sensor-history-'));
     try {
         fs.mkdirSync(path.join(dir,'heatpump',day),{recursive:true});
@@ -218,8 +227,7 @@ test('existing heat-pump and air archives are read without fabricating other sen
         fs.writeFileSync(path.join(dir,'heatpump',day,'13.csv'),'#hp1 '+day+' 13 cols=t,st,102,104,atemp\n0,CCCCCC,30,55,42\n30,,,,56,\n');
         fs.writeFileSync(path.join(dir,'air',day+'.csv'),'13:00:00,800,1,2,3,22,40\n');
         const r = read(day,dir);
-        assert.equal(r.series.length,4);
-        assert.ok(r.series.some(s=>s.key==='hp:104'));
+        assert.deepEqual(r.series.map(s=>s.key),['air-monitor:Temperature']);
         assert.ok(r.series.some(s=>s.key==='air-monitor:Temperature'));
         assert.equal(r.motion.available,false);
     } finally {fs.rmSync(dir,{recursive:true,force:true});}

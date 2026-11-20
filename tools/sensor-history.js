@@ -2,8 +2,6 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
-const { decode, NAMES } = require('./heatpump-decode');
 const DIR = process.env.VICTRON_LOG_DIR || '/data/home/nodered/grid-control-logs';
 const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Oslo', hourCycle: 'h23',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -37,13 +35,15 @@ function jsonLines(text, diagnostics) {
     return rows;
 }
 const timestamp = (t) => Number.isFinite(t) && t > 0 && t <= 8640000000000000;
-const hpKeys = ['101', '102', '103', '104', '105', '106', '107', '108', '113'];
+// d#201: the Temperatures page shows room sensors only; pump, water, outdoor, tank, supply and return stay on the Heat Pump page
+const isRoomSensorKey = (key) => typeof key === 'string' && !/^hp:/.test(key) && !['acc:Temperature', 'plate:Temperature'].includes(key);
 const colors = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd', '#17becf', '#e377c2', '#8c564b', '#bcbd22'];
 function build(day, catalog, samples, reports, available, days, invalidRows = 0) {
     validateDay(day);
     const buckets = new Map(), seen = new Set();
-    const sensors = new Map((catalog.sensors || []).map((s) => [s.key, { ...s, samples: 0 }]));
+    const sensors = new Map((catalog.sensors || []).filter((s) => isRoomSensorKey(s.key)).map((s) => [s.key, { ...s, samples: 0 }]));
     for (const s of samples) {
+        if (s && typeof s.key === 'string' && !isRoomSensorKey(s.key)) continue;
         if (!s || typeof s.key !== 'string' || !s.key || !Number.isFinite(s.value) ||
             (s.sec === undefined ? !timestamp(s.t) : !Number.isFinite(s.sec) || s.sec < 0 || s.sec >= 86400)) {
             invalidRows++;
@@ -112,23 +112,6 @@ function read(day, dir = DIR) {
     const diagnostics = { invalidRows: 0 };
     const recorded = jsonLines(optional(path.join(dir, 'temperatures', day + '.jsonl')), diagnostics);
     const samples = [];
-    const hpDir = path.join(dir, 'heatpump', day);
-    for (const file of listing(hpDir).sort().filter((f) => /^\d{2}\.csv(?:\.gz)?$/.test(f))) {
-        let text = fs.readFileSync(path.join(hpDir, file));
-        if (file.endsWith('.gz')) text = zlib.gunzipSync(text);
-        for (const r of decode(text.toString('utf8'), file, () => diagnostics.invalidRows++)) {
-            if (!r.time) continue;
-            const defs = hpKeys.map((k) => ['hp:' + k, 'Heat pump / ' + NAMES[k].replace(/_c$/, '').replace(/_/g, ' '), k, 0])
-                .concat([['acc:Temperature', 'Accumulator tank sensor / Temperature', 'atemp', 4], ['plate:Temperature', 'Exchange plate / Temperature', 'xtemp', 5]]);
-            let invalid = false;
-            for (const [key, name, k, stateIndex] of defs) if ((r.values.st || '')[stateIndex] === 'C' && r.values[k] !== undefined && r.values[k] !== '') {
-                const value = Number(r.values[k]);
-                if (!Number.isFinite(value)) { invalid = true; continue; }
-                samples.push({ key, name, value, sec: r.sec, source: 'heat pump recorder' });
-            }
-            if (invalid) diagnostics.invalidRows++;
-        }
-    }
     for (const line of (optional(path.join(dir, 'air', day + '.csv')) || '').split(/\r?\n/).filter(Boolean)) {
         const cols = line.split(','), parts = cols[0].split(':').map(Number);
         if (!/^\d{2}:\d{2}:\d{2}$/.test(cols[0]) || parts[0] >= 24 || parts[1] >= 60 || parts[2] >= 60 ||
@@ -140,7 +123,7 @@ function read(day, dir = DIR) {
             value: Number(cols[5]), sec: parts[0] * 3600 + parts[1] * 60 + parts[2], source: 'air recorder' });
     }
     const eventsText = optional(path.join(dir, 'sensor-events', day + '.jsonl'));
-    const days = ['temperatures', 'heatpump', 'air', 'sensor-events'].flatMap((folder) => listing(path.join(dir, folder)))
+    const days = ['temperatures', 'air', 'sensor-events'].flatMap((folder) => listing(path.join(dir, folder)))
         .map((f) => /^(\d{4}-\d{2}-\d{2})(?:\.(?:jsonl|csv))?$/.exec(f)).filter(Boolean).map((m) => m[1]);
     const archiveKeys = new Set(samples.map((s) => s.key));
     samples.push(...recorded.filter((s) => !s || !archiveKeys.has(s.key)));
@@ -161,7 +144,7 @@ function prune(dir = DIR, now = Date.now()) {
     }
     return { pruned, keepDays: 400 };
 }
-module.exports = { build, read, prune, validateDay };
+module.exports = { build, read, prune, validateDay, isRoomSensorKey };
 if (require.main === module) {
     try {
         const args = process.argv.slice(2);

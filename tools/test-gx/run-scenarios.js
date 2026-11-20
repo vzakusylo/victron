@@ -217,7 +217,10 @@ function validateScenario(scenario, source = 'scenario') {
     }
     if (scenario.settings) {
         const allowed = ['dhw', 'heat', 'df_exchange_off', 'df_exchange_on', 'hp_er03_restart'];
-        if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve'].includes(key)) ||
+        if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve', 'heat', 'dhw', 'dhwLastDone'].includes(key)) ||
+            scenario.settings.dhwLastDone !== undefined && !Number.isFinite(scenario.settings.dhwLastDone) ||
+            ['heat', 'dhw'].some(key => scenario.settings[key] !== undefined && (!scenario.settings[key] ||
+                typeof scenario.settings[key] !== 'object' || Array.isArray(scenario.settings[key]))) ||
             typeof scenario.settings.master !== 'boolean' || !scenario.settings.modes ||
             typeof scenario.settings.modes !== 'object' || Array.isArray(scenario.settings.modes) ||
             Object.entries(scenario.settings.modes).some(([id, mode]) => !allowed.includes(id) || !['off', 'dry', 'live'].includes(mode))) {
@@ -456,7 +459,13 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 if (!node) throw new Error('Node-RED did not deploy the scenario settings inject node');
                 await wait(6000);
                 const actions = [
-                    ...(settings.heatCurve ? [{ topic: 'load', payload: { master: false, heatCurve: settings.heatCurve } }] : []),
+                    ...(settings.heatCurve || settings.heat || settings.dhw || settings.dhwLastDone ? [{ topic: 'load', payload: {
+                        master: false,
+                        ...(settings.heatCurve ? { heatCurve: settings.heatCurve } : {}),
+                        ...(settings.heat ? { heat: settings.heat } : {}),
+                        ...(settings.dhw ? { dhw: settings.dhw } : {}),
+                        ...(settings.dhwLastDone ? { dhwLastDone: settings.dhwLastDone } : {})
+                    } }] : []),
                     { topic: 'ui', payload: { action: 'master', on: false } },
                     { topic: 'ui', payload: { action: 'modeAll', mode: 'off' } },
                     { topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: 'off' } },

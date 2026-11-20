@@ -1,5 +1,5 @@
 'use strict';
-// P6: follow the heating curve point with a band (down / up). Pump set = point + up, pump hysteresis DP 121 = up − down.
+// P6: pump set = point + up, pump hysteresis DP 121 = max(2, up + down); the controller band itself is tested in heat-simplify.test.js.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadNode } = require('./harness');
@@ -85,13 +85,16 @@ test('controller Off: your hysteresis comes back', () => {
     assert.equal(c.pump[133], 38);
 });
 
-test('up − down below 2 is raised to the pump minimum; out-of-range values are ignored', () => {
+test('the band sliders accept 0…5 as they are; out-of-range values are ignored; the pump hysteresis is at least 2', () => {
     const c = heating();
-    c.set({ band: true, bandDown: 1, bandUp: 2 }, NOW);
-    assert.equal(c.settings().heat.bandUp, 3);
+    c.set({ band: true, bandDown: 1, bandUp: 0.5 }, NOW);
+    assert.equal(c.settings().heat.bandUp, 0.5);
+    assert.equal(c.settings().heat.bandDown, 1);
     c.set({ bandDown: 9, bandUp: 20 }, NOW);
     assert.equal(c.settings().heat.bandDown, 1);
-    assert.equal(c.settings().heat.bandUp, 3);
+    assert.equal(c.settings().heat.bandUp, 0.5);
+    c.run(NOW, NOW + 6 * MIN);
+    assert.equal(c.pump[121], 2, 'up + down 1.5 → the pump minimum 2');
 });
 
 test('band in Test mode writes nothing', () => {

@@ -179,7 +179,16 @@ For comparison, the compressor since 8 Nov (55 h measured): 45 h at 40–70 Hz, 
 | max duration / cold | 60 / 30 min | 15–180 / 10–180 | per cycle |
 | protection | 80 Hz, 85 % of 9.67 A, discharge 90 °C | 50–90, 50–100, 70–110 | for 3 min → P23 − 2 |
 | allow Powerful | off | — | |
+| gap after a cycle | 1 h | 0–12 | d#201: no new DHW cycle if one ended (tank reached target) less than this ago; Force boiler run overrides; the Automation log says "waits: last cycle ended hh:mm, gap 1 h" |
+| start DHW after defrost | Off | Off / On | d#201: when a defrost ends, the tank is below target and the gap allows it, a cycle starts at once (same safety gates as Force run) |
 | heating curve (stored) | P23 38 / P24 4 | — | written back after every cycle |
+
+### 3.9a Heating (d#201)
+
+- Silent is the default. Below the lower limit the controller steps up (Silent → Smart, then curve +1 °C up to the boost cap); above the upper limit it steps down (boost first, then mode). Inside the band nothing is written. One step per step interval.
+- Lower limit = curve point − *down*, upper limit = point + *up*; sliders 0–5 °C, step 0.5 (defaults 1.5 / 1). Old `lagUp` / `overC` settings migrate to down / up at load; `gapMax` is removed. Interval, max current, allow Powerful, boost cap and kick are in the collapsed *Advanced* section.
+- Pump hysteresis (#66, DP 121, option `band`) is now written as `max(2, up + down)` (it was `up − down`).
+- One status line at the top of the Heat Pump page (DHW heating / Heating / Defrost / Idle with the reason) comes from `flow.dhwView.status`.
 
 ### 3.10 Where to see it
 

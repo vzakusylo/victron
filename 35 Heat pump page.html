@@ -145,6 +145,12 @@
     <span class="hpw-chip" ng-class="msg.payload.summary.faults.length ? 'hpw-bad' : 'hpw-ok'">Faults: {{msg.payload.summary.faults.length ? msg.payload.summary.faults.join(', ') : 'none'}}</span>
   </div>
 
+  <div class="hpw-ctl hpw-status" ng-if="msg.payload.status" ng-class="'hpw-status-' + msg.payload.status.kind" style="margin-bottom:8px"
+    title="One status line from the automations node: DHW, defrost, heating or idle with the reason.">
+    <span class="big">{{msg.payload.status.text}}</span>
+    <span class="lbl" ng-if="!msg.payload.status.fresh"> · automations data is old</span>
+  </div>
+
   <div class="hpw-split">
     <section class="hpw-col">
       <div class="hpw-col-title">Heating</div>
@@ -227,7 +233,7 @@
           <span class="big">Heating power controller</span>
           <span><button ng-repeat="m in ['off','dry','live']" ng-class="{sel: msg.payload.heatCtl.mode == m, on: m == 'live'}" ng-disabled="hp.heatModeSent !== null" ng-click="hpHeatMode(m)">{{hpModeLabel(m)}}</button></span>
           <span class="lbl" ng-if="hp.heatModeSent !== null">sent, waiting for the controller…</span>
-          <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b><span ng-if="msg.payload.heatCtl.boost"> + curve <b>+{{msg.payload.heatCtl.boost}} °C</b></span> · point <b>{{msg.payload.heatCtl.target === null ? '—' : msg.payload.heatCtl.target + ' °C'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
+          <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b><span ng-if="msg.payload.heatCtl.boost"> + curve <b>+{{msg.payload.heatCtl.boost}} °C</b></span> · point <b>{{msg.payload.heatCtl.target === null ? '—' : msg.payload.heatCtl.target + ' °C'}}</b> · supply − point (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b></span>
           <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.warm">
             <span ng-if="!msg.payload.heatCtl.warm.active">
@@ -245,20 +251,24 @@
           <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.kick.phase || msg.payload.heatCtl.kick.why || msg.payload.heatCtl.kick.last">stuck-supply kick: <b ng-if="msg.payload.heatCtl.kick.phase">Smart now</b> {{msg.payload.heatCtl.kick.why}}<span ng-if="msg.payload.heatCtl.kick.last"> · last kick {{msg.payload.heatCtl.kick.last | date:'HH:mm'}}</span></span>
           <div class="row" ng-if="hp.heat">
-            <label title="supply this far below the set point → one mode step up">up if lag &gt; <input type="number" step="0.5" ng-model="hp.heat.lagUp" ng-change="hp.heatDirty=true"> °C</label>
-            <label title="supply this far above the set point → one step down">down if above set &gt; <input type="number" step="0.5" ng-model="hp.heat.overC" ng-change="hp.heatDirty=true"> °C</label>
-            <label title="supply − return above this: no step up; above this + 1: one step down">supply − return ≤ <input type="number" step="0.5" ng-model="hp.heat.gapMax" ng-change="hp.heatDirty=true"> °C</label>
-            <label>step every ≥ <input type="number" ng-model="hp.heat.stepMin" ng-change="hp.heatDirty=true"> min</label>
-            <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
-            <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
-            <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
-            <label title="Follow the curve point with a band: the pump stops at point + up and restarts at point − down (pump hysteresis DP 121 = up − down, at least 2 °C). Your hysteresis comes back when the band is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> band</label>
-            <label ng-if="hp.heat.band">down −<input type="number" ng-model="hp.heat.bandDown" ng-change="hp.heatDirty=true" min="0" max="4" step="0.5" style="width:3.5em"> / up +<input type="number" ng-model="hp.heat.bandUp" ng-change="hp.heatDirty=true" min="2" max="8" step="0.5" style="width:3.5em"> °C</label>
-            <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
+            <label title="Below the point by more than this the controller steps up: Smart, then the curve +1 °C per step.">down − <input type="range" min="0" max="5" step="0.5" ng-model="hp.heat.bandDown" ng-change="hp.heatDirty=true"> <b>{{hp.heat.bandDown}}</b> °C</label>
+            <label title="Above the point by more than this the controller steps down: the boost first, then the mode.">up + <input type="range" min="0" max="5" step="0.5" ng-model="hp.heat.bandUp" ng-change="hp.heatDirty=true"> <b>{{hp.heat.bandUp}}</b> °C</label>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
           </div>
-          <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts: supply lags the set point and supply − return &lt; {{msg.payload.heatCtl.cfg.gapMax}} °C → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}} → curve +1 °C per step up to +{{msg.payload.heatCtl.cfg.maxBoost}} °C (P23, then P24); supply above the set point, supply − return &gt; {{msg.payload.heatCtl.cfg.gapMax + 1}} °C or high current → one step down (boost first, then mode). One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
+          <details class="row" ng-if="hp.heat" style="flex-basis:100%">
+            <summary>Advanced</summary>
+            <div class="row">
+              <label>step every ≥ <input type="number" ng-model="hp.heat.stepMin" ng-change="hp.heatDirty=true"> min</label>
+              <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
+              <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
+              <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
+              <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
+              <label title="The pump itself is set to point + up and its hysteresis (DP 121) to down + up, at least 2 °C. Your hysteresis comes back when this is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> pump hysteresis follows the band</label>
+              <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
+            </div>
+          </details>
+          <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts the supply is kept between point − {{msg.payload.heatCtl.cfg.bandDown}} and point + {{msg.payload.heatCtl.cfg.bandUp}} °C: below it → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}} → curve +1 °C per step up to +{{msg.payload.heatCtl.cfg.maxBoost}} °C; above it (or high current) → one step down (boost first, then mode); back at the point in Smart → Silent. One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
         </div>
       </div>
     </section>
@@ -392,6 +402,10 @@
               <th>Cold limit</th><td><input type="number" ng-model="hp.dhw.coldLimit" ng-change="hp.dhwDirty = true"> °C: supply ≤ <input type="number" ng-model="hp.dhw.coldCap" ng-change="hp.dhwDirty = true"> °C, every <input type="number" step="0.5" ng-model="hp.dhw.coldIntervalH" ng-change="hp.dhwDirty = true"> h, heating first</td></tr>
             <tr title="Shortest time between the end of one DHW cycle and the start of the next.">
               <th>Min interval</th><td><input type="number" step="0.5" ng-model="hp.dhw.minIntervalH" ng-change="hp.dhwDirty = true"> h</td></tr>
+            <tr title="No new DHW cycle when one ended (tank reached its target) less than this ago. Force boiler run ignores it. 0 = off.">
+              <th>Gap after a cycle</th><td><input type="number" min="0" max="12" step="0.5" ng-model="hp.dhw.minGapH" ng-change="hp.dhwDirty = true"> h</td></tr>
+            <tr title="When a defrost ends, the tank is below its target and the gap allows it, start a DHW cycle at once (same safety checks as Force boiler run).">
+              <th>Start DHW after defrost</th><td><label><input type="checkbox" ng-model="hp.dhw.startAfterDefrost" ng-change="hp.dhwDirty = true"> on</label></td></tr>
             <tr ng-if="msg.payload.dhwChart.shower" title="Preheat lead for learned hot-water windows. A pattern needs motion-correlated tank drops on at least 3 distinct days.">
               <th>Shower preparation</th><td><input type="number" min="5" max="90" ng-model="hp.dhw.showerLeadMin" ng-change="hp.dhwDirty = true"> min early</td></tr>
             <tr title="No cycle starts when the next defrost is expected within this time (forecast from the last defrost intervals); after a defrost the cycle waits until the supply is back at the heating set point minus the second value. 0 = off.">
@@ -478,8 +492,8 @@
         if (!c) return;
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
-        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp, afterDefrost: !!c.afterDefrost };
-        ['hyst', 'gap', 'startGap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp,         afterDefrost: !!c.afterDefrost, startAfterDefrost: !!c.startAfterDefrost };
+                ['hyst', 'gap', 'startGap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'minGapH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;
         setTimeout(function () { scope.$apply(function () { scope.hp.dhwSaved = false; }); }, 30000);
@@ -530,8 +544,7 @@
         var c = scope.hp.heat;
         if (!c) return;
         var cfg = { allowPowerful: !!c.allowPowerful, band: !!c.band };
-        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec', 'bandDown', 'bandUp'].forEach(function (k) { cfg[k] = Number(c[k]); });
-        if (cfg.band && cfg.bandUp - cfg.bandDown < 2) { alert('Band: up − down must be at least 2 °C (the pump hysteresis cannot go lower).'); return; }
+        ['stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec', 'bandDown', 'bandUp'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
