@@ -105,7 +105,22 @@
     - when: 0s
       settle: 95s
       expect:
-        writes: []
+        writes:
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "134"
+            value: 4
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 35
+            applied: true
     - when: 16m
       inputs:
         tuya.pump.dps.103: -2
