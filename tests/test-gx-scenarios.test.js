@@ -418,6 +418,65 @@ test('a hung scenario times out on its own and the run continues', async () => {
     assert.match(results[0].message, /timed out after \d+ s/);
 });
 
+test('a timed-out scenario is cleaned up before the next one starts', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [step] };
+    const events = [];
+    let current;
+    let verifies = 0;
+    const api = {
+        post: async () => {
+            events.push(`start ${current}`);
+            if (current === 'hung') await new Promise(() => {});
+            return { ok: true };
+        },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    const admin = {
+        verifyDeployed: async () => {
+            if (++verifies % 2 === 1) return;
+            await new Promise(resolve => setTimeout(resolve, 30));
+            events.push(`cleanup ${current}`);
+        }
+    };
+    const results = await runScenarios([hung, { ...hung, name: 'next' }], {
+        api, admin,
+        waitReady: false,
+        setFaketime: async () => { current = current === undefined ? 'hung' : 'next'; },
+        restoreFaketime: false,
+        scenarioTimeoutMs: 150
+    });
+    assert.deepEqual(results.map(r => r.status), ['fail', 'pass']);
+    assert.match(results[0].message, /timed out/);
+    assert.deepEqual(events, ['start hung', 'cleanup hung', 'start next', 'cleanup next']);
+});
+
+test('the run stops when the cleanup of a timed-out scenario does not finish', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [step] };
+    const started = [];
+    let verifies = 0;
+    const api = {
+        post: async () => { started.push('post'); await new Promise(() => {}); },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    const admin = { verifyDeployed: async () => { if (++verifies > 1) await new Promise(() => {}); } };
+    const results = [];
+    await assert.rejects(runScenarios([hung, { ...hung, name: 'next' }], {
+        api, admin,
+        waitReady: false,
+        setFaketime: async () => {},
+        restoreFaketime: false,
+        scenarioTimeoutMs: 20,
+        cleanupGraceMs: 50,
+        onResult: result => results.push(result)
+    }), /cleanup did not finish/);
+    assert.deepEqual(started, ['post']);
+    assert.deepEqual(results.map(r => r.status), ['fail']);
+});
+
 test('duplicate scenario names are rejected when loading', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-dup-'));
     try {
