@@ -1,0 +1,148 @@
+- name: Silent and Smart do not hunt around the curve point
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 29
+      tuya.pump.dps.102: 34
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 16m
+      settle: 1500s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "2"
+            value: smart
+            applied: true
+    - when: 45m
+      inputs:
+        tuya.pump.dps.101: 31
+        tuya.pump.dps.102: 36.4
+      settle: 3600s
+      expect:
+        writes: []
+
+- name: Old lagUp and overC settings win over a saved heating band
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"band":true,"bandDown":0,"bandUp":2,"lagUp":1.5,"overC":1,"kickMin":0},"heatCurve":{"p23":38,"p24":4}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.121: 5
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 16m
+      settle: 900s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 39
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "121"
+            value: 2.5
+            applied: true
+
+- name: DHW after a defrost starts about 15 min after it when the tank deficit is at least 1 degree
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 46.5
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 17m
+      inputs:
+        tuya.pump.dps.116: 0
+      settle: 120s
+      expect:
+        writes: []
+    - when: 20m
+      inputs:
+        tuya.pump.dps.116: 596
+      settle: 600s
+      expect:
+        writes: []
+    - when: 35m
+      settle: 600s
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 0
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+
+- name: DHW does not start after a defrost when the tank deficit is below 1 degree
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47.5
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 17m
+      inputs:
+        tuya.pump.dps.116: 0
+      settle: 120s
+      expect:
+        writes: []
+    - when: 20m
+      inputs:
+        tuya.pump.dps.116: 596
+      settle: 600s
+      expect:
+        writes: []
+    - when: 35m
+      settle: 1200s
+      expect:
+        writes: []

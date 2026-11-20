@@ -45,7 +45,7 @@ test('heating band: below the lower limit Silent → Smart, at the point back to
     c.setSupply(34);   // 2 °C below the point 36
     c.run(NOW, NOW + 11 * MIN);
     assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'smart']]);
-    c.setSupply(36);
+    c.setSupply(36.6);   // back to Silent only from lag ≥ up / 2 = 0.5
     c.run(NOW + 11 * MIN + 10 * S, NOW + 25 * MIN);
     assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'smart'], [2, 'mute']]);
 });
@@ -72,16 +72,33 @@ test('heating band: below the lower limit in Smart the curve goes up by 1 °C st
     assert.equal(c.node.context.get('heat').boost, 1);
 });
 
-test('old saved lagUp / overC become the band limits; an enabled band keeps its own', () => {
+test('old saved lagUp / overC become the band limits, also when the old band was on', () => {
     const a = plant({ heat: { lagUp: 2.3, overC: 0.6, gapMax: 4 } });
     const ca = a.node.context.get('settings').heat;
     assert.equal(ca.bandDown, 2.5);
     assert.equal(ca.bandUp, 0.5);
     assert.equal('lagUp' in ca || 'overC' in ca || 'gapMax' in ca, false);
-    const b = plant({ heat: { band: true, bandDown: 0, bandUp: 2, lagUp: 3 } });
+    const b = plant({ heat: { band: true, bandDown: 0, bandUp: 2, lagUp: 1.5, overC: 1 } });
     const cb = b.node.context.get('settings').heat;
-    assert.equal(cb.bandDown, 0);
-    assert.equal(cb.bandUp, 2);
+    assert.equal(cb.band, true);
+    assert.equal(cb.bandDown, 1.5);
+    assert.equal(cb.bandUp, 1);
+    assert.ok(b.node.context.get('log').some((e) => /heating settings migrated: lagUp 1.5 → band down 1.5, overC 1 → band up 1/.test(e.text)));
+    b.run(NOW, NOW + 6 * MIN, { 121: 5 });
+    assert.deepEqual([...new Set(b.writes.filter((w) => w.dps === 121).map((w) => w.set))], [2.5], 'DP 121 = max(2, up + down) of the migrated band');
+});
+
+test('Silent ⇄ Smart does not hunt: back to Silent only at lag ≥ up / 2', () => {
+    const c = plant({ heat: { bandDown: 1.5, bandUp: 1, stepMin: 10 } });
+    // Silent sits 2 °C below the point, Smart 0.4 °C above it (inside the band, below up / 2)
+    for (let t = NOW; t <= NOW + 3 * H; t += 10 * S) {
+        c.setSupply(c.pump[2] === 'smart' ? 36.4 : 34);
+        c.tick(t);
+    }
+    assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'smart']]);
+    // above up / 2 it goes back
+    for (let t = NOW + 3 * H + 10 * S; t <= NOW + 3 * H + 25 * MIN; t += 10 * S) { c.setSupply(36.6); c.tick(t); }
+    assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'smart'], [2, 'mute']]);
 });
 
 test('DHW waits while the last cycle ended less than minGapH ago and logs why; Force run overrides it', () => {
@@ -119,6 +136,58 @@ test('start DHW after defrost: option on, tank below target → starts at once, 
     assert.equal(afterDefrost({ startAfterDefrost: true }), 'STOP');
     assert.equal(afterDefrost({ startAfterDefrost: false }), 'HEATING');
     assert.equal(afterDefrost({ startAfterDefrost: true }, 20 * MIN), 'HEATING', 'the gap still applies');
+});
+
+test('start DHW after defrost needs the shower deficit and keeps heating first in the cold', () => {
+    const start = (tank, extra) => {
+        const c = plant({ dhwMode: 'live', dhw: Object.assign({ minGapH: 1, afterDefrost: false, hyst: 3, startAfterDefrost: true }, extra || {}) });
+        c.setTank(tank);
+        c.run(NOW, NOW + 40 * S);
+        c.node.context.set('afterDefrostAt', NOW + 50 * S);
+        c.run(NOW + 50 * S, NOW + 90 * S);
+        return c.node.context.get('dhw');
+    };
+    assert.equal(start(46.5).state, 'STOP', 'deficit 1.5 °C ≥ 1 °C (target 48 at −2 °C, hysteresis 3)');
+    const small = start(47.5);
+    assert.equal(small.state, 'HEATING', 'deficit 0.5 °C < 1 °C');
+    assert.match(small.why, /tank 47.5 °C ≥ 45 /);
+    const cold = start(46.5, { coldLimit: 0 });
+    assert.equal(cold.state, 'STOP', 'no lag measured: not blocked');
+    const lagging = plant({ dhwMode: 'live', dhw: { minGapH: 1, afterDefrost: false, hyst: 3, startAfterDefrost: true, coldLimit: 0 } });
+    lagging.setTank(46.5);
+    lagging.run(NOW, NOW + 40 * S);
+    const dd = lagging.node.context.get('dhw');
+    dd.lagS = Array.from({ length: 30 }, (_, i) => [NOW + 40 * S - (30 - i) * MIN, -4]);   // heating lags 4 °C for 30 min (lagC default 2)
+    lagging.node.context.set('afterDefrostAt', NOW + 50 * S);
+    lagging.run(NOW + 50 * S, NOW + 90 * S);
+    assert.equal(lagging.node.context.get('dhw').state, 'HEATING');
+    assert.match(lagging.node.context.get('dhw').why, /heating lags -3\.\d °C below its curve .*\(heating first\)/);
+});
+
+test('DHW after a real defrost starts ≥ 15 min after it and logs that', () => {
+    const c = plant({ dhwMode: 'live', dhw: { minGapH: 1, afterDefrost: false, hyst: 3, startAfterDefrost: true } });
+    c.setTank(45);
+    c.node.context.set('lastDefrost', 0);
+    c.run(NOW, NOW + 20 * S);
+    for (let t = NOW + 30 * S; t <= NOW + 60 * S; t += 10 * S) c.tick(t, { 115: 69, 116: 0 });   // the defrost
+    const endAt = NOW + 70 * S;
+    let startedAt = null;
+    for (let t = endAt; t <= endAt + 30 * MIN && startedAt === null; t += 10 * S) {
+        c.tick(t);
+        if (c.node.context.get('dhw').state === 'STOP') startedAt = t;
+    }
+    assert.ok(startedAt !== null, 'cycle started');
+    assert.ok(startedAt - (NOW + 60 * S) >= 15 * MIN, 'not before the 15 min quiet time: ' + (startedAt - NOW) / MIN);
+    assert.ok(c.node.context.get('log').some((e) => /start DHW after defrost \(starts ≥ 15 min after it/.test(e.text)));
+});
+
+test('a defrost flag that ends by "DF safe 10min" does not arm the DHW start; the defrost end does, once', () => {
+    const c = plant({ dhwMode: 'live', dhw: { startAfterDefrost: true } });
+    c.node.context.set('flag', { on: true, since: NOW, by: 'test' });
+    c.run(NOW, NOW + 11 * MIN);
+    assert.equal(c.node.context.get('flag').on, false);
+    assert.ok(c.node.context.get('log').some((e) => /DF safe 10min/.test(e.text)));
+    assert.ok(!c.node.context.get('afterDefrostAt'), 'no arm from the flag timeout');
 });
 
 test('the defrost end arms the start only while the DHW controller is in heating', () => {

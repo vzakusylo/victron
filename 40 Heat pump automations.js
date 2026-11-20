@@ -358,16 +358,18 @@ function heatCfg(raw, base) {
     if (typeof r.band === 'boolean') c.band = r.band;
     return c;
 }
-// settings saved before the band sliders: lagUp / overC were the band limits (an enabled band keeps its own)
+// settings saved before the band sliders: lagUp / overC were the band limits and always win over bandDown / bandUp
+let heatMigrateNote = '';
 function heatMigrate(raw) {
     if (!raw || typeof raw !== 'object') return raw;
     const r = Object.assign({}, raw);
     const half = (v) => Math.min(5, Math.max(0, Math.round(Number(v) * 2) / 2));
-    if (r.band !== true) {
-        if (Number.isFinite(Number(r.lagUp)) && r.lagUp !== null && r.lagUp !== '') r.bandDown = half(r.lagUp);
-        if (Number.isFinite(Number(r.overC)) && r.overC !== null && r.overC !== '') r.bandUp = half(r.overC);
-    }
+    const had = (v) => v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v));
+    const note = [];
+    if (had(r.lagUp)) { r.bandDown = half(r.lagUp); note.push('lagUp ' + r.lagUp + ' → band down ' + r.bandDown); }
+    if (had(r.overC)) { r.bandUp = half(r.overC); note.push('overC ' + r.overC + ' → band up ' + r.bandUp); }
     delete r.lagUp; delete r.overC; delete r.gapMax;
+    if (note.length) heatMigrateNote = 'heating settings migrated: ' + note.join(', ');
     return r;
 }
 // pump hysteresis (DP 121) for the band option
@@ -379,7 +381,8 @@ function heatDecide(c, a) {
     if (a.amp !== null && a.amp >= c.ampPct / 100 * UNIT_MAX_A) return { step: -1, why: 'current ' + a.amp + ' A ≥ ' + c.ampPct + ' % of ' + UNIT_MAX_A + ' A' };
     if (a.lag < -c.bandDown) return { step: 1, why: 'supply ' + (-a.lag) + ' °C below the point (band −' + c.bandDown + ')' };
     if (a.lag > c.bandUp) return { step: -1, why: 'supply ' + a.lag + ' °C above the point (band +' + c.bandUp + ')' };
-    if (a.cur > 0 && !a.boost && a.lag >= 0) return { step: -1, why: 'supply at the point (lag ' + a.lag + ' °C): back to Silent' };
+    // back to Silent only well inside the band, else Silent <-> Smart flips every step (Smart pushes the supply above the point)
+    if (a.cur > 0 && !a.boost && a.lag >= c.bandUp / 2) return { step: -1, why: 'supply ' + a.lag + ' °C above the point (≥ band +' + c.bandUp + ' / 2): back to Silent' };
     return { step: 0, why: 'supply ' + (a.lag >= 0 ? '+' : '') + a.lag + ' °C from the point: inside the band' };
 }
 
@@ -452,7 +455,6 @@ function setFlag(on, by, extra) {
     if (f.on === on) return;
     f.on = on; f.since = Date.now(); f.by = by;
     context.set('flag', f);
-    if (!on) armAfterDefrost();
     logEvent(Object.assign({ kind: 'flag', text: 'defrost flag ' + (on ? 'ON' : 'OFF') + ' (' + by + ')' }, extra || {}));
 }
 // task 4: a defrost ended while the tank may need heat → DHW can start at once (if the option is on); expires after 60 min
@@ -1040,7 +1042,7 @@ function dhwTick() {
         const adAt = Number(context.get('afterDefrostAt')) || 0;
         const doneAt = Math.max(d.lastDone || 0, Number(settings.dhwLastDone) || 0);
         const gapWait = !manual && !!doneAt && now - doneAt < c.minGapH * 3600 * 1000;
-        const adStart = !!(c.startAfterDefrost && adAt && now - adAt <= 60 * MIN && Number.isFinite(tank) && target !== null && tank < target && !gapWait);
+        const adStart = !!(c.startAfterDefrost && adAt && now - adAt <= 60 * MIN && Number.isFinite(tank) && target !== null && target - tank >= SHOWER_MIN_DEFICIT_C && !gapWait);
         if (adAt && (now - adAt > 60 * MIN || !c.startAfterDefrost)) context.set('afterDefrostAt', 0);
         const why = [];
         if (!Number.isFinite(tank)) why.push('no valid tank temperature');
@@ -1088,12 +1090,12 @@ function dhwTick() {
         if (forced && dhwMeasurement(H['15']) !== 0) why.push('shower start blocked by heat pump fault');
         if (!heat) why.push('heating curve not stored yet');
         const lag = dhwLag(d);
-        if (!manual && !adStart && d.outAvg !== null && d.outAvg <= c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
+        if (!manual && d.outAvg !== null && d.outAvg <= c.coldLimit && lag !== null && lag < -c.lagC) why.push('heating lags ' + lag + ' °C below its curve at ' + d.outAvg + ' °C (heating first)');
         d.why = why.length ? why.join('; ') : 'start conditions met';
         d.streak = why.length ? 0 : (forced && ['drop', 'manual'].includes(demand.type)) || adStart ? HOLD : d.streak + 1;
         if (d.streak >= HOLD) {
             d.streak = 0; d.run = now + ':' + DHW_ID; d.live = liveNow; d.startAt = now; d.startTank = tank; d.prog = null;
-            if (adStart) { context.set('afterDefrostAt', 0); logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'start DHW after defrost: tank ' + tank + ' °C < target ' + target + ' °C' }); }
+            if (adStart) { context.set('afterDefrostAt', 0); logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'start DHW after defrost (starts ≥ ' + DEFROST_QUIET_MIN + ' min after it, once the supply is back): tank ' + tank + ' °C ≤ target ' + target + ' − ' + SHOWER_MIN_DEFICIT_C + ' °C' }); }
             d.showerStart = forced ? Object.assign({}, demand) : null;
             d.showerStopRequested = false;
             d.showerSafetyStopRequested = false;
@@ -1311,7 +1313,8 @@ function statusLine() {
         return { kind: 'heating', since: 0, text: 'Heating (' + (MODE_NAME[H['2']] || H['2'] || '?') + ', point ' + (h.target === null || h.target === undefined ? '?' : h.target)
             + ' °C, supply ' + (Number.isFinite(sup) ? sup : '?') + ' °C, band −' + c.bandDown + '/+' + c.bandUp + ' °C, boost +' + (h.boost || 0) + ' °C)' };
     }
-    const reason = H['1'] !== true ? 'heat pump off' : d.why && d.why !== 'start conditions met' ? d.why : h.why || 'compressor stopped';
+    let reason = H['1'] !== true ? 'heat pump off' : d.why && d.why !== 'start conditions met' ? d.why : h.why || 'compressor stopped';
+    if (reason.length > 90) reason = reason.slice(0, 89).trimEnd() + '…';
     return { kind: 'idle', text: 'Idle: ' + reason, since: 0 };
 }
 function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel(), pumpOut: pumpOutNow(), status: statusLine() })); }
@@ -1481,7 +1484,7 @@ function heatTick() {
     else if (dec.step < 0 && boost > 0 && hc && Number.isFinite(set) && Number.isFinite(xh)) {
         nb = Math.max(0, boost - 1);
         const cs = curveSteps(nb);
-        steps = cs.out.length ? cs.out : null; act = nb ? 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')'         : wd ? 'curve back to warm-up +' + wd + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'curve back to yours (P23 ' + hc.p23 + ' / P24 ' + hc.p24 + ')';
+        steps = cs.out.length ? cs.out : null; act = nb ? 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : wd ? 'curve back to warm-up +' + wd + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'curve back to yours (P23 ' + hc.p23 + ' / P24 ' + hc.p24 + ')';
         if (!steps) h.boost = nb;
     }
     else if (dec.step < 0 && cur > 0) { steps = [mode(HEAT_LADDER[cur - 1])]; act = MODE_NAME[HEAT_LADDER[cur - 1]]; }
@@ -1572,7 +1575,7 @@ if (msg.topic === 'load') {
         const s = JSON.parse(String(msg.payload || '{}'));
         settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
             heatCurve: s.heatCurve && Number.isFinite(s.heatCurve.p23) && Number.isFinite(s.heatCurve.p24) ? s.heatCurve : null,
-            dhwLastEnd: Number(s.dhwLastEnd) || 0,             heat: heatCfg(heatMigrate(s.heat)), dhwLastDone: Number(s.dhwLastDone) || 0,
+            dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(heatMigrate(s.heat)), dhwLastDone: Number(s.dhwLastDone) || 0,
             dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || '') } : null,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
@@ -1581,12 +1584,14 @@ if (msg.topic === 'load') {
             heatWarm: warmCfg(s.heatWarm),
             heatBandSaved: Number.isFinite(s.heatBandSaved) && s.heatBandSaved >= 2 && s.heatBandSaved <= 18 ? s.heatBandSaved : null,
             dhwManual: s.dhwManual && Number.isFinite(s.dhwManual.at) && Number.isFinite(s.dhwManual.until)
-                && s.dhwManual.until > s.dhwManual.at && s.dhwManual.until - s.dhwManual.at <= MANUAL_QUEUE_MS ? { at: s.dhwManual.at, until: s.dhwManual.until } : null,            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
+                && s.dhwManual.until > s.dhwManual.at && s.dhwManual.until - s.dhwManual.at <= MANUAL_QUEUE_MS ? { at: s.dhwManual.at, until: s.dhwManual.until } : null,
+            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
         context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
+        if (heatMigrateNote) { logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: heatMigrateNote }); heatMigrateNote = ''; }
     } catch (e) {
         settings = { master: false, modes: {} };
         persist();
@@ -1642,7 +1647,7 @@ if (msg.topic === 'ui') {
             }
         }
         persist();
-        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text });        publishView();
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text }); publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwShowerForce') {

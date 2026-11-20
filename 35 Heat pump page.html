@@ -265,7 +265,6 @@
               <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
               <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
               <label title="The pump itself is set to point + up and its hysteresis (DP 121) to down + up, at least 2 °C. Your hysteresis comes back when this is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> pump hysteresis follows the band</label>
-              <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             </div>
           </details>
           <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts the supply is kept between point − {{msg.payload.heatCtl.cfg.bandDown}} and point + {{msg.payload.heatCtl.cfg.bandUp}} °C: below it → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}} → curve +1 °C per step up to +{{msg.payload.heatCtl.cfg.maxBoost}} °C; above it (or high current) → one step down (boost first, then mode); back at the point in Smart → Silent. One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
@@ -492,7 +491,7 @@
         if (!c) return;
         var ends = dhwEnds();
         if (!ends) { alert('Boiler curve: the warm end must be warmer than the cold end.'); return; }
-        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp,         afterDefrost: !!c.afterDefrost, startAfterDefrost: !!c.startAfterDefrost };
+        var cfg = { curve: ends, allowPowerful: !!c.allowPowerful, gapRamp: !!c.gapRamp, afterDefrost: !!c.afterDefrost, startAfterDefrost: !!c.startAfterDefrost };
                 ['hyst', 'gap', 'startGap', 'defrostLead', 'supplyReady', 'defrostEndPct', 'defrostNextMin', 'afterDefrostWinMin', 'showerLeadMin', 'supplyAdd', 'boilerP24', 'frostLimit', 'coldLimit', 'coldCap', 'coldIntervalH', 'minIntervalH', 'minGapH', 'maxMin', 'maxMinCold', 'maxSupply', 'protHz', 'protAmpPct', 'protDischarge'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the DHW controller settings?\nValues out of range are ignored.')) return;
         scope.hp.dhwDirty = false; scope.hp.dhwSaved = true;

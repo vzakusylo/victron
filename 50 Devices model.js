@@ -379,9 +379,10 @@ if (msg.topic === 'read') {
     };
     // d#201: this list is only for room temperature sensors (Tuya local / Zigbee / cloud, air monitor); the heat pump,
     // tank, plate and Victron values stay on the Heat Pump page
+    const NON_ROOM_IDS = ['hp', 'acc', 'plate'];   // the same ids as in tools/sensor-history.js (isRoomSensorKey)
     model.temperatureSensors = [];
     for (const d of devices) {
-        if (['hp', 'acc', 'plate'].includes(d.id) || d.group === 'victron') continue;
+        if (NON_ROOM_IDS.includes(d.id) || d.group === 'victron') continue;
         const temperatures = (d.values || []).filter((v) => /^-?\d+(?:\.\d+)?\s*°C$/.test(String(v.v)));
         const meta = p.meta[d.id];
         const known = meta && Object.values(meta.dps || {}).some((v) => ['temp_current', 'va_temperature', 'temp_value'].includes(v.code));

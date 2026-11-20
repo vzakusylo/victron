@@ -14,6 +14,13 @@ const dashboardBundle = 'g.menu.length>0&&e("left")&&e("left").close();' +
 const dashboardIndex = '<body ng-swipe-right="onSwipeRight();" ng-swipe-left="onSwipeLeft();" ' +
     'ng-attr-ng-swipe-disable-mouse="{{main.allowSwipe !== \'mouse\' ? \'\' : undefined}}">Dashboard</body>';
 
+test('the room sensor list of the Devices model and of the history is the same', () => {
+    const list = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/NON_ROOM_IDS = (\[[^\]]*\])/)[1];
+    assert.equal(list('tools/sensor-history.js'), list('50 Devices model.js'));
+    for (const key of ['hp:102', 'acc:Temperature', 'plate:Temperature', 'plate:x']) assert.equal(isRoomSensorKey(key), false, key);
+    assert.equal(isRoomSensorKey('air-monitor:Temperature'), true);
+});
+
 test('toilet chart uses actual PIR/clear reports, not battery wakes, other devices or cached state', () => {
     const n = loadNode('38 Build heat pump history.js');
     n.flow.set('bathroomMotion', { id: 'toilet' });
