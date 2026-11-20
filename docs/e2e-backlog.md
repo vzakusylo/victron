@@ -23,3 +23,9 @@
 | P4 | Hot-water draws are linked to motion | Local motion, then the tank falls 2.5 °C within 3 min; later a 2 °C drop with no motion in the last 15 min | One draw with motion and one without; `dropC` and the hourly bucket updated; Heat Pump page shows the 7-day summary | todo |
 | P5g | Archive mail reports why it stopped | Start a second mail while one runs; stop Node-RED / let the exec time out mid-pack | Second send: "Another data archive mail is running"; interrupted send: "@@ERROR Data archive interrupted", no staging files left in /tmp | todo |
 | B1 | Heat Pump + history pages render with no console errors (null curve point, no plan) | open pages with missing values | no `cy=""` / $parse errors | todo |
+| P7 | Silent follows the curve point | Heating On, Silent; supply stays below point − down for one step interval; then reaches the point | Silent → Smart written; back to Silent once supply ≥ point; no write inside the band | todo |
+| P7 | Band sliders drive the limits | Set down 0.5 / up 2 and Save; supply above point + 2 | Step down (boost first, then mode); live values on the sliders survive a reload | todo |
+| P7 | Boiler gap | A cycle ends at target; demand again 30 min later; then press Force boiler run | No start, log "waits: last cycle ended hh:mm, gap 1 h"; Force run starts at once | todo |
+| P7 | Start DHW after defrost | Option On, tank below target, gap elapsed; a defrost ends | DHW starts at once (valve to the tank), log "start DHW after defrost"; option Off: no start | todo |
+| P7 | Status line | Watch the Heat Pump page through heating, DHW, defrost, idle | One line at the top with the right text and since-time | todo |
+| P7 | Temperatures page lists room sensors only | Open Temperatures | No pump, water, outdoor, tank, supply, return values; day paging and motion still work | todo |

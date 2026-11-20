@@ -377,25 +377,21 @@ if (msg.topic === 'read') {
         lowBattery: devices.filter((d) => d.battery && d.battery.low).map((d) => d.name),
         dbusError: p.dbus && p.dbus.error ? p.dbus.error : ''
     };
-    const hp = (flow.get('heatPump') || {}).hp || {};
-    const hpTemps = { 101: 'Return', 102: 'Supply', 103: 'Outdoor', 104: 'Discharge', 105: 'Suction',
-        106: 'Outdoor coil', 107: 'Cooling coil', 108: 'Tank', 113: 'Heatsink' };
-    model.temperatureSensors = Object.entries(hpTemps).map(([dp, name]) => ({
-        key: 'hp:' + dp, name: 'Heat pump / ' + name, value: num((hp.dps || {})[dp]),
-        t: hp.lastData || 0, online: hp.state === 'CONNECTED' && now - hp.lastData <= STALE_MS, source: 'heat pump'
-    }));
+    // d#201: this list is only for room temperature sensors (Tuya local / Zigbee / cloud, air monitor); the heat pump,
+    // tank, plate and Victron values stay on the Heat Pump page
+    model.temperatureSensors = [];
     for (const d of devices) {
-        if (d.id === 'hp') continue;
+        if (['hp', 'acc', 'plate'].includes(d.id) || d.group === 'victron') continue;
         const temperatures = (d.values || []).filter((v) => /^-?\d+(?:\.\d+)?\s*°C$/.test(String(v.v)));
         const meta = p.meta[d.id];
         const known = meta && Object.values(meta.dps || {}).some((v) => ['temp_current', 'va_temperature', 'temp_value'].includes(v.code));
-        if (!temperatures.length && (known || ['acc', 'plate'].includes(d.id) || d.group === 'air' || d.kind === 'temperature')) {
+        if (!temperatures.length && (known || d.group === 'air' || d.kind === 'temperature')) {
             temperatures.push({ k: 'Temperature', v: null });
         }
         for (const v of temperatures) {
             model.temperatureSensors.push({ key: (d.group === 'air' ? 'air-monitor' : d.id) + ':' + v.k, name: d.name + ' / ' + v.k,
                 value: v.v === null ? null : Number(String(v.v).replace(/\s*°C$/, '')),
-                t: d.lastData || (d.group === 'victron' ? now : 0), online: !!d.online, source: d.link || d.group });
+                t: d.lastData || 0, online: !!d.online, source: d.link || d.group });
         }
     }
     const pirIds = Object.keys(p.meta).filter((id) => Object.values(p.meta[id].dps || {}).some((dp) => dp.code === 'pir_state'));

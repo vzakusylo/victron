@@ -90,6 +90,32 @@
             value: true
             applied: true
 
+- name: DHW waits for the minimum gap after a finished cycle
+  faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4},"dhwLastDone":1794857400000}
+  initial:
+    inputs:
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 25
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
+      tuya.pump.dps.132: "0"
+      tuya.pump.dps.133: 0
+  steps:
+    - when: 0s
+      settle: 95s
+      expect:
+        writes: []
+    - when: 16m
+      inputs:
+        tuya.pump.dps.103: -2
+        tuya.pump.dps.108: 25
+        tuya.pump.dps.115: 0
+        tuya.pump.dps.116: 0
+      settle: 60s
+      expect:
+        writes: []
+
 - name: Er03 full restart sequence
   faketime: '@2026-11-16 20:00:00'
   settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}

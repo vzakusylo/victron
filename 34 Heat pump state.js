@@ -398,6 +398,7 @@ function buildModel(st, now) {
         curveChart: buildCurveChart(d),
         dhwChart: buildDhwChart(d),
         heatCtl: buildHeatCtl(),
+        status: buildStatus(),
         items,
         unknown
     };
@@ -416,6 +417,12 @@ function buildHeatCtl() {
     const v = flow.get('dhwView');
     if (!v || !v.heat) return null;
     return Object.assign({ fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS, master: v.master === undefined ? null : v.master }, v.heat);
+}
+// d#201: the one status line, built in 40 (flow.dhwView.status)
+function buildStatus() {
+    const v = flow.get('dhwView');
+    if (!v || !v.status) return { kind: 'idle', text: 'Waiting for the automations…', since: 0, fresh: false };
+    return Object.assign({}, v.status, { fresh: !!v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS });
 }
 function dhwCycle() { const v = flow.get('dhwView'); return !!(v && v.state && v.state !== 'HEATING' && v.at && Date.now() - v.at <= DHW_VIEW_STALE_MS); }
 // exact = no rounding (chart lines, d#161: a straight line instead of 0.5 °C steps); the

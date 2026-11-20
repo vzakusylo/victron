@@ -107,6 +107,16 @@ but not deployed; d#183 added the pages and bootstrap fixes (backup
 navigation (final backup above). The subsequent Git commit records d#185 rather
 than reusing a lower version number.
 
+### 2026-11-16: simpler heating and boiler (d#201)
+
+Heating: Silent is the default and the controller switches Silent → Smart when the supply
+does not reach the curve point, and back when it does. The `lagUp` / `overC` / `gapMax`
+settings became two sliders, band down and band up (0–5 °C); old values migrate at load.
+The pump hysteresis (DP 121) is now `max(2, up + down)`. Boiler: minimum gap after a finished
+cycle (default 1 h, Force run overrides) and an option to start DHW right after a defrost.
+One status line on the Heat Pump page (`flow.dhwView.status`). The Temperatures page lists
+room sensors only (`isRoomSensorKey` in `tools/sensor-history.js`).
+
 ### PR #33 review corrections (d#186-d#187)
 
 Corrupt archive rows are skipped with visible counts and warnings, and fatal
