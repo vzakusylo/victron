@@ -21,6 +21,10 @@ on:
         description: "Pass -AllowLiveOnlyLines: only when the commit is meant to remove the GX-only code lines (check compare-before.txt first)."
         type: boolean
         default: false
+  # Every green Test GX run on a push to master deploys that commit: apply, no manual approval.
+  workflow_run:
+    workflows: ["Test GX scenarios"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -30,13 +34,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      sha: ${{ steps.gate.outputs.sha }}
+    steps:
+      - name: Decide whether to deploy
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" != "workflow_run" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          skip() { echo "::notice::Automatic deploy skipped: $1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          [[ "$CONCLUSION" == "success" ]] || skip "Test GX conclusion is $CONCLUSION."
+          [[ "$HEAD_BRANCH" == "master" && "$HEAD_EVENT" == "push" && "$HEAD_REPO" == "$REPO" ]] \
+            || skip "Test GX run was not a push to master of this repository."
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || skip "Invalid head SHA."
+          master="$(gh api "repos/$REPO/git/ref/heads/master" --jq .object.sha)"
+          [[ "$master" == "$HEAD_SHA" ]] || skip "master moved on to $master; $HEAD_SHA is not the tip any more."
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment: victron-gx
+    environment: ${{ github.event_name == 'workflow_run' && 'victron-gx-auto' || 'victron-gx' }}
+    env:
+      AUTO: ${{ github.event_name == 'workflow_run' }}
+      DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
+      MODE: ${{ github.event_name == 'workflow_run' && 'apply' || inputs.mode }}
+      VERSION_TYPE: ${{ github.event_name == 'workflow_run' && 'test' || inputs.version }}
+      ALLOW_LIVE_ONLY_LINES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_live_only_lines }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
@@ -45,7 +93,6 @@ jobs:
 
       - name: Require master and validate deployment inputs
         env:
-          MODE: ${{ inputs.mode }}
           CONFIRM: ${{ inputs.confirm }}
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
           GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
@@ -54,13 +101,22 @@ jobs:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/master" ]] || {
-            echo "::error::Deploy GX code must be run from master."
-            exit 1
-          }
-          if [[ "$MODE" == "apply" && "$CONFIRM" != "deploy-gx-code" ]]; then
-            echo "::error::Type deploy-gx-code in 'confirm' to apply changes to the GX."
-            exit 1
+          if [[ "$AUTO" == "true" ]]; then
+            # the gate job verified a green Test GX push run of exactly this master tip
+            git fetch --no-tags origin master
+            [[ "$(git rev-parse origin/master)" == "$DEPLOY_SHA" ]] || {
+              echo "::error::master moved past $DEPLOY_SHA; a newer run deploys it."
+              exit 1
+            }
+          else
+            [[ "$GITHUB_REF" == "refs/heads/master" ]] || {
+              echo "::error::Deploy GX code must be run from master."
+              exit 1
+            }
+            if [[ "$MODE" == "apply" && "$CONFIRM" != "deploy-gx-code" ]]; then
+              echo "::error::Type deploy-gx-code in 'confirm' to apply changes to the GX."
+              exit 1
+            fi
           fi
           for name in GX_SSH_HOST GX_SSH_KEY GX_SSH_KNOWN_HOSTS TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET; do
             [[ -n "${!name}" ]] || {
@@ -95,8 +151,6 @@ jobs:
         id: deploy
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
-          MODE: ${{ inputs.mode }}
-          ALLOW_LIVE_ONLY_LINES: ${{ inputs.allow_live_only_lines }}
           TMPDIR: ${{ runner.temp }}
         shell: pwsh
         run: |
@@ -107,7 +161,7 @@ jobs:
             '-GxHost', $env:GX_SSH_HOST,
             '-SshKey', "$HOME/.ssh/key",
             '-WaitWindowMin', '30',
-            '-Commit', $env:GITHUB_SHA,
+            '-Commit', $env:DEPLOY_SHA,
             '-RunDirectory', $runFolder
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
@@ -119,9 +173,7 @@ jobs:
         if: always() && steps.deploy.outputs.run_folder != ''
         env:
           RUN_FOLDER: ${{ steps.deploy.outputs.run_folder }}
-          MODE: ${{ inputs.mode }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
-          VERSION_TYPE: ${{ inputs.version }}
         shell: pwsh
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'gx-deploy-public-summary.json'

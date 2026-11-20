@@ -8,6 +8,13 @@ on:
       - '*.js'
       - tools/test-gx/**
       - .github/workflows/test-gx.yml
+  push:
+    branches: [master]
+    paths:
+      - flows.json
+      - '*.js'
+      - tools/test-gx/**
+      - .github/workflows/test-gx.yml
 
 permissions: {}
 
