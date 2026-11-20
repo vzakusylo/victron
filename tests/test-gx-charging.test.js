@@ -168,6 +168,41 @@ test('charging stops Node-RED and resets actuators before startup, so a precedin
     assert.deepEqual(calls.slice(beforeResetFailure), ['stop', ['start', '']]);
 });
 
+test('an abort during preserveController still lets restore() run', async () => {
+    const target = { service: 'settings', path: '/Settings/SystemSetup/MaxChargeCurrent' };
+    const scenario = {
+        name: 'abort in preserve', faketime: '@2026-11-16 08:00:00', controller: {}, observe: [target],
+        steps: [{ when: '0s', settle: '0s', expect: { writes: [] } }]
+    };
+    const abort = new AbortController();
+    let restored = false;
+    const options = {
+        waitReady: false, wait: async () => {}, signal: abort.signal,
+        stopNodeRed: async () => {},
+        setFaketime: async () => {},
+        api: {
+            post: async () => {},
+            getState: async () => ({ outputs: [
+                { ...target, value: -1 },
+                { service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint', value: 0 },
+                { service: 'vebus', path: '/Ac/In/1/CurrentLimit', value: 25 }
+            ] }),
+            getWrites: async () => []
+        },
+        admin: {
+            verifyDeployed: async () => {},
+            preserveSettings: async () => ({ restore: async () => {} }),
+            preserveController: async () => {
+                abort.abort(new Error('timed out'));
+                await new Promise(resolve => setTimeout(resolve, 20));
+                return { restore: async () => { restored = true; }, apply: async () => {} };
+            }
+        }
+    };
+    await assert.rejects(runScenario(scenario, options), /timed out/);
+    assert.equal(restored, true);
+});
+
 test('actuator reset checks D-Bus results without closing the shared connection', () => {
     execFileSync(process.platform === 'win32' ? 'py' : 'python3', ['-c', `
 import ast, sys, types
