@@ -12,7 +12,10 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIOS = path.join(__dirname, 'scenarios');
 const DEFAULT_JUNIT = path.join(__dirname, 'out', 'test-gx-scenarios.xml');
 const DEFAULT_API = process.env.TEST_GX_API || 'http://127.0.0.1:8081';
+const DEFAULT_SCENARIO_TIMEOUT_MS = Number(process.env.TEST_GX_SCENARIO_TIMEOUT_MS) || 20 * 60 * 1000;
 const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
+
+class ScenarioTimeoutError extends Error {}
 
 class ScenarioAssertionError extends Error {
     constructor(message) {
@@ -634,8 +637,15 @@ async function runScenarios(scenarios, options = {}) {
                 name: scenario.name, durationMs: Date.now() - started
             }), 60000);
             let cleanupFailed = false;
+            const timeoutMs = options.scenarioTimeoutMs ?? DEFAULT_SCENARIO_TIMEOUT_MS;
+            let timer;
             try {
-                await runScenario(scenario, { ...options, setFaketime: async value => { shifted = true; await setClock(value); } });
+                const running = runScenario(scenario, { ...options, setFaketime: async value => { shifted = true; await setClock(value); } });
+                running.catch(() => {});
+                await Promise.race([running, new Promise((resolve, reject) => {
+                    timer = setTimeout(() => reject(new ScenarioTimeoutError(
+                        `scenario timed out after ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
+                })]);
                 if (scenario.expected_fail) {
                     results.push({
                         name: scenario.name,
@@ -657,6 +667,7 @@ async function runScenarios(scenarios, options = {}) {
                     durationMs: Date.now() - started
                 });
             } finally {
+                clearTimeout(timer);
                 if (progress) clearInterval(progress);
             }
             if (options.onResult) options.onResult(results.at(-1));
@@ -669,11 +680,20 @@ async function runScenarios(scenarios, options = {}) {
 }
 
 function loadScenarios(directory = SCENARIOS) {
+    const origins = new Map();
     return fs.readdirSync(directory).filter(name => /\.ya?ml$/i.test(name)).sort().flatMap(name => {
         const fullPath = path.join(directory, name);
         const value = parseYaml(fs.readFileSync(fullPath, 'utf8'));
         const items = Array.isArray(value) ? value : [value];
-        return items.map((scenario, index) => validateScenario(scenario, `${name}${items.length > 1 ? ` item ${index + 1}` : ''}`));
+        return items.map((scenario, index) => {
+            const source = `${name}${items.length > 1 ? ` item ${index + 1}` : ''}`;
+            validateScenario(scenario, source);
+            if (origins.has(scenario.name)) {
+                throw new Error(`Duplicate scenario name "${scenario.name}" in ${source} and ${origins.get(scenario.name)}`);
+            }
+            origins.set(scenario.name, source);
+            return scenario;
+        });
     });
 }
 

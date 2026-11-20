@@ -403,6 +403,33 @@ test('expected_fail scenarios are distinguished from failures and unexpected pas
     assert.match(xml, /name="unexpected pass" time="[\d.]+"><failure/);
 });
 
+test('a hung scenario times out on its own and the run continues', async () => {
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [{ when: '0s', settle: '0s', expect: { writes: [] } }] };
+    const api = { post: async () => ({ ok: true }), getState: async () => ({}), getWrites: async () => [] };
+    let first = true;
+    const results = await runScenarios([hung, { ...hung, name: 'next' }], {
+        api,
+        waitReady: false,
+        setFaketime: async () => { if (first) { first = false; await new Promise(() => {}); } },
+        restoreFaketime: false,
+        scenarioTimeoutMs: 50
+    });
+    assert.deepEqual(results.map(r => r.status), ['fail', 'pass']);
+    assert.match(results[0].message, /timed out after \d+ s/);
+});
+
+test('duplicate scenario names are rejected when loading', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-dup-'));
+    try {
+        const body = 'name: same\nfaketime: "@2026-11-16 12:00:00"\nsteps:\n  - when: 0s\n    settle: 0s\n    expect:\n      writes: []\n';
+        fs.writeFileSync(path.join(dir, 'a.yml'), body);
+        fs.writeFileSync(path.join(dir, 'b.yml'), body);
+        assert.throws(() => loadScenarios(dir), /Duplicate scenario name "same" in b\.yml and a\.yml/);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('trivial scenario YAML is checked in and matches the runner smoke contract', () => {
     const file = path.join(__dirname, '..', 'tools', 'test-gx', 'scenarios', 'trivial.yml');
     const parsed = parseYaml(fs.readFileSync(file, 'utf8'));
