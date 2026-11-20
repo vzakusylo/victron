@@ -190,7 +190,7 @@
           <polyline class="preview" ng-if="hp.p23 !== null && hp.p23 != msg.payload.curveChart.p23" ng-attr-points="{{hpPreviewLine()}}"></polyline>
           <g ng-if="msg.payload.curveChart.svg.now">
             <line class="nowline" ng-attr-x1="{{msg.payload.curveChart.svg.now.x}}" ng-attr-x2="{{msg.payload.curveChart.svg.now.x}}" ng-attr-y1="{{msg.payload.curveChart.svg.top}}" ng-attr-y2="{{msg.payload.curveChart.svg.bottom}}"></line>
-            <circle class="pt-target" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{msg.payload.curveChart.svg.now.yTarget}}" r="6"></circle>
+            <circle class="pt-target" ng-if="msg.payload.curveChart.svg.now.yTarget !== null && msg.payload.curveChart.svg.now.yTarget !== undefined" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{msg.payload.curveChart.svg.now.yTarget}}" r="6"></circle>
             <circle class="pt-reported" ng-if="msg.payload.curveChart.svg.now.yReported !== null" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{msg.payload.curveChart.svg.now.yReported}}" r="4"></circle>
             <circle class="pt-supply" ng-if="msg.payload.curveChart.svg.now.ySupply !== null" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{msg.payload.curveChart.svg.now.ySupply}}" r="4"></circle>
           </g>
