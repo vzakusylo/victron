@@ -286,7 +286,7 @@ The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with dif
 
 ## GitHub Actions
 
-After the code commit is on `master`, run **Actions → Deploy GX code**. The workflow is manual-only and defaults to `dry-run`. It pins the deployment to the run's `GITHUB_SHA`, even if `master` advances while awaiting approval. Select `apply` only after reviewing a dry-run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` environment approval is still required. Tick `allow_live_only_lines` only when the dry-run stopped on GX-only code lines and you have confirmed (for example by hash against the deployed commit) that the commit is meant to replace them; it passes `-AllowLiveOnlyLines` to `gx-deploy.ps1`. Leave it off otherwise.
+After the code commit is on `master`, run **Actions → Deploy GX code**. Run by hand it defaults to `dry-run` (see also the automatic path below). It pins the deployment to the run's `GITHUB_SHA`, even if `master` advances while awaiting approval. Select `apply` only after reviewing a dry-run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` environment approval is still required. Tick `allow_live_only_lines` only when the dry-run stopped on GX-only code lines and you have confirmed (for example by hash against the deployed commit) that the commit is meant to replace them; it passes `-AllowLiveOnlyLines` to `gx-deploy.ps1`. Leave it off otherwise.
 
 Select `version: test` (default) or `stable` to label the report. This is an operator-selected **report label only**, not a health guarantee: it creates no Git tag/status and changes neither the deployment behavior nor the GX UI.
 
@@ -295,6 +295,14 @@ The job log, summary and artifact show the target SHA, version label, run outcom
 Full snapshots, node code, live labels, node IDs and raw compare/deploy/verify reports are **not uploaded**: this repository is public. For detailed live reports, use the local runner instead. The workflow allows 60 minutes, including up to 30 minutes waiting for a safe deployment window.
 
 Configure these repository or `victron-gx` environment secrets before running it: `GX_SSH_HOST` (`root@<gx-tailscale-host>`), `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, and `TS_OAUTH_SECRET`. The workflow runs only from `master`; the environment should also restrict deployments to `master` and require its configured reviewer.
+
+### Automatic deploy after Test GX
+
+Every push to `master` that touches `flows.json`, `*.js`, `tools/test-gx/**` or the Test GX workflow runs **Test GX scenarios**. When that run finishes green, **Deploy GX code** starts by itself (`workflow_run`) and deploys exactly the tested commit (`workflow_run.head_sha`) with `mode=apply`, `version=test`, `allow_live_only_lines=false`. The `confirm` check is skipped only for this automatic path.
+
+Safety rules: the deploy is skipped if Test GX failed or was cancelled, if the run was not a push to `master` of this repository, or if `master` has moved past the tested commit (the newer push deploys itself). Added nodes and GX-only code lines still stop the deploy with a failure; nothing is applied, and the owner runs a manual deploy with the usual review. Runs share the `deploy-gx-code` concurrency group, so they queue one at a time.
+
+Automatic runs use the environment **`victron-gx-auto`**; manual runs keep `victron-gx`. The owner creates `victron-gx-auto` once: same five secrets as `victron-gx` (or rely on the repository secrets), deployment branch `master` only, and no required reviewer (otherwise the deploy waits for approval).
 
 ## What the deploy script checks
 
