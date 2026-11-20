@@ -13,6 +13,7 @@ const {
     faketimeRate,
     junitXml,
     loadScenarios,
+    main,
     parseDuration,
     parseYaml,
     runScenario: runWithAdmin,
@@ -475,6 +476,42 @@ test('the run stops when the cleanup of a timed-out scenario does not finish', a
     }), /cleanup did not finish/);
     assert.deepEqual(started, ['post']);
     assert.deepEqual(results.map(r => r.status), ['fail']);
+});
+
+test('a run stopped on the cleanup grace timeout still writes JUnit with the earlier results', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const base = { faketime: '@2026-11-16 12:00:00', steps: [step] };
+    let current;
+    const api = {
+        post: async () => { if (current === 'hung') await new Promise(() => {}); return { ok: true }; },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    let verifies = 0;
+    const admin = { verifyDeployed: async () => { if (++verifies > 2) await new Promise(() => {}); } };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-junit-'));
+    const junit = path.join(dir, 'out.xml');
+    const log = console.log;
+    console.log = () => {};
+    try {
+        await assert.rejects(main(['--junit', junit], {
+            scenarios: [{ ...base, name: 'first' }, { ...base, name: 'hung' }, { ...base, name: 'never' }],
+            api, admin, waitReady: false, restoreFaketime: false,
+            setFaketime: async value => { if (value) current = current === undefined ? 'first' : 'hung'; },
+            scenarioTimeoutMs: 30, cleanupGraceMs: 50
+        }), /cleanup did not finish/);
+    } finally {
+        console.log = log;
+    }
+    try {
+        const xml = fs.readFileSync(junit, 'utf8');
+        assert.match(xml, /tests="2"/);
+        assert.match(xml, /name="first"/);
+        assert.match(xml, /name="hung"[\s\S]*<failure/);
+        assert.doesNotMatch(xml, /name="never"/);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('duplicate scenario names are rejected when loading', () => {
