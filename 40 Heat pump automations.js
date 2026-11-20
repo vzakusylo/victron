@@ -783,7 +783,21 @@ function boostedCurve(heat, P23, P24) {
     if (!heat) return false;
     return (h.boost > 0 && !!h.curveCmd && P23 === h.curveCmd.p23 && P24 === h.curveCmd.p24) || (!!h.p23At && now - h.p23At < 2 * MIN);
 }
-function saveSettingsFile() { persist(); send(2, saveMsg()); }
+// d#194: never write the settings file before it has been read. On 20 Nov 00:36 the d#193 redeploy started the
+// node with default settings (local control OFF); a motion visit saved them over the real file before 'load'
+// arrived, and modes, heating curve and shower history were lost. A defrost start right after a restart could do
+// the same. Until 'load' succeeds, changes stay in the context only.
+function saveSettingsFile() {
+    persist();
+    if (context.get('settingsLoaded') === false) {
+        if (!context.get('saveHeldNoted')) {
+            context.set('saveHeldNoted', true);
+            logEvent({ kind: 'warn', text: 'settings file not written: it has not been read since the node start' });
+        }
+        return;
+    }
+    send(2, saveMsg());
+}
 function dhwTick() {
     const d = dhwState(), c = dhwCfgNow();
     const md = modeOf(DHW_ID);
@@ -1356,10 +1370,13 @@ if (msg.topic === 'load') {
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
+        context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
     } catch (e) {
         settings = { master: false, modes: {} };
         persist();
+        // an unreadable file is replaced by the next change made on the dashboard (the defaults are what runs now)
+        context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'warn', text: 'settings file unreadable, local control OFF: ' + e.message });
     }
     node.status({ fill: settings.master ? 'green' : 'grey', shape: 'dot', text: 'master ' + (settings.master ? 'ON' : 'OFF') });
@@ -1506,7 +1523,7 @@ if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
     if (inDef && !context.get('inDefrost')) {
         context.set('preDefSupply', context.get('supBefore'));
         settings.defrostStarts = (settings.defrostStarts || []).filter((x) => now - x < 12 * 3600 * 1000).concat([now]).slice(-8);
-        persist(); send(2, saveMsg());
+        saveSettingsFile();
     }
     context.set('inDefrost', inDef);
 }
