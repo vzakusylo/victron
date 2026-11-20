@@ -114,7 +114,7 @@
   </div>
 
   <div class="hpw-cards" ng-if="msg.payload.summary">
-    <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">Outdoor sensor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
     <div class="hpw-card" title="Compressor current, DP 112 (nameplate max {{msg.payload.summary.compressorMaxA}} A)"><div class="k">Compressor current</div><div class="v">{{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}<span class="u">A</span></div><div class="s" ng-if="msg.payload.summary.compressorA !== null">of {{msg.payload.summary.compressorMaxA}} A</div></div>
     <div class="hpw-card" title="Load = input power ≈ current × {{msg.payload.summary.compressorPowerBasis}} / nameplate max {{msg.payload.summary.unitMaxW}} W (= current / {{msg.payload.summary.compressorMaxA}} A). Frequency shown against the highest seen ({{msg.payload.summary.compressorMaxHz}} Hz).">
@@ -173,7 +173,7 @@
         <h4>Heating curve (P22 {{msg.payload.curveChart.enabled === null ? '?' : (msg.payload.curveChart.enabled ? 'ON' : 'OFF')}} · P23 {{msg.payload.curveChart.p23}} °C · P24 {{msg.payload.curveChart.p24}})</h4>
         <div class="hpw-note" ng-if="msg.payload.curveChart.boilerActive">DHW cycle: the pump runs on the boiler / stop curve now (P23 {{msg.payload.curveChart.pumpP23}} / P24 {{msg.payload.curveChart.pumpP24}}). This chart shows the stored heating curve; it is written back at the end of the cycle.</div>
         <div class="hpw-sub">Heating set point = {{msg.payload.curveChart.formula}}, limited to 20–60 °C.
-          <span ng-if="msg.payload.curveChart.target !== null">Now: outdoor {{msg.payload.curveChart.outdoor}} °C → curve {{msg.payload.curveChart.target}} °C · reported set {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C</span>
+          <span ng-if="msg.payload.curveChart.target !== null">Now: {{msg.payload.curveChart.outdoorText}} → curve {{msg.payload.curveChart.target}} °C · reported set {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C · outdoor sensor {{msg.payload.curveChart.sensor === null ? '—' : msg.payload.curveChart.sensor}} °C</span>
         </div>
         <svg viewBox="0 0 600 240" class="hpw-curve-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heating curve">
           <g class="grid">
@@ -229,6 +229,18 @@
           <span class="lbl" ng-if="hp.heatModeSent !== null">sent, waiting for the controller…</span>
           <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b><span ng-if="msg.payload.heatCtl.boost"> + curve <b>+{{msg.payload.heatCtl.boost}} °C</b></span> · point <b>{{msg.payload.heatCtl.target === null ? '—' : msg.payload.heatCtl.target + ' °C'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
           <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.warm">
+            <span ng-if="!msg.payload.heatCtl.warm.active">
+              Warm up the house: +<input type="number" ng-model="hp.warmDelta" ng-init="hp.warmDelta = hp.warmDelta || msg.payload.heatCtl.warm.deltaC" min="0.5" max="5" step="0.5" style="width:4em"> °C for
+              <input type="number" ng-model="hp.warmHours" ng-init="hp.warmHours = hp.warmHours || msg.payload.heatCtl.warm.hours" min="0.5" max="6" step="0.5" style="width:4em"> h
+              <button ng-click="hpWarm(true)" title="Raise the followed heating point above your curve for a while; your curve comes back by itself.">Warm up</button>
+            </span>
+            <span ng-if="msg.payload.heatCtl.warm.active">
+              Warm-up <b>+{{msg.payload.heatCtl.warm.deltaC}} °C</b> until <b>{{msg.payload.heatCtl.warm.until | date:'HH:mm'}}</b>
+              <span ng-if="msg.payload.heatCtl.warm.note" style="color:#da3633"> · {{msg.payload.heatCtl.warm.note}}</span>
+              <button class="on" ng-click="hpWarm(false)">Stop warm-up</button>
+            </span>
+          </span>
           <span class="lbl" ng-if="!msg.payload.heatCtl.fresh"> · controller data is old</span>
           <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.kick.phase || msg.payload.heatCtl.kick.why || msg.payload.heatCtl.kick.last">stuck-supply kick: <b ng-if="msg.payload.heatCtl.kick.phase">Smart now</b> {{msg.payload.heatCtl.kick.why}}<span ng-if="msg.payload.heatCtl.kick.last"> · last kick {{msg.payload.heatCtl.kick.last | date:'HH:mm'}}</span></span>
@@ -240,6 +252,8 @@
             <label title="current limit, % of 9.67 A">max current <input type="number" ng-model="hp.heat.ampPct" ng-change="hp.heatDirty=true"> %</label>
             <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
             <label title="after the top mode: raise the curve 1 °C per step above yours (P23, then P24 above P23 40), at most this">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
+            <label title="Follow the curve point with a band: the pump stops at point + up and restarts at point − down (pump hysteresis DP 121 = up − down, at least 2 °C). Your hysteresis comes back when the band is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> band</label>
+            <label ng-if="hp.heat.band">down −<input type="number" ng-model="hp.heat.bandDown" ng-change="hp.heatDirty=true" min="0" max="4" step="0.5" style="width:3.5em"> / up +<input type="number" ng-model="hp.heat.bandUp" ng-change="hp.heatDirty=true" min="2" max="8" step="0.5" style="width:3.5em"> °C</label>
             <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatSave()">Save</button>
             <button ng-disabled="!hp.heatDirty" ng-click="hpHeatReset()">Reset</button>
@@ -285,6 +299,13 @@
             {{msg.payload.dhwChart.shower.enabled ? 'Stop forced DHW' : msg.payload.dhwChart.shower.state === 'stopping' ? 'Stopping forced DHW' : 'Enable early shower starts'}}
           </button>
           <span class="lbl">{{msg.payload.dhwChart.shower.state}}<span ng-if="hp.showerSent !== null"> · request sent</span></span>
+          <button ng-if="msg.payload.dhwChart.shower.manual && !msg.payload.dhwChart.shower.manual.queued && !msg.payload.dhwChart.shower.manual.running && !msg.payload.dhwChart.shower.active"
+            ng-click="hpForceRun(true)" title="Start one boiler run now, or right after a running defrost, before house heating.">Force boiler run</button>
+          <button class="on" ng-if="msg.payload.dhwChart.shower.manual && (msg.payload.dhwChart.shower.manual.queued || msg.payload.dhwChart.shower.manual.running)"
+            ng-click="hpForceRun(false)">{{msg.payload.dhwChart.shower.manual.running ? 'Stop forced boiler run' : 'Cancel forced boiler run'}}</button>
+          <span class="lbl" ng-if="msg.payload.dhwChart.shower.manual && msg.payload.dhwChart.shower.manual.queued">
+            forced run queued since {{msg.payload.dhwChart.shower.manual.at | date:'HH:mm'}}, expires {{msg.payload.dhwChart.shower.manual.until | date:'HH:mm'}}<span ng-if="msg.payload.dhwChart.shower.manual.why"> · waiting: {{msg.payload.dhwChart.shower.manual.why}}</span></span>
+          <span class="lbl" ng-if="msg.payload.dhwChart.shower.manual && msg.payload.dhwChart.shower.manual.running">forced boiler run in progress</span>
           <span class="lbl" ng-if="hp.showerError" style="color:#da3633">{{hp.showerError}}</span>
           <span class="lbl" ng-if="msg.payload.dhwChart.shower.motionAt">last local motion {{msg.payload.dhwChart.shower.motionAt | date:'HH:mm:ss'}}</span>
           <span class="lbl" ng-if="msg.payload.dhwChart.shower.dropC !== null">tank drop {{msg.payload.dhwChart.shower.dropC}} °C in 3 min</span>
@@ -508,8 +529,9 @@
     scope.hpHeatSave = function () {
         var c = scope.hp.heat;
         if (!c) return;
-        var cfg = { allowPowerful: !!c.allowPowerful };
-        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        var cfg = { allowPowerful: !!c.allowPowerful, band: !!c.band };
+        ['lagUp', 'overC', 'gapMax', 'stepMin', 'ampPct', 'maxBoost', 'kickMin', 'kickSec', 'bandDown', 'bandUp'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        if (cfg.band && cfg.bandUp - cfg.bandDown < 2) { alert('Band: up − down must be at least 2 °C (the pump hysteresis cannot go lower).'); return; }
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
@@ -524,6 +546,20 @@
         scope.hp.heatModeSent = m; scope.hp.heatModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: m } });
     };
+    // P3: warm-up raises the followed heating point for a while; the controller writes your curve back at the end.
+    scope.hpWarm = function (on) {
+        if (!on) { scope.send({ topic: 'ui', payload: { action: 'heatWarm', on: false } }); return; }
+        var dC = Number(scope.hp.warmDelta), h = Number(scope.hp.warmHours);
+        if (!(dC >= 0.5 && dC <= 5) || !(h >= 0.5 && h <= 6)) { alert('Warm-up: 0.5–5 °C for 0.5–6 h.'); return; }
+        scope.send({ topic: 'ui', payload: { action: 'heatWarm', on: true, deltaC: dC, hours: h } });
+            };
+    // P2: one forced boiler run; it waits for a running defrost to end, then takes priority over heating.
+    scope.hpForceRun = function (on) {
+        var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
+        if (!d || !d.shower || !d.shower.manual) return;
+        if (on && !confirm('Force one boiler (DHW) run now?\nIf a defrost is running it starts right after it, before house heating. The DHW target, faults, the DHW block and the controller mode still apply. The request expires after 3 h if it cannot start.')) return;
+        if (!on && !confirm('Cancel the forced boiler run?' + (d.shower.manual.running ? '\nThe running forced cycle returns to heating.' : ''))) return;
+        scope.send({ topic: 'ui', payload: { action: 'dhwForceRun', on: on } });    };
     scope.hpDhwResume = function () {
         if (!confirm('Allow DHW cycles again?\nThe last cycle was aborted (Er03 or the 3-way valve switched from outside). Check the valve first.')) return;
         scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });

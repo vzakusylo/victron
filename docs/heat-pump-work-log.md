@@ -135,6 +135,17 @@ live revision, existing wiring target and safe window, then verified that every 
 The ordinary runner used `-AllowLiveOnlyLines` only after the historical code was reviewed and
 its replacement explicitly approved. Remote migration staging files were removed.
 
+### 2026-11-20: the pump's own outdoor value (d#196)
+
+GX recorder, 07:00-09:00, heating (P23 39 / P24 4): the pump reported heating set DP 125 = 36 °C the whole time, which is
+`20 + 0.4 × (39 − x)` at x = −1 °C, a steady ambient value. Its live sensor DP 103 read −8 … −3 °C with the compressor running
+(the fan pulls cold air over it), +21 … +50 °C in defrosts and +8 … +16 °C just after them. So the curve is not computed from DP 103.
+Effects before the fix: the page showed "curve 38.4 °C" against the pump's 36 °C; the heating controller saw the supply about 3 °C short
+and kicked Silent → Smart for nothing; the DHW boiler P23 (d#191) followed DP 103 down by ~6 °C once the compressor ran and asked ~7 °C
+less than intended. Fix: `pumpOutdoor(P23, P24, set) = P23 − (set − 20) / (P24 / 10)` is latched in `40` while it is trustworthy and used for the
+heating lag, the heating controller's point, the DHW boiler curve (kept for the whole cycle) and the page (`34`, label "pump outdoor … (from its set point)");
+older than 3 h or never valid → the old average / live-sensor rules, labelled "fallback".
+
 ## Errors and incidents (8–11 Nov)
 
 Everything that went wrong, in order, with the effect on the house and what was done.

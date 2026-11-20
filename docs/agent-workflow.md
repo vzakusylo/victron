@@ -102,6 +102,6 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
 4. Medium or higher in changed code is fixed on the same branch. Low and Nit may move to the next branch or to Known limitations.
 5. Production `flows.json` and `NN *.js` are not changed in Test GX work. A bug found by a scenario is marked `expected_fail`; its fix gets its own PR.
 6. Real backups, substitution maps and keys stay outside the repository and the Docker image.
-7. Mutating Test GX API calls (`/set`, `/fail`, `/reset`) and any access to the live GX need explicit owner permission, scoped as in the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually). Merging a PR, resolving review threads and deleting a remote branch always need a separate request.
+7. Live-GX access, pushing to master, deleting remote branches and removing Docker data volumes need an explicit owner request (see the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually)). Local Test GX calls (`/set`, `/fail`, `/reset`) and everything else in a task run without asking.
 8. Repository code, docs and commits are in English.
 9. Keep reports short: branch, SHA, PR, test count, what was not checked.

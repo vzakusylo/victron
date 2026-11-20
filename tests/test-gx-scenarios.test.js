@@ -13,6 +13,7 @@ const {
     faketimeRate,
     junitXml,
     loadScenarios,
+    main,
     parseDuration,
     parseYaml,
     runScenario: runWithAdmin,
@@ -401,6 +402,128 @@ test('expected_fail scenarios are distinguished from failures and unexpected pas
     const xml = junitXml(results);
     assert.match(xml, /expected_fail: BUG-heatpump-1/);
     assert.match(xml, /name="unexpected pass" time="[\d.]+"><failure/);
+});
+
+test('a hung scenario times out on its own and the run continues', async () => {
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [{ when: '0s', settle: '0s', expect: { writes: [] } }] };
+    const api = { post: async () => ({ ok: true }), getState: async () => ({}), getWrites: async () => [] };
+    let first = true;
+    const results = await runScenarios([hung, { ...hung, name: 'next' }], {
+        api,
+        waitReady: false,
+        setFaketime: async () => { if (first) { first = false; await new Promise(() => {}); } },
+        restoreFaketime: false,
+        scenarioTimeoutMs: 50
+    });
+    assert.deepEqual(results.map(r => r.status), ['fail', 'pass']);
+    assert.match(results[0].message, /timed out after \d+ s/);
+});
+
+test('a timed-out scenario is cleaned up before the next one starts', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [step] };
+    const events = [];
+    let current;
+    let verifies = 0;
+    const api = {
+        post: async () => {
+            events.push(`start ${current}`);
+            if (current === 'hung') await new Promise(() => {});
+            return { ok: true };
+        },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    const admin = {
+        verifyDeployed: async () => {
+            if (++verifies % 2 === 1) return;
+            await new Promise(resolve => setTimeout(resolve, 30));
+            events.push(`cleanup ${current}`);
+        }
+    };
+    const results = await runScenarios([hung, { ...hung, name: 'next' }], {
+        api, admin,
+        waitReady: false,
+        setFaketime: async () => { current = current === undefined ? 'hung' : 'next'; },
+        restoreFaketime: false,
+        scenarioTimeoutMs: 150
+    });
+    assert.deepEqual(results.map(r => r.status), ['fail', 'pass']);
+    assert.match(results[0].message, /timed out/);
+    assert.deepEqual(events, ['start hung', 'cleanup hung', 'start next', 'cleanup next']);
+});
+
+test('the run stops when the cleanup of a timed-out scenario does not finish', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const hung = { name: 'hung', faketime: '@2026-11-16 12:00:00', steps: [step] };
+    const started = [];
+    let verifies = 0;
+    const api = {
+        post: async () => { started.push('post'); await new Promise(() => {}); },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    const admin = { verifyDeployed: async () => { if (++verifies > 1) await new Promise(() => {}); } };
+    const results = [];
+    await assert.rejects(runScenarios([hung, { ...hung, name: 'next' }], {
+        api, admin,
+        waitReady: false,
+        setFaketime: async () => {},
+        restoreFaketime: false,
+        scenarioTimeoutMs: 20,
+        cleanupGraceMs: 50,
+        onResult: result => results.push(result)
+    }), /cleanup did not finish/);
+    assert.deepEqual(started, ['post']);
+    assert.deepEqual(results.map(r => r.status), ['fail']);
+});
+
+test('a run stopped on the cleanup grace timeout still writes JUnit with the earlier results', async () => {
+    const step = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const base = { faketime: '@2026-11-16 12:00:00', steps: [step] };
+    let current;
+    const api = {
+        post: async () => { if (current === 'hung') await new Promise(() => {}); return { ok: true }; },
+        getState: async () => ({}),
+        getWrites: async () => []
+    };
+    let verifies = 0;
+    const admin = { verifyDeployed: async () => { if (++verifies > 2) await new Promise(() => {}); } };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-junit-'));
+    const junit = path.join(dir, 'out.xml');
+    const log = console.log;
+    console.log = () => {};
+    try {
+        await assert.rejects(main(['--junit', junit], {
+            scenarios: [{ ...base, name: 'first' }, { ...base, name: 'hung' }, { ...base, name: 'never' }],
+            api, admin, waitReady: false, restoreFaketime: false,
+            setFaketime: async value => { if (value) current = current === undefined ? 'first' : 'hung'; },
+            scenarioTimeoutMs: 30, cleanupGraceMs: 50
+        }), /cleanup did not finish/);
+    } finally {
+        console.log = log;
+    }
+    try {
+        const xml = fs.readFileSync(junit, 'utf8');
+        assert.match(xml, /tests="2"/);
+        assert.match(xml, /name="first"/);
+        assert.match(xml, /name="hung"[\s\S]*<failure/);
+        assert.doesNotMatch(xml, /name="never"/);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('duplicate scenario names are rejected when loading', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-dup-'));
+    try {
+        const body = 'name: same\nfaketime: "@2026-11-16 12:00:00"\nsteps:\n  - when: 0s\n    settle: 0s\n    expect:\n      writes: []\n';
+        fs.writeFileSync(path.join(dir, 'a.yml'), body);
+        fs.writeFileSync(path.join(dir, 'b.yml'), body);
+        assert.throws(() => loadScenarios(dir), /Duplicate scenario name "same" in b\.yml and a\.yml/);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('trivial scenario YAML is checked in and matches the runner smoke contract', () => {
