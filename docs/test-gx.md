@@ -551,7 +551,7 @@ Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the
 
 ## CI
 
-**Status: green.** Manual run [44640333689](https://github.com/vzakusylo/victron/actions/runs/44640333689)
+**Status: green.** Manual run [44649823238](https://github.com/vzakusylo/victron/actions/runs/44649823238)
 passed on `test-gx-ci-green`; the workflow also runs on pull requests that change `flows.json`,
 root `*.js`, `tools/test-gx/**` or the workflow file. A scenario that exceeds its time limit
 (20 minutes, `TEST_GX_SCENARIO_TIMEOUT_MS`) fails by itself and the run continues. The
