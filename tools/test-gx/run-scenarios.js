@@ -529,7 +529,8 @@ async function runScenario(scenario, options = {}) {
     const rawClock = options.setFaketime || setFaketime;
     // The body is abortable; the cleanup in `finally` uses the raw handles and always runs to completion.
     const api = abortable(options.api || createApi(options.baseUrl), signal);
-    const admin = abortable(rawAdmin, signal);
+    // preserveSettings, preserveController and loadSettings must finish so restore() always runs; only ready is open-ended.
+    const admin = { ...rawAdmin, ready: abortable(rawAdmin, signal).ready };
     const clock = abortable({ clock: rawClock }, signal).clock;
     const rawWait = options.wait || (ms => new Promise(resolve => setTimeout(resolve, ms)));
     const wait = abortable({ wait: rawWait }, signal).wait;
@@ -752,7 +753,7 @@ function trivialScenario() {
     };
 }
 
-async function main(args = process.argv.slice(2)) {
+async function main(args = process.argv.slice(2), overrides = {}) {
     const options = { baseUrl: DEFAULT_API };
     let selfTest = false;
     for (let i = 0; i < args.length; i++) {
@@ -783,10 +784,19 @@ async function main(args = process.argv.slice(2)) {
         options.setFaketime = async () => {};
         options.restoreFaketime = false;
     }
+    const { scenarios: injectedScenarios, ...injectedOptions } = overrides;
+    if (injectedScenarios) scenarios = injectedScenarios;
+    Object.assign(options, injectedOptions);
     options.onResult = result => console.log(
         `${result.status === 'pass' ? 'PASS' : result.status === 'expected_fail' ? 'EXPECTED_FAIL' : 'FAIL'} ${result.name}${result.message ? `: ${result.message}` : ''}`);
     options.onProgress = result => console.log(`RUNNING ${result.name}: ${Math.floor(result.durationMs / 60000)} real min elapsed`);
-    const results = await runScenarios(scenarios, options);
+    let results;
+    let stopError;
+    try { results = await runScenarios(scenarios, options); } catch (error) {
+        if (!error.results) throw error;
+        stopError = error;
+        results = error.results;
+    }
     const junitPath = options.junitPath || process.env.TEST_GX_JUNIT || DEFAULT_JUNIT;
     fs.mkdirSync(path.dirname(path.resolve(junitPath)), { recursive: true });
     fs.writeFileSync(junitPath, junitXml(results), 'utf8');
@@ -795,6 +805,7 @@ async function main(args = process.argv.slice(2)) {
         counts[result.status]++;
     }
     console.log(`Scenarios: ${counts.pass} passed, ${counts.fail} failed, ${counts.expected_fail} expected_fail; JUnit: ${junitPath}`);
+    if (stopError) throw stopError;
     if (counts.fail) process.exitCode = 1;
 }
 
@@ -814,6 +825,7 @@ module.exports = {
     faketimeRate,
     junitXml,
     loadScenarios,
+    main,
     parseDuration,
     parseYaml,
     runScenario,
