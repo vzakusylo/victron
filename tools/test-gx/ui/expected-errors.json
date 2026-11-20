@@ -1,10 +1,1 @@
-{
-  "ui-tab-heatpump-01": [
-    {
-      "type": "console",
-      "text": "Error: [$parse:syntax] http://errors.angularjs.org/1.8.3/$parse/syntax?p0=-&p1=is%20unexpected%2C%20expecting%20%5B%7D%5D&p2=46&p3=%7Bbackground%3A%20e.color%2C%20height%3A%20'8px'%2C%20vertical-align%3A%20'0'%7D&p4=-align%3A%20'0'%7D\n    at http://127.0.0.1:1881/ui/js/app.min.js:28:168\n    at q.throwError (http://127.0.0.1:1881/ui/js/app.min.js:271:200)\n    at q.consume (http://127.0.0.1:1881/ui/js/app.min.js:271:375)\n    at q.object (http://127.0.0.1:1881/ui/js/app.min.js:271:110)\n    at q.primary (http://127.0.0.1:1881/ui/js/app.min.js:267:151)\n    at q.unary (http://127.0.0.1:1881/ui/js/app.min.js:266:503)\n    at q.multiplicative (http://127.0.0.1:1881/ui/js/app.min.js:266:249)\n    at q.additive (http://127.0.0.1:1881/ui/js/app.min.js:266:76)\n    at q.relational (http://127.0.0.1:1881/ui/js/app.min.js:265:416)\n    at q.equality (http://127.0.0.1:1881/ui/js/app.min.js:265:241) <i ng-style=\"{background: e.color, height: '8px', vertical-align: '0'}\">",
-      "bug": "flows-hp-template-parse",
-      "node": "hp-hist-template-01"
-    }
-  ]
-}
+{}
