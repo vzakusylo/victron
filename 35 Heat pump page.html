@@ -114,7 +114,7 @@
   </div>
 
   <div class="hpw-cards" ng-if="msg.payload.summary">
-    <div class="hpw-card"><div class="k">Outdoor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
+    <div class="hpw-card"><div class="k">Outdoor sensor</div><div class="v">{{msg.payload.summary.outdoor}}<span class="u">°C</span></div></div>
     <div class="hpw-card"><div class="k">Compressor</div><div class="v">{{msg.payload.summary.compressorHz}}<span class="u">Hz</span></div></div>
     <div class="hpw-card" title="Compressor current, DP 112 (nameplate max {{msg.payload.summary.compressorMaxA}} A)"><div class="k">Compressor current</div><div class="v">{{msg.payload.summary.compressorA === null ? '—' : msg.payload.summary.compressorA}}<span class="u">A</span></div><div class="s" ng-if="msg.payload.summary.compressorA !== null">of {{msg.payload.summary.compressorMaxA}} A</div></div>
     <div class="hpw-card" title="Load = input power ≈ current × {{msg.payload.summary.compressorPowerBasis}} / nameplate max {{msg.payload.summary.unitMaxW}} W (= current / {{msg.payload.summary.compressorMaxA}} A). Frequency shown against the highest seen ({{msg.payload.summary.compressorMaxHz}} Hz).">
@@ -173,7 +173,7 @@
         <h4>Heating curve (P22 {{msg.payload.curveChart.enabled === null ? '?' : (msg.payload.curveChart.enabled ? 'ON' : 'OFF')}} · P23 {{msg.payload.curveChart.p23}} °C · P24 {{msg.payload.curveChart.p24}})</h4>
         <div class="hpw-note" ng-if="msg.payload.curveChart.boilerActive">DHW cycle: the pump runs on the boiler / stop curve now (P23 {{msg.payload.curveChart.pumpP23}} / P24 {{msg.payload.curveChart.pumpP24}}). This chart shows the stored heating curve; it is written back at the end of the cycle.</div>
         <div class="hpw-sub">Heating set point = {{msg.payload.curveChart.formula}}, limited to 20–60 °C.
-          <span ng-if="msg.payload.curveChart.target !== null">Now: outdoor {{msg.payload.curveChart.outdoor}} °C → curve {{msg.payload.curveChart.target}} °C · reported set {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C</span>
+          <span ng-if="msg.payload.curveChart.target !== null">Now: {{msg.payload.curveChart.outdoorText}} → curve {{msg.payload.curveChart.target}} °C · reported set {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C · outdoor sensor {{msg.payload.curveChart.sensor === null ? '—' : msg.payload.curveChart.sensor}} °C</span>
         </div>
         <svg viewBox="0 0 600 240" class="hpw-curve-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heating curve">
           <g class="grid">

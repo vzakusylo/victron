@@ -68,6 +68,9 @@
 //    only the two ends are set, the rest is read-only like the heating curve): chart lines without
 //    the 0.5 °C rounding, dhwChart.table at -20…15 °C, dhwChart.formula, svg yMin / yMax / outMin /
 //    outMax for the edit preview on the page.
+// 13. d#195: curveChart.outdoor = the pump's own outdoor value (flow.dhwView.pumpOut from 40, derived from the reported
+//    set point), fallback the 10-min sensor average / DP 103; outdoorSource 'pump' | 'sensor', outdoorText for the page,
+//    sensor = DP 103 (shown as "outdoor sensor").
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
@@ -226,7 +229,15 @@ function buildCurveChart(d) {
     const p24 = boilerActive ? dv.heatCurve.p24 : num(d['134']);
     if (p23 === null || p24 === null) return null;
     const enabled = d['132'] === undefined ? null : String(d['132']) === '1' || d['132'] === true;
-    const outdoor = num(d['103']);
+    const sensor = num(d['103']);
+    // d#195: the curve point uses the outdoor value the pump computes its set point from (latched by 40 from DP 125),
+    // else the 10-min sensor average, else DP 103; `sensor` stays visible as the outdoor sensor
+    const dvFresh = !!(dv && dv.at && Date.now() - dv.at <= DHW_VIEW_STALE_MS);
+    const po = dvFresh && dv.pumpOut && Number.isFinite(dv.pumpOut.v) && Date.now() - dv.pumpOut.at < 3 * 3600 * 1000 ? dv.pumpOut : null;
+    const fb = dvFresh && dv.outAvg !== null && dv.outAvg !== undefined ? dv.outAvg : sensor;
+    const outdoor = po ? po.v : fb;
+    const outdoorSource = po ? 'pump' : 'sensor';
+    const outdoorText = po ? 'pump outdoor ' + po.v + ' °C (from its set point)' : fb === null ? 'no outdoor value' : 'sensor ' + fb + ' °C (fallback)';
     const supply = num(d['102']);
     const reported = num(d['125']);
 
@@ -258,6 +269,9 @@ function buildCurveChart(d) {
         formula: `${CURVE_BASE_C} + ${p24 / 10} × (${p23} − outdoor)`,
         table: [-20, -15, -10, -5, 0, 5, 10, 15].map((t) => ({ out: t, set: curveTarget(p23, p24, t) })),
         outdoor,
+        outdoorSource,
+        outdoorText,
+        sensor,
         target,
         reported,
         supply,
