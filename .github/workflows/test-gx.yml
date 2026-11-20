@@ -9,7 +9,7 @@ on:
 permissions: {}
 
 # `scenarios` is a required check, so the workflow has no paths filter: every PR gets the check.
-# Pushes to master are never cancelled, so each merge either deploys or shows why not.
+# Only PR runs cancel an in-progress run in their concurrency group.
 concurrency:
   group: test-gx-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -17,7 +17,8 @@ concurrency:
 jobs:
   scenarios:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # Real-time DHW scenarios added to the existing suite exceeded the 75-minute budget.
+    timeout-minutes: 120
     permissions:
       contents: read
     env:
@@ -37,15 +38,13 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          base=""
-          [[ "$EVENT" == "pull_request" ]] && base="$BASE_SHA"
-          [[ "$EVENT" == "push" ]] && base="$BEFORE_SHA"
           relevant=true
-          if [[ -n "$base" && "$base" =~ ^[0-9a-f]{40}$ && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
-            changed="$(git diff --name-only "$base" HEAD -- \
+          # A successful master push can authorize deployment, even after an earlier failed run.
+          if [[ "$EVENT" == "pull_request" && "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$BASE_SHA" HEAD -- \
               flows.json ':(glob)*.js' ':(glob)tools/**' ':(glob)scripts/gx-*.ps1' .github/workflows/test-gx.yml)"
             if [[ -z "$changed" ]]; then
               relevant=false

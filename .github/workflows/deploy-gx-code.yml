@@ -42,7 +42,7 @@ jobs:
       sha: ${{ steps.gate.outputs.sha }}
     steps:
       # workflow_run checks out the default branch, so the gate script is trusted code, not the tested commit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: tools/gx/deploy-gate.js
           sparse-checkout-cone-mode: false

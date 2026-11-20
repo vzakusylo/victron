@@ -76,10 +76,18 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
   assert.match(deploy, /"\$MODE" == "apply" && "\$CONFIRM" != "deploy-gx-code"/);
 });
 
-test('test-gx workflow: no paths filter, scenarios job, master pushes not cancelled', () => {
+test('test-gx workflow: required check always reports; only PRs cancel in-progress runs', () => {
   assert.doesNotMatch(testGx, /^\s+paths:/m);
   assert.match(testGx, /^  scenarios:/m);
   assert.match(testGx, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.match(testGx, /':\(glob\)tools\/\*\*'/);
   assert.match(testGx, /scripts\/gx-\*\.ps1/);
+});
+
+test('test-gx workflow: only PRs can skip scenarios based on changed paths', () => {
+  const detect = testGx.split('name: Detect relevant changes')[1].split('\n      - ')[0];
+  assert.match(detect, /relevant=true\s+(?:#[^\n]*\n\s*)?if \[\[ "\$EVENT" == "pull_request" &&/);
+  assert.match(detect, /if \[\[ "\$EVENT" == "pull_request" &&[\s\S]+?git diff --name-only "\$BASE_SHA" HEAD[\s\S]+?relevant=false\s+fi\s+fi/);
+  assert.doesNotMatch(detect, /github\.event\.before/);
+  assert.match(testGx, /name: Run all scenarios\s+if: steps\.changes\.outputs\.relevant == 'true'/);
 });
