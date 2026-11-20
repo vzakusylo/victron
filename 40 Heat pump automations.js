@@ -817,7 +817,7 @@ function defrostForecast() {
 function boostedCurve(heat, P23, P24) {
     const h = context.get('heat') || {};
     if (!heat) return false;
-    return (h.boost > 0 && !!h.curveCmd && P23 === h.curveCmd.p23 && P24 === h.curveCmd.p24) || (!!h.p23At && now - h.p23At < 2 * MIN);
+    return ((h.boost > 0 || h.warmApplied > 0) && !!h.curveCmd && P23 === h.curveCmd.p23 && P24 === h.curveCmd.p24) || (!!h.p23At && now - h.p23At < 2 * MIN);
 }
 // d#194: never write the settings file before it has been read. On 20 Nov 00:36 the d#193 redeploy started the
 // node with default settings (local control OFF); a motion visit saved them over the real file before 'load'
@@ -1210,6 +1210,26 @@ function dhwTick() {
     context.set('dhw', d);
 }
 
+// ---- warm-up boost (P3) ------------------------------------------------------------
+// The operator raises the followed heating point by deltaC for a while; the owner's curve comes back by itself.
+const WARM_DEFAULTS = { deltaC: 2, hours: 1 };
+const WARM_LIMITS = { deltaC: [0.5, 5], hours: [0.5, 6] };
+function warmCfg(raw) {
+    if (!raw || !Number.isFinite(raw.at) || !Number.isFinite(raw.until) || !Number.isFinite(raw.deltaC)) return null;
+    if (raw.deltaC < WARM_LIMITS.deltaC[0] || raw.deltaC > WARM_LIMITS.deltaC[1]) return null;
+    if (raw.until <= raw.at || raw.until - raw.at > WARM_LIMITS.hours[1] * 3600 * 1000) return null;
+    return { at: raw.at, until: raw.until, deltaC: raw.deltaC };
+}
+function warmDelta() {
+    const w = settings.heatWarm;
+    if (!w) return 0;
+    if (w.until <= now) {
+        settings.heatWarm = null; saveSettingsFile();
+        logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: 'warm-up ended: following your heating curve again' });
+        return 0;
+    }
+    return w.deltaC;
+}
 // ---- heating power controller tick (d#166) ----------------------------------------
 function heatState() { return ctx('heat', { samples: [], boost: 0, p23At: 0, target: null, lastStep: 0, modeCmd: null, modeAt: 0, why: '', decision: '', lag: null, gap: null, run: null }); }
 function heatModel() {
@@ -1217,6 +1237,8 @@ function heatModel() {
     const H = (st.hp && st.hp.dps) || {};
     return { mode: modeOf(HEAT_ID), cfg: c, lag: h.lag, gap: h.gap, why: h.why, decision: h.decision, lastStep: h.lastStep,
         kick: (() => { const k = context.get('kick') || {}; return { phase: k.phase || null, last: k.last || 0, why: k.why || '' }; })(),
+        warm: (() => { const w = settings.heatWarm; return w && w.until > now ? { active: true, at: w.at, until: w.until, deltaC: w.deltaC, applied: h.warmApplied || 0, note: h.warmNote || '' }
+            : { active: false, deltaC: WARM_DEFAULTS.deltaC, hours: WARM_DEFAULTS.hours, limits: WARM_LIMITS }; })(),
         pumpMode: MODE_NAME[H['2']] || H['2'] || null, outSrc: h.outSrc || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
 }
 function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel(), pumpOut: pumpOutNow() })); }
@@ -1233,29 +1255,32 @@ function heatTick() {
     if (V['1'] === true) hold.push('valve on DHW');
     if (H['1'] !== true) hold.push('heat pump off');
     if (!HEAT_LADDER.includes(H['2'])) hold.push('pump mode ' + H['2'] + ' unknown');
+    // controller not On (Off or Test) → the owner's curve back now; a boost or warm-up only exists while it is On
+    // (local control OFF: nothing can be written, the boost and its bookkeeping stay)
+    const ownerCurveBack = () => {
+        const hc0 = settings.heatCurve;
+        if (!(h.boost || h.warmApplied) || !hc0 || md === 'live' || !settings.master || !ready('hp')) return;
+        const q = context.get('queue') || [];
+        for (const w of [p24w(hc0.p24), p23w(hc0.p23)]) {
+            q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
+            logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: 'controller ' + MODE_LABEL[md] + ' → curve boost / warm-up off, ' + w.text });
+        }
+        context.set('queue', q);
+        pump();
+        h.boost = 0; h.warmApplied = 0; h.curveCmd = null;
+    };
     if (hold.length) {
         // d#171: a curve boost ends with the hold: a DHW cycle writes the owner's curve back at its end itself;
         // controller Off (or not On) → the owner's P23 back now
         // d#177 (review of #21): other holds (pump off, stale, valve, unknown mode) keep the boost and its bookkeeping, so the
         // boosted P23 / P24 is never stored as the owner's curve
         const dhwRun = !!(d.state && d.state !== 'HEATING');
-        if (h.boost && (dhwRun || md !== 'live')) {
-            const hc0 = settings.heatCurve;
-            if (hc0 && !dhwRun && md !== 'live' && settings.master && ready('hp')) {
-                const q = context.get('queue') || [];
-                for (const w of [p24w(hc0.p24), p23w(hc0.p23)]) {
-                    q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: w.role, dps: w.dps, set: w.set, text: w.text, force: true });
-                    logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: 'controller ' + MODE_LABEL[md] + ' → curve boost off, ' + w.text });
-                }
-                context.set('queue', q);
-                pump();
-                h.boost = 0;
-            } else if (dhwRun) h.boost = 0;   // the DHW cycle writes the owner's curve back at its end
-            // (Off / Test with local control OFF: nothing can be written, the boost and its bookkeeping stay)
-        }
+        if (dhwRun) { h.boost = 0; h.warmApplied = 0; }   // the DHW cycle writes the owner's curve back at its end
+        else ownerCurveBack();
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
         context.set('heat', h); return;
     }
+    ownerCurveBack();   // Test mode adds no hold: On → Test must still put the owner's curve back (PR #65 review)
     // d#170: a defrost (bypass ON, compressor stop, supply drop) and the recovery after it are ignored: no samples,
     // no step, and the samples from before the defrost are kept, so the window continues after it
     const defNowH = n(H['116']) === 0 && n(H['115']) > 30;
@@ -1280,11 +1305,14 @@ function heatTick() {
     const po = pumpOutNow();
     const xh = po ? po.v : d.outAvg;
     h.outSrc = po ? 'pump' : 'sensor';
-    const set = hc && Number.isFinite(xh) ? +heatCurveAt(hc.p23, hc.p24, xh).toFixed(1) : num(H['125']);
+    const base = hc && Number.isFinite(xh) ? +heatCurveAt(hc.p23, hc.p24, xh).toFixed(1) : num(H['125']);
+    // P3: a warm-up raises the followed point; it needs the owner's curve to write a raised one
+    const wd = hc && Number.isFinite(xh) ? warmDelta() : 0;
+    const set = Number.isFinite(base) ? +(base + wd).toFixed(1) : base;
     h.target = Number.isFinite(set) ? set : null;
     // boost bookkeeping: the pump shows the owner's curve again (DHW end, slider) → boost 0
     // (or any other curve than the one written: the owner moved the slider, a DHW cycle wrote its own)
-    if (h.boost && !(h.p23At && now - h.p23At < 2 * MIN) && !(h.curveCmd && P23 === h.curveCmd.p23 && num(H['134']) === h.curveCmd.p24)) { h.boost = 0; h.curveCmd = null; }
+    if ((h.boost || h.warmApplied) && !(h.p23At && now - h.p23At < 2 * MIN) && !(h.curveCmd && P23 === h.curveCmd.p23 && num(H['134']) === h.curveCmd.p24)) { h.boost = 0; h.warmApplied = 0; h.curveCmd = null; }
     if ([sup, ret, set].every(Number.isFinite)) h.samples.push([now, sup - set, sup - ret, Number.isFinite(amp) ? amp : null]);
     h.samples = h.samples.filter((x) => now - x[0] <= HEAT_WINDOW_MIN * MIN);
     const full = h.samples.length >= 20 && now - h.samples[0][0] >= (HEAT_WINDOW_MIN - 1) * MIN;
@@ -1302,12 +1330,32 @@ function heatTick() {
     // Down: the curve boost first, then the mode. Powerful while it is not allowed → down at once.
     let steps = null, act = '', nb = boost;
     const curveSteps = (b) => {
-        const cc = b > 0 ? curveCoeffs(set + b, xh, hc.p24) : { p23: hc.p23, p24: hc.p24 };
+        const total = wd + b;   // warm-up offset + controller boost, both above the owner's curve
+        const cc = total > 0 ? curveCoeffs(base + total, xh, hc.p24) : { p23: hc.p23, p24: hc.p24 };
         const out = [];
         if (cc.p24 !== num(H['134'])) out.push(p24w(cc.p24));
         if (cc.p23 !== P23) out.push(p23w(cc.p23));
         return { cc, out };
     };
+    // P3: a new or ended warm-up is written at once (not after the 10-min step); the controller then works on top of it
+    if (hc && Number.isFinite(base) && Number.isFinite(xh) && wd !== (h.warmApplied || 0) && md === 'live' && settings.master) {
+        const cs = curveSteps(boost);
+        const act = wd ? 'warm-up +' + wd + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'warm-up over, curve back to ' + (boost ? 'boost +' + boost : 'yours') + ' (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')';
+        h.run = now + ':' + HEAT_ID + ':warm'; h.warmApplied = wd; h.p23At = now; h.curveCmd = wd + boost > 0 ? cs.cc : null;
+        h.samples = []; h.why = act;
+        if (cs.out.length) {
+            const q = context.get('queue') || [];
+            for (const s of cs.out) {
+                q.push({ rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, role: s.role, dps: s.dps, set: s.set, text: s.text });
+                logEvent({ kind: 'write', rule: HEAT_ID, cloud: HEAT_NAME, run: h.run, live: true, text: act + ': ' + s.text });
+            }
+            context.set('queue', q);
+            pump();
+        }
+        context.set('heat', h); return;
+    }
+    h.warmNote = wd && !(md === 'live' && settings.master) ? 'warm-up needs the heating controller On and local control ON' : '';
+    if (settings.heatWarm && settings.heatWarm.until > now && !wd) h.warmNote = !hc ? 'warm-up waits: your heating curve is not stored yet' : 'warm-up waits: no outdoor average yet';
     if (cur > top) { steps = [mode(HEAT_LADDER[top])]; act = MODE_NAME[HEAT_LADDER[top]]; }
     else if (dec.step > 0 && cur < top) { steps = [mode(HEAT_LADDER[cur + 1])]; act = MODE_NAME[HEAT_LADDER[cur + 1]]; }
     else if (dec.step > 0 && hc && Number.isFinite(set) && Number.isFinite(xh) && boost < c.maxBoost) {
@@ -1318,7 +1366,7 @@ function heatTick() {
     else if (dec.step < 0 && boost > 0 && hc && Number.isFinite(set) && Number.isFinite(xh)) {
         nb = Math.max(0, boost - 1);
         const cs = curveSteps(nb);
-        steps = cs.out.length ? cs.out : null; act = nb ? 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'curve back to yours (P23 ' + hc.p23 + ' / P24 ' + hc.p24 + ')';
+        steps = cs.out.length ? cs.out : null; act = nb ? 'curve +' + nb + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')'         : wd ? 'curve back to warm-up +' + wd + ' °C (P23 ' + cs.cc.p23 + ' / P24 ' + cs.cc.p24 + ')' : 'curve back to yours (P23 ' + hc.p23 + ' / P24 ' + hc.p24 + ')';
         if (!steps) h.boost = nb;
     }
     else if (dec.step < 0 && cur > 0) { steps = [mode(HEAT_LADDER[cur - 1])]; act = MODE_NAME[HEAT_LADDER[cur - 1]]; }
@@ -1330,7 +1378,7 @@ function heatTick() {
     const live = md === 'live' && settings.master;
     h.run = now + ':' + HEAT_ID; h.lastStep = now;
     if (steps[0].dps === 2) { h.modeCmd = steps[0].set; h.modeAt = now; }
-    else { h.boost = nb; h.p23At = now; h.curveCmd = nb ? curveSteps(nb).cc : null; }
+    else { h.boost = nb; h.p23At = now; h.curveCmd = wd + nb > 0 ? curveSteps(nb).cc : null; }   // the warm-up stays written after a boost step-down
     h.samples = [];   // the next decision only sees the new mode / curve
     h.why = dec.why + ' → ' + act;
     for (const s of steps) {
@@ -1415,9 +1463,9 @@ if (msg.topic === 'load') {
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
             showerLastStart: s.showerLastStart && typeof s.showerLastStart.id === 'string' && Number.isFinite(s.showerLastStart.at) ? s.showerLastStart : null,
+            heatWarm: warmCfg(s.heatWarm),
             dhwManual: s.dhwManual && Number.isFinite(s.dhwManual.at) && Number.isFinite(s.dhwManual.until)
-                && s.dhwManual.until > s.dhwManual.at && s.dhwManual.until - s.dhwManual.at <= MANUAL_QUEUE_MS ? { at: s.dhwManual.at, until: s.dhwManual.until } : null,
-            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
+                && s.dhwManual.until > s.dhwManual.at && s.dhwManual.until - s.dhwManual.at <= MANUAL_QUEUE_MS ? { at: s.dhwManual.at, until: s.dhwManual.until } : null,            dhwUsage: usageCfg(s.dhwUsage), dhwUsageLastSeen: Number.isFinite(s.dhwUsageLastSeen) ? s.dhwUsageLastSeen : Number.isFinite(s.dhwUsageLastVisit) ? s.dhwUsageLastVisit : 0 };
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
@@ -1437,6 +1485,27 @@ if (msg.topic === 'load') {
 // ---- ui -----------------------------------------------------------------------
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
+    if (p.action === 'heatWarm') {
+        if (typeof p.on !== 'boolean') { node.warn('Heat pump automations: bad warm-up value'); return null; }
+        let text;
+        if (p.on) {
+            const deltaC = p.deltaC === undefined ? WARM_DEFAULTS.deltaC : Number(p.deltaC);
+            const hours = p.hours === undefined ? WARM_DEFAULTS.hours : Number(p.hours);
+            if (!Number.isFinite(deltaC) || deltaC < WARM_LIMITS.deltaC[0] || deltaC > WARM_LIMITS.deltaC[1]
+                || !Number.isFinite(hours) || hours < WARM_LIMITS.hours[0] || hours > WARM_LIMITS.hours[1]) {
+                node.warn('Heat pump automations: warm-up out of range'); return null;
+            }
+            settings.heatWarm = { at: now, until: now + Math.round(hours * 3600 * 1000), deltaC: Math.round(deltaC * 2) / 2 };
+            text = 'warm-up started: heating point +' + settings.heatWarm.deltaC + ' °C for ' + hours + ' h';
+        } else {
+            settings.heatWarm = null;
+            text = 'warm-up cancelled: following your heating curve again';
+        }
+        persist();
+        logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text });
+        publishView();
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
     if (p.action === 'dhwForceRun') {
         if (typeof p.on !== 'boolean') { node.warn('Heat pump automations: bad force run value'); return null; }
         const d = dhwState();
@@ -1457,8 +1526,7 @@ if (msg.topic === 'ui') {
             }
         }
         persist();
-        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text });
-        publishView();
+        logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text });        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'dhwShowerForce') {

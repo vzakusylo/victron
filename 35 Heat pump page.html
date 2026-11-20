@@ -229,6 +229,18 @@
           <span class="lbl" ng-if="hp.heatModeSent !== null">sent, waiting for the controller…</span>
           <span class="lbl">pump mode <b>{{msg.payload.heatCtl.pumpMode || '—'}}</b><span ng-if="msg.payload.heatCtl.boost"> + curve <b>+{{msg.payload.heatCtl.boost}} °C</b></span> · point <b>{{msg.payload.heatCtl.target === null ? '—' : msg.payload.heatCtl.target + ' °C'}}</b> · supply − set (10 min) <b>{{msg.payload.heatCtl.lag === null ? '—' : msg.payload.heatCtl.lag + ' °C'}}</b> · supply − return <b>{{msg.payload.heatCtl.gap === null ? '—' : msg.payload.heatCtl.gap + ' °C'}}</b></span>
           <span class="lbl" ng-if="msg.payload.heatCtl.master === false" style="color:#da3633">Local control is OFF (Automations tab): the controller does not write.</span>
+          <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.warm">
+            <span ng-if="!msg.payload.heatCtl.warm.active">
+              Warm up the house: +<input type="number" ng-model="hp.warmDelta" ng-init="hp.warmDelta = hp.warmDelta || msg.payload.heatCtl.warm.deltaC" min="0.5" max="5" step="0.5" style="width:4em"> °C for
+              <input type="number" ng-model="hp.warmHours" ng-init="hp.warmHours = hp.warmHours || msg.payload.heatCtl.warm.hours" min="0.5" max="6" step="0.5" style="width:4em"> h
+              <button ng-click="hpWarm(true)" title="Raise the followed heating point above your curve for a while; your curve comes back by itself.">Warm up</button>
+            </span>
+            <span ng-if="msg.payload.heatCtl.warm.active">
+              Warm-up <b>+{{msg.payload.heatCtl.warm.deltaC}} °C</b> until <b>{{msg.payload.heatCtl.warm.until | date:'HH:mm'}}</b>
+              <span ng-if="msg.payload.heatCtl.warm.note" style="color:#da3633"> · {{msg.payload.heatCtl.warm.note}}</span>
+              <button class="on" ng-click="hpWarm(false)">Stop warm-up</button>
+            </span>
+          </span>
           <span class="lbl" ng-if="!msg.payload.heatCtl.fresh"> · controller data is old</span>
           <span class="lbl" style="flex-basis:100%">{{msg.payload.heatCtl.why}}</span>
           <span class="lbl" style="flex-basis:100%" ng-if="msg.payload.heatCtl.kick.phase || msg.payload.heatCtl.kick.why || msg.payload.heatCtl.kick.last">stuck-supply kick: <b ng-if="msg.payload.heatCtl.kick.phase">Smart now</b> {{msg.payload.heatCtl.kick.why}}<span ng-if="msg.payload.heatCtl.kick.last"> · last kick {{msg.payload.heatCtl.kick.last | date:'HH:mm'}}</span></span>
@@ -531,14 +543,20 @@
         scope.hp.heatModeSent = m; scope.hp.heatModeAt = Date.now();
         scope.send({ topic: 'ui', payload: { action: 'mode', id: 'heat', mode: m } });
     };
+    // P3: warm-up raises the followed heating point for a while; the controller writes your curve back at the end.
+    scope.hpWarm = function (on) {
+        if (!on) { scope.send({ topic: 'ui', payload: { action: 'heatWarm', on: false } }); return; }
+        var dC = Number(scope.hp.warmDelta), h = Number(scope.hp.warmHours);
+        if (!(dC >= 0.5 && dC <= 5) || !(h >= 0.5 && h <= 6)) { alert('Warm-up: 0.5–5 °C for 0.5–6 h.'); return; }
+        scope.send({ topic: 'ui', payload: { action: 'heatWarm', on: true, deltaC: dC, hours: h } });
+            };
     // P2: one forced boiler run; it waits for a running defrost to end, then takes priority over heating.
     scope.hpForceRun = function (on) {
         var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart;
         if (!d || !d.shower || !d.shower.manual) return;
         if (on && !confirm('Force one boiler (DHW) run now?\nIf a defrost is running it starts right after it, before house heating. The DHW target, faults, the DHW block and the controller mode still apply. The request expires after 3 h if it cannot start.')) return;
         if (!on && !confirm('Cancel the forced boiler run?' + (d.shower.manual.running ? '\nThe running forced cycle returns to heating.' : ''))) return;
-        scope.send({ topic: 'ui', payload: { action: 'dhwForceRun', on: on } });
-    };
+        scope.send({ topic: 'ui', payload: { action: 'dhwForceRun', on: on } });    };
     scope.hpDhwResume = function () {
         if (!confirm('Allow DHW cycles again?\nThe last cycle was aborted (Er03 or the 3-way valve switched from outside). Check the valve first.')) return;
         scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });
