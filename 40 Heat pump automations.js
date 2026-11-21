@@ -414,6 +414,8 @@ const FAULT_TEXT = { Er03: 'water flow failure' };
 
 // #include lib/heat-pump/kick.js
 
+// #include lib/heat-pump/idle.js
+
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
     try {
@@ -451,6 +453,10 @@ if (msg.topic === 'load') {
 // ---- ui -----------------------------------------------------------------------
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
+    if (p.action === 'utcpLog') {
+        logEvent({ kind: p.kind === 'warn' ? 'warn' : 'info', text: String(p.text || '').slice(0, 200) });
+        return null;
+    }
     if (p.action === 'heatWarm') {
         if (typeof p.on !== 'boolean') { node.warn('Heat pump automations: bad warm-up value'); return null; }
         let text;
@@ -714,6 +720,7 @@ pumpOutTick();
 dhwTick();
 heatTick();
 kickTick();
+idleTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
 publishView();
 persist();

@@ -1,0 +1,82 @@
+- name: A stopped compressor gives one Idle line with its cause, then one running-again line
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":27,"p24":5},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.15: 0
+      tuya.pump.dps.101: 26
+      tuya.pump.dps.102: 27
+      tuya.pump.dps.103: 6
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 0
+      tuya.pump.dps.116: 0
+      tuya.pump.dps.121: 3
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 27
+      tuya.pump.dps.134: 5
+  steps:
+    - when: 10m
+      settle: 3m
+      expect:
+        writes: []
+        log:
+          - contains: "Idle: supply below the restart level"
+            count: 1
+          - contains: "running again"
+            count: 0
+        view:
+          - path: idle.active
+            equals: true
+          - path: idle.code
+            equals: 9
+          - path: status.text
+            contains: "supply below the restart level"
+    - when: 14m
+      inputs:
+        tuya.pump.dps.115: 40
+        tuya.pump.dps.116: 500
+      settle: 3m
+      expect:
+        writes: []
+        log:
+          - contains: "Idle: supply below the restart level"
+            count: 1
+          - contains: "running again after"
+            count: 1
+        view:
+          - path: idle.active
+            equals: false
+
+- name: A short compressor stop is not logged
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":27,"p24":5},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.15: 0
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: 6
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 40
+      tuya.pump.dps.116: 500
+      tuya.pump.dps.121: 3
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 27
+      tuya.pump.dps.134: 5
+  steps:
+    - when: 10m
+      settle: 3m
+      expect:
+        writes: []
+        log:
+          - contains: "Idle:"
+            count: 0
+        view:
+          - path: idle.active
+            equals: false
