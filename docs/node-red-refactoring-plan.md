@@ -5,6 +5,12 @@ Status: **plan only, nothing implemented.** Written 2026-11-21 from a static pro
 one PR per item group below, each with unit tests and a Test GX run, measured before and after on the GX.
 When a task starts, add its row to `BACKLOG.md` (tasks live there); this file holds the analysis and the design.
 
+**Priority (owner, 2026-11-21): grid control first.** The energy controller (grid setpoint, DVCC charge current,
+VE.Bus input limit, HV protection, export guard, tariff hour budget) must be the most reliable part of the GX and react
+quickly to grid changes, with clear feedback that its writes took effect. Everything else (heat pump, pages, mail,
+history, sensors) is less important and must never delay or break it. Section 3a turns this into the first work items
+(G1–G6) and section 4a into the test plan; the CPU items NR2–NR7 follow and are subordinate to it.
+
 ## 1. What runs on the GX today (static profile)
 
 | Kind | Count | Notes |
@@ -53,7 +59,69 @@ about every second, so the 1.4k-line controller (and its 30 downstream nodes) ru
 | F8 | Page refresh timers run without viewers | Devices / Air quality / Payback recompute for nobody | 2-min injects, no `ui_control` gate |
 | F9 | Many single-purpose "Tag …" change nodes | 6 nodes only to set `msg.topic`; the victron input can carry the topic, or the controller can key on `msg.path` | change nodes |
 
-## 3. Refactoring plan (one PR each, in this order)
+## 3a. Grid control: reliability and feedback first (G1–G6, before NR2–NR7)
+
+Today `01 Battery + Grid Controller.js` (1,399 lines embedded; `lib/grid/constants.js` + `lib/grid/helpers.js` since
+#93) mixes the control loop with energy bookkeeping, tariff statistics, logging, trace and dashboard status in one
+node that runs on every D-Bus update. A slow or failing part (file append, statistics, a page) shares the run with the
+grid writes, and nothing checks that a written setpoint was applied.
+
+Target shape (one control loop, everything else downstream of it):
+
+```
+Victron D-Bus inputs ──► Grid inputs (store + staleness) ──► Grid control loop (2 s cadence) ──► ESS setpoint / DVCC / VE.Bus limit
+                                                                    │                                   (rate-limited writes)
+                                                                    ├──► Feedback check (read-back vs written, alarms)
+                                                                    └──► (async, best effort) energy bookkeeping, tariff
+                                                                         stats, log / CSV, trace, dashboard status
+```
+
+### G1. Split the controller into control and bookkeeping (no behaviour change)
+- Move the pure control decision into `lib/grid/control.js`: input = latest inputs + settings + small state (hour
+  budget so far, export-guard state, force-charge limiter), output = setpoint W, charge current A, grid current
+  limit A, flags + reasons. Pure, no `context`, no I/O: directly unit-testable.
+- Keep the energy / tariff bookkeeping (`advanceHourBudget`, day / month peaks, tier view), the hourly log, the CSV
+  append and the dashboard status in a **second function node** "Grid bookkeeping", fed by the control node's output
+  message. A failure or slow run there cannot delay the next control decision.
+- First PR is a pure move with a replay test proving identical outputs (see 4a); `flows.json` then has two nodes
+  instead of one; `d#` bump, normal deploy.
+
+### G2. Inputs and cadence (was NR2; F1, F2, F9)
+- As NR2 below: inputs store values (with timestamp) only; delete the 5 fixed 10 s delays and the "Tag" change nodes;
+  the control loop runs on a 2 s inject (keep last), plus **immediately** on a grid-import step above a threshold
+  (e.g. |ΔP| > 1 kW against the last decision), so a sudden load is answered in < 2 s instead of 10 s + delay.
+- Each input has a max age (e.g. grid CT 10 s, battery V 30 s, PV 60 s). A stale critical input switches the loop to
+  a **safe mode** (setpoint to the season default / no forced charge / export guard on) and raises a status flag.
+
+### G3. Feedback: did the write take effect?
+- After each write (ESS setpoint, DVCC max charge current, VE.Bus input limit) read the value back from D-Bus
+  (victron input on the same path) and compare within a tolerance and a deadline (e.g. 15 s).
+- Mismatch → retry once (respecting the rate limit), then an alarm: Automation-style log line, dashboard status
+  "grid write not applied: <path> wanted X got Y", GX notification / mail through the existing alert path, a counter
+  per day. The control loop keeps running.
+- Also watch the outcome: grid import vs the setpoint (10-s average); a sustained miss (e.g. > 500 W for 2 min while
+  the battery can deliver) is reported as "grid not following setpoint" with the likely reason (battery limit, VE.Bus
+  state, DVCC limit, HV protection).
+
+### G4. Isolation and priority on the GX
+- The grid loop has no `exec`, no file I/O, no large `JSON.stringify` in its path; bookkeeping, logs and pages are
+  downstream and best effort.
+- Throttle the heavy non-grid work (NR3 process spawns, NR4 heat pump page, NR5 automations writes) so the event loop
+  lag measured in NR1 stays low (target p95 < 100 ms); the grid loop's real cadence is measured and reported in the
+  dashboard ("control loop: last run 1.2 s ago, p95 interval 2.1 s").
+- A heartbeat: if the grid loop has not run for 10 s, raise an alarm (dashboard + mail); the existing BMS watchdog
+  stays independent.
+
+### G5. Dashboard feedback
+- One "Grid control" status block: current decision and reason, last write per output with read-back state, input
+  ages, safe-mode flag, alarm counters, loop cadence. Fed from the control loop's output (small message, every 2 s,
+  only when changed).
+
+### G6. Then the rest of `01`
+- After G1–G5, the remaining parts of `01` (energy history request, trace, hourly log message) move into the
+  bookkeeping node or `lib/grid/*.js`; `01` keeps only the wiring of the control loop.
+
+## 3. Refactoring plan (one PR each, in this order: NR1, G1–G6, then NR3–NR7)
 
 ### NR1. Measure first (no behaviour change)
 - Add a tiny "profiler" in the test fixture **and** a GX script (`scripts/gx-cpu.ps1` / `tools/gx/cpu.js`): Node-RED
@@ -61,7 +129,7 @@ about every second, so the 1.4k-line controller (and its 30 downstream nodes) ru
   hour (`/proc` sampling), event-loop lag (a 1 s inject that logs `Date.now()` drift).
 - Record the baseline in this file (section 5). Every later PR reports before/after with the same script.
 
-### NR2. Controller input path (F1, F2, F9) — biggest win
+### NR2. Controller input path (F1, F2, F9) — biggest win (done as part of G2)
 - Victron inputs: `onlyChanges: true` where a repeat value carries no information (power and voltage are re-published
   only on change anyway; check consumed Ah). Give each input its topic directly (or key on `msg.path`), delete the 6
   "Tag …" change nodes and the 5 fixed 10 s delays.
@@ -115,6 +183,36 @@ about every second, so the 1.4k-line controller (and its 30 downstream nodes) ru
   edits on the GX.
 - Do the PRs one at a time on top of each other's merges: NR2 and NR5 both touch large nodes, NR4 touches the
   heat pump chain that `hp-idle-utcp` changes now.
+
+## 4a. Test plan for the refactoring (unit + Test GX, written before each change)
+
+Rule: every G / NR PR adds its tests **before** it changes behaviour; a pure move (G1) must keep every existing test
+green and add a replay test that would catch a difference.
+
+### Unit (node:test, `tests/`)
+| Test | Covers |
+|---|---|
+| **Replay test** `tests/grid-replay.test.js`: feed recorded input sequences (one winter night, one summer day with PV, one force-charge hour, one HV event; recorded from the GX logs, anonymized, stored under `tests/fixtures/grid/`) through the old node and the new control + bookkeeping pair | identical setpoint / current / limit outputs and identical hour budget, day / month peaks (G1, G2) |
+| `lib/grid/control.js` decision table | every branch: night / morning / evening windows, season, restoration deficit, forecast cover, force charge + limiter, HV taper, grid support modes, export guard raise / release, manual discharge stop, day high-load reduction, clamps (G1) |
+| Cadence | control output independent of the input message rate (1 msg/s vs 10 msg/s), immediate run on a large grid step, no run on unchanged inputs inside the cadence (G2) |
+| Staleness / safe mode | each critical input stale → safe mode with its reason; fresh again → normal (G2) |
+| Feedback | read-back equal → ok; mismatch → one retry then alarm; deadline; "grid not following setpoint" detection and reason (G3) |
+| Heartbeat | loop silent 10 s → alarm once, cleared on the next run (G4) |
+| Bookkeeping isolation | a throwing / slow bookkeeping input does not change the control output (G1, G4) |
+| Process / write budgets | counts of `exec` starts and `context.set` per tick stay under a set budget (NR3, NR5) |
+
+### Test GX (`tools/test-gx/scenarios/`, one new file per area, added to the `files` matrix)
+| File | Scenarios |
+|---|---|
+| `charging.yml` (existing, 33) | must stay green unchanged through G1–G6; any scenario that needs a change is a behaviour change and is reviewed as such |
+| `grid-feedback.yml` (new) | write not applied (emulator ignores the ESS setpoint) → retry → alarm; DVCC limit read-back mismatch; grid import does not follow the setpoint for 2 min → report with reason |
+| `grid-reaction.yml` (new) | grid import step +3 kW → new setpoint within 2 s (+ the output rate limit); export (negative grid) → export guard reacts; return to normal |
+| `grid-stale-inputs.yml` (new) | grid CT stops updating → safe mode within its max age; battery voltage missing → safe mode; inputs back → normal |
+| `grid-isolation.yml` (new) | heat pump page / automations / mail busy (emulated load, failing exec) → grid loop cadence and outputs unchanged |
+| `grid-heartbeat.yml` (new) | control loop disabled → heartbeat alarm |
+
+Live checks after each grid PR (owner, first hour): dashboard "Grid control" block shows read-back ok and loop
+cadence ~2 s; no "not applied" alarms; grid import follows the setpoint; NR1 CPU / lag table filled in.
 
 ## 5. Measurements (fill in)
 
