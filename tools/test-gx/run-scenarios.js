@@ -318,7 +318,10 @@ function assertChangedWrites(actual, expected, before, after, scenarioName, step
         changes.push(wanted);
         baseline.set(id, wanted.value);
     }
-    assertWrites(actual, changes, scenarioName, stepIndex);
+    // Writes to different D-Bus paths come from separate flow outputs, so their order is not deterministic.
+    const byPath = (a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+    const sortable = Array.isArray(actual) && actual.every(write => write && typeof write.service === 'string' && typeof write.path === 'string');
+    assertWrites(sortable ? [...actual].sort(byPath) : actual, sortable ? [...changes].sort(byPath) : changes, scenarioName, stepIndex);
     for (const wanted of expected) {
         const id = key(wanted);
         const last = baseline.get(id);
