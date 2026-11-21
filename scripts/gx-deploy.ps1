@@ -100,6 +100,7 @@ Invoke-Git fetch --quiet origin | Out-Null
 $sha = (Invoke-Git rev-parse --verify "$Commit^{commit}").Trim()
 if (-not (Invoke-Git branch -r --contains $sha)) { Stop-Run "commit $sha is not on the remote; push it first." }
 New-Item -ItemType Directory (Join-Path $run 'tools\gx') | Out-Null
+$tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 $scripts = @('tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js')
 $helper = 'tools/gx/node-additions.js'
 if ($UseWorkTreeScripts -or $tools -contains $helper) { $scripts += $helper }
@@ -109,7 +110,6 @@ foreach ($file in $scripts) {
     try { Save-GitBlob $sha $file (Join-Path $run $file) }
     catch { Stop-Run "$file could not be read from commit $sha (merge the runner scripts first). $($_.Exception.Message)" }
 }
-$tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"
 
 Step '2/8 snapshot of the live flow'

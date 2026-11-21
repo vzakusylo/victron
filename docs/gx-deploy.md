@@ -295,6 +295,7 @@ Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a 
 - Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.
 
 Offline regression: after building the synthetic Test GX image, run `node tools/test-gx/check-deploy-additions.js`. It uses a network-isolated Node-RED container to test the six UTCP additions from `523ba74` (d#205) to `084387f` (d#206).
+When adding a runner dependency, cover both committed-script extraction and the dry-run upload in the PowerShell runner test. Running the JavaScript tools directly does not exercise those paths.
 
 The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with different code. Compare the code.
 

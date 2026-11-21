@@ -144,6 +144,56 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
     assert.throws(() => publicSummary(null, null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
 });
 
+test('runner extracts the committed additions helper and uploads it with the dry-run scripts', (t) => {
+    const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
+    if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-runner-add-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const gitShow = (file) => execFileSync('git', ['show', 'HEAD:' + file], { cwd: ROOT, maxBuffer: 1 << 27 });
+    const helper = 'tools/gx/node-additions.js';
+    const added = 'utcp-http-get-01';
+    const flows = JSON.parse(gitShow('flows.json')).filter((node) => node.id !== added);
+    const { snapshot } = require('../tools/gx/live-snapshot.js');
+    const before = require('node:zlib').gzipSync(JSON.stringify(snapshot(flows, 'test-revision', { topology: true }))).toString('base64');
+    const run = path.join(dir, 'run');
+    const result = spawnSync('pwsh', ['-NoProfile', '-Command', `
+        $realGit = (Get-Command git -CommandType Application).Source | Select-Object -First 1
+        $ErrorActionPreference = 'Stop'
+        function git {
+            # Only the two remote preflight probes are mocked; blobs still come from HEAD.
+            if ($args[2] -eq 'fetch') { $global:LASTEXITCODE = 0; return }
+            if ($args[2] -eq 'branch') { $global:LASTEXITCODE = 0; return 'origin/test' }
+            & $realGit @args
+        }
+        function ssh {
+            $global:LASTEXITCODE = 0
+            switch -Wildcard ($args[-1]) {
+                '*node - --topology' { return $env:GX_TEST_SNAPSHOT }
+                '*node - --for deploy' { return 'SAFE for deploy' }
+                '*mktemp*' { return '/tmp/gx-deploy.Test' }
+                'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
+                'rm -f /tmp/gx-deploy.Test/*' { return }
+                default { throw "Unexpected SSH arguments: $args" }
+            }
+        }
+        function scp {
+            foreach ($name in 'deploy.js','node-additions.js','plan.json') {
+                if (-not ($args | Where-Object { (Split-Path -Leaf $_) -eq $name -and (Test-Path -LiteralPath $_ -PathType Leaf) })) {
+                    throw "Missing $name in SCP upload"
+                }
+            }
+            $global:LASTEXITCODE = 0
+        }
+        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -AllowNewNodes -RunDirectory $env:GX_TEST_RUN
+        exit $LASTEXITCODE
+    `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: before,
+        GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run } });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.deepEqual(fs.readFileSync(path.join(run, helper)), gitShow(helper));
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).add, [added]);
+    assert.match(result.stdout, /DRY RUN - nothing changed/);
+});
+
 test('deployment changelog and workflow command use recorded Git commits and report missing baselines', (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-report-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
