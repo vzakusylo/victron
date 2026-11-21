@@ -69,7 +69,7 @@
           - device: pump
             operation: SET
             dps: "121"
-            value: 2.5
+            value: 3
             applied: true
 
 - name: DHW after a defrost starts about 15 min after it when the tank deficit is at least 1 degree
