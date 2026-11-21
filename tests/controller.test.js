@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { loadNode, ROOT } = require('./harness');
+const { loadNode, readSource, ROOT } = require('./harness');
 
 const CONTROLLER = '01 Battery + Grid Controller.js';
 const at = (month, day, hour, minute = 0, second = 0) => new Date(2026, month - 1, day, hour, minute, second).getTime();
@@ -172,7 +172,7 @@ test('month history restores today and the month peaks, and is requested once', 
 });
 
 test('constants: the controller and the Constants page share defaults and ranges', () => {
-    const source = fs.readFileSync(path.join(ROOT, CONTROLLER), 'utf8');
+    const source = readSource(CONTROLLER);
     const literal = source.match(/const CONSTANT_SPECS = Object\.freeze\((\{[\s\S]*?\n\})\);/)[1];
     const controllerSpecs = new Function('TARIFF_TIER_LIMITS_W', 'return ' + literal)(new Array(6));
     const page = loadNode('24 Build controller constants state.js');

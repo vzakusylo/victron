@@ -51,7 +51,7 @@ jobs:
           if [[ "$EVENT" == "pull_request" && "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
              git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             changed="$(git diff --name-only "$BASE_SHA" HEAD -- \
-              flows.json ':(glob)*.js' ':(glob)tools/**' ':(glob)scripts/gx-*.ps1' .github/workflows/test-gx.yml)"
+              flows.json ':(glob)*.js' ':(glob)lib/**' ':(glob)tools/**' ':(glob)scripts/gx-*.ps1' .github/workflows/test-gx.yml)"
             if [[ -z "$changed" ]]; then
               relevant=false
             fi

@@ -10,7 +10,8 @@ process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
     let file = '';
     try { file = (JSON.parse(raw).tool_input || {}).file_path || ''; } catch { return; }
-    if (!/^\d\d [^/\\]+\.(js|html)$/.test(path.basename(file))) return;
+    const libFile = /[/\\]lib[/\\].+\.js$/.test(file);   // included into a numbered source (tools/includes.js)
+    if (!libFile && !/^\d\d [^/\\]+\.(js|html)$/.test(path.basename(file))) return;
     const root = path.resolve(__dirname, '..', '..');
     const r = spawnSync(process.execPath, [path.join(root, 'tools', 'flows.js'), 'check'], { cwd: root, encoding: 'utf8' });
     if (r.status === 0) return;
