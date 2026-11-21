@@ -218,6 +218,14 @@ assert published[-2] == ('tuya/pump/state', {'state':'CONNECTED'})
 model.command('pump', {'operation':'SET','dps':1,'set':False})
 model.tick(1)
 assert model.power_w == 0 and model.devices['pump']['dps']['115'] == 0
+model.command('pump', {'operation':'SET','dps':1,'set':True})
+model.set('pump', '115', 69)
+model.set('pump', '116', 0)
+model.tick(1)
+assert model.devices['pump']['dps']['115'] == 69 and model.devices['pump']['dps']['116'] == 0
+model.reset()
+model.tick(1)
+assert model.devices['pump']['dps']['116'] != 0
 `;
     execFileSync(process.platform === 'win32' ? 'py' : 'python3',
         ['-B', '-c', script, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator')], { stdio: 'pipe' });

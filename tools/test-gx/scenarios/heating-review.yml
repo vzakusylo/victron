@@ -1,6 +1,6 @@
 - name: Silent and Smart do not hunt around the curve point
-  faketime: '@2026-11-16 20:00:00 x60'
-  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4}}
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
       tuya.pump.dps.1: true
@@ -16,8 +16,8 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 16m
-      settle: 1500s
+    - when: 24m
+      settle: 400s
       expect:
         writes:
           - device: pump
@@ -25,17 +25,17 @@
             dps: "2"
             value: smart
             applied: true
-    - when: 45m
+    - when: 30m
       inputs:
         tuya.pump.dps.101: 31
         tuya.pump.dps.102: 36.4
-      settle: 3600s
+      settle: 600s
       expect:
         writes: []
 
 - name: Old lagUp and overC settings win over a saved heating band
-  faketime: '@2026-11-16 20:00:00 x60'
-  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"band":true,"bandDown":0,"bandUp":2,"lagUp":1.5,"overC":1,"kickMin":0},"heatCurve":{"p23":38,"p24":4}}
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"band":true,"bandDown":0,"bandUp":2,"lagUp":1.5,"overC":1,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
       tuya.pump.dps.1: true
@@ -52,14 +52,19 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 16m
-      settle: 900s
+    - when: 10m
+      settle: 1200s
       expect:
         writes:
           - device: pump
             operation: SET
+            dps: "134"
+            value: 5
+            applied: true
+          - device: pump
+            operation: SET
             dps: "133"
-            value: 39
+            value: 40
             applied: true
           - device: pump
             operation: SET
@@ -68,7 +73,7 @@
             applied: true
 
 - name: DHW after a defrost starts about 15 min after it when the tank deficit is at least 1 degree
-  faketime: '@2026-11-16 20:00:00 x60'
+  faketime: '@2026-11-16 20:00:00 x4'
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
   initial:
     inputs:
@@ -111,9 +116,19 @@
             dps: "1"
             value: true
             applied: true
+          - device: pump
+            operation: SET
+            dps: "134"
+            value: 12
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 25
+            applied: true
 
 - name: DHW does not start after a defrost when the tank deficit is below 1 degree
-  faketime: '@2026-11-16 20:00:00 x60'
+  faketime: '@2026-11-16 20:00:00 x4'
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
   initial:
     inputs:

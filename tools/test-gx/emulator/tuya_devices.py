@@ -9,6 +9,8 @@ import time
 MODEL = json.loads(Path(__file__).with_name('tuya-model.json').read_text())
 BOILER_AMBIENT_C = 20.0
 BOILER_THERMAL_TIME_CONSTANT_S = 14 * 24 * 60 * 60
+# Pump readings a scenario sets with /set stay as set (the model would recompute them every second) until /reset
+PINNED_PUMP_DPS = ('101', '102', '115', '116')
 
 
 class TuyaDevices:
@@ -22,6 +24,7 @@ class TuyaDevices:
                                    failed=None, stale_until=0) for name, schema in MODEL.items()}
         self.boiler_temp = float(MODEL['pump']['108']['default'])
         self.power_w = 0
+        self.pins = {}
         self.energy_wh = 0
         self.last_status = {}
         if announce:
@@ -112,6 +115,8 @@ class TuyaDevices:
     def set(self, name, dp, value):
         self.validate(name, dp, value)
         self.device(name)['dps'][str(dp)] = value
+        if name == 'pump' and str(dp) in PINNED_PUMP_DPS:
+            self.pins[str(dp)] = value
         if name == 'pump' and str(dp) == '108':
             self.boiler_temp = float(value)
         self.announce(name)
@@ -143,6 +148,7 @@ class TuyaDevices:
         approach = min(1, max(0, dt) / 60)
         p['102'] = round(p['102'] + ((target if self.power_w else p['101']) - p['102']) * approach, 2)
         p['101'] = round(p['101'] + (p['102'] - p['101'] - (5 if self.power_w else 0)) * approach, 2)
+        p.update(self.pins)
         heating = running and dhw and self.power_w
         tank = self.boiler_temp
         if heating and tank < p['102']:
