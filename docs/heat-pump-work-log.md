@@ -123,6 +123,8 @@ defrost end. Old `lagUp` / `overC` always become band down / up, also with the P
 Smart returns to Silent only at lag ≥ up / 2 (no Silent ⇄ Smart hunting). One room-sensor id list in
 `50 Devices model.js` and `tools/sensor-history.js`; the second Save in Advanced is gone; the Idle reason is cut at 90 characters.
 
+d#204 (P1 / P2): the controller steps up again at once when the pump leaves the mode it set; a blocked step up (Silent at high current, Powerful not allowed, boost cap) is logged once with its reason; a 10-min supply average more than band down + 1 °C below the point for 45 min raises a *not following the curve* warning (status line, Automation log, Heat Pump page).
+
 ### PR #33 review corrections (d#186-d#187)
 
 Corrupt archive rows are skipped with visible counts and warnings, and fatal
