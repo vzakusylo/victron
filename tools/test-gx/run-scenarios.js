@@ -15,6 +15,8 @@ const DEFAULT_API = process.env.TEST_GX_API || 'http://127.0.0.1:8081';
 const DEFAULT_SCENARIO_TIMEOUT_MS = Number(process.env.TEST_GX_SCENARIO_TIMEOUT_MS) || 20 * 60 * 1000;
 const DEFAULT_CLEANUP_GRACE_MS = 3 * 60 * 1000;
 const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
+const AUTOMATIONS_NODE = 'hpa-fn-01';
+const AUTOMATIONS_FLOW = '995ac4ed6222a706';
 
 class ScenarioTimeoutError extends Error {}
 
@@ -248,6 +250,21 @@ function validateScenario(scenario, source = 'scenario') {
                 !Object.hasOwn(item, 'value')))) {
             throw new Error(`${source} step ${index + 1} expect.outputs must contain service, path, and value`);
         }
+        if (step.expect.log !== undefined && (!Array.isArray(step.expect.log) ||
+            step.expect.log.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
+                Object.keys(item).some(key => !['contains', 'count'].includes(key)) ||
+                typeof item.contains !== 'string' || !item.contains ||
+                item.count !== undefined && !(Number.isInteger(item.count) && item.count >= 0)))) {
+            throw new Error(`${source} step ${index + 1} expect.log must contain contains and an optional count`);
+        }
+        if (step.expect.view !== undefined && (!Array.isArray(step.expect.view) ||
+            step.expect.view.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
+                Object.keys(item).some(key => !['path', 'equals', 'contains'].includes(key)) ||
+                typeof item.path !== 'string' || !item.path ||
+                Object.hasOwn(item, 'equals') === Object.hasOwn(item, 'contains') ||
+                Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
+            throw new Error(`${source} step ${index + 1} expect.view must contain path and exactly one of equals or contains`);
+        }
         if (step.expect.if_changed !== undefined && (typeof step.expect.if_changed !== 'boolean' || !scenario.observe)) {
             throw new Error(`${source} step ${index + 1} if_changed requires D-Bus observe selectors`);
         }
@@ -339,6 +356,47 @@ function assertOutputs(state, expected, scenarioName, stepIndex) {
             const actual = got?.error ? `unavailable: ${got.error}` : formatValue(got?.value);
             throw new ScenarioAssertionError(
                 `${scenarioName} step ${stepIndex}: final ${JSON.stringify([wanted.service, wanted.path])} expected ${formatValue(wanted.value)}, received ${actual}`);
+        }
+    }
+}
+
+// Log events that are not in the earlier snapshot (compared as JSON, so repeated identical events still count).
+function newLogEvents(log, seen) {
+    const left = new Map(seen);
+    const fresh = [];
+    for (const event of log) {
+        const id = JSON.stringify(event);
+        if (left.get(id) > 0) left.set(id, left.get(id) - 1);
+        else fresh.push(event);
+    }
+    return fresh;
+}
+
+function logSnapshot(log) {
+    const seen = new Map();
+    for (const event of log) {
+        const id = JSON.stringify(event);
+        seen.set(id, (seen.get(id) || 0) + 1);
+    }
+    return seen;
+}
+
+function assertLog(fresh, expected, scenarioName, stepIndex) {
+    for (const wanted of expected) {
+        const count = wanted.count === undefined ? 1 : wanted.count;
+        const hits = fresh.filter(event => typeof event?.text === 'string' && event.text.includes(wanted.contains));
+        if (hits.length !== count) {
+            throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: expected ${count} new log events containing ${formatValue(wanted.contains)}, received ${hits.length}; new events: ${JSON.stringify(fresh.map(event => event?.text))}`);
+        }
+    }
+}
+
+function assertView(view, expected, scenarioName, stepIndex) {
+    for (const wanted of expected) {
+        const got = wanted.path.split('.').reduce((value, key) => value === null || value === undefined ? undefined : value[key], view);
+        const ok = Object.hasOwn(wanted, 'equals') ? isEqual(got, wanted.equals) : typeof got === 'string' && got.includes(wanted.contains);
+        if (!ok) {
+            throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: view ${wanted.path} expected ${Object.hasOwn(wanted, 'equals') ? formatValue(wanted.equals) : `text containing ${formatValue(wanted.contains)}`}, received ${formatValue(got)}`);
         }
     }
 }
@@ -438,6 +496,14 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 const encoded = await request('GET', `/context/node/e4766632305fb432/${key}`);
                 assert.equal(encoded?.format, 'number', `Controller has not received ${input}`);
                 assert.equal(Number(encoded.msg), normalize(inputs[input]), `Controller received stale ${input}`);
+            }
+        },
+        // Node-RED returns a context value as a JSON string; a large value comes back cut off, which is an error here.
+        async readContext(scope, id, key) {
+            const encoded = await request('GET', `/context/${scope}/${id}/${key}`);
+            if (!encoded || typeof encoded.msg !== 'string') return undefined;
+            try { return JSON.parse(encoded.msg); } catch {
+                throw new Error(`Cannot read ${scope} context ${key}: value is not complete JSON (${encoded.format})`);
             }
         },
         preserveSettings: () => preserveSettings(request, wait),
@@ -593,6 +659,8 @@ async function runScenario(scenario, options = {}) {
         const start = Date.now();
         let inputs = { ...scenario.initial?.inputs };
         let cursor = scenario.controller ? (await api.getWrites()).length : 0;
+        const readLog = async () => (await admin.readContext('node', AUTOMATIONS_NODE, 'log')) || [];
+        let logSeen = scenario.steps.some(step => step.expect.log) ? logSnapshot(await readLog()) : undefined;
         for (const [index, step] of scenario.steps.entries()) {
             const due = start + parseDuration(step.when, 'when') / rate;
             if (due > Date.now()) await wait(due - Date.now());
@@ -617,6 +685,14 @@ async function runScenario(scenario, options = {}) {
                 assertChangedWrites(current, step.expect.writes, before, finalState, scenario.name, index + 1);
             } else assertWrites(current, step.expect.writes, scenario.name, index + 1);
             if (step.expect.outputs) assertOutputs(finalState, step.expect.outputs, scenario.name, index + 1);
+            if (step.expect.log) {
+                const log = await readLog();
+                assertLog(newLogEvents(log, logSeen), step.expect.log, scenario.name, index + 1);
+                logSeen = logSnapshot(log);
+            } else if (logSeen) logSeen = logSnapshot(await readLog());
+            if (step.expect.view) {
+                assertView(await admin.readContext('flow', AUTOMATIONS_FLOW, 'dhwView'), step.expect.view, scenario.name, index + 1);
+            }
         }
     } catch (error) {
         failure = error;
@@ -842,6 +918,10 @@ module.exports = {
     assertWrites,
     assertChangedWrites,
     assertOutputs,
+    assertLog,
+    assertView,
+    newLogEvents,
+    logSnapshot,
     createAdmin,
     faketimeRate,
     junitXml,

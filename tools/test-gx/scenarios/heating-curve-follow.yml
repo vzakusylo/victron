@@ -1,0 +1,170 @@
+- name: Lagging supply steps Silent -> Smart -> Powerful when Powerful is allowed
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":true},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      settle: 8m
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "2"
+            value: smart
+            applied: true
+    - when: 30m
+      settle: 8m
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "2"
+            value: strong
+            applied: true
+
+- name: Powerful not allowed, Smart, then curve +1 °C, never Powerful
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      settle: 8m
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "2"
+            value: smart
+            applied: true
+    - when: 30m
+      settle: 8m
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "134"
+            value: 5
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "133"
+            value: 40
+            applied: true
+
+- name: High current in Silent blocks the step up and logs it
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.112: 9.5
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 22m
+      settle: 8m
+      expect:
+        writes: []
+        log:
+          - contains: "step up blocked: current"
+            count: 1
+
+- name: At the boost cap a wanted step up is logged once
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 22m
+      settle: 8m
+      expect:
+        writes: []
+        log:
+          - contains: "step up blocked:"
+            count: 1
+          - contains: "Powerful not allowed"
+            count: 1
+          - contains: "boost cap"
+            count: 1
+    - when: 36m
+      settle: 2m
+      expect:
+        writes: []
+        log:
+          - contains: "step up blocked:"
+            count: 0
+
+- name: Supply back at the point in Smart goes back to Silent
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.101: 31.6
+      tuya.pump.dps.102: 36.6
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 22m
+      settle: 8m
+      expect:
+        writes:
+          - device: pump
+            operation: SET
+            dps: "2"
+            value: mute
+            applied: true

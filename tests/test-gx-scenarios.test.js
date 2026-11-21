@@ -9,7 +9,11 @@ const { spawnSync } = require('node:child_process');
 const {
     ScenarioAssertionError,
     assertWrites,
+    assertLog,
+    assertView,
     createAdmin,
+    logSnapshot,
+    newLogEvents,
     faketimeRate,
     junitXml,
     loadScenarios,
@@ -78,6 +82,53 @@ test('write assertions compare write count, order and requested fields', () => {
     assert.throws(() => assertWrites([], [{ dps: '133' }], 'curve', 1), ScenarioAssertionError);
     assert.throws(() => assertWrites(actual, [{ dps: '134' }], 'curve', 1), /dps expected/);
     assert.throws(() => assertWrites([...actual, ...actual], [{ dps: '133' }], 'curve', 1), /expected 1 writes, received 2/);
+});
+
+test('log and view assertions count new log events and read dotted view paths', () => {
+    const old = { t: 1, text: 'step up blocked: current 9.5 A' };
+    const seen = logSnapshot([old]);
+    const log = [{ t: 3, text: 'not following the curve for 10 min' }, { t: 2, text: 'step up blocked: current 9.5 A' }, old];
+    const fresh = newLogEvents(log, seen);
+    assert.deepEqual(fresh.map(event => event.t), [3, 2]);
+    assert.doesNotThrow(() => assertLog(fresh, [{ contains: 'not following the curve' }, { contains: 'step up blocked', count: 1 }, { contains: 'missing', count: 0 }], 'log', 1));
+    assert.throws(() => assertLog(fresh, [{ contains: 'not following the curve', count: 2 }], 'log', 1), /expected 2 new log events/);
+    const view = { status: { text: 'Heating — NOT following the curve since 20:30' }, heat: { offCurve: { warned: true, today: 1 } } };
+    assert.doesNotThrow(() => assertView(view, [{ path: 'status.text', contains: 'NOT following' }, { path: 'heat.offCurve.today', equals: 1 }], 'view', 1));
+    assert.throws(() => assertView(view, [{ path: 'heat.offCurve.today', equals: 0 }], 'view', 1), /view heat\.offCurve\.today expected 0, received 1/);
+    assert.throws(() => assertView(view, [{ path: 'heat.nothing.here', equals: true }], 'view', 1), /received undefined/);
+});
+
+test('log and view expectations are validated', () => {
+    const base = { name: 'x', faketime: '@2026-11-16 12:00:00' };
+    const step = expect => ({ ...base, steps: [{ when: '0s', expect: { writes: [], ...expect } }] });
+    assert.doesNotThrow(() => validateScenario(step({ log: [{ contains: 'a', count: 0 }], view: [{ path: 'a.b', equals: 1 }] })));
+    assert.throws(() => validateScenario(step({ log: [{ count: 1 }] })), /expect\.log/);
+    assert.throws(() => validateScenario(step({ log: [{ contains: 'a', count: -1 }] })), /expect\.log/);
+    assert.throws(() => validateScenario(step({ view: [{ path: 'a' }] })), /expect\.view/);
+    assert.throws(() => validateScenario(step({ view: [{ path: 'a', equals: 1, contains: 'x' }] })), /expect\.view/);
+});
+
+test('a step reads only the log events that appeared since the previous step', async () => {
+    const logs = [[{ t: 1, text: 'old' }], [{ t: 2, text: 'warning' }, { t: 1, text: 'old' }], [{ t: 2, text: 'warning' }, { t: 1, text: 'old' }]];
+    const reads = [];
+    const scenario = {
+        name: 'log steps', faketime: '@2026-11-16 12:00:00',
+        steps: [
+            { when: '0s', settle: '0s', expect: { writes: [], log: [{ contains: 'warning', count: 1 }], view: [{ path: 'a', equals: 5 }] } },
+            { when: '0s', settle: '0s', expect: { writes: [], log: [{ contains: 'warning', count: 0 }] } }
+        ]
+    };
+    await runScenario(scenario, {
+        api: { post: async () => {}, getWrites: async () => [] },
+        waitReady: false, setFaketime: async () => {}, wait: async () => {},
+        admin: {
+            readContext: async (scope, id, key) => {
+                reads.push(`${scope}/${key}`);
+                return key === 'log' ? logs[Math.min(reads.filter(r => r === 'node/log').length - 1, 2)] : { a: 5 };
+            }
+        }
+    });
+    assert.deepEqual(reads, ['node/log', 'node/log', 'flow/dhwView', 'node/log']);
 });
 
 test('full Er03 scenario rejects every missing or reordered command', () => {

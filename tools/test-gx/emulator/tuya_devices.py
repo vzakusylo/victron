@@ -10,7 +10,7 @@ MODEL = json.loads(Path(__file__).with_name('tuya-model.json').read_text())
 BOILER_AMBIENT_C = 20.0
 BOILER_THERMAL_TIME_CONSTANT_S = 14 * 24 * 60 * 60
 # Pump readings a scenario sets with /set stay as set (the model would recompute them every second) until /reset
-PINNED_PUMP_DPS = ('101', '102', '115', '116')
+PINNED_PUMP_DPS = ('101', '102', '112', '115', '116')
 
 
 class TuyaDevices:

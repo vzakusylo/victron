@@ -402,6 +402,17 @@ and terminal value. A step whose output should remain unchanged uses
 `expect.if_changed: false` with `expect.writes: []`; add `expect.outputs` to assert the
 terminal D-Bus values without requiring a write. Default assertions retain their exact
 count/order semantics.
+Heat-pump steps can also assert the Automation log and the Heat Pump page model. `expect.log` is a
+list of `contains` text and an optional `count` (default 1, exactly) over the log events that
+appeared since the previous step (`count: 0` asserts absence). `expect.view` is a list of `path`
+(dotted, into the automation node's `flow.dhwView`, for example `status.text` or
+`heat.offCurve.today`) with either `equals` or `contains`. The runner reads both from the
+Node-RED context API; a value too large for it to return whole is an error.
+`heating-curve-follow.yml` (P1, step up) and `heating-curve-monitor.yml` (P2, not following the
+curve) use them. They run at `x3`: the heating controller needs 20 ticks (10 s real each) inside its
+10-min window, so a faster clock never fills it; the first decision comes after the 15-min
+quiet period and the 10-min window (about 25 fake min), `offCurveMin` is set to 10-15 min to keep the
+monitor cases near 15 real min each, and the two files run as separate CI jobs.
 Charging stops Node-RED, resets actuator values through `/reset` with `{"outputs":true}`,
 checks the actual defaults (-1 A DVCC, 0 W setpoint, 25 A input limit), and stages inputs
 before Node-RED starts; settings are then applied and
@@ -440,7 +451,7 @@ The automation tick inject starts 60 real seconds after Node-RED startup, then r
 used by the running stack. If a separate Compose override is required, set `TEST_GX_COMPOSE_OVERRIDE`
 to its absolute path; the runner uses it when recreating Node-RED.
 
-The checked-in YAML has 33 charging scenarios, one trivial smoke scenario and seven heat-pump scenarios. Unit
+The checked-in YAML has 33 charging scenarios, one trivial smoke scenario and 21 heat-pump scenarios. Unit
 tests additionally cover the individual decisions and all 17 read paths (three variants each:
 missing, stale, and NaN). The deploy-window decision is covered directly in a unit test because
 the runner observes emulator writes, not the deploy CLI's WAIT verdict.
