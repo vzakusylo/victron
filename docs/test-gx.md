@@ -560,7 +560,7 @@ earlier red run 44573678310 was on an older `master` commit (`9fc2f5d`) and fail
 proxy function-hash check; current `master` no longer reproduces it.
 
 Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. The single
-job has a 120-minute limit. It builds the repository-only synthetic fixture, runs all checked-in scenarios,
+job has a 240-minute limit. It builds the repository-only synthetic fixture, runs all checked-in scenarios,
 and summarizes their JUnit results. Expected failures are skipped; an unexpected pass fails
 the job. The `test-gx-logs` artifact retains JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. Every new Test GX branch adds its scenarios to this job.
