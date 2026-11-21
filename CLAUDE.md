@@ -60,10 +60,24 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
 
 ## Agents
 
-Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file
-(`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'`). **Copilot model: `gpt-6.2-sol`** for every
-new task (exact id; `gpt-sol-6.2` is rejected, and without `--model` Copilot uses its own default). One agent per worktree. Copilot's rules:
-`.github/copilot-instructions.md`; the loop: `docs/agent-workflow.md`. Every report ends with the branch name.
+Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file.
+**Copilot model: `gpt-6.2-sol`** for every new task (exact id; `gpt-sol-6.2` is rejected, and without `--model`
+Copilot uses its own default). One agent per worktree. Copilot's rules: `.github/copilot-instructions.md`; the loop:
+`docs/agent-workflow.md`. Every report ends with the branch name.
+
+**Every new Copilot task runs as a Herdr worker** (since 2026-11-21), so Claude can send corrections and ask for
+progress instead of the owner relaying text:
+1. `herdr status` must say `running` (else start `herdr` in its own terminal; never restart a running server without
+   the owner: it kills all workers).
+2. `herdr-task.ps1 new <branch> -Base origin/master` → worktree `~\.herdr\worktrees\victron\<branch>`, Copilot on
+   `gpt-6.2-sol` as agent `w-<branch>`.
+3. Write `.copilot-brief-<branch>.md` in that worktree (goal, context, steps, tests, delivery: PR + auto-merge).
+4. `herdr-task.ps1 send <branch> "Read .copilot-brief-<branch>.md and do all of it."`; later `send` for corrections /
+   "progress?", `read <branch>` to look without interrupting, `wait <branch>` until idle / blocked.
+5. After the PR merges: `herdr-task.ps1 close <branch>`.
+`herdr-task.ps1` is the owner's `herdr-worker` skill script (`~\.claude\skills\herdr-worker\`). A plain
+`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'` in a terminal is the fallback when Herdr is not
+available; then nobody can type into it except the owner.
 
 Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, auto-merge), `test-gx-local` (Docker
 scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP).

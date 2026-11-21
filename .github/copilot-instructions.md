@@ -47,3 +47,8 @@ Outside the branch:
 
 Use the model `gpt-6.2-sol` for every task in this repository (start with `copilot --allow-all --model gpt-6.2-sol`). If the session runs on another model, say so in the first line of the report.
 
+# Herdr workers
+
+New tasks are started as Herdr workers (one worktree under `~\.herdr\worktrees\victron\<branch>`). Claude may type
+into your pane: a correction or `progress?`. Answer in 2–5 lines (done, now, next, blockers), then continue the task.
+
