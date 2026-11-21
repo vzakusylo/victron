@@ -76,7 +76,41 @@ Victron D-Bus inputs ──► Grid inputs (store + staleness) ──► Grid co
                                                                          stats, log / CSV, trace, dashboard status
 ```
 
+### G0. Dependency: Test GX coverage first (gate before G1)
+No grid refactoring PR (G1–G6, NR2) starts until **all** of these are true on `master`:
+1. The existing grid scenarios below are green on master Test GX **twice in a row** (no flaky run), and none is
+   `expected_fail` without a linked fix.
+2. The replay test `tests/grid-replay.test.js` (section 4a) is merged and green against today's `01` (it records the
+   reference outputs the refactoring must keep).
+3. The new Test GX files `grid-reaction.yml` and `grid-stale-inputs.yml` (section 4a) are merged and green against
+   today's behaviour (they describe what today does; where today is wrong, mark `expected_fail` with the G item that
+   fixes it). `grid-feedback.yml`, `grid-isolation.yml`, `grid-heartbeat.yml` come with G3 / G4 because the behaviour
+   they test does not exist yet.
+4. Every G / NR PR lists in its description which scenarios below cover the lines it changes; an uncovered decision
+   gets a scenario in the same PR, before the change.
+
+Existing coverage, `tools/test-gx/scenarios/charging.yml` (33 scenarios) mapped to the grid control areas:
+
+| Area (control decision) | Existing scenarios (charging.yml) | Refactoring items that must keep them green |
+|---|---|---|
+| Night / morning / evening windows, restoration deficit | night deficit exceeds morning capacity · night leaves a restorable deficit for morning · morning restores a deficit · morning respects the Ah deadband · accepts a positive-sign BMS deficit · stops outside restoration windows · evening does not restore capacity | G1, G2, G6 |
+| Season profiles (summer / winter, setpoint and current limit) | summer morning keeps the current limit · summer night uses the night profile | G1, G2 |
+| Solar forecast (morning hold, deficit cover, stale data) | morning solar hold has an HTTP positive control · morning solar hold is off at 53.7 V · forecast can cover the entire morning deficit · night subtracts the HTTP forecast from its deficit · rejects stale future previous-day and NaN forecast metadata · rejects a previous-day forecast younger than 18 hours · a valid zero forecast does not suppress restoration | G1, G2 (staleness), G6 |
+| Force charge and its limiter | force mode overrides the outside window · force current is not capped at scheduled 25 A · force current scales to the summer grid cap · force limiter starts tapers holds and releases · force mode needs a nonzero power request · force mode cannot charge above available grid power | G1, G2 |
+| High-voltage protection and grid support | HV full voltage scales scheduled current · HV start threshold is exclusive · disabled HV protection does not taper · HV grid support also scales the current · restoration blocks adaptive discharge support · adaptive support can discharge outside restoration | G1, G2, G3 (read-back of DVCC) |
+| Export guard | export guard raises and releases the DVCC limit · export guard never lowers scheduled charging | G1, G2 (immediate run on a grid step), G3 |
+| Day high load | day high load reduces scheduled current proportionally | G1, G2 |
+| Manual discharge | manual discharge overrides force mode and stops at low voltage | G1, G2 |
+| Safe defaults | invalid protection file falls back to safe defaults | G1, G2 (safe mode) |
+
+Not covered today, added before the matching G item: grid-import step reaction time (`grid-reaction.yml`, before G2),
+stale / missing inputs (`grid-stale-inputs.yml`, before G2), write not applied / grid not following the setpoint
+(`grid-feedback.yml`, with G3), busy non-grid flows (`grid-isolation.yml`, with G4), silent loop (`grid-heartbeat.yml`,
+with G4), hour-budget roll-over and tariff day / month peaks (unit replay test, before G1), midnight / DST / month
+change (Test GX plan item 5 in `BACKLOG.md`, before G6).
+
 ### G1. Split the controller into control and bookkeeping (no behaviour change)
+Depends on G0.
 - Move the pure control decision into `lib/grid/control.js`: input = latest inputs + settings + small state (hour
   budget so far, export-guard state, force-charge limiter), output = setpoint W, charge current A, grid current
   limit A, flags + reasons. Pure, no `context`, no I/O: directly unit-testable.
@@ -121,7 +155,7 @@ Victron D-Bus inputs ──► Grid inputs (store + staleness) ──► Grid co
 - After G1–G5, the remaining parts of `01` (energy history request, trace, hourly log message) move into the
   bookkeeping node or `lib/grid/*.js`; `01` keeps only the wiring of the control loop.
 
-## 3. Refactoring plan (one PR each, in this order: NR1, G1–G6, then NR3–NR7)
+## 3. Refactoring plan (one PR each, in this order: NR1, G0 (tests first), G1–G6, then NR3–NR7)
 
 ### NR1. Measure first (no behaviour change)
 - Add a tiny "profiler" in the test fixture **and** a GX script (`scripts/gx-cpu.ps1` / `tools/gx/cpu.js`): Node-RED
