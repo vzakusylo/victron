@@ -108,6 +108,22 @@ test('38: heat pump history does not count meter power while the meter is stale'
     assert.equal(day.runH, 1, 'heat pump values still count');
 });
 
+test('33: the UTCP control switch is off by default, set only by its own actions and cleared by disable', () => {
+    const node = loadNode('33 MCP page.js');
+    const on = node.run({ topic: 'mcp-command', payload: { action: 'utcpControlOn' } }).result[1];
+    assert.match(on.payload, /printf on > "[^"]+utcp-control\.txt"/);
+    const off = node.run({ topic: 'mcp-command', payload: { action: 'utcpControlOff' } }).result[1];
+    assert.doesNotMatch(off.payload, /printf on/);
+    assert.match(node.run({ topic: 'mcp-command', payload: { action: 'disable' } }).result[1].payload, /: > "[^"]+utcp-control\.txt"/);
+    assert.equal(node.run({ topic: 'mcp-command', payload: { action: 'refresh' } }).result[0].payload.utcpControl, false);
+    node.run({ topic: 'mcp-exec', mcpStep: 'load', payload: '@@TOKEN abc123\n@@UCTL on\n' });
+    assert.equal(node.flow.get('utcpControl'), true);
+    node.run({ topic: 'mcp-exec', mcpStep: 'load', payload: '@@TOKEN abc123\n@@UCTL \n' });
+    assert.equal(node.flow.get('utcpControl'), false);
+    node.run({ topic: 'mcp-exec', mcpStep: 'disable', payload: '@@TOKEN \n@@UCTL on\n' });
+    assert.equal(node.flow.get('utcpControl'), false, 'no token, no control');
+});
+
 test('33: disabling MCP leaves an empty token file, so a restart does not enable it again', () => {
     const node = loadNode('33 MCP page.js');
     const disable = node.run({ topic: 'mcp-command', payload: { action: 'disable' } }).result[1];

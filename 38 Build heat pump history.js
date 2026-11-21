@@ -10,6 +10,7 @@
 // Input:
 // - msg.payload = stdout of the exec node: `#day YYYY-MM-DD [cached]` markers, each followed
 //   by the decompressed hour files of that day (hp1 sections)
+// - Output 2 (only for a day request that carries msg.utcp, from the UTCP server 62): the day's event lane, back to 62.
 // - msg.topic = 'summary' (last 14 days) | 'day' (one day, msg.day)
 // Output (1) -> ui_template "Heat pump history":
 // - { topic: 'hpHistory', payload: { kind: 'summary', days: [stats…] } }
@@ -28,7 +29,13 @@
 // Event lane (d#130): chart.events = segments of heating (compressor runs), DHW (valve ON),
 // preheat (bypass ON, valve OFF, set point ≥ 40) and defrost (fan 0 while the compressor runs
 // > 30 Hz, plus the bypass time after it at a heating set point).
+// Idle and gap segments (H11 / H13): kind 'idle' = compressor stopped outside DHW / defrost, tooltip
+// with the cause from the recorder column `idl` (stops < 1 min are not drawn; files before the
+// column say "cause not recorded"); kind 'gap' = a hole of > 150 s between records or a heat pump
+// that is not connected, tooltip with the reason (the `mk` marker of the next row: "node start d#N").
+// chart.events[].tip is the full tooltip text; both kinds are counted in the legend.
 // Change notes:
+// 13. H11 / H13: idle and gap segments in the event lane (see above).
 // 1. Initial version (d#121).
 // 10. d#154: meter power (`pw`) is ignored while the meter state letter is not C (a stale /
 //    offline meter no longer adds kWh at its last reading).
@@ -62,6 +69,12 @@ const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'E
     'Er18', 'Er20', 'Er21', 'Er23', 'Er26', 'Er27', 'Er29', 'Er32', 'Er33', 'Er34', 'Er42', 'Er62',
     'Er63', 'Er64', 'Er66', 'Er67', 'Er68', 'Er69', 'Er70'];
 const faultCodes = (v) => FAULT_LABELS.filter((_, i) => (Number(v) & (1 << i)) !== 0).join(' ');
+// Idle cause codes of the recorder column `idl` (36), same table as IDLE_CAUSES in lib/heat-pump/idle.js (never renumbered)
+const IDLE_LABELS = { 1: 'heat pump not connected / data stale', 2: 'heat pump off', 3: 'pump fault', 4: 'controller Off', 5: 'after a defrost (quiet period)',
+    6: 'after a DHW cycle', 7: 'curve point reached', 8: 'pump hysteresis (waiting for the restart level)', 9: 'supply below the restart level, compressor not starting' };
+const GAP_STATE = { N: 'connecting', D: 'disconnected', E: 'in error', U: 'state unknown', S: 'data stale' };
+const GAP_S = 150;       // a hole between two records longer than this is a gap in the event lane
+const IDLE_MIN_S = 60;   // shorter idle stops are not drawn
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
@@ -94,6 +107,7 @@ function parse(text) {
     let hpState = 'U';
     let meterState = 'U';
     let motionSection = false;
+    let sectionStart = false, idlCode = 0;   // d#206: new recorder section, idle cause code (column `idl`)
     for (const line of String(text).split(/\r?\n/)) {
         if (!line) continue;
         if (line.startsWith('#day ')) {
@@ -124,6 +138,10 @@ function parse(text) {
             const cols = m[3].split(',');
             idx = KEYS.map((k) => cols.indexOf(k));
             idx.m6 = cols.indexOf('m6');
+            idx.idl = cols.indexOf('idl');
+            idx.mk = cols.indexOf('mk');
+            sectionStart = true;
+            idlCode = 0;
             last = KEYS.map(() => null);
             hpState = 'U';
             meterState = 'U';
@@ -147,11 +165,14 @@ function parse(text) {
             last[K.mv] = va ? va.v : null;
             last[K.ma] = va ? va.a : null;
         }
+        if (idx.idl > 1 && cells[idx.idl] !== undefined && cells[idx.idl] !== '') idlCode = Number(cells[idx.idl]) || 0;
+        const mark = idx.mk > 1 && cells[idx.mk] !== undefined && cells[idx.mk] !== '' && cells[idx.mk] !== '-' ? cells[idx.mk] : '';
         const a = last.slice();
         // An empty `pw` field means "unchanged", so a meter that went stale or offline would keep
         // its last power for hours: the power only counts while the meter letter is C.
         if (meterState !== 'C') { a[K.pw] = null; a[K.mv] = null; a[K.ma] = null; }
-        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', a });
+        days[day].rows.push({ s: hour * 3600 + t, ok: hpState === 'C', st: hpState, a, idl: idlCode, hasIdl: idx.idl > 1, mk: mark, sec: sectionStart });
+        sectionStart = false;
     }
     order.forEach((d) => days[d].rows.sort((x, y) => x.s - y.s));
     return { days, order };
@@ -319,11 +340,24 @@ function chart(rows, dv) {
     for (let h = 0; h <= 24; h += 3) xTicks.push({ label: pad(h % 24) + ':00', x: +(L + h / 24 * (W - L - R)).toFixed(1) });
 
     // event lane between the two charts: what the heat pump did, from the recorded states
-    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf', error: '#da3633' };
+    const EV = { heating: '#2ca02c', dhw: '#ff7f0e', preheat: '#e377c2', defrost: '#17becf', error: '#da3633', idle: '#8b949e', gap: '#d29922' };
     const xs = (s) => +(L + s / 86400 * (W - L - R)).toFixed(1);
     const events = [];
+    const pushEv = (kind, s1, s2, extra) => {
+        const last = events[events.length - 1];
+        const tip = extra.tip || '';
+        if (last && last.kind === kind && last.tip === tip && s1 - last.s2 <= MAX_DT) last.s2 = Math.max(last.s2, s2);
+        else events.push(Object.assign({ kind, s1, s2, tip, codes: '' }, extra));
+    };
     for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
+        const nextRow = rows[i + 1];
+        const stopS = nextRow ? Math.min(nextRow.s, r.s + MAX_DT) : r.s + 30;
+        // H13: a hole in the records or a heat pump that is not connected is a gap with its reason
+        if (!r.ok) pushEv('gap', r.s, stopS, { tip: 'Gap: heat pump ' + (GAP_STATE[r.st] || 'state unknown') });
+        if (nextRow && nextRow.s - r.s > GAP_S) {
+            pushEv('gap', stopS, nextRow.s, { tip: 'Gap: ' + (nextRow.mk ? 'recorder restarted (' + nextRow.mk + ')' : nextRow.sec ? 'recorder restarted (no marker: files before d#206 or a restart not started by a deploy)' : 'no records') });
+        }
         if (!r.ok) continue;
         const a = r.a, hz = a[K['115']], fan = a[K['116']];
         // bypass ON with a DHW set point (≥ 40) = preheat; with a heating set point = after a defrost
@@ -332,14 +366,15 @@ function chart(rows, dv) {
             : fan === 0 && hz !== null && hz > 30 ? 'defrost'
             : a[K.v1] === 1 ? 'dhw'
             : a[K.b1] === 1 ? (a[K['125']] !== null && a[K['125']] >= 40 ? 'preheat' : 'defrost')
-            : hz !== null && hz > 0 ? 'heating' : null;
-        const s1 = r.s, s2 = rows[i + 1] ? Math.min(rows[i + 1].s, r.s + MAX_DT) : r.s + 30;
-        const last = events[events.length - 1];
-        if (kind && last && last.kind === kind && s1 - last.s2 <= MAX_DT) last.s2 = s2;
-        else if (kind) events.push({ kind, s1, s2, codes: kind === 'error' ? faultCodes(flt) : '' });
+            : hz !== null && hz > 0 ? 'heating' : hz === 0 ? 'idle' : null;
+        if (!kind) continue;
+        const tip = kind === 'idle' ? 'Idle: ' + (r.hasIdl ? IDLE_LABELS[r.idl] || 'cause unknown' : 'cause not recorded (file before d#206)') : '';
+        pushEv(kind, r.s, stopS, { tip, codes: kind === 'error' ? faultCodes(flt) : '' });
     }
-    const evOut = events.map((e) => ({ kind: e.kind === 'error' ? 'error ' + e.codes : e.kind, err: e.kind === 'error', color: EV[e.kind], x: xs(e.s1), w: Math.max(e.kind === 'error' ? 2.5 : 0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
-        from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
+    // an idle stop shorter than a minute is noise, not a segment
+    for (let i = events.length - 1; i >= 0; i--) if (events[i].kind === 'idle' && events[i].s2 - events[i].s1 < IDLE_MIN_S) events.splice(i, 1);
+    const evOut = events.map((e) => ({ kind: e.kind === 'error' ? 'error ' + e.codes : e.kind, tip: e.tip, err: e.kind === 'error', color: EV[e.kind], x: xs(e.s1), w: Math.max(e.kind === 'error' ? 2.5 : 0.8, +(xs(e.s2) - xs(e.s1)).toFixed(1)),
+        from: pad(Math.floor(e.s1 / 3600)) + ':' + pad(Math.floor(e.s1 % 3600 / 60)), to: pad(Math.floor(e.s2 / 3600) % 24) + ':' + pad(Math.floor(e.s2 % 3600 / 60)), min: Math.round((e.s2 - e.s1) / 60) }));
     // d#143: where the running DHW cycle is heading — target line and the expected end
     let plan = null;
     const okRows = rows.filter((r) => r.ok);
@@ -353,7 +388,7 @@ function chart(rows, dv) {
             etaText: pad(eta.getHours()) + ':' + pad(eta.getMinutes()), state: dv.state };
     }
     const evCount = {};
-    events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
+    events.forEach((e, i) => { if (e.kind !== 'heating' && (i === 0 || events[i - 1].kind !== e.kind || events[i - 1].tip !== e.tip)) evCount[e.kind] = (evCount[e.kind] || 0) + 1; });
 
     return {
         viewBox: '0 0 ' + W + ' 250',
@@ -375,6 +410,14 @@ function chart(rows, dv) {
     };
 }
 
+// A day request of the UTCP server (62) gets the event lane on output 2 instead of the page
+function utcpOr(out) {
+    if (!msg.utcp) return out;
+    const p = out.payload;
+    return [null, { utcpPhase: 'day', utcpDay: msg.day, utcpTool: msg.utcp, utcpMin: msg.utcpMin, req: msg.req, res: msg.res,
+        payload: p.empty ? { empty: true } : { events: p.chart.events, legend: p.chart.eventLegend } }];
+}
+
 // ---- main ---------------------------------------------------------------
 const text = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : String(msg.payload || '');
 const parsed = parse(text);
@@ -386,7 +429,7 @@ if (msg.topic === 'day') {
     const d = parsed.days[msg.day];
     if (!d || !d.rows.length) {
         node.status({ fill: 'yellow', shape: 'ring', text: 'no data for ' + msg.day });
-        return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, empty: true } };
+        return utcpOr({ topic: 'hpHistory', payload: { kind: 'day', day: msg.day, empty: true } });
     }
     const s = stats(d.rows);
     if (msg.day < today) { cache[msg.day] = s.stats; }
@@ -409,7 +452,7 @@ if (msg.topic === 'day') {
     c.motion = { available: d.motionAvailable, targetKnown: !!motionId, events,
         count: events.filter((e) => e.motion).length, errors: d.motionErrors };
     if (d.motionErrors) node.warn('Heat pump motion history: ' + d.motionErrors + ' invalid sensor reports');
-    return { topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: c } };
+    return utcpOr({ topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: c } });
 }
 
 // summary

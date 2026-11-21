@@ -12,7 +12,9 @@ context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node st
 // d#168: the node does not know whether a defrost just ended (lastDefrost is lost with the context), and the
 // outdoor sensor reads 15-45 °C for minutes after one (14 Nov 08:42: 17.8 °C at 3 °C outdoor started a DHW cycle).
 // Treat the start as a defrost: no outdoor samples, no DHW start and no heating mode step for DEFROST_QUIET_MIN.
-context.set('lastDefrost', Date.now());
+const startAt = Date.now();
+context.set('lastDefrost', startAt);
+context.set('startedAt', startAt);   // idle.js: a lastDefrost equal to this was not a real defrost
 const d0 = context.get('dhw'); if (d0 && d0.state === 'HEATING') { d0.outS = []; d0.outAvg = null; context.set('dhw', d0); }
 // Do not replay an old temperature slope or pending shower request after a restart.
 const shower = context.get('shower');

@@ -16,7 +16,7 @@
 // - built from the GX LAN addresses and listening ports reported by the Device page
 //   (flow deviceStatusState); 1881 = Node-RED HTTPS, 1880 = Node-RED HTTP (if reachable on the LAN)
 // Inputs:
-// - inject on start (any topic) / topic `mcp-command` { action: 'refresh' | 'regenerate' | 'disable' | 'enable' }
+// - inject on start (any topic) / topic `mcp-command` { action: 'refresh' | 'regenerate' | 'disable' | 'enable' | 'utcpControlOn' | 'utcpControlOff' }
 // - topic `mcp-exec` (exec stdout) with msg.mcpStep = load | regenerate | disable
 // Outputs (2):
 // - output 1 -> dashboard template (topic `mcp-page`)
@@ -29,9 +29,13 @@
 //    venus.local; IP addresses fail certificate name checks in Node-based clients).
 // 4. `disable` survives a restart: it leaves an empty token file instead of deleting it (a missing
 //    file made the next start create a new token and enable the server again). Tool get_heat_pump.
+// 5. UTCP control switch (flow `utcpControl`, file utcp-control.txt = "on", default OFF; `disable` clears it): actions
+//    `utcpControlOn` / `utcpControlOff`; "UTCP server" (62) refuses control tools with 403 while it is off.
 // ==========================
 
 const TOKEN_FILE = '/data/home/nodered/grid-control-config/mcp-token.txt';
+// UTCP control switch: the file holds "on" while control tools of the UTCP endpoint are allowed; no file = off (default)
+const CONTROL_FILE = '/data/home/nodered/grid-control-config/utcp-control.txt';
 const MCP_PATH = 'mcp';
 // Keep in sync with the TOOLS list in "32 MCP server.js".
 const TOOL_SUMMARY = [
@@ -57,13 +61,18 @@ const GENERATE = 'mkdir -p "' + TOKEN_FILE.replace(/\/[^/]+$/, '') + '" 2>/dev/n
     + 'T=$(head -c 24 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null | tr -d " \\n"); '
     + '[ ${#T} -ge 32 ] || T=$(cat /proc/sys/kernel/random/uuid /proc/sys/kernel/random/uuid 2>/dev/null | tr -d -- "-\\n"); '
     + '(umask 077; printf "%s" "$T" > "' + TOKEN_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + TOKEN_FILE + ' as $(id -un)"';
+const CONTROL_ECHO = 'echo "@@UCTL $(cat "' + CONTROL_FILE + '" 2>/dev/null)"';
+const TOKEN_ECHO = 'echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"; ' + CONTROL_ECHO;
 const SCRIPTS = {
     // A token is created only when there is no file at all (first start). An empty file means
     // "disabled" and stays disabled across restarts.
     // braces matter: without them `a || b && c` would regenerate the token on every load
-    load: '[ -e "' + TOKEN_FILE + '" ] || { ' + GENERATE + '; }; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"',
-    regenerate: GENERATE + '; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"',
-    disable: '(umask 077; : > "' + TOKEN_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + TOKEN_FILE + ' as $(id -un)"; echo "@@TOKEN $(cat "' + TOKEN_FILE + '" 2>/dev/null)"'
+    load: '[ -e "' + TOKEN_FILE + '" ] || { ' + GENERATE +     '; }; ' + TOKEN_ECHO,
+        regenerate: GENERATE + '; ' + TOKEN_ECHO,
+        // disabling the server also switches UTCP control off
+        disable: '(umask 077; : > "' + TOKEN_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + TOKEN_FILE + ' as $(id -un)"; (: > "' + CONTROL_FILE + '") 2>/dev/null; ' + TOKEN_ECHO,
+        controlOn: '(umask 077; printf on > "' + CONTROL_FILE + '") 2>/dev/null || echo "@@ERR cannot write ' + CONTROL_FILE + ' as $(id -un)"; ' + TOKEN_ECHO,
+        controlOff: '(: > "' + CONTROL_FILE + '") 2>/dev/null; ' + TOKEN_ECHO
 };
 
 function buildEndpoints() {
@@ -113,6 +122,7 @@ function emit(execMsg) {
         token,
         tokenError: flow.get('mcpTokenError') || '',
         tokenFile: TOKEN_FILE,
+        utcpControl: flow.get('utcpControl') === true,
         path: MCP_PATH,
         tools: TOOL_SUMMARY,
         calls,
@@ -126,6 +136,7 @@ if (msg.topic === 'mcp-exec') {
     const match = output.match(/@@TOKEN ?([0-9a-fA-F]*)/);
     const errorMatch = output.match(/@@ERR (.*)/);
     flow.set('mcpToken', match ? match[1] : '');
+    flow.set('utcpControl', /@@UCTL\s*on\b/.test(output) && Boolean(match && match[1]));
     const hasToken = Boolean(match && match[1]);
     // No token is an error after `regenerate`, and after `disable` when the old one is still there.
     const failed = msg.mcpStep === 'disable' ? hasToken : (msg.mcpStep === 'regenerate' && !hasToken);
@@ -143,5 +154,6 @@ if (action === 'refresh') {
     return emit();
 }
 
-const step = action === 'regenerate' || action === 'enable' ? 'regenerate' : (action === 'disable' ? 'disable' : 'load');
+const step = action === 'regenerate' || action === 'enable' ? 'regenerate' : (action === 'disable' ? 'disable'
+    : (action === 'utcpControlOn' ? 'controlOn' : (action === 'utcpControlOff' ? 'controlOff' : 'load')));
 return emit({ topic: 'mcp-exec', mcpStep: step, payload: shellQuote(SCRIPTS[step]) });

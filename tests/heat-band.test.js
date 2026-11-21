@@ -8,7 +8,7 @@ const S = 1000, MIN = 60 * S, H = 60 * MIN;
 const NOW = new Date(2026, 10, 14, 20, 10).getTime();
 const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 0, kickSec: 60 };
 
-function heating({ heat = {}, heatMode = 'live', saved = {}, hyst = 5 } = {}) {
+function heating({ heat = {}, heatMode = 'live', saved = {}, hyst = 5, wholeHyst = false } = {}) {
     const node = loadNode('40 Heat pump automations.js');
     node.run({ topic: 'load', payload: JSON.stringify(Object.assign({
         master: true, modes: { dhw: 'off', heat: heatMode, df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' },
@@ -31,7 +31,7 @@ function heating({ heat = {}, heatMode = 'live', saved = {}, hyst = 5 } = {}) {
         for (const m of call.sent) {
             if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') {
                 writes.push({ t, dps: m[1].payload.dps, set: m[1].payload.set });
-                pump[m[1].payload.dps] = m[1].payload.set;
+                pump[m[1].payload.dps] = wholeHyst && m[1].payload.dps === 121 ? Math.trunc(m[1].payload.set) : m[1].payload.set;
             }
         }
     }
@@ -46,6 +46,14 @@ test('band is off by default and writes nothing', () => {
     c.run(NOW, NOW + 15 * MIN);
     assert.deepEqual(c.writes, []);
     assert.equal(c.settings().heat.band, false);
+});
+
+test('a fractional band (up + down = 2.5) writes a whole-degree hysteresis once; a pump that keeps whole degrees is not rewritten every 2 min', () => {
+    const c = heating({ wholeHyst: true, heat: { band: true, bandDown: 2.5, bandUp: 0, lagUp: undefined, overC: undefined } });
+    c.run(NOW, NOW + 30 * MIN);
+    const hyst = c.writes.filter((w) => w.dps === 121);
+    assert.deepEqual(hyst.map((w) => w.set), [3], JSON.stringify(hyst));
+    assert.equal(c.pump[121], 3);
 });
 
 test('band 0 / 2: pump set at point + 2, hysteresis 2, your hysteresis saved', () => {
