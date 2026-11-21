@@ -7,7 +7,13 @@ The GX serves a [UTCP](https://www.utcp.io) manual next to the MCP server (`32` 
 
 ## Authentication
 
-The same token as MCP (Agent (MCP) dashboard page). Send `Authorization: Bearer <token>` or `X-MCP-Token: <token>`. No token configured: 503. Wrong or missing token: 401. A browser `Origin` that does not match the `Host`: 403. Reach the GX only over the private network; keep the token out of the repository.
+The same token as MCP (Agent (MCP) dashboard page). Send `Authorization: Bearer <token>` or `X-MCP-Token: <token>`. No token configured: 503 (the endpoint is off without a token). Wrong or missing token: 401 (compared in constant time). A browser `Origin` that does not match the `Host`: 403.
+
+**Who can reach it:** `/utcp` is served by Node-RED on the GX, so it is reachable from the home LAN and from Tailscale (or another VPN into the LAN), the same as `/mcp`. It is not reachable through the VRM remote link, and it must not be exposed to the internet. Keep the token out of the repository.
+
+**Control switch.** Read tools need only the token. Control tools additionally need the switch **UTCP control** on the Agent (MCP) page. It is **OFF by default**, stored in `utcp-control.txt` next to the token file (so it survives a restart) and cleared when the MCP server is disabled. While it is off, every control tool (also `cancel`) answers `403 control disabled` and nothing is sent. The log line of the refusal is written to the Automation log.
+
+The audit IP in the Automation log (`(from …)`) is the connection's own address (`req.ip`); `X-Forwarded-For` is ignored because there is no proxy in front of Node-RED and any client can set it. Only the UTCP node can write `UTCP: …` lines: node `40` accepts them only with an internal marker the dashboard does not send.
 
 ## Read tools
 
@@ -22,7 +28,7 @@ The same token as MCP (Agent (MCP) dashboard page). Send `Authorization: Bearer 
 
 ## Control tools
 
-Every control call needs the token **and** `"confirm": true`. Without `confirm` the call is refused (400) and nothing is sent. A control call is also:
+Every control call needs the token, the **UTCP control** switch ON (403 otherwise) **and** `"confirm": true`. Without `confirm` the call is refused (400) and nothing is sent. A control call is also:
 
 - refused (409) while local control is OFF (the master switch on the Heat Pump page). `cancel` is the exception: it only returns to the owner's settings;
 - rate limited to one control call per 10 s (429);

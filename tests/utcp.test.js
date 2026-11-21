@@ -10,13 +10,14 @@ const NOW = new Date(2026, 10, 21, 14, 0, 0).getTime();
 function server() {
     const node = loadNode('62 UTCP server.js');
     node.flow.set('mcpToken', TOKEN);
+    node.flow.set('utcpControl', true);
     node.flow.set('dhwView', { master: true, at: NOW, status: 'ok' });
     return node;
 }
 function call(node, method, tool, body, opts) {
     const o = opts || {};
     const headers = o.headers || { authorization: 'Bearer ' + TOKEN, host: 'gx' };
-    const msg = { req: { method, headers, params: { tool } }, payload: body };
+    const msg = { req: { method, headers, params: { tool }, ip: o.ip }, payload: body };
     const r = node.run(msg, { now: NOW + (o.dt || 0) }).result;
     return r;
 }
@@ -75,8 +76,9 @@ test('UTCP control: tools map to the dashboard ui messages and are logged as UTC
         const r = call(server(), 'POST', tool, body);
         assert.equal(status(r), 200, tool);
         assert.equal(r[0].payload.ok, true);
-        assert.deepEqual(r[1][0], { topic: 'ui', payload: ui }, tool);
-        assert.match(r[1][1].payload.text, /^UTCP: /);
+        assert.deepEqual(r[1][0], { topic: 'ui', fromUtcp: true, payload: ui }, tool);
+        assert.equal(r[1][1].fromUtcp, true);
+        assert.equal(r[1][1].payload.action, 'utcpLog');
     }
 });
 
@@ -125,4 +127,47 @@ test('UTCP read tools: routed to the exec nodes, answers shaped from their outpu
     const ev = node.run(lane('get_event_lane'), { now: NOW }).result[0].payload;
     assert.equal(ev.segments.length, 3);
     assert.equal(ev.segments[0].tooltip, 'Idle: below restart level');
+});
+
+test('UTCP control: refused with 403 while the control switch is off; read tools are unaffected', () => {
+    for (const on of [undefined, false]) {
+        const node = server();
+        node.flow.set('utcpControl', on);
+        const r = call(node, 'POST', 'set_heating_mode', { mode: 'on', confirm: true });
+        assert.equal(status(r), 403);
+        assert.match(r[0].payload.error, /control disabled/);
+        assert.equal(r[1].payload.action, 'utcpLog');
+        assert.equal(status(call(node, 'POST', 'cancel', { what: 'warm_up', confirm: true })), 403);
+        assert.equal(status(call(node, 'POST', 'get_deploy_version', {})), 200);
+        assert.equal(status(call(node, 'GET')), 200);
+    }
+    const node = server();
+    assert.equal(status(call(node, 'POST', 'force_boiler_run', { confirm: true })), 200);
+});
+
+test('UTCP control: the audit IP is req.ip, a forged X-Forwarded-For is ignored', () => {
+    const headers = { authorization: 'Bearer ' + TOKEN, host: 'gx', 'x-forwarded-for': '6.6.6.6', 'x-real-ip': '7.7.7.7' };
+    const r = call(server(), 'POST', 'force_boiler_run', { confirm: true }, { headers, ip: '::ffff:192.168.1.20' });
+    assert.equal(status(r), 200);
+    const text = r[1][1].payload.text;
+    assert.match(text, /\(from 192\.168\.1\.20\)/);
+    assert.ok(!text.includes('6.6.6.6') && !text.includes('7.7.7.7'));
+});
+
+test('UTCP: tokens of another length or with a shared prefix are refused', () => {
+    const node = server();
+    for (const t of [TOKEN + 'x', TOKEN.slice(0, -1), 'x'.repeat(TOKEN.length)]) {
+        assert.equal(status(call(node, 'GET', '', null, { headers: { host: 'gx', authorization: 'Bearer ' + t } })), 401, t);
+    }
+});
+
+test('Heat pump automations: a utcpLog line is written only with the UTCP marker, with the UTCP prefix', () => {
+    const logged = (extra) => {
+        const node = loadNode('40 Heat pump automations.js');
+        const out = node.run(Object.assign({ topic: 'ui', payload: { action: 'utcpLog', kind: 'info', text: 'hello' } }, extra), { now: NOW });
+        const sent = (out.sent || []).concat(Array.isArray(out.result) ? [out.result] : []);
+        return sent.map((a) => a && a[5] && a[5].event).filter(Boolean).concat(node.context.get('log') || []);
+    };
+    assert.equal(logged({}).length, 0, 'a dashboard message cannot write a UTCP line');
+    assert.equal(logged({ fromUtcp: true })[0].text, 'UTCP: hello');
 });

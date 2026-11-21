@@ -454,7 +454,8 @@ if (msg.topic === 'load') {
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
     if (p.action === 'utcpLog') {
-        logEvent({ kind: p.kind === 'warn' ? 'warn' : 'info', text: String(p.text || '').slice(0, 200) });
+        if (msg.fromUtcp !== true) return null;   // only the UTCP node may write "UTCP: …" lines
+        logEvent({ kind: p.kind === 'warn' ? 'warn' : 'info', text: ('UTCP: ' + String(p.text || '')).slice(0, 200) });
         return null;
     }
     if (p.action === 'heatWarm') {

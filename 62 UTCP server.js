@@ -21,7 +21,10 @@
 //            which validates and applies it. Nothing here writes to a device directly.
 // Security:
 // - the same token as the MCP server (flow `mcpToken`, "Agent (MCP)" page): `Authorization: Bearer <token>` or
-//   `X-MCP-Token: <token>`; no token configured -> 503, wrong token -> 401; a browser Origin that does not match the Host -> 403.
+//   `X-MCP-Token: <token>`; no token configured -> 503, wrong token -> 401 (compared in constant time); a browser Origin that
+//   does not match the Host -> 403. Control tools additionally need the separate switch "UTCP control" (flow `utcpControl`,
+//   Agent (MCP) page, default OFF): while it is off they answer 403 `control disabled`; read tools are not affected.
+// - the audit IP in the log is `req.ip` only (X-Forwarded-For is not trusted: there is no proxy in front of Node-RED).
 // Outputs (4):
 // - 1 -> "UTCP HTTP response"
 // - 2 -> "Heat pump automations" (40): `ui` messages of the control tools and their "UTCP: …" log notes
@@ -30,6 +33,8 @@
 //        output (msg.utcp set) comes back to this node with the idle periods / event lane of the day
 // Change notes:
 // 1. Initial version (H14).
+// 2. Control needs the separate `utcpControl` switch (default OFF); audit IP from req.ip only; constant-time token compare;
+//    log notes carry `fromUtcp` (checked in 40).
 // ==========================
 
 const MANUAL_VERSION = '1.0.0';
@@ -150,15 +155,22 @@ function manual() {
 // ---- http -------------------------------------------------------------------------------------------
 const req = msg.req || {};
 const headers = req.headers || {};
-const forwarded = String(headers['x-forwarded-for'] || headers['x-real-ip'] || '').split(',')[0].trim();
-const clientIp = String(forwarded || req.ip || '').replace(/^::ffff:/, '');
+const clientIp = String(req.ip || (req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');   // never X-Forwarded-For: any client can set it
 function respond(statusCode, body) {
     msg.statusCode = statusCode;
     msg.headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
     msg.payload = body;
     return [msg, null, null, null];
 }
-function note(text, kind) { return { topic: 'ui', payload: { action: 'utcpLog', kind: kind || 'info', text: 'UTCP: ' + text } }; }
+// fromUtcp: "Heat pump automations" (40) writes a utcpLog line only when this marker is set; it adds the "UTCP: " prefix itself
+function note(text, kind) { return { topic: 'ui', fromUtcp: true, payload: { action: 'utcpLog', kind: kind || 'info', text } }; }
+// compare without stopping at the first different character
+function sameToken(a, b) {
+    let diff = a.length ^ b.length;
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+    return diff === 0;
+}
 
 // answers coming back from the exec nodes / "Build heat pump history"
 if (msg.utcpPhase === 'log') {
@@ -190,7 +202,7 @@ const token = String(flow.get('mcpToken') || '').trim();
 if (!token) return respond(503, { error: 'UTCP is disabled (no token). Enable the token on the Agent (MCP) dashboard page.' });
 const bearer = String(headers.authorization || '').match(/^Bearer\s+(.+)$/i);
 const presented = String(headers['x-mcp-token'] || (bearer ? bearer[1] : '')).trim();
-if (presented !== token) return respond(401, { error: 'Unauthorized: send Authorization: Bearer <token> or X-MCP-Token: <token>' });
+if (!sameToken(presented, token)) return respond(401, { error: 'Unauthorized: send Authorization: Bearer <token> or X-MCP-Token: <token>' });
 
 if (method === 'GET') return respond(200, manual());
 if (method !== 'POST') return respond(405, { error: 'Use GET /utcp for the manual or POST /utcp/call/<tool>' });
@@ -201,6 +213,7 @@ const args = msg.payload && typeof msg.payload === 'object' && !Array.isArray(ms
 
 if (tool.control) {
     const refuse = (status, why) => { const r = respond(status, { ok: false, error: why }); r[1] = note('refused ' + tool.name + ' (' + why + ')', 'warn'); return r; };
+    if (flow.get('utcpControl') !== true) return refuse(403, 'control disabled (enable UTCP control on the Agent (MCP) page)');
     if (args.confirm !== true) return refuse(400, 'confirm: true is required for a control call');
     const bad = tool.check(args);
     if (bad) return refuse(400, bad);
@@ -210,7 +223,7 @@ if (tool.control) {
     if (!tool.alwaysAllowed && !(view && view.master === true)) return refuse(409, 'local control is OFF');
     context.set('lastControl', t);
     const r = respond(200, { ok: true, tool: tool.name, applied: tool.text(args), note: 'Sent to the heating controller, which validates it; read get_heat_pump_state to confirm.' });
-    r[1] = [{ topic: 'ui', payload: tool.ui(args) }, note(tool.text(args) + (clientIp ? ' (from ' + clientIp + ')' : ''))];
+    r[1] = [{ topic: 'ui', fromUtcp: true, payload: tool.ui(args) }, note(tool.text(args) + (clientIp ? ' (from ' + clientIp + ')' : ''))];
     node.status({ fill: 'blue', shape: 'dot', text: tool.name });
     return r;
 }
