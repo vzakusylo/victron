@@ -50,6 +50,22 @@ Update this file when a task starts, finishes or changes.
 | P2 | Detect and monitor "heating not following the curve" | 1 | Supply 10-min average below point − X °C for > N min while heating (not DHW, not defrost) → status line + Automation log warning "not following curve: point p, supply s, mode m, reason r" and a per-day counter on the Heat Pump page. Defaults X = `bandDown` + 1, N = 45 min, configurable in Advanced. Optional push / notify later. Unit tests; Test GX scenarios for the warning and for no warning inside the band. |
 | C1 | Move private hosts / IDs out of `flows.json` and `NN *.js` | 1 | Only if the repository becomes public; needs a `d#` deploy. |
 
+### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
+
+| ID | Task | Notes |
+|---|---|---|
+| H0 | Investigate why the pump idles / waits | From the stored history and the Automation log: every compressor-off period outside DHW and defrost with its cause (curve point reached / pump hysteresis DP 121, controller waits, Off / Test, too warm, fault). Propose curve / band / hysteresis changes; findings in `docs/heat-pump-work-log.md`. Feeds H11. |
+| H1 | Heating curve "now" marker shows values | Curve target now, reported heating set (DP 125), supply now. |
+| H2 + H7 | Hold the pump outdoor value during a defrost | The pump's outdoor (`pumpOutNow`) jumps in a defrost: hold the last value from before it during the defrost and the recovery, skip it in the averages, show "outdoor held (defrost)". Unit + Test GX. |
+| H3 | Temperatures page "All sensor temperatures": rooms only | Same single room list as `50 Devices model.js` / `tools/sensor-history.js`. |
+| H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
+| H5 | Email after every GX deploy with what changed | New d#, commit, commits since the previous GX version, trigger, Test GX link. Existing mail path, no secrets in the repo. |
+| H6 | Heating curve chart: low and high band lines | Point − `bandDown` and point + `bandUp` along the curve. |
+| H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
+| H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
+| H10 | History by day: week navigation, at most 14 day chips | `39 Heat pump history page.html` / `38`. |
+| H11 | "Idle" in the event lane and the Automation log | Idle segments (compressor off, not DHW / defrost) with the reason in the tooltip; log "Idle: reason" and "running again after N min". Test GX scenario. |
+
 ## 4. Review follow-ups (deferred Low / Nit)
 
 | From | Item |
