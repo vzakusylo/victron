@@ -16,6 +16,7 @@ For connection failures, differing versions/GX-only lines, output migrations and
 - [Step by step](#step-by-step)
 - [Monitoring](#monitoring)
 - [Reading the comparison report](#reading-the-comparison-report)
+- [Deploy mail](#deploy-mail)
 - [What the deploy script checks](#what-the-deploy-script-checks)
 - [Rollback](#rollback)
 - [Traps met on 14 Nov](#traps-met-on-14-nov)
@@ -305,6 +306,14 @@ Safety rules are in [`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) (uni
 **Deploying by hand when auto skipped:** Actions → **Deploy GX code** → run from `master`, `mode=dry-run`, review the report, then run again with `mode=apply` and `confirm=deploy-gx-code` (see above). Skipped because `master` moved on? The newer commit's own run deploys it; only deploy by hand if that run skipped too.
 
 Automatic runs use the environment **`victron-gx-auto`**; manual runs keep `victron-gx`. The owner creates `victron-gx-auto` once: same five secrets as `victron-gx` (or rely on the repository secrets), deployment branch `master` only, and no required reviewer (otherwise the deploy waits for approval).
+
+## Deploy mail
+
+After every successful **apply** (manual or automatic) the deploy job sends one mail through the GX's own mail path: it builds the message with [`tools/gx/deploy-mail.js`](../tools/gx/deploy-mail.js) and pipes it over the existing SSH connection into `node /data/home/nodered/tools/send-mail.js` (recipient and SMTP settings come from `email.json` on the GX; nothing is stored in the repository or CI).
+
+Subject: `GX deployed d#205 (523ba74)`. Body (plain text): previous and new `d#` with short commits, the trigger (manual dispatch by `<actor>` or automatic after a Test GX run, with its link), whether `allow_live_only_lines` was used, the changed files grouped as flow sources / lib / pages / tools (other files only counted), the commits between the previous and the new GX commit (`git log --no-merges`, at most 40, then `+N more`), and the Test GX and deploy run links. The previous commit is the one recorded on the GX tab; if it is not recorded the mail says so and omits files and commits. No hosts, IPs or addresses are included.
+
+Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem never fails the deploy: the step logs `::warning::deploy mail: failed (<reason>)` and writes the same line to the job summary; success logs `deploy mail: sent`.
 
 ## What the deploy script checks
 
