@@ -32,7 +32,7 @@ Tasks are tracked in `BACKLOG.md` (section 3, "Priority plan: test first, then s
 | TH2 | Band option: DP 121 written as a whole number (d#206 fix), owner hysteresis restored when the controller is Off / Test |
 | TH3 | Stuck-supply kick (F40-09): Silent → Smart for kickSec → Silent; no kick in DHW / defrost |
 | TH4 | Defrost start / end rules (F40-03 / 04) against a recorded sequence (test half of H8) |
-| TH5 | Bug HP-SETTINGS-1: saved heating curve P23 / P24 out of range is not checked on load and can be written to the pump; fix in its own PR (the scenario is `expected_fail` today) |
+| TH5 | HP-SETTINGS-1, fixed in d#207: reject out-of-range saved heating curves and guard pump writes; regression coverage in `tests/heat-automation.test.js` |
 
 ### A3. Boiler (DHW)
 | ID | Task |

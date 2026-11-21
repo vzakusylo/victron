@@ -53,7 +53,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 |---|---|---|---|
 | TGX5 | A1 grid | Edges: midnight, DST, month change, tariff tier change, sensor failures (Test GX plan 5) | open, raised |
 | TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | open, raised |
-| TH5 | A2 heating | Bug HP-SETTINGS-1: saved curve P23 / P24 out of range not checked on load, can be written to the pump; own bug-fix PR | open (bug) |
 | TGX3 | A3 boiler | DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline (Test GX plan 3) | open, raised |
 | TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | open |
 | TB2 | A3 boiler | DHW with defrost: defrost during a cycle, DHW after defrost, minimum gap | open |
@@ -175,7 +174,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#109 TH1–TH4 (d#206): Test GX coverage for warm-up, band hysteresis, stuck-supply kick and defrost/recovery (test half of H8). Expected failures to fix separately: the Off view omits the warm-up note (TH1); the kick logic still runs during DHW (TH3).
+#109 TH1–TH4 (d#207, no bump): Test GX coverage for warm-up, band hysteresis, stuck-supply kick and defrost/recovery (test half of H8). Expected failures to fix separately: the Off view omits the warm-up note (TH1); the kick logic still runs during DHW (TH3).
+
+#108 TH5 (d#207): Reject invalid saved heating curves, recapture valid pump values on heating, and refuse out-of-range DP 133/134 writes. Covered by the node 40 regression tests (inventory U5).
 
 #107 D1: manual opt-in for reviewed GX node additions, with dry-run reporting and readback verification. Tested the six UTCP additions from d#205 to d#206 in isolated Node-RED; no d# bump.
 

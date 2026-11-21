@@ -17,7 +17,7 @@ const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowP
 function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {},
     heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 } } = {}) {
     const node = loadNode('40 Heat pump automations.js');
-    node.run({ topic: 'load', payload: JSON.stringify({
+    const load = node.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: Object.assign({ dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' }, modes),
         heat: cfg, dhw: { showerForce: false }, heatCurve, dhwLastEnd
     }) }, { now: NOW });
@@ -43,7 +43,7 @@ function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, m
         return call;
     }
     const heat = () => node.context.get('heat');
-    return { node, tick, heat, writes };
+    return { node, load, tick, heat, writes };
 }
 
 test('heating controller with the GX settings keeps Silent and writes nothing while the supply is on the curve', () => {
@@ -188,20 +188,69 @@ test('a DHW cycle aborted by Er03 writes the owner heating curve back and the he
     assert.doesNotMatch(c.heat().why, /^waiting/);
 });
 
-test('expected_fail HP-SETTINGS-1: invalid saved curve must not be restored', (t) => {
-    const c = heating({ dhw: 'live', heatCurve: { p23: 41, p24: 31, at: NOW - MIN } });
+function endFaultedDhw(c) {
     const d = c.node.context.get('dhw');
     Object.assign(d, { state: 'DHW', since: NOW - 30 * S, startAt: NOW - 3 * MIN,
         startTank: 44, run: (NOW - 3 * MIN) + ':dhw', live: true,
         outAvg: -2, outS: [[NOW - MIN, -2]], p23Cmd: 22, p24Cmd: 12, tickAt: NOW - 30 * S });
     c.node.context.set('dhw', d);
     c.tick(NOW, { 15: 1, 115: 0, 116: 0, 108: 44, 133: 22, 134: 12 }, true);
-    const queue = c.node.context.get('queue') || [];
-    const curve = queue.filter(w => w.role === 'hp' && [133, 134].includes(w.dps));
-    assert.ok(curve.length > 0, 'test must exercise restoration of the saved heating curve');
-    const invalid = curve.filter(w => w.dps === 133 ? w.set < 0 || w.set > 40 : w.set < 1 || w.set > 30);
-    assert.ok(invalid.length > 0, 'unexpected pass: remove expected_fail after fixing HP-SETTINGS-1');
-    t.skip('expected_fail HP-SETTINGS-1: out-of-range heating-curve writes were queued');
+    assert.equal(c.node.context.get('dhw').state, 'HEATING', 'must exercise DHW exit');
+    return c.writes.filter(w => w.device === 'pump')
+        .concat((c.node.context.get('queue') || []).filter(w => w.role === 'hp'))
+        .filter(w => [133, 134].includes(Number(w.dps))).map(w => [Number(w.dps), w.set]);
+}
+
+test('HP-SETTINGS-1: invalid saved curve must not be restored on DHW fault', () => {
+    const c = heating({ dhw: 'live', heatCurve: { p23: 41, p24: 31, at: NOW - MIN } });
+    assert.deepEqual(endFaultedDhw(c), []);
+});
+
+for (const [param, values] of Object.entries({ p23: [-1, 41, '38'], p24: [0, 31, '4'] })) {
+    for (const value of values) {
+        test(`invalid saved ${param} ${JSON.stringify(value)} is ignored and logged without device writes`, () => {
+            const c = heating({ heatCurve: { p23: 38, p24: 4, [param]: value } });
+            assert.equal(c.node.context.get('settings').heatCurve, null);
+            assert.ok(c.load.sent.some(m => m[5]?.event?.kind === 'warn' &&
+                m[5].event.text === 'stored heating curve invalid (P23 ' +
+                JSON.stringify(param === 'p23' ? value : 38) + ' / P24 ' +
+                JSON.stringify(param === 'p24' ? value : 4) + ') → ignored, re-captured from the pump'));
+            assert.ok(c.load.sent.every(m => !m[1] && !m[3] && !m[4]));
+        });
+    }
+}
+
+test('invalid saved curve is replaced only by in-range live heating values', () => {
+    const c = heating({ dhw: 'dry', heatCurve: { p23: -1, p24: 4 } });
+    c.tick(NOW, { 133: 41, 134: 4 });
+    assert.equal(c.node.context.get('settings').heatCurve, null);
+    c.tick(NOW + 10 * S, { 133: 39, 134: 5 }, true);
+    assert.equal(c.node.context.get('settings').heatCurve, null, 'valve must be on heating');
+    c.tick(NOW + 20 * S, { 133: 39, 134: 5 });
+    assert.deepEqual(c.node.context.get('settings').heatCurve, { p23: 39, p24: 5, at: NOW + 20 * S });
+    assert.deepEqual(c.writes, []);
+});
+
+test('valid saved curves at both ends of the pump ranges are still restored on DHW fault', () => {
+    for (const [p23, p24] of [[0, 30], [40, 1]]) {
+        const c = heating({ dhw: 'live', heatCurve: { p23, p24 } });
+        assert.deepEqual(endFaultedDhw(c), [[134, p24], [133, p23]]);
+    }
+});
+
+test('pump dispatch refuses out-of-range queued curve commands and still sends a valid one', () => {
+    const c = heating({ dhw: 'live' });
+    c.node.context.set('queue', [[133, -1], ['134', 31], [133, 0]].map(([dps, set]) =>
+        ({ rule: 'dhw', cloud: 'DHW controller', role: 'hp', dps, set })));
+    c.node.context.set('pumping', true);
+    c.node.context.set('pumpAt', NOW - 5 * MIN); // Resume a queue whose gap timer was lost.
+    const call = c.tick(NOW);
+    for (let i = 0; i < call.timers.length; i++) call.timers[i].cb();
+    assert.deepEqual(call.sent.map(m => m[1]?.payload).filter(Boolean), [{ operation: 'SET', dps: 133, set: 0 }]);
+    const warnings = call.sent.map(m => m[5]?.event).filter(e => e?.kind === 'warn').map(e => e.text);
+    assert.ok(warnings.some(text => text.includes('DP 133') && text.includes('-1')));
+    assert.ok(warnings.some(text => text.includes('DP 134') && text.includes('31')));
+    assert.deepEqual(c.node.context.get('queue'), []);
 });
 
 test('DHW compressor protection steps the curve down after three sustained minutes', () => {
