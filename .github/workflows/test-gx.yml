@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        files: [charging.yml, charging-force.yml, charging-forecast.yml, charging-support.yml, charging-guards.yml, grid-reaction.yml, grid-stale-inputs.yml, grid-tariff.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heat-pump-er03.yml, heat-pump-idle.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, trivial.yml]
+        files: [charging.yml, charging-force.yml, charging-forecast.yml, charging-support.yml, charging-guards.yml, grid-reaction.yml, grid-stale-inputs.yml, grid-tariff.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heat-pump-er03.yml, heat-pump-idle.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, heating-warmup.yml, heating-band.yml, heating-kick.yml, heating-defrost.yml, trivial.yml]
     permissions:
       contents: read
     env:
