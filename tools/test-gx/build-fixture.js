@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { transformTuya, DEVICES } = require('./transform-tuya');
+const { gateTickInjects } = require('./tick-gate');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE = path.join(__dirname, 'fixture-synthetic');
@@ -45,7 +46,7 @@ function fixtureFiles() {
     for (const node of flows) {
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }
-    json('nodered/.node-red/flows.json', transformTuya(flows, registry).flows);
+    json('nodered/.node-red/flows.json', gateTickInjects(transformTuya(flows, registry).flows));
     json('nodered/.node-red/flows_cred.json', {});
     json('versions.json', versions);
     const dependencies = Object.fromEntries(Object.entries(versions.palette).filter(([name]) => name !== 'node-red'));

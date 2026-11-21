@@ -1,0 +1,107 @@
+- name: Er03 full restart sequence
+  # The 30 s and 60 s pauses run in real time; a faster wall clock trips the sequence watchdog.
+  faketime: '@2026-11-16 20:00:00'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+      tuya.pump.dps.15: 1
+  steps:
+    - when: 0s
+      settle: 135s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "1"
+            value: true
+            applied: true
+          - device: bypass
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+          - device: pump
+            operation: SET
+            dps: "132"
+            value: "1"
+            applied: true
+
+- name: Er03 first-step positive control after deploy quiet period
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  steps:
+    - when: 16m
+      inputs:
+        tuya.valve.dps.1: true
+        tuya.pump.dps.15: 1
+      settle: 4500s
+      expect:
+        writes:
+          - device: valve
+            operation: SET
+            dps: "1"
+            value: false
+            applied: true
+
+- name: Er03 offline pump guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    fail:
+      tuya.pump: offline
+  steps:
+    - when: 16m
+      inputs:
+        tuya.valve.dps.1: true
+        tuya.pump.dps.15: 1
+      settle: 4500s
+      expect:
+        writes: []
+
+- name: Er03 disconnected valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+    fail:
+      tuya.valve: offline
+  steps:
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 4500s
+      expect:
+        writes: []
+
+- name: Er03 invalid valve guard
+  faketime: '@2026-11-16 20:00:00 x60'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"live"}}
+  initial:
+    inputs:
+      tuya.valve.dps.1: true
+    fail:
+      tuya.valve: invalid
+  steps:
+    - when: 16m
+      inputs:
+        tuya.pump.dps.15: 1
+      settle: 4500s
+      expect:
+        writes: []

@@ -1,5 +1,5 @@
 - name: Supply below the curve for offCurveMin gives one warning, status line and daily count
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0,"offCurveC":1,"offCurveMin":10},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -49,7 +49,7 @@
             equals: 1
 
 - name: Inside the band no warning
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"offCurveC":1,"offCurveMin":10},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -80,7 +80,7 @@
             equals: 0
 
 - name: A DHW valve hold resets the not following monitor
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0,"offCurveC":1,"offCurveMin":15},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:

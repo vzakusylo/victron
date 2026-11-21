@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomBytes, createHash } = require('node:crypto');
 const { transformTuya, DEVICES } = require('./transform-tuya');
+const { gateTickInjects } = require('./tick-gate');
 
 const SETTINGS_FILES = [
     '/data/home/nodered/grid-control-config/heat-pump-automations.json',
@@ -31,7 +32,7 @@ function assertFunctionHashes(actual, source = JSON.parse(fs.readFileSync(path.j
     }
     const prepared = source.map(node => node.type === 'mqtt-broker'
         ? { ...node, broker: 'mosquitto', port: '1883', usetls: false, tls: '' } : node);
-    const expected = transformTuya(prepared, registry).flows.filter(node => node.type === 'function');
+    const expected = gateTickInjects(transformTuya(prepared, registry).flows).filter(node => node.type === 'function');
     const differences = expected.filter(node => {
         const deployed = actual.find(item => item.id === node.id);
         return !deployed || functionHash(deployed) !== functionHash(node);

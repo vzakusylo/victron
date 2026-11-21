@@ -1,5 +1,6 @@
 - name: Lagging supply steps Silent -> Smart -> Powerful when Powerful is allowed
-  faketime: '@2026-11-16 20:00:00 x3'
+  # At x60, setup time can shift both decisions into the first observation window.
+  faketime: '@2026-11-16 20:00:00 x30'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":true},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -16,7 +17,7 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 20m
+    - when: 17m
       settle: 8m
       expect:
         writes:
@@ -25,7 +26,7 @@
             dps: "2"
             value: smart
             applied: true
-    - when: 30m
+    - when: 27m
       settle: 8m
       expect:
         writes:
@@ -36,7 +37,8 @@
             applied: true
 
 - name: Powerful not allowed, Smart, then curve +1 °C, never Powerful
-  faketime: '@2026-11-16 20:00:00 x3'
+  # Keep the Smart and curve-write decisions in separate observation windows.
+  faketime: '@2026-11-16 20:00:00 x30'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -53,7 +55,7 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 20m
+    - when: 17m
       settle: 8m
       expect:
         writes:
@@ -62,7 +64,7 @@
             dps: "2"
             value: smart
             applied: true
-    - when: 30m
+    - when: 27m
       settle: 8m
       expect:
         writes:
@@ -78,7 +80,7 @@
             applied: true
 
 - name: High current in Silent blocks the step up and logs it
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -105,7 +107,7 @@
             count: 1
 
 - name: At the boost cap a wanted step up is logged once
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -142,7 +144,7 @@
             count: 0
 
 - name: Supply back at the point in Smart goes back to Silent
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:

@@ -1,0 +1,119 @@
+- name: charging adaptive support can discharge outside restoration
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"gridSupportW":500,"gridSupportMode":"adaptive-day"}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":-100,"grid_w":1000,"load_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":500}],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":500}]}
+
+- name: charging rejects stale future previous-day and NaN forecast metadata
+  faketime: '@2026-11-16 22:00:00'
+  controller: {"protection":{},"forecastWatts":500}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":-150.1,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 20s
+      controller: {"refreshForecast":true}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 40s
+      controller: {"forecastFault":"stale"}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 60s
+      controller: {"forecastFault":"future"}
+      settle: 20s
+      expect: {"if_changed":false,"writes":[]}
+    - when: 80s
+      controller: {"forecastFault":"previous-day"}
+      settle: 20s
+      expect: {"if_changed":false,"writes":[]}
+    - when: 100s
+      controller: {"forecastFault":"nan"}
+      settle: 20s
+      expect: {"if_changed":false,"writes":[]}
+
+- name: charging force mode needs a nonzero power request
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":0}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+
+- name: charging force mode cannot charge above available grid power
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":-40,"grid_w":1000,"load_w":6000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+
+- name: charging export guard never lowers scheduled charging
+  faketime: '@2026-11-16 08:00:00'
+  controller: {"protection":{"exportGuardEnabled":true}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":-40,"grid_w":-200,"pv_w":0}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+
+- name: charging rejects a previous-day forecast younger than 18 hours
+  faketime: '@2026-11-16 08:00:00'
+  controller: {"protection":{},"forecastWatts":500}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-100,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 20s
+      controller: {"refreshForecast":true}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 40s
+      controller: {"forecastFault":"previous-day"}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+
+- name: charging a valid zero forecast does not suppress restoration
+  faketime: '@2026-11-16 08:00:00'
+  controller: {"protection":{},"forecastWatts":0}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-100,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 20s
+      controller: {"refreshForecast":true}
+      settle: 20s
+      expect: {"if_changed":false,"writes":[]}
+
+- name: charging invalid protection file falls back to safe defaults
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":50,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 20s
+      controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000}}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":20}]}
+    - when: 40s
+      controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000,"start":55.4,"full":55.2}}
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}

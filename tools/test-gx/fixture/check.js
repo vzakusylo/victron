@@ -6,6 +6,7 @@ const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
 const { DEVICES, transformTuya } = require('../transform-tuya');
 const devices = require('../fixture-tuya.json');
+const { gateTickInjects, GATED_INJECTS, GATE_SUFFIX } = require('../tick-gate');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(__dirname, '..', 'fixture-synthetic', 'nodered', '.node-red', 'flows.json');
@@ -39,7 +40,10 @@ function verify(repo, actual) {
     for (const node of source) {
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }
-    const expected = transformTuya(source, registry).flows;
+    if (repo.some(node => node.id.endsWith(GATE_SUFFIX))) throw new Error('Production flows must not contain a test tick gate');
+    const expected = gateTickInjects(transformTuya(source, registry).flows);
+    const gates = actual.filter(node => node.id.endsWith(GATE_SUFFIX));
+    if (gates.length !== GATED_INJECTS.length) throw new Error('Fixture must contain exactly one tick gate per gated inject');
     if (!isDeepStrictEqual(actual, expected)) {
         const index = expected.findIndex((node, i) => !isDeepStrictEqual(actual[i], node));
         throw new Error('Fixture differs from the approved flow transform' +
@@ -74,7 +78,7 @@ async function main(args) {
         console.log('Running Node-RED flow matches the approved fixture transform.');
     }
     console.log(`${summary.functions} repository functions unchanged; ` +
-        `${summary.proxies} Tuya proxies; ${summary.added} added MQTT nodes.`);
+        `${summary.proxies} Tuya proxies; ${summary.added} added fixture nodes.`);
 }
 
 if (require.main === module) {
