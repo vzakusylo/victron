@@ -1,0 +1,68 @@
+name: BMS watchdog restores the instance after a synthetic serial driver restart
+faketime: '@2026-11-16 12:00:00 x10'
+observe:
+  - service: settings
+    path: /Settings/SystemSetup/BmsInstance
+initial:
+  inputs:
+    bms.present: true
+    bms.connected: true
+    bms.active: true
+    bms.instance: 289
+steps:
+  - when: 0s
+    settle: 75s
+    expect:
+      writes: []
+      bms:
+        - path: status
+          equals: ok
+        - path: good
+          equals: '289'
+  - when: 90s
+    settle: 75s
+    inputs:
+      bms.active: false
+      bms.connected: false
+      bms.present: false
+      bms.instance: -1
+    expect:
+      writes: []
+      bms:
+        - path: status
+          equals: waiting
+        - path: statusText
+          contains: No SerialBattery service
+  - when: 180s
+    settle: 90s
+    inputs:
+      bms.present: true
+      bms.connected: true
+    expect:
+      writes:
+        - service: settings
+          path: /Settings/SystemSetup/BmsInstance
+          value: 289
+      bms:
+        - path: lastRepairResult
+          equals: written
+  - when: 280s
+    settle: 35s
+    expect:
+      writes: []
+      bms:
+        - path: status
+          equals: alarm
+  - when: 330s
+    settle: 75s
+    inputs:
+      bms.active: true
+    expect:
+      writes: []
+      bms:
+        - path: status
+          equals: ok
+        - path: missingCount
+          equals: 0
+        - path: setting
+          equals: '289'

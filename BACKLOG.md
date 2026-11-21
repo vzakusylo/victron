@@ -52,7 +52,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Phase | Task | State |
 |---|---|---|---|
 | TGX5 | A1 grid | Edges: midnight, DST, month change, tariff tier change, sensor failures (Test GX plan 5) | open, raised |
-| TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | open, raised |
+| TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | in progress: `testgx-bms` |
 | TH1 | A2 heating | Warm-up start / end / cancel, curve back to the owner's | open |
 | TH2 | A2 heating | Band option: DP 121 whole number (d#206 fix), owner hysteresis back when Off / Test | open |
 | TH3 | A2 heating | Stuck-supply kick (F40-09) scenarios; no kick in DHW / defrost | open |

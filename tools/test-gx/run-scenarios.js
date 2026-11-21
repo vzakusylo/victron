@@ -17,6 +17,7 @@ const DEFAULT_CLEANUP_GRACE_MS = 3 * 60 * 1000;
 const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 const AUTOMATIONS_NODE = 'hpa-fn-01';
 const AUTOMATIONS_FLOW = '995ac4ed6222a706';
+const BMS_VIEW = 'bmsWatchdogState';
 
 class ScenarioTimeoutError extends Error {}
 
@@ -266,13 +267,13 @@ function validateScenario(scenario, source = 'scenario') {
                 item.count !== undefined && !(Number.isInteger(item.count) && item.count >= 0)))) {
             throw new Error(`${source} step ${index + 1} expect.log must contain contains and an optional count`);
         }
-        if (step.expect.view !== undefined && (!Array.isArray(step.expect.view) ||
-            step.expect.view.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
+        for (const key of ['view', 'bms']) if (step.expect[key] !== undefined && (!Array.isArray(step.expect[key]) ||
+            step.expect[key].some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
                 Object.keys(item).some(key => !['path', 'equals', 'contains'].includes(key)) ||
                 typeof item.path !== 'string' || !item.path ||
                 Object.hasOwn(item, 'equals') === Object.hasOwn(item, 'contains') ||
                 Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
-            throw new Error(`${source} step ${index + 1} expect.view must contain path and exactly one of equals or contains`);
+            throw new Error(`${source} step ${index + 1} expect.${key} must contain path and exactly one of equals or contains`);
         }
         if (step.expect.if_changed !== undefined &&
             (typeof step.expect.if_changed !== 'boolean' || !scenario.observe || !step.expect.writes)) {
@@ -738,6 +739,9 @@ async function runScenario(scenario, options = {}) {
             } else if (logSeen) logSeen = logSnapshot(await readLog());
             if (step.expect.view) {
                 assertView(await admin.readContext('flow', AUTOMATIONS_FLOW, 'dhwView'), step.expect.view, scenario.name, index + 1);
+            }
+            if (step.expect.bms) {
+                assertView(await admin.readContext('flow', AUTOMATIONS_FLOW, BMS_VIEW), step.expect.bms, scenario.name, index + 1);
             }
         }
     } catch (error) {

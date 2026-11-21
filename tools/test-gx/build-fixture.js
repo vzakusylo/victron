@@ -10,12 +10,15 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE = path.join(__dirname, 'fixture-synthetic');
 const FAKE_PASSWORD_HASH = '$2a$10$abcdefghijklmnopqrstuud40sZe9YD2AFwv0u1Os6NY0jgVorBEC';
 const TOOLS = [
-    'reload-victron-secrets.js', 'send-mail.js', 'set-mail-password.js',
+    'reload-victron-secrets.js', 'set-mail-password.js',
     'tuya-cloud-sensors.js', 'tuya-cloud-status.js', 'tuya-devices-setup.js',
     'tuya-local-sensors.js', 'victron-secrets.js', 'sensor-history.js',
     'heatpump-decode.js', 'deploy-version.js',
     'gx/deploy.js', 'gx/live-snapshot.js', 'gx/monitor.js', 'gx/verify.js'
 ];
+const FIXTURE_TOOLS = {
+    'test-gx-bin/dbus': 'dbus', 'test-gx-bms-dbus.js': 'bms-dbus.js', 'send-mail.js': 'send-mail.js'
+};
 
 function fixtureFiles() {
     const files = new Map();
@@ -46,6 +49,9 @@ function fixtureFiles() {
     for (const node of flows) {
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }
+    const bmsExec = flows.find(node => node.id === 'bmswd-exec-01');
+    if (bmsExec?.command !== 'sh -c' || bmsExec.addpay !== 'payload') throw new Error('BMS watchdog exec contract changed');
+    bmsExec.command = 'PATH=/data/home/nodered/tools/test-gx-bin:$PATH sh -c';
     json('nodered/.node-red/flows.json', gateTickInjects(transformTuya(flows, registry).flows));
     json('nodered/.node-red/flows_cred.json', {});
     json('versions.json', versions);
@@ -102,6 +108,9 @@ module.exports = {
     for (const tool of TOOLS) {
         files.set('nodered/tools/' + tool, fs.readFileSync(path.join(ROOT, 'tools', ...tool.split('/'))));
     }
+    for (const [target, source] of Object.entries(FIXTURE_TOOLS)) {
+        text('nodered/tools/' + target, fs.readFileSync(path.join(__dirname, 'fixture', source), 'utf8').replace(/\r\n/g, '\n'));
+    }
     return files;
 }
 
@@ -115,7 +124,7 @@ function buildFixture(destination = FIXTURE) {
     return files;
 }
 
-module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH, TOOLS };
+module.exports = { buildFixture, fixtureFiles, FIXTURE, FAKE_PASSWORD_HASH, TOOLS, FIXTURE_TOOLS };
 
 if (require.main === module) {
     buildFixture();
