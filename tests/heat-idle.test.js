@@ -29,6 +29,13 @@ function plant({ heatMode = 'live', hp = {}, lastDefrost = NOW - 60 * MIN, dhwEn
 }
 const cause = (opts, over) => { const p = plant(opts); p.tick(NOW, over); p.tick(NOW + 10 * S, over); return p.view().code; };
 
+test('idle cause: a lastDefrost that only marks the node start is not reported as a defrost', () => {
+    const p = plant({ lastDefrost: NOW - 2 * MIN });
+    p.node.context.set('startedAt', NOW - 2 * MIN);
+    p.tick(NOW, { 102: 27 }); p.tick(NOW + 10 * S, { 102: 27 });
+    assert.equal(p.view().code, 9);
+});
+
 test('idle cause: each reason gets its own code, the first matching one wins', () => {
     assert.equal(cause({}, { 102: 27 }), 9, 'below the restart level, compressor not starting');
     assert.equal(cause({ lastDefrost: NOW - 5 * MIN }), 5, 'quiet period after a defrost');

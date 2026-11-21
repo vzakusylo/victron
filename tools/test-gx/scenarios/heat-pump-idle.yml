@@ -23,13 +23,15 @@
       expect:
         writes: []
         log:
-          - contains: "Idle:"
+          - contains: "Idle: supply below the restart level"
             count: 1
           - contains: "running again"
             count: 0
         view:
           - path: idle.active
             equals: true
+          - path: idle.code
+            equals: 9
           - path: status.text
             contains: "Idle:"
     - when: 14m
