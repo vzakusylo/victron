@@ -43,6 +43,34 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 ## 3. Production backlog
 
+### Priority plan: test first, then split (decision 2026-11-21, [docs/test-first-performance-plan.md](docs/test-first-performance-plan.md))
+
+Priority: **grid control → heating → boiler**. A module is covered by green Test GX scenarios on master before it is
+split or tuned; then safe splits and performance work, measured on the GX. Order: A1 → A2 → A3 → NR1 → G1…G6 →
+NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are in the next table.
+
+| ID | Phase | Task | State |
+|---|---|---|---|
+| TG1 | A1 grid | `grid-reaction.yml`: grid import step +3 kW → new setpoint (timing); export → export guard; back to normal | open |
+| TG2 | A1 grid | `grid-stale-inputs.yml`: grid CT / battery V / PV stop updating → today's behaviour, `expected_fail` where wrong | open |
+| TG3 | A1 grid | Hour budget and tariff peaks: hour roll-over, day / month peak, tier change (unit replay + one scenario) | open |
+| TGX5 | A1 grid | Edges: midnight, DST, month change, tariff tier change, sensor failures (Test GX plan 5) | open, raised |
+| TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | open, raised |
+| TH1 | A2 heating | Warm-up start / end / cancel, curve back to the owner's | open |
+| TH2 | A2 heating | Band option: DP 121 whole number (d#206 fix), owner hysteresis back when Off / Test | open |
+| TH3 | A2 heating | Stuck-supply kick (F40-09) scenarios; no kick in DHW / defrost | open |
+| TH4 | A2 heating | Defrost start / end rules (F40-03 / 04) against a recorded sequence (test half of H8) | open |
+| TH5 | A2 heating | Bug HP-SETTINGS-1: saved curve P23 / P24 out of range not checked on load, can be written to the pump; own bug-fix PR | open (bug) |
+| TGX3 | A3 boiler | DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline (Test GX plan 3) | open, raised |
+| TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | open |
+| TB2 | A3 boiler | DHW with defrost: defrost during a cycle, DHW after defrost, minimum gap | open |
+| TGX7 | A3 boiler | Tuya cloud / local stub (Test GX plan 7) | open |
+| NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
+| NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
+| T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
+| P-D1 | process | Auto-deploy may use `allow_live_only_lines` when the GX equals its last deployed commit (no hand edits); with a test | open |
+| P-R1 | process | After-the-fact review of #103 (merged before review) | open |
+
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
 | T1 | Unit-test coverage of the control logic | 1–2 | Per function node: list every decision (input → expected write), add missing tests, list uncovered decisions. After the open PRs merge. |
@@ -59,11 +87,32 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | ID | Task | State | Notes |
 |---|---|---|---|
 | R1 | `CLAUDE.md` + `AGENTS.md`, `.claude/settings.json` (allowed commands, `flows.json` edit deny), `flows-check` hook, root cleanup (`config/`, `docs/archive/`) | Done: #91 | Phase 1, docs / config only. |
-| R2 | Agent hand-off: owner decides: Claude implements in worktrees (Copilot optional reviewer), or Copilot only in one-shot mode (`copilot -p` from a brief, output to a log) | open | Interactive Copilot tabs + clipboard relay cost the most time on 20–21 Nov. |
+| R2 | Agent hand-off: owner decides: Claude implements in worktrees (Copilot optional reviewer), or Copilot only in one-shot mode (`copilot -p` from a brief, output to a log) | Done: #101, #102 | Decided: Copilot runs as Herdr workers (send / read / wait), `--allow-all --model gpt-6.2-sol`. |
 | R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | Done: #92 | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
 | R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | Done: #92 | Phase 2. |
-| R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | in progress: `lib-split` (build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical, no deploy) | Phase 3; needs a design and a deploy path for `lib/`. |
+| R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
 | R6 | Merge or retire the `*-handoff*.md` docs (`docs/gx-handoff.md` is quoted by tests and scripts: update those first) | open | |
+
+### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
+
+Order: NR1 → G0 → G1 … G6 → NR3 … NR7. One PR each, unit tests and Test GX before each change, measured before and
+after on the GX (NR1 table). Grid control (energy controller) is the top priority and must never be delayed by the rest.
+
+| ID | Task | Depends on | State | Notes |
+|---|---|---|---|---|
+| NR1 | Measure Node-RED on the GX: CPU %, RSS, process spawns / h, event-loop lag (script + baseline table in the plan, section 5) | — | open | No behaviour change. |
+| G0 | Test GX gate before grid refactoring: existing 33 charging scenarios green twice on master; replay test `tests/grid-replay.test.js` from recorded inputs; new `grid-reaction.yml`, `grid-stale-inputs.yml` describing today's behaviour | NR1 | open | Coverage map in the plan, section 3a G0; T1 (#103) splits charging into 4 files. |
+| G1 | Split `01` into a pure control loop (`lib/grid/control.js`) and a separate "Grid bookkeeping" node (budgets, peaks, tariff, logs, CSV, status) | G0 | open | Pure move, proven by the replay test; d# bump. |
+| G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | open | Replaces NR2. Expected −90 % controller runs, −10 s control latency. |
+| G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
+| G4 | Isolation and heartbeat: no exec / file I/O in the grid path; event-loop lag p95 < 100 ms; alarm if the loop is silent 10 s | G3 | open | With `grid-isolation.yml`, `grid-heartbeat.yml`. |
+| G5 | Dashboard "Grid control" block: decision + reason, writes with read-back, input ages, safe mode, alarms, loop cadence | G3 | open | |
+| G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | open | Midnight / DST / month-change scenarios (Test GX plan item 5) before this. |
+| NR3 | Process spawns: BMS watchdog without `sh` every 30 s; cloud sensors `node` every 2 min removed or 15 min; page refreshes only while a page is open | G4 | open | ~210 → < 30 spawns / h. |
+| NR4 | Heat pump state + 65 KB page: one run per event (Tuya second output), at most every 5 s, page only on change and with a viewer | G4 | open | Touches the heat pump chain (#97 merged). |
+| NR5 | Automations tick: one `context.set` per tick, no large `JSON.stringify` per tick; check the context store | G4 | open | |
+| NR6 | Clean-up: unwired `/Dc/0/Current` input, duplicate 06:00 / 22:00 injects, left-over "Tag" nodes; `check` rule against unwired nodes | NR3 | open | |
+| NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
 
