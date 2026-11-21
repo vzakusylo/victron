@@ -1,0 +1,86 @@
+- name: charging force mode overrides the outside window
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":50,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":20}]}
+
+- name: charging force current is not capped at scheduled 25 A
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":3000}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":50,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":60}]}
+
+- name: charging force current scales to the summer grid cap
+  faketime: '@2026-06-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":3000}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":50,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":23}]}
+
+- name: charging force limiter starts tapers holds and releases
+  faketime: '@2026-11-16 13:00:00'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000,"forceChargeLimiterEnabled":true}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":0}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    # Allow for D-Bus input propagation and the 10-real-second DVCC throttle,
+    # which drops updates, before checking each exact transition.
+    - when: 20s
+      inputs: {"batt_v":53}
+      settle: 35s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
+    - when: 55s
+      inputs: {"batt_v":52.5}
+      settle: 40s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":22}]}
+    - when: 95s
+      inputs: {"batt_v":52}
+      settle: 35s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 130s
+      inputs: {"batt_v":53.5}
+      settle: 40s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
+    - when: 170s
+      inputs: {"batt_v":54}
+      settle: 35s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 205s
+      inputs: {"batt_v":53.5}
+      settle: 20s
+      expect: {"if_changed":false,"writes":[]}
+
+- name: charging HV full voltage scales scheduled current
+  expected_fail: CHG-1
+  faketime: '@2026-11-16 08:00:00'
+  controller: {"protection":{}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":55.4,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":5.1}]}
+
+- name: charging HV start threshold is exclusive
+  faketime: '@2026-11-16 08:00:00'
+  controller: {"protection":{"gridSupportW":500,"gridSupportMode":"hv-only"}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":55.2,"consumed_ah":-40,"grid_w":1000}}
+  steps:
+    - when: 0s
+      settle: 20s
+      expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}

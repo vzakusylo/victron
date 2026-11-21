@@ -1,5 +1,5 @@
 - name: A stopped compressor gives one Idle line with its cause, then one running-again line
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":27,"p24":5},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -51,7 +51,7 @@
             equals: false
 
 - name: A short compressor stop is not logged
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0},"heatCurve":{"p23":27,"p24":5},"dhw":{"supplyReady":5}}
   initial:
     inputs:

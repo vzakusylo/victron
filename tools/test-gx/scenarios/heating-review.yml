@@ -1,5 +1,6 @@
 - name: Silent and Smart do not hunt around the curve point
-  faketime: '@2026-11-16 20:00:00 x3'
+  # At x60 the second mode decision can occur before the runner changes the inputs.
+  faketime: '@2026-11-16 20:00:00 x30'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -16,8 +17,8 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 24m
-      settle: 400s
+    - when: 20m
+      settle: 360s
       expect:
         writes:
           - device: pump
@@ -25,7 +26,7 @@
             dps: "2"
             value: smart
             applied: true
-    - when: 30m
+    - when: 27m
       inputs:
         tuya.pump.dps.101: 31
         tuya.pump.dps.102: 36.4
@@ -34,7 +35,7 @@
         writes: []
 
 - name: Old lagUp and overC settings win over a saved heating band
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"band":true,"bandDown":0,"bandUp":2,"lagUp":1.5,"overC":1,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -73,7 +74,7 @@
             applied: true
 
 - name: DHW after a defrost starts about 15 min after it when the tank deficit is at least 1 degree
-  faketime: '@2026-11-16 20:00:00 x4'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
   initial:
     inputs:
@@ -128,7 +129,7 @@
             applied: true
 
 - name: DHW does not start after a defrost when the tank deficit is below 1 degree
-  faketime: '@2026-11-16 20:00:00 x4'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":true,"afterDefrost":false,"minIntervalH":0}}
   initial:
     inputs:
@@ -162,7 +163,8 @@
       expect:
         writes: []
 - name: A pump set back to Silent after Smart gets Smart again without the step wait
-  faketime: '@2026-11-16 20:00:00 x3'
+  # Keep the first Smart decision and the deliberate reset in separate observation windows.
+  faketime: '@2026-11-16 20:00:00 x30'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:
@@ -179,8 +181,8 @@
       tuya.pump.dps.133: 38
       tuya.pump.dps.134: 4
   steps:
-    - when: 24m
-      settle: 400s
+    - when: 20m
+      settle: 360s
       expect:
         writes:
           - device: pump
@@ -188,7 +190,7 @@
             dps: "2"
             value: smart
             applied: true
-    - when: 30m
+    - when: 27m
       inputs:
         tuya.pump.dps.2: mute
       settle: 400s

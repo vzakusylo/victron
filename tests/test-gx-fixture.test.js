@@ -129,10 +129,16 @@ test('fixture matches only the approved node transformations', () => {
     const generated = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'nodered', '.node-red', 'flows.json'), 'utf8'));
     const summary = verify(source, generated);
     assert.equal(summary.proxies, 4);
-    assert.equal(summary.added, 12);
+    assert.equal(summary.added, 12 + 5); // Tuya transport nodes and five tick gates.
+    const gateId = 'hpa-tick-01-tick-gate';
+    const gate = generated.find(node => node.id === gateId);
+    assert.throws(() => verify([...source, gate], generated), /Production flows must not contain/);
+    assert.throws(() => verify(source, generated.filter(node => node.id !== gateId)), /one tick gate per gated inject/);
 
     const mutations = [
         nodes => { nodes.find(n => n.id === source.find(s => s.type === 'function').id).func += '\n'; },
+        nodes => { nodes.find(n => n.id === gateId).func += '\n'; },
+        nodes => { nodes.find(n => n.id === 'hpa-tick-01').repeat = '10'; },
         nodes => { nodes.find(n => n.id === 'hp-tuya-pump-01').wires[0].push('unexpected'); },
         nodes => { nodes.find(n => n.type === 'mqtt-broker').tls = 'unexpected'; },
         nodes => { nodes.find(n => n.type === 'tab').label += ' unexpected'; },

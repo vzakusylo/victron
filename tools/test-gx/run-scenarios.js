@@ -239,6 +239,9 @@ function validateScenario(scenario, source = 'scenario') {
     for (const [index, step] of scenario.steps.entries()) {
         if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error(`${source} step ${index + 1} must be a mapping`);
         parseDuration(step.when, `${source} step ${index + 1} when`);
+        if (step.fromDeploy !== undefined && (step.fromDeploy !== true || !scenario.settings)) {
+            throw new Error(`${source} step ${index + 1} fromDeploy requires heat-pump settings and the value true`);
+        }
         parseDuration(step.settle === undefined ? '12s' : step.settle, `${source} step ${index + 1} settle`);
         if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) || !Array.isArray(step.expect.writes)) {
             throw new Error(`${source} step ${index + 1} requires an expect.writes sequence`);
@@ -475,6 +478,17 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
     }
     return {
         async ready() { await request('GET', '/flows'); },
+        async deployElapsed() {
+            const route = `/context/node/${AUTOMATIONS_NODE}/lastDefrost`;
+            const response = await fetchImpl(new URL(route, baseUrl), { signal: AbortSignal.timeout(10000) });
+            if (!response.ok) throw new Error(`Node-RED GET ${route} returned ${response.status}`);
+            const now = Date.parse(response.headers.get('date'));
+            const deployed = JSON.parse((await response.json()).msg);
+            if (!Number.isFinite(now) || !Number.isFinite(deployed) || deployed <= 0 || now < deployed) {
+                throw new Error('Node-RED did not return a valid fake wall time and deploy timestamp');
+            }
+            return now - deployed;
+        },
         async verifyDeployed() {
             try {
                 await assertNoTemporaryFlows(request);
@@ -662,7 +676,12 @@ async function runScenario(scenario, options = {}) {
         const readLog = async () => (await admin.readContext('node', AUTOMATIONS_NODE, 'log')) || [];
         let logSeen = scenario.steps.some(step => step.expect.log) ? logSnapshot(await readLog()) : undefined;
         for (const [index, step] of scenario.steps.entries()) {
-            const due = start + parseDuration(step.when, 'when') / rate;
+            const offset = parseDuration(step.when, 'when');
+            const elapsed = step.fromDeploy ? await admin.deployElapsed() : 0;
+            if (step.fromDeploy && elapsed > offset) {
+                throw new Error(`${scenario.name} step ${index + 1}: missed deploy-relative observation window`);
+            }
+            const due = (step.fromDeploy ? Date.now() : start) + (offset - elapsed) / rate;
             if (due > Date.now()) await wait(due - Date.now());
             const before = step.expect.if_changed ? await api.getState() : undefined;
             if (scenario.controller && !controllerSettingsApplied) {

@@ -1,5 +1,5 @@
 - name: Defrost with the outdoor sensor at 40 °C: heating does not use it (no curve change, no mode change)
-  faketime: '@2026-11-16 20:00:00 x3'
+  faketime: '@2026-11-16 20:00:00 x60'
   settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
     inputs:

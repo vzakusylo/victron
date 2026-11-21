@@ -1,7 +1,9 @@
 # Test GX charging decision inventory
 
 Source: `01 Battery + Grid Controller.js`, read without modification. The executable
-fixtures are in [`charging.yml`](../tools/test-gx/scenarios/charging.yml).
+fixtures are in [`charging.yml`](../tools/test-gx/scenarios/charging.yml) and the
+[`force`](../tools/test-gx/scenarios/charging-force.yml), [`forecast`](../tools/test-gx/scenarios/charging-forecast.yml),
+[`support`](../tools/test-gx/scenarios/charging-support.yml), and [`guards`](../tools/test-gx/scenarios/charging-guards.yml) files.
 Each fixture also runs against the actual function source in
 [`test-gx-charging.test.js`](../tests/test-gx-charging.test.js).
 

@@ -51,8 +51,9 @@ test('settings snapshots restore file bytes and context before deleting and chec
         assert.ok(restoreFile > 0 && deleted > restoreFile);
         const injected = calls.filter(call => call.route === '/inject/restore');
         assert.equal(injected[0].body.__user_inject_props__[0].vt, 'json');
-        assert.equal(injected[1].body.__user_inject_props__[0].vt, 'str');
-        assert.deepEqual(JSON.parse(injected[1].body.__user_inject_props__[0].v), settings);
+        assert.deepEqual(injected.map(call => call.body.__user_inject_props__[1].v), ['ui', 'tick', 'load']);
+        assert.equal(injected[2].body.__user_inject_props__[0].vt, 'str');
+        assert.deepEqual(JSON.parse(injected[2].body.__user_inject_props__[0].v), settings);
         assert.equal(calls.at(-1).route, '/flows');
         await assert.rejects(saved.restore(), /already been restored/);
     } finally {

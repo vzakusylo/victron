@@ -185,6 +185,11 @@ The deploy window check still requires every guarded input: the four heat-pump m
 
 The Node-RED image is Alpine 3.18 (musl); its configured repositories do not contain `libfaketime`. The Dockerfile builds upstream `libfaketime` v0.9.13 against musl and keeps only `libfaketimeMT.so.1`. The entrypoint enables it only when `TEST_GX_FAKETIME` is non-empty. In that case Node-RED receives `FAKETIME=<value>`, `LD_PRELOAD=/usr/local/lib/faketime/libfaketimeMT.so.1` and `FAKETIME_DONT_FAKE_MONOTONIC=1`. Without the variable it runs on real time. Venus and the D-Bus emulator are separate containers and remain on real time.
 
+A probe in that image at `x60` measured a 200 ms `setInterval` firing after about 201, 401 and 601 ms
+of `process.hrtime` (12.1, 24.1 and 36.1 seconds of `Date.now()`), and a 500 ms `setTimeout` firing
+after 500 ms monotonic (30.0 seconds of wall time). The Node-RED inject therefore runs on real time,
+as do the automation node's 1.5 s write gap, 15 s verification timer and sequence delays.
+
 SSH processes use real time because sshd starts before the preload is exported; use `verify.js` cautiously under faketime, as its "since deploy" log filter compares different clocks. The smoke script leaves `TEST_GX_FAKETIME` in the calling shell: after success or failure, run `Remove-Item Env:TEST_GX_FAKETIME -ErrorAction SilentlyContinue` before a real-time `up.ps1` run (the existing container stays on fake time until recreated). The library is pinned to a release tag, not an immutable commit SHA; tag rewriting remains a reproducibility limitation. Probe cleanup failures can mask the original smoke-check error.
 
 Use the manual smoke script; it rebuilds the test GX from a sanitized backup and removes the test volume:
@@ -392,6 +397,8 @@ UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` 
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
 Tuya `SET` commands in `/writes` against `expect.writes`. Every step requires `expect.writes`,
 including an explicit `[]` for guards; missing expectations and extra selected writes fail.
+The DHW quiet-period positive control uses `fromDeploy: true` to measure its final `when` from
+the automation node's startup timestamp, before any simulated defrost changes it.
 To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence of exact
 `service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
 Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
@@ -409,10 +416,11 @@ appeared since the previous step (`count: 0` asserts absence). `expect.view` is 
 `heat.offCurve.today`) with either `equals` or `contains`. The runner reads both from the
 Node-RED context API; a value too large for it to return whole is an error.
 `heating-curve-follow.yml` (P1, step up) and `heating-curve-monitor.yml` (P2, not following the
-curve) use them. They run at `x3`: the heating controller needs 20 ticks (10 s real each) inside its
-10-min window, so a faster clock never fills it; the first decision comes after the 15-min
-quiet period and the 10-min window (about 25 fake min), `offCurveMin` is set to 10-15 min to keep the
-monitor cases near 15 real min each, and the two files run as separate CI jobs.
+curve) use them. The heating controller needs 20 ticks inside its 10-minute window. To keep it
+sampled at accelerated rates, the synthetic fixture polls every 100 real ms and forwards at the
+original fake-wall-clock cadence (10 s for automations). The gate skips missed intervals rather than
+replaying simultaneous samples. Related heat-pump polling and logging injects use the same gate.
+Production flows and sanitized backup fixtures do not get gates.
 Charging stops Node-RED, resets actuator values through `/reset` with `{"outputs":true}`,
 checks the actual defaults (-1 A DVCC, 0 W setpoint, 25 A input limit), and stages inputs
 before Node-RED starts; settings are then applied and
@@ -433,8 +441,8 @@ suite. The [charging inventory](test-gx-charging-inventory.md#isolation-and-rest
 lists the exact resources and the narrowly scoped cached-forecast fault fallback.
 Before and after every scenario the runner also checks that no temporary nodes remain
 and SHA-256 hashes the complete production function-node definitions against `flows.json`.
-The four Test GX Tuya adapters are checked against `transform-tuya.js`, not mistaken for
-production function nodes. A changed function, restore hook, missing temperature function
+The four Test GX Tuya adapters and five tick gates are checked against the approved fixture transforms,
+not mistaken for production function nodes. A changed function, restore hook, missing temperature function
 or leftover helper is a hard failure. Node-RED's verified default context store is
 memory-only: restarting it before each scenario resets node-private manual-discharge state,
 shade cache and subflow rate-limit context. No restore hooks are used. A filesystem context
@@ -571,14 +579,14 @@ earlier red run 44573678310 was on an older `master` commit (`9fc2f5d`) and fail
 proxy function-hash check; current `master` no longer reproduces it.
 
 Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. One job per
-scenario file runs in parallel (`scenarios (<file>)`, 120-minute limit each), on its own VM with its own stack:
+scenario file runs in parallel (`scenarios (<file>)`, 45-minute limit each), on its own VM with its own stack:
 `run-scenarios.js --file <file>` (comma list allowed). Each builds the repository-only synthetic fixture, runs
 that file's scenarios and summarizes their JUnit results with the real minutes per scenario. Expected failures
 are skipped; an unexpected pass fails the job. The required check is the final `scenarios` job: it passes only
 when every file job passed. The `test-gx-logs-<n>` artifacts retain JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. A new scenario file must be added to the `files` matrix (a unit test checks it).
-The whole run now takes as long as the slowest file. Next speed-ups: raise the faketime rate (`x60`) of the
-slow scenarios (the DHW quiet-period ones run at real time), then split heating-review.yml.
+The whole run takes as long as the slowest file. Charging scenarios retain their real-time pacing
+and run in five matrix files; `--suite charging` selects all five locally.
 
 ## Fixture isolation and verification
 

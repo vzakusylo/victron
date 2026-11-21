@@ -20,11 +20,11 @@ jobs:
   run:
     name: scenarios (${{ matrix.files }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        files: [charging.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, heat-pump-idle.yml, trivial.yml]
+        files: [charging.yml, charging-force.yml, charging-forecast.yml, charging-support.yml, charging-guards.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heat-pump-er03.yml, heat-pump-idle.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, trivial.yml]
     permissions:
       contents: read
     env:
