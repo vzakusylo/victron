@@ -51,9 +51,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 
 | ID | Phase | Task | State |
 |---|---|---|---|
-| TG1 | A1 grid | `grid-reaction.yml`: grid import step +3 kW → new setpoint (timing); export → export guard; back to normal | in progress: grid-testgx-a1 |
-| TG2 | A1 grid | `grid-stale-inputs.yml`: grid CT / battery V / PV stop updating → today's behaviour, `expected_fail` where wrong | in progress: grid-testgx-a1 |
-| TG3 | A1 grid | Hour budget and tariff peaks: hour roll-over, day / month peak, tier change (unit replay + one scenario) | in progress: grid-testgx-a1 |
 | TGX5 | A1 grid | Edges: midnight, DST, month change, tariff tier change, sensor failures (Test GX plan 5) | open, raised |
 | TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | open, raised |
 | TH1 | A2 heating | Warm-up start / end / cancel, curve back to the owner's | open |
@@ -101,7 +98,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | NR1 | Measure Node-RED on the GX: CPU %, RSS, process spawns / h, event-loop lag (script + baseline table in the plan, section 5) | — | open | No behaviour change. |
-| G0 | Test GX gate before grid refactoring: existing 33 charging scenarios green twice on master; replay test `tests/grid-replay.test.js` from synthetic inputs; new `grid-reaction.yml`, `grid-stale-inputs.yml` describing today's behaviour | NR1 | in progress: grid-testgx-a1 | Coverage map in the plan, section 3a G0; T1 (#103) splits charging into 4 files. |
+| G0 | Test GX gate before grid refactoring: existing 33 charging scenarios green twice on master; replay test `tests/grid-replay.test.js` from synthetic inputs; new `grid-reaction.yml`, `grid-stale-inputs.yml` describing today's behaviour | NR1 | in progress: grid-testgx-a1 / #106 | Wait for two consecutive green charging runs on master. Coverage map: plan section 3a G0. |
 | G1 | Split `01` into a pure control loop (`lib/grid/control.js`) and a separate "Grid bookkeeping" node (budgets, peaks, tariff, logs, CSV, status) | G0 | open | Pure move, proven by the replay test; d# bump. |
 | G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | open | Replaces NR2. Expected −90 % controller runs, −10 s control latency. |
 | G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
@@ -182,6 +179,12 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#106 TG1–TG3: d#206 test-only grid coverage. The +3 kW import step moved the HV-limited ESS target from 1,000 W to
+1,100 W in 21.55 s locally (14.11 s on return). The export guard raised and released the DVCC limit. Three G2 safe-mode
+expected failures: stale CT held export charging at 25 A, stale battery voltage held force charging at 20 A, and
+stale PV held the export-charge limit at 25 A. Unit coverage includes four replay baselines, hour rollover, billable
+day and top-3 month peaks, the tier crossing and the night billing factor; Test GX crosses the 06:00 profile boundary.
 
 #103 T1 step 2: faster synthetic Test GX clocks and balanced CI shards (no d# bump; based on d#206).
 
