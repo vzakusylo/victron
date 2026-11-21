@@ -71,15 +71,20 @@
             dps: "133"
             value: 35
             applied: true
-    # Setup already consumes about 3.5 fake minutes at x10. Observe the first two
-    # writes after the 15-minute quiet period, before the 90-second valve travel ends.
-    - when: 11m
+    # Anchor to the quiet period, not the runner's variable setup time.
+    - when: 14m
+      fromDeploy: true
+      settle: 0s
+      expect:
+        writes: []
+    - when: 15m
+      fromDeploy: true
       inputs:
         tuya.pump.dps.103: -2
         tuya.pump.dps.108: 25
         tuya.pump.dps.115: 0
         tuya.pump.dps.116: 0
-      settle: 85s
+      settle: 80s
       expect:
         writes:
           - device: pump

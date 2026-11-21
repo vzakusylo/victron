@@ -397,6 +397,8 @@ UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` 
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
 Tuya `SET` commands in `/writes` against `expect.writes`. Every step requires `expect.writes`,
 including an explicit `[]` for guards; missing expectations and extra selected writes fail.
+The DHW quiet-period positive control uses `fromDeploy: true` to measure its final `when` from
+the automation node's startup timestamp, before any simulated defrost changes it.
 To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence of exact
 `service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
 Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
