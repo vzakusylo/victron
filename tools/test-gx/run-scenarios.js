@@ -248,6 +248,20 @@ function validateScenario(scenario, source = 'scenario') {
         if (step.fromDeploy !== undefined && (step.fromDeploy !== true || !scenario.settings)) {
             throw new Error(`${source} step ${index + 1} fromDeploy requires heat-pump settings and the value true`);
         }
+        if (step.heating !== undefined) {
+            const action = step.heating;
+            const valid = action && typeof action === 'object' && !Array.isArray(action) && (
+                action.action === 'heatWarm' && typeof action.on === 'boolean' &&
+                    Object.keys(action).every(key => ['action', 'on', 'deltaC', 'hours'].includes(key)) &&
+                    ['deltaC', 'hours'].every(key => action[key] === undefined || Number.isFinite(action[key])) ||
+                action.action === 'mode' && action.id === 'heat' && ['off', 'dry', 'live'].includes(action.mode) &&
+                    Object.keys(action).length === 3 ||
+                action.action === 'heatSet' && typeof action.cfg?.band === 'boolean' &&
+                    Object.keys(action.cfg).length === 1 && Object.keys(action).length === 2);
+            if (!scenario.settings || !valid) {
+                throw new Error(`${source} step ${index + 1} heating requires settings and a supported heating UI action`);
+            }
+        }
         parseDuration(step.settle === undefined ? '12s' : step.settle, `${source} step ${index + 1} settle`);
         if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) ||
             (step.expect.writes === undefined ? !step.expect.outputs?.length : !Array.isArray(step.expect.writes))) {
@@ -537,7 +551,7 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
         },
         preserveSettings: () => preserveSettings(request, wait),
         preserveController: scenario => preserveController(request, wait, scenario),
-        async loadSettings(settings) {
+        async loadSettings(settings, keepInject = false) {
             const inject = randomBytes(8).toString('hex');
             const flow = {
                 label: 'Temporary Test GX scenario settings',
@@ -551,6 +565,11 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
             };
             const created = await request('POST', '/flow', flow);
             if (!created || typeof created.id !== 'string') throw new Error('Node-RED did not return the temporary flow id');
+            const restore = async () => {
+                await request('DELETE', `/flow/${created.id}`);
+                await wait(6000);
+            };
+            let retained = false;
             try {
                 const deployed = await request('GET', `/flow/${created.id}`);
                 const node = deployed.nodes && deployed.nodes.find(item => item.name === 'Load scenario settings' && item.type === 'inject');
@@ -571,18 +590,23 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                     ...Object.entries(settings.modes || {}).map(([id, mode]) => ({ topic: 'ui', payload: { action: 'mode', id, mode } })),
                     { topic: 'ui', payload: { action: 'master', on: settings.master === true } }
                 ];
-                for (const action of actions) {
-                    await request('POST', `/inject/${node.id}`, {
+                const injectAction = ({ topic, payload }) =>
+                    request('POST', `/inject/${node.id}`, {
                         __user_inject_props__: [
-                            { p: 'payload', v: JSON.stringify(action.payload), vt: action.topic === 'load' ? 'str' : 'json' },
-                            { p: 'topic', v: action.topic, vt: 'str' }
+                            { p: 'payload', v: JSON.stringify(payload), vt: topic === 'load' ? 'str' : 'json' },
+                            { p: 'topic', v: topic, vt: 'str' }
                         ]
                     });
+                for (const action of actions) {
+                    await injectAction(action);
                     await wait(200);
                 }
+                if (keepInject) {
+                    retained = true;
+                    return { apply: payload => injectAction({ topic: 'ui', payload }), restore };
+                }
             } finally {
-                await request('DELETE', `/flow/${created.id}`);
-                await wait(6000);
+                if (!retained) await restore();
             }
         }
     };
@@ -644,6 +668,7 @@ async function runScenario(scenario, options = {}) {
     if (options.waitReady !== false) await waitReady({ getState: admin.ready }, options.readyTimeoutMs, signal);
     await admin.verifyDeployed();
     let saved;
+    let heating;
     let controller;
     let controllerSettingsApplied = false;
     let failure;
@@ -675,7 +700,7 @@ async function runScenario(scenario, options = {}) {
         }
         if (scenario.settings || scenario.controller) {
             saved = await admin.preserveSettings();
-            if (scenario.settings) await admin.loadSettings(scenario.settings);
+            if (scenario.settings) heating = await admin.loadSettings(scenario.settings, scenario.steps.some(step => step.heating));
             if (scenario.controller) {
                 controller = await admin.preserveController(scenario);
             }
@@ -708,6 +733,7 @@ async function runScenario(scenario, options = {}) {
             await applyActions(api, step);
             inputs = { ...inputs, ...step.inputs };
             if (step.controller) await controller.apply(step.controller);
+            if (step.heating) await heating.apply(step.heating);
             const settle = parseDuration(step.settle === undefined ? '12s' : step.settle, 'settle');
             if (settle) await wait(settle / rate);
             if (scenario.controller && options.waitReady !== false) await admin.verifyControllerInputs(inputs);
@@ -750,7 +776,7 @@ async function runScenario(scenario, options = {}) {
         throw error;
     } finally {
         const errors = [];
-        for (const state of [controller, saved]) {
+        for (const state of [heating, controller, saved]) {
             if (state) {
                 try { await state.restore(); } catch (error) { errors.push(error); }
             }

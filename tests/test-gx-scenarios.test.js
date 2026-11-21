@@ -476,6 +476,27 @@ test('settings remove the temporary flow if the inject node is absent', async ()
     assert.deepEqual(calls.at(-1), ['DELETE', '/flow/temporary-flow']);
 });
 
+test('heating steps reuse the settings inject and remove it during cleanup', async () => {
+    const calls = [];
+    const fetch = async (url, options) => {
+        calls.push([options.method, url.pathname, options.body && JSON.parse(options.body)]);
+        const text = url.pathname === '/flow' ? '{"id":"temporary-flow"}'
+            : options.method === 'GET' ? '{"nodes":[{"id":"inject-id","type":"inject","name":"Load scenario settings"}]}' : '';
+        return { ok: true, text: async () => text };
+    };
+    const admin = createAdmin('http://127.0.0.1:1881', fetch, async () => {});
+    const heating = await admin.loadSettings({ master: true, modes: {} }, true);
+    const action = { action: 'heatWarm', on: true, deltaC: 2, hours: 1 };
+    assert.ok(calls.every(([method]) => method !== 'DELETE'));
+    await heating.apply(action);
+    assert.deepEqual(calls.at(-1), ['POST', '/inject/inject-id', { __user_inject_props__: [
+        { p: 'payload', v: JSON.stringify(action), vt: 'json' },
+        { p: 'topic', v: 'ui', vt: 'str' }
+    ] }]);
+    await heating.restore();
+    assert.deepEqual(calls.at(-1).slice(0, 2), ['DELETE', '/flow/temporary-flow']);
+});
+
 test('expected_fail scenarios are distinguished from failures and unexpected passes', async () => {
     const failing = {
         name: 'known mismatch',

@@ -1,0 +1,162 @@
+- name: "Warm-up raises both coefficients, expires after one hour, and can be cancelled"
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live"},"heat":{"kickMin":0,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 37
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 18m
+      expect:
+        writes: []
+    - when: 20m
+      heating: {"action":"heatWarm","on":true,"deltaC":2,"hours":1}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 5
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 40
+            applied: true
+        view:
+          - path: "heat.warm.applied"
+            equals: 2
+    - when: 78m
+      expect:
+        writes: []
+        view:
+          - path: "heat.warm.active"
+            equals: true
+    - when: 81m
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 4
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 38
+            applied: true
+        view:
+          - path: "heat.warm.active"
+            equals: false
+    - when: 87m
+      heating: {"action":"heatWarm","on":true,"deltaC":2,"hours":1}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 5
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 40
+            applied: true
+    - when: 92m
+      heating: {"action":"heatWarm","on":false}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 4
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 38
+            applied: true
+        view:
+          - path: "heat.warm.active"
+            equals: false
+
+- name: "A warm-up requested in Test is not written and explains why"
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"off","heat":"dry"},"heat":{"kickMin":0,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 37
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      heating: {"action":"heatWarm","on":true,"deltaC":2,"hours":1}
+      settle: "2m"
+      expect:
+        writes: []
+        view:
+          - path: "heat.warm.active"
+            equals: true
+          - path: "heat.warm.applied"
+            equals: 0
+          - path: "heat.warm.note"
+            contains: "warm-up needs the heating controller On"
+- name: "A warm-up requested while Off is not written and explains why"
+  expected_fail: "TH1: Off returns before setting the warm-up note; the active request has no explanation in the view."
+  expected_fail_step: 2
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"off","heat":"off"},"heat":{"kickMin":0,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 37
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      heating: {"action":"heatWarm","on":true,"deltaC":2,"hours":1}
+      settle: "2m"
+      expect:
+        writes: []
+        view:
+          - path: "heat.warm.active"
+            equals: true
+          - path: "heat.warm.applied"
+            equals: 0
+    - when: 23m
+      expect:
+        writes: []
+        view:
+          - path: "heat.warm.note"
+            contains: "warm-up needs the heating controller On"
