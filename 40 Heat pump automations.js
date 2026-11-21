@@ -322,7 +322,14 @@ function pump() {
     if (!q.length) return;
     context.set('pumping', true); context.set('pumpAt', Date.now());
     const item = q.shift(); context.set('queue', q);
-    if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
+    const dp = String(item.dps);
+    const invalidCurveWrite = item.role === 'hp' &&
+        ((dp === '133' && !inCurveRange(item.set, P23_MIN, P23_MAX)) ||
+         (dp === '134' && !inCurveRange(item.set, P24_MIN, P24_MAX)));
+    if (invalidCurveWrite) {
+        logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+            text: 'heat pump DP ' + dp + ' = ' + item.set + ' refused (invalid heating curve value)' });
+    } else if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (forced cycle cancelled)' });
     } else if (!item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
@@ -420,8 +427,10 @@ const FAULT_TEXT = { Er03: 'water flow failure' };
 if (msg.topic === 'load') {
     try {
         const s = JSON.parse(String(msg.payload || '{}'));
+        const curve = s.heatCurve;
+        const validCurve = curve && validHeatCurve(curve.p23, curve.p24);
         settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
-            heatCurve: s.heatCurve && Number.isFinite(s.heatCurve.p23) && Number.isFinite(s.heatCurve.p24) ? s.heatCurve : null,
+            heatCurve: validCurve ? curve : null,
             dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(heatMigrate(s.heat)), dhwLastDone: Number(s.dhwLastDone) || 0,
             dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || '') } : null,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
@@ -438,6 +447,10 @@ if (msg.topic === 'load') {
         persist();
         context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
+        if (curve != null && !validCurve) {
+            logEvent({ kind: 'warn', text: 'stored heating curve invalid (P23 ' + JSON.stringify(curve.p23)
+                + ' / P24 ' + JSON.stringify(curve.p24) + ') → ignored, re-captured from the pump' });
+        }
         if (heatMigrateNote) { logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: heatMigrateNote }); heatMigrateNote = ''; }
     } catch (e) {
         settings = { master: false, modes: {} };
