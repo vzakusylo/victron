@@ -107,8 +107,31 @@ jobs:
               then checks done, then findings ranked
               by severity. Be concise. Do not repeat inline comments in full.
             - Do not push commits, approve, or request changes.
+            - Last step, always: write the verdict for the merge gate with exactly one of
+                echo "VERDICT: safe to merge" > "$RUNNER_TEMP/claude-verdict.txt"
+                echo "VERDICT: needs changes" > "$RUNNER_TEMP/claude-verdict.txt"
+              Write "needs changes" when a test fails or when you found a High or Critical
+              problem (control safety, secrets, flows.json out of sync, a wrong d# bump).
+              Medium and lower findings alone do not block: write "safe to merge".
 
           claude_args: |
             --model claude-opus-5-5
             --max-turns 40
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(node -e:*),Bash(node --test:*),Bash(node tools/flows.js check),Bash(jq:*),Read,Grep,Glob"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(node -e:*),Bash(node --test:*),Bash(node tools/flows.js check),Bash(jq:*),Bash(echo:*),Read,Grep,Glob"
+
+      # R3: the review blocks the merge on a test failure or a High / Critical finding. A missing verdict
+      # (the review did not finish) also fails, so an unreviewed PR never passes `review` by accident.
+      - name: Review verdict gate
+        if: github.event_name == 'pull_request'
+        run: |
+          f="$RUNNER_TEMP/claude-verdict.txt"
+          if [[ ! -s "$f" ]]; then
+            echo "::error::Claude review wrote no verdict; re-run the job or comment '@claude review'."
+            exit 1
+          fi
+          cat "$f"
+          if grep -q '^VERDICT: needs changes' "$f"; then
+            echo "::error::Claude review: needs changes (see the summary comment on the PR)."
+            exit 1
+          fi
+          grep -q '^VERDICT: safe to merge' "$f" || { echo "::error::Unknown verdict"; exit 1; }

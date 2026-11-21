@@ -58,10 +58,10 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | ID | Task | State | Notes |
 |---|---|---|---|
-| R1 | `CLAUDE.md` + `AGENTS.md`, `.claude/settings.json` (allowed commands, `flows.json` edit deny), `flows-check` hook, root cleanup (`config/`, `docs/archive/`) | in progress: `repo-claude-setup` | Phase 1, docs / config only. |
+| R1 | `CLAUDE.md` + `AGENTS.md`, `.claude/settings.json` (allowed commands, `flows.json` edit deny), `flows-check` hook, root cleanup (`config/`, `docs/archive/`) | Done: #91 | Phase 1, docs / config only. |
 | R2 | Agent hand-off: owner decides: Claude implements in worktrees (Copilot optional reviewer), or Copilot only in one-shot mode (`copilot -p` from a brief, output to a log) | open | Interactive Copilot tabs + clipboard relay cost the most time on 20–21 Nov. |
-| R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | open | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
-| R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | open | Phase 2. |
+| R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | in progress: `repo-claude-phase2` (review verdict gate + CODEOWNERS) | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
+| R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | in progress: `repo-claude-phase2` | Phase 2. |
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | open | Phase 3; needs a design and a deploy path for `lib/`. |
 | R6 | Merge or retire the `*-handoff*.md` docs (`docs/gx-handoff.md` is quoted by tests and scripts: update those first) | open | |
 
