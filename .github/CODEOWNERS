@@ -1,0 +1,8 @@
+# Live control, the build and CI: the owner reviews these (GitHub requests the review automatically).
+/[0-9][0-9]\ *               @vzakusylo
+/flows.json                  @vzakusylo
+/.github/workflows/          @vzakusylo
+/tools/gx/                   @vzakusylo
+/scripts/gx-*.ps1            @vzakusylo
+/.claude/                    @vzakusylo
+/CLAUDE.md                   @vzakusylo

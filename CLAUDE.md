@@ -64,6 +64,13 @@ Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI 
 (`copilot --allow-all -i 'Read <brief> and do it'`). One agent per worktree. Copilot's rules:
 `.github/copilot-instructions.md`; the loop: `docs/agent-workflow.md`. Every report ends with the branch name.
 
+Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, auto-merge), `test-gx-local` (Docker
+scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP).
+
+The `review` check fails when the Claude review finds a failing test or a High / Critical problem (verdict gate in
+`claude-code-review.yml`); fix it and push, or comment `@claude review` to re-run. `.github/CODEOWNERS` requests the
+owner's review on live-control, CI and deploy files.
+
 ## Gotchas
 
 - `flows.json` is ~1 MB: search it with `node tools/flows.js` or grep the `NN` sources instead.
