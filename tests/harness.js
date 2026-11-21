@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const { expand } = require('../tools/includes');
+// a numbered source with its `// #include lib/…js` lines expanded, as it is embedded in flows.json
+function readSource(file) { return expand(fs.readFileSync(path.join(ROOT, file), 'utf8'), ROOT); }
 
 function store(initial) {
     const data = Object.assign({}, initial);
@@ -24,7 +27,7 @@ function fixedDate(nowMs) {
 }
 
 function loadNode(file, sourceText) {
-    const source = sourceText === undefined ? fs.readFileSync(path.join(ROOT, file), 'utf8') : sourceText;
+    const source = sourceText === undefined ? readSource(file) : sourceText;
     const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', source);
     const context = store();
     const flow = store();
@@ -48,4 +51,4 @@ function loadNode(file, sourceText) {
     return { run, context, flow };
 }
 
-module.exports = { loadNode, ROOT };
+module.exports = { loadNode, readSource, ROOT };

@@ -6,14 +6,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadNode, ROOT } = require('./harness');
+const { loadNode, readSource, ROOT } = require('./harness');
 
 const S = 1000, MIN = 60 * S;
 const NOW = new Date(2026, 10, 20, 7, 0).getTime();
 const FILE = '40 Heat pump automations.js';
 
 // the pure helper, taken from the node source
-const source = fs.readFileSync(path.join(ROOT, FILE), 'utf8');
+const source = readSource(FILE);
 const helperSrc = (source.match(/function pumpOutdoor\([\s\S]*?\n\}/) || [])[0];
 const pumpOutdoor = helperSrc ? new Function(helperSrc + '\nreturn pumpOutdoor;')() : null;
 
