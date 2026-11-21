@@ -73,6 +73,8 @@ jobs:
                function node in `flows.json` (`35 Heat pump page.html` -> ui_template
                `.format`). If a source changed, the matching node in `flows.json` must
                contain exactly the same code, and vice versa. Flag any mismatch.
+               A `// #include lib/…js` line in a source stands for that file's text
+               (tools/includes.js); review `lib/` changes as changes of that node.
             2. Flow version: any change to `flows.json` must bump the tab label
                `d#<n> Day / Night Grid Control` by exactly one.
             3. `flows.json` must stay valid JSON; node ids and wires must not break.

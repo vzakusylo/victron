@@ -17,6 +17,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { expand, includesOf } = require('./includes');
 
 const ROOT = path.resolve(__dirname, '..');
 const FLOWS = path.join(ROOT, 'flows.json');
@@ -37,7 +38,8 @@ function listSources() {
             name: m[2],
             type: kind === '.html' ? 'ui_template' : 'function',
             prop: kind === '.html' ? 'format' : (kind === '.init.js' ? 'initialize' : 'func'),
-            text: normalize(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+            // `// #include lib/…js` lines are replaced by the file's text (tools/includes.js)
+            text: normalize(expand(fs.readFileSync(path.join(ROOT, file), 'utf8'), ROOT))
         };
     }).filter(Boolean).sort((a, b) => a.file.localeCompare(b.file));
 }
@@ -134,6 +136,26 @@ function cmdCheck() {
         for (const node of nodes) {
             if (node[source.prop] !== source.text) problems.push(source.file + ': differs from node "' + node.name + '" (' + source.prop + ') - run: node tools/flows.js sync');
         }
+    }
+
+    // every lib/ file is included by exactly one numbered source (no dead or shared copies)
+    const libDir = path.join(ROOT, 'lib');
+    const libFiles = [];
+    (function walk(dir) {
+        if (!fs.existsSync(dir)) return;
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) walk(full);
+            else if (e.name.endsWith('.js')) libFiles.push(path.relative(ROOT, full).split(path.sep).join('/'));
+        }
+    })(libDir);
+    const users = {};
+    for (const f of fs.readdirSync(ROOT).filter((x) => SOURCE_RE.test(x))) {
+        for (const inc of includesOf(fs.readFileSync(path.join(ROOT, f), 'utf8'))) (users[inc] = users[inc] || []).push(f);
+    }
+    for (const lib of libFiles) {
+        const u = users[lib] || [];
+        if (u.length !== 1) problems.push(lib + ': included by ' + (u.length ? u.join(', ') : 'no numbered source') + ' (must be exactly one)');
     }
 
     const sourced = new Set(listSources().filter((s) => s.type === 'function').map((s) => s.name));

@@ -10,6 +10,7 @@ tools, tests and docs. `camera-ai/` is a separate project with its own README an
 |---|---|
 | `NN Name.js` / `NN Name.html` (root) | Source of every function node / dashboard template. **Edit these, never `flows.json` by hand.** |
 | `NN Name.init.js` | The node's "On Start" code |
+| `lib/heat-pump/*.js`, `lib/grid/*.js` | Parts of `40` / `01`, pulled in by a `// #include lib/…js` line at build time (`tools/includes.js`): same scope as the node, not modules. Each lib file belongs to exactly one source (`check` enforces it). `//!` header lines are not embedded. |
 | `flows.json` | Built from the `NN` sources by `tools/flows.js sync`; the tab label carries the version `d#<n>` |
 | `tests/*.test.js` | Unit tests (`node:test`); `tests/harness.js` loads a node with fake `flow` / `context` |
 | `tools/flows.js` | `sync`, `check`, `bump` |
@@ -20,8 +21,10 @@ tools, tests and docs. `camera-ai/` is a separate project with its own README an
 | `docs/` | How things work (design, deploy, Test GX). `docs/archive/` = old handoffs, read only |
 | `BACKLOG.md` | **The one file for tasks, plans, test plans, open PRs, deploy state and progress** |
 
-Big nodes: `40 Heat pump automations.js` (DHW, heating controller, kick, defrost, status line) and
-`01 Battery + Grid Controller.js`. Read the header comment of a node first: it lists every `d#` change.
+Big nodes: `40 Heat pump automations.js` (header, state, load, ui, tick; the parts are in `lib/heat-pump/`: `curves`,
+`heating-decide`, `dhw-helpers`, `dhw-tick`, `heating-tick`, `kick`) and `01 Battery + Grid Controller.js` (main flow;
+`lib/grid/constants`, `lib/grid/helpers`). Read the header comment of the node first: it lists every `d#` change.
+A lib edit is a change of that node: `sync` bumps `d#` and it deploys like any flow change.
 
 ## Commands
 

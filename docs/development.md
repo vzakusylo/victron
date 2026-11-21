@@ -132,7 +132,10 @@ All nodes of the main tab sit in Node-RED groups by function, each group laid ou
 
 Recommended workflow when editing the logic:
 
-1. edit the relevant `NN Name.js` / `.html` file
+1. edit the relevant `NN Name.js` / `.html` file, or the `lib/` file it includes. A line
+   `// #include lib/heat-pump/heating-tick.js` in a source is replaced by that file's text when `flows.json` is built
+   (`tools/includes.js`): the GX still gets one function node, the lib file is not a module and shares the node's
+   scope. Each lib file is included by exactly one source; `//!` lines at its top are not embedded.
 2. synchronize into `flows.json`:
    ```
    node tools/flows.js sync        # or: . .\sync-commands.ps1; Sync-All
