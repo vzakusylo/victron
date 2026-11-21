@@ -41,6 +41,12 @@ jobs:
       run: ${{ steps.gate.outputs.run }}
       sha: ${{ steps.gate.outputs.sha }}
     steps:
+      # workflow_run checks out the default branch, so the gate script is trusted code, not the tested commit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: tools/gx/deploy-gate.js
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Decide whether to deploy
         id: gate
         env:
@@ -59,15 +65,8 @@ jobs:
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          skip() { echo "::notice::Automatic deploy skipped: $1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          [[ "$CONCLUSION" == "success" ]] || skip "Test GX conclusion is $CONCLUSION."
-          [[ "$HEAD_BRANCH" == "master" && "$HEAD_EVENT" == "push" && "$HEAD_REPO" == "$REPO" ]] \
-            || skip "Test GX run was not a push to master of this repository."
-          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || skip "Invalid head SHA."
-          master="$(gh api "repos/$REPO/git/ref/heads/master" --jq .object.sha)"
-          [[ "$master" == "$HEAD_SHA" ]] || skip "master moved on to $master; $HEAD_SHA is not the tip any more."
-          echo "run=true" >> "$GITHUB_OUTPUT"
-          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          export MASTER_SHA="$(gh api "repos/$REPO/git/ref/heads/master" --jq .object.sha || true)"
+          node tools/gx/deploy-gate.js
 
   deploy:
     needs: gate

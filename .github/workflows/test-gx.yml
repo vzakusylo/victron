@@ -3,24 +3,16 @@ name: Test GX scenarios
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - flows.json
-      - '*.js'
-      - tools/test-gx/**
-      - .github/workflows/test-gx.yml
   push:
     branches: [master]
-    paths:
-      - flows.json
-      - '*.js'
-      - tools/test-gx/**
-      - .github/workflows/test-gx.yml
 
 permissions: {}
 
+# `scenarios` is a required check, so the workflow has no paths filter: every PR gets the check.
+# Only PR runs cancel an in-progress run in their concurrency group.
 concurrency:
   group: test-gx-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scenarios:
@@ -39,10 +31,34 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Detect relevant changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          relevant=true
+          # A successful master push can authorize deployment, even after an earlier failed run.
+          if [[ "$EVENT" == "pull_request" && "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$BASE_SHA" HEAD -- \
+              flows.json ':(glob)*.js' ':(glob)tools/**' ':(glob)scripts/gx-*.ps1' .github/workflows/test-gx.yml)"
+            if [[ -z "$changed" ]]; then
+              relevant=false
+            fi
+          fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          if [[ "$relevant" == "false" ]]; then
+            echo "No Test GX relevant paths changed; skipping the scenarios." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.changes.outputs.relevant == 'true'
         with:
           node-version: 22
       - name: Generate synthetic fixture
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           if [[ -v TEST_GX_BACKUP ]]; then
             echo "::error::TEST_GX_BACKUP must be unset in CI."
@@ -58,6 +74,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV, `TEST_GX_NODERED_VERSION=${nodeRed}\n`);
           NODE
       - name: Prepare pinned Venus simulator source
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           git clone -c core.autocrlf=false --depth 1 \
             https://github.com/victronenergy/venus-docker "$RUNNER_TEMP/venus-docker"
@@ -105,6 +122,7 @@ jobs:
           dockerfile.write_text(source)
           PY
       - name: Build Venus simulator image
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           if ! docker build --build-arg "UBUNTU_MIRROR=$UBUNTU_MIRROR" \
               -t mqtt "$RUNNER_TEMP/venus-docker"; then
@@ -113,11 +131,13 @@ jobs:
               -t mqtt "$RUNNER_TEMP/venus-docker"
           fi
       - name: Start Test GX stack
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           ssh-keygen -q -t ed25519 -N '' -C test-gx -f "$RUNNER_TEMP/test-gx-key"
           cp "$RUNNER_TEMP/test-gx-key.pub" tools/test-gx/test_key.pub
           docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" up -d --build
       - name: Wait for emulator and Node-RED
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           node <<'NODE'
           const urls = ['http://127.0.0.1:8081/state', 'http://127.0.0.1:1881/flows'];
@@ -146,9 +166,10 @@ jobs:
           });
           NODE
       - name: Run all scenarios
+        if: steps.changes.outputs.relevant == 'true'
         run: node tools/test-gx/run-scenarios.js --junit test-gx-artifacts/junit.xml
       - name: Summarize JUnit results
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         run: |
           python3 <<'PY'
           import os
@@ -186,7 +207,7 @@ jobs:
               raise SystemExit(1)
           PY
       - name: Collect Test GX diagnostics
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         run: |
           mkdir -p test-gx-artifacts
           failed=0
@@ -208,7 +229,7 @@ jobs:
           fi
           exit "$failed"
       - name: Upload Test GX diagnostics
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-gx-logs
@@ -216,5 +237,5 @@ jobs:
           retention-days: 14
           if-no-files-found: error
       - name: Tear down Test GX stack
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" down -v

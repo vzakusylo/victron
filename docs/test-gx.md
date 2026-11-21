@@ -552,14 +552,15 @@ Backlog items 8 (battery efficiency) and 9 (dashboard corner version) follow the
 ## CI
 
 **Status: green.** Manual run [44649823238](https://github.com/vzakusylo/victron/actions/runs/44649823238)
-passed on `test-gx-ci-green`; the workflow also runs on pull requests that change `flows.json`,
-root `*.js`, `tools/test-gx/**` or the workflow file. A scenario that exceeds its time limit
+passed on `test-gx-ci-green`. The workflow runs on every PR and push to `master`. PR runs skip
+the scenarios if no Test GX paths changed (see [GX deploy](gx-deploy.md#automatic-deploy-after-test-gx));
+push runs always run the full suite. A scenario that exceeds its time limit
 (20 minutes, `TEST_GX_SCENARIO_TIMEOUT_MS`) fails by itself and the run continues. The
 earlier red run 44573678310 was on an older `master` commit (`9fc2f5d`) and failed the Tuya
 proxy function-hash check; current `master` no longer reproduces it.
 
 Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. The single
-75-minute job builds the repository-only synthetic fixture, runs all checked-in scenarios,
+job has a 240-minute limit. It builds the repository-only synthetic fixture, runs all checked-in scenarios,
 and summarizes their JUnit results. Expected failures are skipped; an unexpected pass fails
 the job. The `test-gx-logs` artifact retains JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. Every new Test GX branch adds its scenarios to this job.
