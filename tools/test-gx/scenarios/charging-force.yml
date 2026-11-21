@@ -43,21 +43,22 @@
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
     - when: 40s
       inputs: {"batt_v":52.5}
-      settle: 20s
+      settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":22}]}
-    - when: 60s
+    - when: 80s
       inputs: {"batt_v":52}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
-    - when: 80s
-      inputs: {"batt_v":53.5}
-      settle: 20s
-      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
+    # Allow for input delivery and the real-time output throttle.
     - when: 100s
+      inputs: {"batt_v":53.5}
+      settle: 40s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
+    - when: 140s
       inputs: {"batt_v":54}
       settle: 20s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
-    - when: 120s
+    - when: 160s
       inputs: {"batt_v":53.5}
       settle: 20s
       expect: {"if_changed":false,"writes":[]}
