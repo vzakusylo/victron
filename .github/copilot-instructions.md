@@ -42,3 +42,8 @@ Not checked / deferred:
 Outside the branch:
 - <anything pushed elsewhere; should be "none">
 ```
+
+# Model
+
+Use the model `gpt-6.2-sol` for every task in this repository (start with `copilot --allow-all --model gpt-6.2-sol`). If the session runs on another model, say so in the first line of the report.
+

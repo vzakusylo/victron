@@ -8,6 +8,10 @@
 | Manager / reviewer | Claude (planning chat) | Plans, splits work into branches, checks reports against GitHub (PR, CI, review, commits), gives next steps | Commit, push or open PRs unless the owner asks explicitly |
 | Implementer | Copilot | Writes code, tests and docs on the named branch, pushes, opens the PR, reports back | Push to `master`, open a second PR, change production `flows.json` / `NN *.js` in Test GX work |
 
+Copilot runs with model **`gpt-6.2-sol`** for every new task:
+`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'` (one-shot from a brief file, its own worktree).
+The id must be exactly `gpt-6.2-sol`; in an interactive session check the status bar or switch with `/model`.
+
 ## Related documents
 
 This page is the single description of the Claude / Copilot loop. It does not repeat these:
