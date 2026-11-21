@@ -84,6 +84,19 @@ test('test-gx workflow: required check always reports; only PRs cancel in-progre
   assert.match(testGx, /scripts\/gx-\*\.ps1/);
 });
 
+test('test-gx workflow: one parallel job per scenario file, final scenarios job needs all of them', () => {
+  const files = fs.readdirSync(path.join(__dirname, '..', 'tools', 'test-gx', 'scenarios')).filter(f => /\.ya?ml$/.test(f)).sort();
+  const m = testGx.match(/files: \[([^\]]+)\]/);
+  assert.ok(m, 'matrix of scenario files');
+  assert.deepEqual(m[1].split(',').map(s => s.trim()).sort(), files, 'every scenario file runs in exactly one job');
+  assert.match(testGx, /fail-fast: false/);
+  assert.match(testGx, /run-scenarios\.js --file "\$FILES"/);
+  const final = testGx.split(/^  scenarios:/m)[1];
+  assert.match(final, /if: always\(\)/);
+  assert.match(final, /needs: run/);
+  assert.match(final, /\[\[ "\$RESULT" == success \]\]/);
+});
+
 test('test-gx workflow: only PRs can skip scenarios based on changed paths', () => {
   const detect = testGx.split('name: Detect relevant changes')[1].split('\n      - ')[0];
   assert.match(detect, /relevant=true\s+(?:#[^\n]*\n\s*)?if \[\[ "\$EVENT" == "pull_request" &&/);

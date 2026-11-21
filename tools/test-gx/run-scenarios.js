@@ -752,6 +752,8 @@ function loadScenarios(directory = SCENARIOS) {
                 throw new Error(`Duplicate scenario name "${scenario.name}" in ${source} and ${origins.get(scenario.name)}`);
             }
             origins.set(scenario.name, source);
+            // T1: the source file, for --file (one CI job per scenario file); not enumerable, so it is never sent anywhere
+            Object.defineProperty(scenario, 'file', { value: name, enumerable: false });
             return scenario;
         });
     });
@@ -775,12 +777,19 @@ async function main(args = process.argv.slice(2), overrides = {}) {
             options.suite = args[++i];
             if (!['charging', 'heatpump'].includes(options.suite)) throw new Error('--suite must be charging or heatpump');
         }
+        else if (args[i] === '--file') options.files = String(args[++i] || '').split(',').map(s => s.trim()).filter(Boolean);
         else if (args[i] === '--api') options.baseUrl = args[++i];
         else if (args[i] === '--self-test') selfTest = true;
         else throw new Error(`Unknown argument: ${args[i]}`);
     }
     let scenarios = selfTest ? [trivialScenario()] : loadScenarios();
     if (options.suite) scenarios = scenarios.filter(scenario => Boolean(scenario.controller) === (options.suite === 'charging'));
+    if (options.files) {
+        const known = new Set(scenarios.map(s => s.file));
+        const missing = options.files.filter(f => !known.has(f));
+        if (missing.length) throw new Error(`--file: no scenario file ${missing.join(', ')}`);
+        scenarios = scenarios.filter(s => options.files.includes(s.file));
+    }
     if (options.scenarioName) scenarios = scenarios.filter(s => s.name === options.scenarioName);
     if (!scenarios.length) throw new Error(`No scenarios selected${options.scenarioName ? ` for ${options.scenarioName}` : ''}`);
 
