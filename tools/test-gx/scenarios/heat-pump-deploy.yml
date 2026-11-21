@@ -1,6 +1,6 @@
-# At x30 the runner's real-time setup moves the guard window past the 15-minute quiet period.
+# Leave margin for real-time setup before the 15-minute quiet period ends.
 - name: no heat pump commands during deploy quiet period
-  faketime: '@2026-11-16 20:00:00 x10'
+  faketime: '@2026-11-16 20:00:00 x8'
   settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":35,"p24":4}}
   initial:
     inputs:
@@ -71,13 +71,15 @@
             dps: "133"
             value: 35
             applied: true
-    - when: 16m
+    # Setup already consumes about 3.5 fake minutes at x10. Observe the first two
+    # writes after the 15-minute quiet period, before the 90-second valve travel ends.
+    - when: 11m
       inputs:
         tuya.pump.dps.103: -2
         tuya.pump.dps.108: 25
         tuya.pump.dps.115: 0
         tuya.pump.dps.116: 0
-      settle: 60s
+      settle: 85s
       expect:
         writes:
           - device: pump

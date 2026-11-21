@@ -139,6 +139,9 @@ async function preserveSettings(request, wait, options = {}) {
                         await attempt(async () => {
                             await injectSettings('ui', { action: 'master', on: false });
                             await wait(200);
+                            // End an active DHW cycle before reloading the saved timestamp.
+                            await injectSettings('tick', {});
+                            await wait(200);
                         });
                         await attempt(async () => {
                             await injectSettings('load', settings);

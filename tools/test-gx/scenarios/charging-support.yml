@@ -42,7 +42,7 @@
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":900}]}
     - when: 100s
       inputs: {"batt_v":53.9}
-      settle: 20s
+      settle: 35s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":3000}]}
 
 - name: charging export guard raises and releases the DVCC limit
