@@ -37,28 +37,29 @@
     - when: 0s
       settle: 20s
       expect: {"if_changed":false,"writes":[],"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    # Allow for D-Bus input propagation and the 10-real-second DVCC throttle,
+    # which drops updates, before checking each exact transition.
     - when: 20s
       inputs: {"batt_v":53}
-      settle: 20s
+      settle: 35s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
-    - when: 40s
+    - when: 55s
       inputs: {"batt_v":52.5}
       settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":22}]}
-    - when: 80s
+    - when: 95s
       inputs: {"batt_v":52}
-      settle: 20s
+      settle: 35s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
-    # Allow for input delivery and the real-time output throttle.
-    - when: 100s
+    - when: 130s
       inputs: {"batt_v":53.5}
       settle: 40s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":19}]}
-    - when: 140s
+    - when: 170s
       inputs: {"batt_v":54}
-      settle: 20s
+      settle: 35s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
-    - when: 160s
+    - when: 205s
       inputs: {"batt_v":53.5}
       settle: 20s
       expect: {"if_changed":false,"writes":[]}
