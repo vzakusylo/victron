@@ -6,6 +6,7 @@
 #   ... -Commit <sha>               another commit than origin/master (it must be pushed)
 #   ... -WaitWindowMin 30           with -Apply: wait up to 30 min for a moment without DHW cycle / defrost
 #   ... -AllowLiveOnlyLines         deploy although the GX has code lines that the commit does not have
+#   ... -AllowNewNodes              plan and deploy reviewed additions from the commit (review the dry run first)
 #   ... -UseWorkTreeScripts         development only: run the scripts of the work tree (the deployed files still come from the commit)
 #   ... -Steps                      only print the steps
 #
@@ -21,6 +22,7 @@ param(
     [switch]$Apply,
     [int]$WaitWindowMin = 0,
     [switch]$AllowLiveOnlyLines,
+    [switch]$AllowNewNodes,
     [switch]$UseWorkTreeScripts,
     [string]$RunDirectory,
     [switch]$Steps
@@ -31,7 +33,7 @@ $root = Split-Path $PSScriptRoot
 $stepList = @(
     '1 preflight   fetch, resolve the commit, check that it is pushed, extract the scripts of the commit'
     '2 snapshot    read the live flow from the GX (read-only)'
-    '3 compare     live code vs the commit; stop on added / removed nodes or on GX-only code lines'
+    '3 compare     live code vs the commit; stop on removals or unapproved additions / GX-only code lines'
     '4 plan        write the deploy plan: nodes, tool files, hashes, expected live revision'
     '5 window      no DHW cycle, no running rule sequence, no defrost (read-only)'
     '6 dry run     all checks of tools/gx/deploy.js on the GX, nothing changed'
@@ -45,7 +47,7 @@ if ($GxHost -notmatch '^[A-Za-z0-9_.-]+@[A-Za-z0-9._-]+$') { throw 'GxHost must 
 # Scripts that run on the GX and are kept there in /data/home/nodered/tools (a tool that is equal is skipped).
 # The secret loader (victron-secrets.js, reload-victron-secrets.js) belongs to the secret workflow, not here.
 $gxTools = @(
-    'tools/gx/live-snapshot.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/monitor.js', 'tools/gx/window.js',
+    'tools/gx/live-snapshot.js', 'tools/gx/deploy.js', 'tools/gx/node-additions.js', 'tools/gx/verify.js', 'tools/gx/monitor.js', 'tools/gx/window.js',
     'tools/send-mail.js', 'tools/tuya-cloud-sensors.js', 'tools/tuya-cloud-status.js', 'tools/tuya-devices-setup.js',
     'tools/tuya-local-poll.js', 'tools/tuya-local-sensors.js'
 )
@@ -98,16 +100,20 @@ Invoke-Git fetch --quiet origin | Out-Null
 $sha = (Invoke-Git rev-parse --verify "$Commit^{commit}").Trim()
 if (-not (Invoke-Git branch -r --contains $sha)) { Stop-Run "commit $sha is not on the remote; push it first." }
 New-Item -ItemType Directory (Join-Path $run 'tools\gx') | Out-Null
-foreach ($file in 'tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js') {
+$tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
+$scripts = @('tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js')
+$helper = 'tools/gx/node-additions.js'
+if ($UseWorkTreeScripts -or $tools -contains $helper) { $scripts += $helper }
+elseif ($AllowNewNodes) { Stop-Run "commit $sha does not support -AllowNewNodes." }
+foreach ($file in $scripts) {
     if ($UseWorkTreeScripts) { Copy-Item (Join-Path $root $file) (Join-Path $run $file); continue }
     try { Save-GitBlob $sha $file (Join-Path $run $file) }
     catch { Stop-Run "$file could not be read from commit $sha (merge the runner scripts first). $($_.Exception.Message)" }
 }
-$tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"
 
 Step '2/8 snapshot of the live flow'
-$live = Invoke-OnGx 'tools\gx\live-snapshot.js' ''
+$live = Invoke-OnGx 'tools\gx\live-snapshot.js' ($AllowNewNodes ? '--topology' : '')
 if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
 Save 'live-before.b64' $live.Text
 
@@ -119,8 +125,11 @@ $report | Select-Object -First 3 | ForEach-Object { Write-Host $_ }
 $summary = Get-Content -Raw (Join-Path $run 'summary-before.json') | ConvertFrom-Json
 Write-Host ("code differs: $($summary.code.Count), trailing only: $($summary.trailing.Count), config: $($summary.config.Count), only on the GX: $($summary.onlyLive.Count), only in the commit: $($summary.onlyRepo.Count)")
 $summary.code | ForEach-Object { Write-Host "  $_" }
-if ($summary.onlyLive.Count -or $summary.onlyRepo.Count) {
-    Stop-Run 'nodes were added or removed; a plan cannot deploy that. See compare-before.txt and docs/gx-deploy.md.'
+if ($summary.onlyLive.Count) {
+    Stop-Run 'GX nodes would be removed; a plan cannot remove nodes. See compare-before.txt and docs/gx-deploy.md.'
+}
+if ($summary.onlyRepo.Count -and -not $AllowNewNodes) {
+    Stop-Run 'nodes were added. Review the commit, then dry run with -AllowNewNodes. See docs/gx-deploy.md.'
 }
 if ($summary.liveOnlyLines.Count -and -not $AllowLiveOnlyLines) {
     Stop-Run ("the GX has code lines the commit does not have: $($summary.liveOnlyLines -join ', '). Look at them (compare.js --show <id>), " +
@@ -128,10 +137,16 @@ if ($summary.liveOnlyLines.Count -and -not $AllowLiveOnlyLines) {
 }
 
 Step '4/8 plan'
-$null = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') 2>&1
-if ($LASTEXITCODE -ne 0) { Stop-Run 'the plan could not be written.' }
+$planFlags = @()
+if ($AllowNewNodes) { $planFlags += '--allow-new-nodes' }
+$planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') @planFlags 2>&1
+$planCode = $LASTEXITCODE
+Save 'plan-output.txt' ($planOutput -join "`n")
+if ($planCode -ne 0) { Stop-Run "the plan could not be written: $($planOutput | Select-Object -Last 1)" }
 $plan = Get-Content -Raw (Join-Path $run 'plan.json') | ConvertFrom-Json
-Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) node(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
+if ($plan.add.Count -ne $summary.onlyRepo.Count) { Stop-Run 'new node count in the plan does not match the comparison.' }
+Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
+$planOutput | Where-Object { $_ -match '^(node to add|wire patch)' } | ForEach-Object { Write-Host $_ }
 
 Step '5/8 window'
 $deadline = (Get-Date).AddMinutes($WaitWindowMin)
@@ -149,8 +164,9 @@ Step '6/8 dry run on the GX'
 $remote = (& ssh @ssh $GxHost 'umask 077; mktemp -d /tmp/gx-deploy.XXXXXX').Trim()
 if ($remote -notmatch '^/tmp/gx-deploy\.[A-Za-z0-9]+$') { Stop-Run 'unexpected remote temp folder.' }
 try {
-    & scp @ssh (Join-Path $run 'plan.json') "${GxHost}:$remote/plan.json" | Out-Null
-    & scp @ssh (Join-Path $run 'tools\gx\deploy.js') "${GxHost}:$remote/deploy.js" | Out-Null
+    $upload = @((Join-Path $run 'plan.json'), (Join-Path $run 'tools\gx\deploy.js'))
+    if ($scripts -contains $helper) { $upload += (Join-Path $run $helper) }
+    & scp @ssh @upload "${GxHost}:$remote/" | Out-Null
     if ($LASTEXITCODE -ne 0) { Stop-Run 'the plan could not be copied to the GX.' }
     $dry = & ssh @ssh $GxHost "node $remote/deploy.js $remote/plan.json 2>&1"
     $dryCode = $LASTEXITCODE
@@ -160,7 +176,7 @@ try {
 
     $toolsToReplace = @($dry | Where-Object { $_ -match '^tool to replace' }).Count
     $deployed = $summary.live.source -and $summary.live.source.dashboard -eq $sha -and $summary.live.source.automations -eq $sha
-    if ($summary.code.Count -eq 0 -and $toolsToReplace -eq 0 -and $deployed) {
+    if ($summary.code.Count -eq 0 -and $plan.add.Count -eq 0 -and $toolsToReplace -eq 0 -and $deployed) {
         Write-Host ''; Write-Host "NOTHING TO DO: the GX already runs $($sha.Substring(0, 12))." -ForegroundColor Green
         Write-Host "run folder: $run"; exit 0
     }
@@ -177,7 +193,7 @@ try {
     $out | Where-Object { $_ -match '^(backup|tool replaced|tool restored|DEPLOYED|ABORT|TOOL NOT RESTORED|Flow state)' } | ForEach-Object { Write-Host $_ }
     if ($code -ne 0) { Stop-Run 'the deploy failed (ABORT line above). Read deploy.txt; the backup folder is named there.' }
 }
-finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js; rmdir $remote" 2>$null | Out-Null }
+finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/node-additions.js; rmdir $remote" 2>$null | Out-Null }
 
 Step '8/8 verify'
 Start-Sleep -Seconds 20

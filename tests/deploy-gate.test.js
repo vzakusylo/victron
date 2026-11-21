@@ -60,7 +60,7 @@ test('CLI writes outputs, a warning and a job summary when skipping', () => {
 });
 
 const root = path.join(__dirname, '..', '.github', 'workflows');
-const deploy = fs.readFileSync(path.join(root, 'deploy-gx-code.yml'), 'utf8');
+const deploy = fs.readFileSync(path.join(root, 'deploy-gx-code.yml'), 'utf8').replace(/\r\n/g, '\n');
 const testGx = fs.readFileSync(path.join(root, 'test-gx.yml'), 'utf8');
 
 test('deploy workflow: auto path is victron-gx-auto, apply, no live-only lines', () => {
@@ -74,6 +74,12 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
   assert.match(deploy, /'victron-gx'/);
   assert.match(deploy, /\[\[ "\$GITHUB_REF" == "refs\/heads\/master" \]\]/);
   assert.match(deploy, /"\$MODE" == "apply" && "\$CONFIRM" != "deploy-gx-code"/);
+});
+
+test('deploy workflow: reviewed additions are manual and default to off', () => {
+  assert.match(deploy, /^      allow_new_nodes:\n        description: [^\n]+\n        type: boolean\n        default: false$/m);
+  assert.match(deploy, /ALLOW_NEW_NODES: \$\{\{ github\.event_name == 'workflow_run' && 'false' \|\| inputs\.allow_new_nodes \}\}/);
+  assert.match(deploy, /if \(\$env:ALLOW_NEW_NODES -eq 'true'\) \{ \$arguments \+= '-AllowNewNodes' \}/);
 });
 
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {

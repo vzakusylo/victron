@@ -183,17 +183,19 @@ node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
 ```
 
 - `--tools`: the tool scripts that changed since the last deploy (`git diff --stat <deployed sha> $sha -- tools`). The deployed SHA is in the report line `live deployment source`. A tool that is already equal is skipped on the GX.
-- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
+- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/node-additions.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
 - `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
 - `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
+- `--allow-new-nodes`: include reviewed additions in the plan. Take the snapshot with `node - --topology` first; keep that snapshot private. With the PowerShell runner, `-AllowNewNodes` handles both steps.
 
-The plan is a small JSON file: commit, expected live revision, file hashes, `{ node id: [fields] }`, tool hashes. Read it.
+The plan is a small JSON file: commit, expected live revision, file hashes, `{ node id: [fields] }`, added node IDs, wiring patch IDs and tool hashes. Read it.
 
 ### 5. Dry run on the GX
 
 ```powershell
 scp -i $key gx-plan.json "${gx}:/tmp/gx-plan.json"
 scp -i $key tools\gx\deploy.js "${gx}:/tmp/gx-deploy.js"
+scp -i $key tools\gx\node-additions.js "${gx}:/tmp/node-additions.js"
 ssh -i $key $gx "node /tmp/gx-deploy.js /tmp/gx-plan.json"
 ```
 
@@ -204,7 +206,7 @@ The dry run does every check and prints the code changes, the nodes that will re
 Only with the owner's go-ahead, and not during a DHW cycle (the script refuses anyway).
 
 ```powershell
-ssh -i $key $gx "DRY=0 node /tmp/gx-deploy.js /tmp/gx-plan.json; rm -f /tmp/gx-deploy.js /tmp/gx-plan.json"
+ssh -i $key $gx 'DRY=0 node /tmp/gx-deploy.js /tmp/gx-plan.json; result=$?; rm -f /tmp/gx-deploy.js /tmp/gx-plan.json /tmp/node-additions.js; exit $result'
 ```
 
 Note the `backup` line of the output.
@@ -281,7 +283,19 @@ only in the repository (0)
 | `code differs` | A function, template or exec command is different. `+N` repository lines the GX lacks, `-N` GX lines the repository lacks | This is the deploy. `live = <commit>` (with `--history`) names the commit the GX code equals: the GX is simply behind. `no commit` with `-N` means **code that exists only on the GX**: save it first |
 | `trailing whitespace only` | The editor added an empty line at the end | Nothing. Not in the plan |
 | `config differs` | Wires, outputs or settings differ | The four `tuya-smart-device` nodes are always here (file-secret references on the GX, template in the repository). Anything else: a structural change, deploy that node by hand |
-| `only on the GX` / `only in the repository` | A node was added or removed | Not handled by the plan. Add the node in the editor or by a one-off patch, then compare again |
+| `only on the GX` / `only in the repository` | A node would be removed / added | Removals always stop. Reviewed additions require the opt-in below |
+
+### Reviewed new nodes
+
+Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a manual workflow run. Start with a dry run of the same commit, review every `node to add` entry (ID, type, name, URL, wires) and every `wire patch`, then repeat with apply and the same opt-ins. The new-node opt-in does not bypass the separate GX-only code-lines check.
+
+- New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. Existing wiring may only gain connections to the new nodes, including a new function output if needed; other settings and existing code must still pass the normal checks.
+- Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
+- HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Removing nodes is never part of this plan.
+- Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.
+
+Offline regression: after building the synthetic Test GX image, run `node tools/test-gx/check-deploy-additions.js`. It uses a network-isolated Node-RED container to test the six UTCP additions from `523ba74` (d#205) to `084387f` (d#206).
+When adding a runner dependency, cover both committed-script extraction and the dry-run upload in the PowerShell runner test. Running the JavaScript tools directly does not exercise those paths.
 
 The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with different code. Compare the code.
 
@@ -293,7 +307,7 @@ Select `version: test` (default) or `stable` to label the report. This is an ope
 
 The job log, summary and artifact show the target SHA, version label, run outcome, comparison counts, and repository commit subjects/changed file paths since the previously recorded GX commit. Dashboard and automations are compared separately when their previous SHAs differ. Missing or unavailable previous commits are explicitly reported; they are never replaced with a guessed baseline. The repository file list is context, not a promise to deploy every listed file; the existing code-node/tool plan still determines what changes on GX.
 
-Full snapshots, node code, live labels, node IDs and raw compare/deploy/verify reports are **not uploaded**: this repository is public. For detailed live reports, use the local runner instead. The workflow allows 60 minutes, including up to 30 minutes waiting for a safe deployment window.
+Full snapshots, node code, live labels, live-only node IDs and raw compare/deploy/verify reports are **not uploaded**: this repository is public. Planned additions in the public report use only metadata from the target Git commit. For detailed live reports, use the local runner instead. The workflow allows 60 minutes, including up to 30 minutes waiting for a safe deployment window.
 
 Configure these repository or `victron-gx` environment secrets before running it: `GX_SSH_HOST` (`root@<gx-tailscale-host>`), `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, and `TS_OAUTH_SECRET`. The workflow runs only from `master`; the environment should also restrict deployments to `master` and require its configured reviewer.
 
@@ -301,7 +315,7 @@ Configure these repository or `victron-gx` environment secrets before running it
 
 Every PR and every push to `master` starts **Test GX scenarios** (the `scenarios` job is a required check, so the workflow has no paths filter). Only PR runs can skip Docker and the scenarios: the summary says so when a PR changes none of `flows.json`, root `*.js`, `tools/**`, `scripts/gx-*.ps1` or the Test GX workflow. Every `master` push run executes the full suite, even for docs-only changes, because the preceding commit may not have passed. Only PR runs cancel in-progress runs in their concurrency group. After a successful `master` push run, **Deploy GX code** starts automatically (`workflow_run`) and targets exactly the tested commit (`workflow_run.head_sha`) with `mode=apply`, `version=test`, `allow_live_only_lines=false`. The `confirm` check is skipped only for this automatic path.
 
-Safety rules are in [`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) (unit-tested in `tests/deploy-gate.test.js`): the deploy is skipped if Test GX failed or was cancelled, if the run was not a push to `master` of this repository, if the head SHA is malformed, or if `master` has moved past the tested commit (the newer push deploys itself). A skip is never silent: the gate job emits a `::warning` and writes the reason to the job summary ("Automatic GX deploy skipped: ..."). Added nodes and GX-only code lines still stop the deploy with a failure; nothing is applied, and the owner runs a manual deploy with the usual review. Runs share the `deploy-gx-code` concurrency group, so they queue one at a time.
+Safety rules are in [`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) (unit-tested in `tests/deploy-gate.test.js`): the deploy is skipped if Test GX failed or was cancelled, if the run was not a push to `master` of this repository, if the head SHA is malformed, or if `master` has moved past the tested commit (the newer push deploys itself). A skip is never silent: the gate job emits a `::warning` and writes the reason to the job summary ("Automatic GX deploy skipped: ..."). The automatic path always keeps `allow_new_nodes` and `allow_live_only_lines` false. Either condition stops the deploy before apply; the owner reviews and runs it manually. Runs share the `deploy-gx-code` concurrency group, so they queue one at a time.
 
 **Deploying by hand when auto skipped:** Actions → **Deploy GX code** → run from `master`, `mode=dry-run`, review the report, then run again with `mode=apply` and `confirm=deploy-gx-code` (see above). Skipped because `master` moved on? The newer commit's own run deploys it; only deploy by hand if that run skipped too.
 
@@ -334,7 +348,7 @@ What restarts: the patched nodes. The first deployment that removes legacy sourc
 
 The dashboard header shows `d#<n> · <sha7>` in the top-right corner on every page. The short SHA is the dashboard source commit (not the automation commit); it is omitted when no dashboard Git source was stamped. The badge reads the runtime flow name and refreshes on load and within 30 seconds while the page is visible. The tab's `info` remains the source of the full SHAs for `verify`, `monitor`, and `compare`.
 
-The first rollout needs the four `dashboard-version-*` nodes installed through the existing guarded process for added nodes: the selective deploy plan cannot add them. Later releases can update their code with the regular selective deploy workflow.
+If the four `dashboard-version-*` nodes are missing, use the guarded process for reviewed new nodes. Later releases can update their code with the regular selective deploy workflow.
 
 ## Rollback
 

@@ -9,21 +9,25 @@
 //   node tools/gx/compare.js live.b64 --show <node id>     print the lines that differ in one node
 //   node tools/gx/compare.js live.b64 --history 20         also name the newest commit the live code equals
 //   node tools/gx/compare.js live.b64 --commit <sha> --plan plan.json
-//        [--tools tools/a.js,tools/b.js] [--scopes dashboard,automations] [--include-trailing]
+//        [--tools tools/a.js,tools/b.js] [--scopes dashboard,automations] [--include-trailing] [--allow-new-nodes]
 //   node tools/gx/compare.js live.b64 --commit <sha> --summary summary.json     the result as JSON for a script
 //
 // What the report means:
 //   code      a function / template / exec command differs: this is what a deploy changes
 //   trailing  only whitespace at the end differs (an editor artefact): left alone unless --include-trailing
 //   config    other properties differ (wires, outputs, settings). Expected for the Tuya nodes: the GX has
-//             file-secret references, the repository a portable template. Never deployed by the plan.
-//   only live / only repo   added or removed nodes: not handled by the plan, deploy them by hand.
+//             file-secret references, the repository a portable template. Only reviewed new-node
+//             connections (and necessary function outputs) can be patched.
+//   only live / only repo   removed nodes stop; additions need an explicit opt-in.
 'use strict';
 const fs = require('fs');
 const zlib = require('zlib');
 const crypto = require('crypto');
+const os = require('os');
+const path = require('path');
 const { execFileSync } = require('child_process');
 const { snapshot } = require('./live-snapshot.js');
+const { additionPlan, describe } = require('./node-additions.js');
 
 const norm = (text) => String(text === undefined ? '' : text).replace(/\r\n/g, '\n');
 const lines = (text) => norm(text).split('\n');
@@ -68,6 +72,20 @@ function readSnapshot(file) {
 
 function git(...args) { return execFileSync('git', args, { maxBuffer: 1 << 27 }); }
 const sha256 = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
+
+function checkCommitSources(commit) {
+    const files = git('ls-tree', '-r', '-z', '--name-only', commit).toString().split('\0');
+    const sources = files.filter((file) => /^\d\d [^/]+\.(?:js|html)$/.test(file));
+    const inputs = files.filter((file) => file.startsWith('lib/'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-flow-check-'));
+    try {
+        const archive = git('archive', '--format=tar', commit, '--', 'flows.json', 'tools/flows.js', 'tools/includes.js', ...sources, ...inputs);
+        execFileSync('tar', ['-xf', '-', '-C', dir], { input: archive });
+        execFileSync(process.execPath, [path.join(dir, 'tools', 'flows.js'), 'check'], { stdio: 'pipe' });
+        const names = new Set(sources.filter((file) => file.endsWith('.js') && !file.endsWith('.init.js')).map((file) => file.slice(3, -3)));
+        return names;
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 
 function main() {
     const args = process.argv.slice(2);
@@ -116,7 +134,7 @@ function main() {
     };
     list('code differs: repo lines to add (+) / live lines to drop (-)', diff.code);
     list('trailing whitespace only', diff.trailing);
-    list('config differs (not deployed by the plan)', diff.config);
+    list('config differs (only validated new-node wiring can be patched)', diff.config);
     list('only on the GX', diff.onlyLive);
     list('only in the repository', diff.onlyRepo);
     const liveOnlyCode = diff.code.filter((item) => item.removed > 0);
@@ -157,15 +175,31 @@ function main() {
         if (git('status', '--porcelain', '--', 'flows.json').toString().trim()) console.log('\nNote: flows.json has uncommitted changes; the plan uses the commit, not the work tree.');
         const tools = {};
         for (const tool of (option('--tools') || '').split(',').filter(Boolean)) tools[tool] = sha256(git('show', commit + ':' + tool));
+        const repoFlows = JSON.parse(flowsBuffer.toString('utf8'));
+        const allowNewNodes = args.includes('--allow-new-nodes');
+        if (allowNewNodes && diff.onlyRepo.length && !live.nodes.every((node) => node.topology)) {
+            throw new Error('New-node planning requires a live-snapshot.js --topology snapshot.');
+        }
+        const nodes = additionPlan(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), repoFlows, allowNewNodes);
+        const added = new Set(nodes.add);
+        const newNodes = repoFlows.filter((node) => added.has(node.id));
+        if (newNodes.some((node) => node.type === 'function')) {
+            const names = checkCommitSources(commit);
+            for (const node of newNodes) {
+                if (node.type === 'function' && !names.has(node.name)) throw new Error(node.id + ': no numbered function source in the commit.');
+            }
+        }
         const plan = {
             repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev,
             flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
-            patch: buildPatch(diff, args.includes('--include-trailing')), tools
+            patch: buildPatch(diff, args.includes('--include-trailing')), ...nodes, tools
         };
         fs.writeFileSync(planFile, JSON.stringify(plan, null, 2) + '\n');
-        console.log('\nplan written to ' + planFile + ': ' + Object.keys(plan.patch).length + ' node(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
-        if (diff.onlyLive.length || diff.onlyRepo.length) console.log('WARNING: added / removed nodes are NOT in the plan.');
+        console.log('\nplan written to ' + planFile + ': ' + Object.keys(plan.patch).length + ' code patch(es), ' + nodes.wire.length +
+            ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
+        for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
+        for (const id of nodes.wire) console.log('wire patch      : ' + id);
     }
 }
 

@@ -95,6 +95,8 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     liveNode(trailing).func = repoById.get(trailing).func + '\n';
     const tuya = live.find((node) => node.type === 'tuya-smart-device');   // file-secret reference: must survive
     tuya.deviceId = '${VICTRON_TEST_ID}';
+    const added = repoById.get('utcp-http-get-01');
+    live.splice(live.indexOf(liveNode(added.id)), 1);
     const original = JSON.stringify(live);
 
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-e2e-'));
@@ -157,7 +159,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const leftovers = () => fs.readdirSync(home).filter((name) => name.startsWith('.gx-deploy-stage.'));
 
     // ---- step 2: snapshot (read-only), as piped over SSH ---------------------------------------------------
-    const snap = await run(GX('live-snapshot.js'), [], env);
+    const snap = await run(GX('live-snapshot.js'), ['--topology'], env);
     assert.equal(snap.code, 0, snap.stderr);
     fs.writeFileSync(file('live.b64'), snap.stdout);
     const decoded = JSON.parse(zlib.gunzipSync(Buffer.from(snap.stdout.trim(), 'base64')).toString('utf8'));
@@ -166,15 +168,22 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
 
     // ---- steps 3 and 4: compare and plan -------------------------------------------------------------------
     const tools = 'tools/tuya-local-sensors.js,tools/gx/verify.js,tools/send-mail.js';
-    const cmp = await run(GX('compare.js'), [file('live.b64'), '--commit', sha, '--plan', file('plan.json'), '--summary', file('summary.json'), '--tools', tools]);
+    const compareArgs = [file('live.b64'), '--commit', sha, '--plan', file('plan.json'), '--summary', file('summary.json'), '--tools', tools];
+    const refused = await run(GX('compare.js'), compareArgs);
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, /require --allow-new-nodes/);
+    assert.ok(!fs.existsSync(file('plan.json')));
+    const cmp = await run(GX('compare.js'), [...compareArgs, '--allow-new-nodes']);
     assert.equal(cmp.code, 0, cmp.stderr);
     const summary = JSON.parse(fs.readFileSync(file('summary.json'), 'utf8'));
     assert.deepEqual(summary.code.slice().sort(), ['hp-cmd-fn-01.func', 'hp-page-template-01.format', 'hpls-fn-01.func']);
     assert.deepEqual(summary.trailing, ['hpc-fn-01.func']);
     assert.ok(summary.config.includes(tuya.id), 'the Tuya node is reported as config, never as code');
-    assert.deepEqual([summary.onlyLive, summary.onlyRepo, summary.liveOnlyLines], [[], [], []]);
+    assert.deepEqual([summary.onlyLive, summary.onlyRepo, summary.liveOnlyLines], [[], [added.id], []]);
     assert.equal(summary.live.source.dashboard, oldSha);
     const plan = JSON.parse(fs.readFileSync(file('plan.json'), 'utf8'));
+    assert.deepEqual(plan.add, [added.id]);
+    assert.deepEqual(plan.wire, []);
     assert.deepEqual(Object.keys(plan.patch).sort(), ['hp-cmd-fn-01', 'hp-page-template-01', 'hpls-fn-01']);
     assert.deepEqual([plan.sha, plan.expectRev], [sha, 'rev-1']);
     assert.equal(plan.tools['tools/tuya-local-sensors.js'], crypto.createHash('sha256').update(gitShow('tools/tuya-local-sensors.js')).digest('hex'));
@@ -206,6 +215,16 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.equal(dry.code, 0, dry.stderr);
     assert.match(dry.stdout, /tool to replace : tools\/tuya-local-sensors\.js/);
     assert.match(dry.stdout, /tool to replace : tools\/gx\/verify\.js \(new\)/);
+    const findAddition = (out) => JSON.parse(out.match(/^node to add\s+: (.*)$/m)[1]);
+    const reviewed = { id: added.id, type: 'http in', name: added.name, url: added.url, wires: added.wires };
+    assert.deepEqual(findAddition(cmp.stdout), reviewed);
+    assert.deepEqual(findAddition(dry.stdout), reviewed);
+    const report = require('../tools/gx/deploy-report.js');
+    const additions = report.plannedAdditions(work, sha);
+    assert.deepEqual(additions, [reviewed]);
+    assert.match(report.formatReport({ commit: sha, changes: [], additions }), /Planned node additions \(1; from the target commit\):[\s\S]+GET \/utcp/);
+    const mail = require('../tools/gx/deploy-mail.js').buildMail({ newCommit: sha, additions });
+    assert.match(mail.text, /Added nodes \(1\):[\s\S]+GET \/utcp/);
     assert.match(dry.stdout, /DRY RUN - nothing changed/);
     const untouched = () => {
         assert.equal(JSON.stringify(state.flows), original, 'the live flow is unchanged');
@@ -235,6 +254,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.match(done.stdout, /DEPLOYED\s+: d#\d+ .* \[git [0-9a-f]{12}\]/);
     assert.deepEqual(state.posts[1], { type: 'nodes', rev: 'rev-1' }, 'one POST, deploy type nodes, with the revision of the snapshot');
     const after = new Map(state.flows.map((node) => [node.id, node]));
+    assert.deepEqual(after.get(added.id), added);
     assert.equal(state.flows.length, repoFlows.length);
     for (const id of behind) assert.equal(after.get(id).func, repoById.get(id).func, id);
     assert.equal(after.get(page).format, repoById.get(page).format);
@@ -249,7 +269,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     // Only the planned nodes, the version tab, and the legacy dashboard names changed.
     const before = new Map(JSON.parse(original).map((node) => [node.id, node]));
     const changedTypes = new Set(state.flows.filter((node) => JSON.stringify(node) !== JSON.stringify(before.get(node.id)))
-        .filter((node) => !behind.includes(node.id) && node.id !== page).map((node) => node.type));
+        .filter((node) => !behind.includes(node.id) && node.id !== page && node.id !== added.id).map((node) => node.type));
     assert.deepEqual([...changedTypes].sort(), ['tab', 'ui_base', 'ui_tab']);
 
     const [backup] = backups();
