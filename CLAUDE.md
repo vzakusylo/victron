@@ -70,7 +70,10 @@ progress instead of the owner relaying text:
 1. `herdr status` must say `running` (else start `herdr` in its own terminal; never restart a running server without
    the owner: it kills all workers).
 2. `herdr-task.ps1 new <branch> -Base origin/master` → worktree `~\.herdr\worktrees\victron\<branch>`, Copilot on
-   `gpt-6.2-sol` as agent `w-<branch>`.
+   `gpt-6.2-sol` **with `--allow-all`** as agent `w-<branch>`. Without `--allow-all` the worker stops at a
+   permission prompt for every command and nobody can answer it through the harness (21 Nov: a worker waited 6 min on
+   `git fetch`). Check the first `read` after `send`: a "Do you want to run this command?" box means it was started
+   without it; close and start it again with the current script.
 3. Write `.copilot-brief-<branch>.md` in that worktree (goal, context, steps, tests, delivery: PR + auto-merge).
 4. `herdr-task.ps1 send <branch> "Read .copilot-brief-<branch>.md and do all of it."`; later `send` for corrections /
    "progress?", `read <branch>` to look without interrupting, `wait <branch>` until idle / blocked.

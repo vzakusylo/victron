@@ -17,7 +17,8 @@ branch and worktree, so Claude talks to it directly:
 | Step | Command (`herdr-task.ps1`, owner's `herdr-worker` skill) |
 |---|---|
 | Server up | `herdr status` → `running` (else start `herdr` in its own terminal; do not restart a running server without the owner) |
-| Start | `new <branch> -Base origin/master` (worktree `~\.herdr\worktrees\victron\<branch>`, agent `w-<branch>`, model `gpt-6.2-sol`) |
+| Start | `new <branch> -Base origin/master` (worktree `~\.herdr\worktrees\victron\<branch>`, agent `w-<branch>`, Copilot started with `--allow-all --model gpt-6.2-sol`; without `--allow-all` it blocks on a prompt per command) |
+| Check | first `read <branch>` after the brief: if it shows "Do you want to run this command?", the worker lacks `--allow-all`: `close` and `new` again |
 | Task | write `.copilot-brief-<branch>.md` in the worktree, then `send <branch> "Read .copilot-brief-<branch>.md and do all of it."` |
 | Corrections / progress | `send <branch> "<correction or: progress?>"` (waits for idle / blocked and prints the answer) |
 | Look | `read <branch> -Lines 150` (does not interrupt), `wait <branch>` |
