@@ -339,9 +339,11 @@ const HEAT_NAME = 'Heating power controller';
 // down (boost first, then mode). Silent is the default: Smart only while the supply lags, back to Silent at the point.
 const HEAT_DEFAULTS = { bandDown: 1.5, bandUp: 1, stepMin: 10, ampPct: 85, allowPowerful: false, maxBoost: 4,
     kickMin: 10, kickSec: 60,     // d#175: supply stuck kickMin below its point → Smart for kickSec, then Silent (0 = off)
+    // P2: "not following the curve" warning: 10-min supply average more than bandDown + offCurveC below the point for offCurveMin
+    offCurveC: 1, offCurveMin: 45,
     // P6 (advanced): the pump set is point + bandUp and its hysteresis (DP 121) max(2, bandUp + bandDown) °C
     band: false };
-const HEAT_LIMITS = { bandDown: [0, 5], bandUp: [0, 5], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8], kickMin: [0, 60], kickSec: [20, 300] };
+const HEAT_LIMITS = { bandDown: [0, 5], bandUp: [0, 5], stepMin: [10, 60], ampPct: [50, 100], maxBoost: [0, 8], kickMin: [0, 60], kickSec: [20, 300], offCurveC: [0, 5], offCurveMin: [10, 240] };
 const BAND_MIN_HYST = 2;   // the pump's DP 121 accepts 2…18 °C
 const HEAT_WINDOW_MIN = 10;
 const HEAT_LADDER = ['mute', 'smart', 'strong'];
@@ -378,7 +380,12 @@ function bandHystOf(c) { return Math.max(BAND_MIN_HYST, c.bandUp + c.bandDown); 
 // a = { lag, amp, cur (mode index 0…2), boost }
 function heatDecide(c, a) {
     if (a.lag === null) return { step: 0, why: 'collecting data' };
-    if (a.amp !== null && a.amp >= c.ampPct / 100 * UNIT_MAX_A) return { step: -1, why: 'current ' + a.amp + ' A ≥ ' + c.ampPct + ' % of ' + UNIT_MAX_A + ' A' };
+    if (a.amp !== null && a.amp >= c.ampPct / 100 * UNIT_MAX_A) {
+        const amps = 'current ' + a.amp + ' A ≥ ' + c.ampPct + ' % of ' + UNIT_MAX_A + ' A';
+        // P1: already Silent without a boost: nothing to step down, and no step up either (blocked, said so)
+        if (!(a.cur > 0) && !a.boost) return { step: 0, blocked: a.lag < -c.bandDown, why: amps + (a.lag < -c.bandDown ? ': no step up although the supply is ' + (-a.lag) + ' °C below the point' : '') };
+        return { step: -1, why: amps };
+    }
     if (a.lag < -c.bandDown) return { step: 1, why: 'supply ' + (-a.lag) + ' °C below the point (band −' + c.bandDown + ')' };
     if (a.lag > c.bandUp) return { step: -1, why: 'supply ' + a.lag + ' °C above the point (band +' + c.bandUp + ')' };
     // back to Silent only well inside the band, else Silent <-> Smart flips every step (Smart pushes the supply above the point)
@@ -1289,7 +1296,9 @@ function heatModel() {
         kick: (() => { const k = context.get('kick') || {}; return { phase: k.phase || null, last: k.last || 0, why: k.why || '' }; })(),
         warm: (() => { const w = settings.heatWarm; return w && w.until > now ? { active: true, at: w.at, until: w.until, deltaC: w.deltaC, applied: h.warmApplied || 0, note: h.warmNote || '' }
             : { active: false, deltaC: WARM_DEFAULTS.deltaC, hours: WARM_DEFAULTS.hours, limits: WARM_LIMITS }; })(),
-        pumpMode: MODE_NAME[H['2']] || H['2'] || null, outSrc: h.outSrc || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0 };
+        pumpMode: MODE_NAME[H['2']] || H['2'] || null, outSrc: h.outSrc || null, boost: h.boost || 0, target: h.target === undefined ? null : h.target, nextStepAt: h.lastStep ? h.lastStep + c.stepMin * MIN : 0,
+        offCurve: { warned: !!h.offWarned, since: h.offSince || 0, today: h.offDay && h.offDay.day === new Date(now).toISOString().slice(0, 10) ? h.offDay.n : 0,
+            limitC: +(c.bandDown + c.offCurveC).toFixed(1), min: c.offCurveMin }, blocked: h.blockWhy ? h.why : '' };
 }
 // task 5: the one status line of the Heat Pump page — DHW / defrost / heating / idle with the reason
 function statusLine() {
@@ -1311,7 +1320,8 @@ function statusLine() {
     if (H['1'] === true && n(H['115']) > 0 && V['1'] !== true) {
         const sup = n(H['102']);
         return { kind: 'heating', since: 0, text: 'Heating (' + (MODE_NAME[H['2']] || H['2'] || '?') + ', point ' + (h.target === null || h.target === undefined ? '?' : h.target)
-            + ' °C, supply ' + (Number.isFinite(sup) ? sup : '?') + ' °C, band −' + c.bandDown + '/+' + c.bandUp + ' °C, boost +' + (h.boost || 0) + ' °C)' };
+            + ' °C, supply ' + (Number.isFinite(sup) ? sup : '?') + ' °C, band −' + c.bandDown + '/+' + c.bandUp + ' °C, boost +' + (h.boost || 0) + ' °C)'
+            + (h.offWarned ? ' — NOT following the curve since ' + hhmm(h.offSince) : '') };
     }
     let reason = H['1'] !== true ? 'heat pump off' : d.why && d.why !== 'start conditions met' ? d.why : h.why || 'compressor stopped';
     if (reason.length > 90) reason = reason.slice(0, 89).trimEnd() + '…';
@@ -1369,6 +1379,7 @@ function heatTick() {
         else ownerCurveBack();
         ownerBandBack();
         h.samples = []; h.lag = null; h.gap = null; h.why = 'waiting: ' + hold.join('; ');
+        h.offSince = 0; h.offWarned = false; h.blockWhy = '';   // P1 / P2: a hold (DHW, pump off, Off) is not "not following"
         context.set('heat', h); return;
     }
     // Test mode adds no hold: On → Test must still put the owner's curve and hysteresis back (PR #65 / #66 review)
@@ -1415,6 +1426,23 @@ function heatTick() {
     const full = h.samples.length >= 20 && now - h.samples[0][0] >= (HEAT_WINDOW_MIN - 1) * MIN;
     const avg = (i) => Math.round(h.samples.reduce((a, x) => a + x[i], 0) / h.samples.length * 10) / 10;
     h.lag = h.samples.length ? avg(1) : null; h.gap = h.samples.length ? avg(2) : null;
+    // P2: not following the curve — the full 10-min average stays more than bandDown + offCurveC below the point
+    if (full) {
+        const offLim = +(c.bandDown + c.offCurveC).toFixed(1);
+        const day = new Date(now).toISOString().slice(0, 10);
+        if (!h.offDay || h.offDay.day !== day) h.offDay = { day, n: 0 };
+        if (h.lag < -offLim) {
+            if (!h.offSince) h.offSince = now;
+            if (!h.offWarned && now - h.offSince >= c.offCurveMin * MIN) {
+                h.offWarned = true; h.offDay.n += 1;
+                logEvent({ kind: 'warn', rule: HEAT_ID, cloud: HEAT_NAME, live: true, text: 'not following the curve for ' + c.offCurveMin + ' min: point ' + h.target
+                    + ' °C, supply ' + sup + ' °C (avg ' + h.lag + ' °C, limit −' + offLim + '), mode ' + (MODE_NAME[H['2']] || H['2']) + ', boost +' + (h.boost || 0) + ' °C' + (h.why ? ', last: ' + h.why : '') });
+            }
+        } else if (h.lag >= -c.bandDown) {
+            if (h.offWarned) logEvent({ kind: 'info', rule: HEAT_ID, cloud: HEAT_NAME, live: true, text: 'following the curve again after ' + Math.round((now - h.offSince) / MIN) + ' min (supply avg ' + (h.lag >= 0 ? '+' : '') + h.lag + ' °C)' });
+            h.offSince = 0; h.offWarned = false;
+        }
+    }
     const amps = h.samples.map((x) => x[3]).filter((x) => x !== null);
     const cur = HEAT_LADDER.indexOf(H['2']);
     const a = { lag: full ? h.lag : null, amp: amps.length ? Math.max(...amps.slice(-6)) : null, cur, boost: h.boost || 0 };
@@ -1489,7 +1517,17 @@ function heatTick() {
     }
     else if (dec.step < 0 && cur > 0) { steps = [mode(HEAT_LADDER[cur - 1])]; act = MODE_NAME[HEAT_LADDER[cur - 1]]; }
     h.decision = dec.why;
-    const early = h.lastStep && now - h.lastStep < c.stepMin * MIN;
+    // P1: the pump left the mode the controller set (cloud scene, DHW end, a hand on the app) → step again without the wait
+    const reverted = !!(h.modeCmd && h.modeCmd !== H['2'] && now - (h.modeAt || 0) >= 2 * MIN && HEAT_LADDER.indexOf(h.modeCmd) > cur && cur < top && dec.step > 0);
+    const early = h.lastStep && now - h.lastStep < c.stepMin * MIN && !reverted;
+    // P1: a wanted step up that cannot be made is logged once with its reason (no silent "stuck in Silent")
+    const blockWhy = dec.blocked ? dec.why
+        : dec.step > 0 && !steps ? dec.why + ': no step up — already ' + MODE_NAME[H['2']] + (c.allowPowerful ? '' : ' (Powerful not allowed)')
+            + (boost ? ', curve +' + boost + ' °C' : '') + (boost >= c.maxBoost ? ' (boost cap +' + c.maxBoost + ' °C)' : !hc ? ' (your curve is not stored yet)' : !Number.isFinite(xh) ? ' (no outdoor value)' : '')
+            : '';
+    if (blockWhy && h.blockWhy !== blockWhy.replace(/[-+]?\d+(\.\d+)?/g, '#')) logEvent({ kind: 'warn', rule: HEAT_ID, cloud: HEAT_NAME, live: true, text: 'step up blocked: ' + blockWhy });
+    h.blockWhy = blockWhy ? blockWhy.replace(/[-+]?\d+(\.\d+)?/g, '#') : '';
+    if (reverted) logEvent({ kind: 'info', rule: HEAT_ID, cloud: HEAT_NAME, live: true, text: 'pump mode is ' + (MODE_NAME[H['2']] || H['2']) + ', the controller set ' + MODE_NAME[h.modeCmd] + ' → step again now' });
     if (!steps) { h.why = dec.why + (dec.step ? ' (already ' + MODE_NAME[H['2']] + (boost ? ', curve +' + boost + ' °C' : '') + ' — limit)' : ''); context.set('heat', h); return; }
     if (early && cur <= top) { h.why = dec.why + ' → ' + act + ' after ' + new Date(h.lastStep + c.stepMin * MIN).toTimeString().slice(0, 5); context.set('heat', h); return; }
     if (steps[0].dps === 2 && h.modeCmd === steps[0].set && now - h.modeAt < MIN) { context.set('heat', h); return; }

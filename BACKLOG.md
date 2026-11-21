@@ -24,6 +24,7 @@ Update this file when a task starts, finishes or changes.
 | #73 | `hp-page-errors` | B1: guard SVG points on the Heat Pump pages | Conflicts with master, no CI yet. Next: merge master, resolve, push, auto-merge. |
 | #75 | `test-gx-timeout-cleanup-2` | Test GX: JUnit on grace stop, abort only open-ended waits (PR #74 review Medium) | Mergeable; finish review and auto-merge. |
 | (new) | `heating-simplify` | P7: simpler heating and boiler (d#201) | Silent/Smart follows the curve point; down/up band sliders; boiler gap; DHW after defrost; one status line; Temperatures page = room sensors only. Next: CI, merge, deploy dry run then apply. Replaces the lagUp / overC / gapMax settings of #66 (band semantics: DP 121 = up + down). |
+| (new) | `heating-step-up-monitor` | P1 / P2: step up when the pump leaves the mode, log blocked steps, curve monitor (d#204) | P1 and P2 done in code; PR open with auto-merge, Test GX running. After deploy: watch for the first *not following the curve* warning. |
 
 ## 2. Deploy
 

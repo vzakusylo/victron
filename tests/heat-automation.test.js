@@ -56,7 +56,7 @@ test('heating controller with the GX settings keeps Silent and writes nothing wh
     assert.equal(view.lag, 0);
     assert.equal(view.pumpMode, 'Silent');
     assert.equal(view.boost, 0);
-    assert.deepEqual(view.cfg, { bandDown: 1, bandUp: 0, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60, band: false },
+    assert.deepEqual(view.cfg, { bandDown: 1, bandUp: 0, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60, offCurveC: 1, offCurveMin: 45, band: false },
         'saved lagUp / overC become the band limits; gapMax is gone; the P6 pump band ships off');
 });
 
