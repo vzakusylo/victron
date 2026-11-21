@@ -8,6 +8,13 @@ At the start of a new large or cross-cutting task in this repository, tell the u
 - Still never, without an explicit owner request in the task text: push to `master`, access or deploy to the live GX, read the real GX backup or secrets, remove a Docker data volume, delete a remote branch.
 - Real backups, substitution maps and keys stay outside the repository and the Docker image.
 
+# Tasks, plans and progress: one file
+
+`BACKLOG.md` is the only place for tasks, plans, test plans (unit, Test GX, e2e), open PRs, deploy state and progress.
+Do not create other task or plan files. In the same PR as the work: add the task if it is new, set it to
+"in progress" with the branch / PR when you start, and move it to Done with the PR number and `d#` when you finish.
+Findings of an investigation go into the task's row or a sub-section of `BACKLOG.md`.
+
 # Workflow with the reviewer
 
 Claude (in a separate chat) plans and reviews; you implement. The owner relays messages. Full model: `docs/agent-workflow.md`.

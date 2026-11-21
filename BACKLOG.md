@@ -1,7 +1,16 @@
-# Backlog: all open work in one place
+# Backlog: all tasks, plans and progress in one place
 
-Single source for what is left in this repository. Updated 2026-11-20 (master `16d7aff`, flows `d#196`).
-Update this file when a task starts, finishes or changes.
+**The one file for tasks.** Every task, plan, open PR, deploy state, test plan (unit, Test GX, e2e) and progress note
+lives here. There are no other task or plan files (the former `docs/e2e-backlog.md` is section 7). Design documents
+(`docs/*.md`) explain how things work; they do not track tasks. `camera-ai/PLAN.md` is a separate project.
+Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
+
+**Rules (owner, Claude, Copilot):**
+1. A new task goes into this file first (an ID, one line, notes), before any branch is made.
+2. Starting: set its state to "in progress" with the branch (and the PR once open).
+3. Finishing: move it to section 6 Done with the PR number and `d#`, in the same PR as the work.
+4. Plans and findings for a task are written in its row (or a sub-section here), not in a separate file.
+5. Instruction files for Copilot (scratch) are copies only; this file is the truth.
 
 ## How we work
 
@@ -12,30 +21,27 @@ Update this file when a task starts, finishes or changes.
   `master` requires `check`, `tests`, `secret-files` and `review`. Several PRs may be open at once.
 - Production `flows.json` and `NN *.js` stay in sync (`node tools/flows.js sync`, `check`); every flow change bumps `d#`.
   When `master` moves, merge it into the branch, rebuild `flows.json` with `sync` and bump again.
-- Unit tests for every decision; e2e cases go to [docs/e2e-backlog.md](docs/e2e-backlog.md).
-- Live GX deploys only through **Actions → Deploy GX code** (dry run, then apply), each approved by the owner.
+- Unit tests for every decision; e2e cases go to section 7 of this file.
+- `master` also requires `scenarios` (Test GX). A green Test GX run on a master push deploys that commit to the live GX
+  automatically (env `victron-gx-auto`); manual deploys go through **Actions → Deploy GX code** (dry run, then apply),
+  each approved by the owner.
 
 ## 1. Open pull requests
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| #65 | `heating-warmup-boost` | P3: Warm up the house (+N °C for T hours) | Conflicts with master. A local merge of master exists (`2c43af2`, unpushed). Next: one Copilot finishes the merge, fixes the review Medium (`curveCmd` after a boost step-down is in the branch), pushes, then merge (REST merge: it is the base of the stacked #66). |
-| #66 | `heating-curve-band` | P6: follow the heating curve point with a down/up band | Stacked on #65. After #65 merges: merge master, `sync` (bump), tests, push, auto-merge. After deploy: first live write of DP 121 — turn the band on once and check the pump reports it. |
-| #73 | `hp-page-errors` | B1: guard SVG points on the Heat Pump pages | Conflicts with master, no CI yet. Next: merge master, resolve, push, auto-merge. |
-| #75 | `test-gx-timeout-cleanup-2` | Test GX: JUnit on grace stop, abort only open-ended waits (PR #74 review Medium) | Mergeable; finish review and auto-merge. |
-| (new) | `heating-simplify` | P7: simpler heating and boiler (d#201) | Silent/Smart follows the curve point; down/up band sliders; boiler gap; DHW after defrost; one status line; Temperatures page = room sensors only. Next: CI, merge, deploy dry run then apply. Replaces the lagUp / overC / gapMax settings of #66 (band semantics: DP 121 = up + down). |
-| (new) | `heating-step-up-monitor` | P1 / P2: step up when the pump leaves the mode, log blocked steps, curve monitor (d#204) | P1 and P2 done in code; PR open with auto-merge, Test GX running. After deploy: watch for the first *not following the curve* warning. |
+| #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
 
 ## 2. Deploy
 
 | Item | State |
 |---|---|
-| GX version | `d#193` (`ea2687e`), confirmed by dry run 44639050718 |
-| master | `d#196`: includes #63 Force boiler run, #71 load-before-save, #76 pump's own outdoor value |
-| Next | Deploy GX code dry run on master, then apply (owner approval in Actions). Again after #65 / #66 merge. |
-| After deploy | Count compressor starts per DHW cycle (startGap 7 vs gap 5, PR #62 review). Check `command -v flock` on the GX (P5g). |
+| GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
+| master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
+| Next | Automatic: every green Test GX on a master push deploys it. |
+| After deploy | Watch the Automation log for the first "step up blocked" / "not following the curve" (P1/P2). Count compressor starts per DHW cycle (startGap 7 vs gap 5, PR #62 review). Check `command -v flock` on the GX (P5g). |
 
-## 3. Production backlog (not started)
+## 3. Production backlog
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
@@ -46,8 +52,6 @@ Update this file when a task starts, finishes or changes.
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
 | B5 | Docs: the victron-gx MCP connector (what, how to create, how it works, how to use) | 0.5 | |
 | B3 | Data Analytics: train on history to predict solar generation | 2+ | |
-| P1 | Heating stuck in Silent: step Silent → Smart → Powerful when the supply does not follow the curve | 1–2 | The supply stays below the curve point and the controller keeps Silent, so the house cannot warm. Investigate `40 Heat pump automations.js` (`heatDecide`, band, `stepMin`, `kickTick` d#175, `coldLimit` "Silent only", `allowPowerful=false` default, deploy quiet period, Test mode = no writes). Find every path where lag > `bandDown` but no step up is written (cold limit forces Silent, `allowPowerful` off caps at Smart, 10-min average not ready, mode read from the pump disagrees, step timer reset by DHW / defrost). Done when: lag below point − `bandDown` for one `stepMin` → Silent → Smart; still lagging after the next `stepMin` → Powerful (when allowed) or curve +1 °C up to the boost cap; back down at point. Each blocked step logs the reason. Unit tests for every path + Test GX scenario "supply stuck below curve in Silent steps up". |
-| P2 | Detect and monitor "heating not following the curve" | 1 | Supply 10-min average below point − X °C for > N min while heating (not DHW, not defrost) → status line + Automation log warning "not following curve: point p, supply s, mode m, reason r" and a per-day counter on the Heat Pump page. Defaults X = `bandDown` + 1, N = 45 min, configurable in Advanced. Optional push / notify later. Unit tests; Test GX scenarios for the warning and for no warning inside the band. |
 | C1 | Move private hosts / IDs out of `flows.json` and `NN *.js` | 1 | Only if the repository becomes public; needs a `d#` deploy. |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -93,7 +97,8 @@ Update this file when a task starts, finishes or changes.
 | 8 / 8g | Scenario CI job, green | Done (#54, #72); #74 / #75 timeout cleanup |
 | 2 | Charging scenarios | Done (#55); follow-ups in section 4 |
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
-| 8p / T1 | Speed up Test GX (now 70+ min, one scenario ~17 real min); target < 20 min | Pending; see T1 below |
+| 8p / T1 | Speed up Test GX; target < 20 min | In progress: step 1 matrix done (#87, run now = slowest file, heating-review.yml 67 min). Next: faster faketime rate for the slow heating scenarios, Docker cache. See T1 below |
+| P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | In progress: #89 |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Pending |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |
@@ -122,8 +127,47 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+2026-11-20/21: #79 simpler heating and boiler (d#201) · #80 review fixes (d#203) · #81 / #83 auto-deploy after Test GX
+(gate tests, visible skips) · #82 / #84 Test GX scenario fixes · #85 / #88 backlog · #86 P1 step up when the pump leaves
+the mode + blocked-step log, P2 curve monitor (d#204) · #87 T1 step 1: parallel Test GX jobs · #65 P3 warm-up · #66 P6
+band · #73 B1 SVG guard · #75 Test GX timeout cleanup.
+
 #59 deploy input `allow_live_only_lines` · #60 several open PRs · #61 P4 motion and hot-water stats · #62 DHW start from
 the pump's live outdoor value · #63 P2 Force boiler run · #64 / #67 DHW start replay tests · #68 `startGap` on the
 dashboard · #69 backup mail polish · #71 automations never save before load · #72 Test GX green in CI · #74 Test GX
 timeout cleanup · #76 pump's own outdoor value for the curve · #77 Copilot no-permission rules. Earlier: P1 version in
 the top-right corner (#51), P5 backup sensors (#53), P5f backup mail fixes (#57), #48 boiler emulation recovery.
+
+## 7. End-to-end test cases (from the former docs/e2e-backlog.md)
+
+Live or full-stack checks that no unit test or Test GX scenario covers yet. Mark `done` with the PR or run.
+
+| Item | Scenario | Inputs | Expected write | Status |
+| --- | --- | --- | --- | --- |
+| P1 | Version badge appears in the top-right header on every page | Open every page after a stamped deployment | None; all pages show the same `d#<n> · <sha7>` badge | todo |
+| P1 | Menu names stay plain | Open the dashboard menu after migrating from a legacy stamped deployment | None; names contain neither `d#<n>` nor a Git source suffix | todo |
+| P1 | Open dashboard updates after a deploy that bumps `d#` | Leave a dashboard page open and deploy a build with the next flow version and a new dashboard commit | Deployment updates the version tab; the header shows the new `d#` and dashboard SHA without a manual page reload | todo |
+| P5 | Dated archives include sensor logs | Send manual 7-day and 31-day archives and trigger a weekly send using synthetic logs spanning UTC/Oslo midnight | One e-mail per send; UTC dates for core and air, Oslo dates for temperatures and events, one catalogue, no config | todo |
+| P5 | Dated archive trims optional logs to 18 MiB | Use synthetic incompressible files across all three optional sets | E-mail attachment fits; omissions are largest-first within events, then temperatures, then air; e-mail lists omitted paths and retains core | todo |
+| P5 | Oversized core is refused; all-history and full backup keep their existing behavior | Try dated mail with core alone over 18 MiB, then exercise all-history mail and full backup against synthetic data | No e-mail for oversized core; all-history mail keeps whole log tree or refuses it, full backup retains its normal paths | todo |
+| P5f | Dated archive near UTC midnight | Manually send at 23:30 UTC with synthetic sensor events at the UTC and Oslo day boundaries | Attachment includes the first UTC day's sensor-event file and excludes the next day's file | todo |
+| P5f | Mail staging cleanup and bounded repacks | Seed stale mail files, interrupt a send, then retry with oversized optional sets | Stale files are removed, the next send succeeds, final attachment stays within 18 MiB, and omitted paths are listed | todo |
+| P3 | Warm-up raises the house heating for a set time | Heating controller On, supply on the owner curve; press "Warm up" +2 °C for 1 h | Raised P23/P24 written within a minute (not after a 10-min step); followed point = curve + 2; after 1 h P23/P24 back to the owner curve; `heatCurve` unchanged | todo |
+| P3 | Warm-up ends safely | Cancel mid-way; switch the heating controller Off; restart Node-RED during a warm-up; start a DHW cycle during it | Owner curve back after cancel / Off; warm-up resumes after restart until its end time; after the DHW cycle the raised curve is written again | todo |
+| P6 | Heating follows the curve point with a band | Heating controller On; enable band down 0 / up 2; let the supply cycle | DP 121 = 2 (owner value saved), pump curve = point + 2; compressor stops near point + 2 and restarts below the point; no mode / boost step while the supply is inside the band | todo |
+| P6 | Band off restores the owner settings | Turn the band off; switch the controller Off; restart Node-RED with the band on | Owner DP 121 and P23/P24 written back; saved value survives the restart | todo |
+| P2 | Forced boiler run waits for a defrost and then starts first | Press "Force boiler run" during a defrost, with the cycle interval not elapsed and heating lagging its curve | No DHW writes during the defrost; after quiet time and supply recovery the cycle starts (curve P23 0, then valve to the tank) before house heating | todo |
+| P2 | Forced boiler run keeps safety gates | Request with Er fault / DHW block / tank within 1 °C of target; cancel queued and running requests; restart Node-RED while queued | No start while a gate holds; request expires after 3 h; cancel returns to heating; the queued request survives the restart | todo |
+| P4 | Toilet visits are counted once per visit | Local PIR reports at t, t+30 s and t+7 min; restart Node-RED between reports | `dhwUsage.<day>.visits` = 2 in `heat-pump-automations.json`; no extra visit after the restart | todo |
+| P2 | Pump outdoor value is latched from its set point | Heating, P22 on, P24 4; read `DP 125`; compare `flow.dhwView.pumpOut` with P23 − (set − 20) / 0.4 across a defrost and the 15 min after it | Value stays at the steady ambient figure (e.g. −1 °C) although DP 103 swings −8 … +50 °C; no update during defrost, bypass, valve on DHW, or within 2 min of a P23 / P24 change; Heat Pump page says "pump outdoor … (from its set point)" | todo |
+| P2 | Heating lag is measured against the pump's own set point | Heating with the supply at the pump's reported set; DP 103 reads 4–6 °C below the pump outdoor value | Lag stays near 0 °C, no Silent → Smart kick or curve boost; after 3 h without a valid value the status says "fallback" and the sensor average is used | todo |
+| P2 | DHW boiler ramp stays put while DP 103 drops | Start a boiler cycle from heating with a latched pump outdoor value; the compressor starts and DP 103 falls ~6 °C | Boiler P23 follows water + gap only; it does not drop by ~7 °C because of the sensor; the cycle status shows "pump outdoor … (from its set point)" | todo |
+| P4 | Hot-water draws are linked to motion | Local motion, then the tank falls 2.5 °C within 3 min; later a 2 °C drop with no motion in the last 15 min | One draw with motion and one without; `dropC` and the hourly bucket updated; Heat Pump page shows the 7-day summary | todo |
+| P5g | Archive mail reports why it stopped | Start a second mail while one runs; stop Node-RED / let the exec time out mid-pack | Second send: "Another data archive mail is running"; interrupted send: "@@ERROR Data archive interrupted", no staging files left in /tmp | todo |
+| B1 | Heat Pump + history pages render with no console errors (null curve point, no plan) | open pages with missing values | no `cy=""` / $parse errors | todo |
+| P7 | Silent follows the curve point | Heating On, Silent; supply stays below point − down for one step interval; then reaches the point | Silent → Smart written; back to Silent once supply ≥ point; no write inside the band | todo |
+| P7 | Band sliders drive the limits | Set down 0.5 / up 2 and Save; supply above point + 2 | Step down (boost first, then mode); live values on the sliders survive a reload | todo |
+| P7 | Boiler gap | A cycle ends at target; demand again 30 min later; then press Force boiler run | No start, log "waits: last cycle ended hh:mm, gap 1 h"; Force run starts at once | todo |
+| P7 | Start DHW after defrost | Option On, tank below target, gap elapsed; a defrost ends | DHW starts at once (valve to the tank), log "start DHW after defrost"; option Off: no start | todo |
+| P7 | Status line | Watch the Heat Pump page through heating, DHW, defrost, idle | One line at the top with the right text and since-time | todo |
+| P7 | Temperatures page lists room sensors only | Open Temperatures | No pump, water, outdoor, tank, supply, return values; day paging and motion still work | todo |

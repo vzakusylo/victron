@@ -14,6 +14,7 @@ This page is the single description of the Claude / Copilot loop. It does not re
 
 | Document | What it owns |
 |---|---|
+| [`BACKLOG.md`](../BACKLOG.md) | **All tasks, plans, test plans, open PRs, deploy state and progress** (the one task file) |
 | [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) | Copilot's kickoff rule, Test GX access-scope checklist, short version of the rules below and the report template |
 | [Test GX handoff](test-gx-handoff-2026-11-16.md) | §3 permission register (approved scopes), §11 isolated PR review procedure, §13 next-agent checklist |
 | [Development & deployment](development.md) | `NN *.js` ↔ `flows.json` sync, `d#` version, checks before a deploy |
@@ -105,3 +106,6 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
 7. Live-GX access, pushing to master, deleting remote branches and removing Docker data volumes need an explicit owner request (see the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually)). Local Test GX calls (`/set`, `/fail`, `/reset`) and everything else in a task run without asking.
 8. Repository code, docs and commits are in English.
 9. Keep reports short: branch, SHA, PR, test count, what was not checked.
+10. Tasks and plans live only in [`BACKLOG.md`](../BACKLOG.md): a new task is added there before its branch, set to
+    "in progress" with the branch / PR when work starts, and moved to Done with the PR and `d#` in the same PR as the
+    work. No other task or plan files.

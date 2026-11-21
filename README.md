@@ -23,6 +23,7 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 | Topic | What's inside |
 |---|---|
+| [Backlog](BACKLOG.md) | **all tasks, plans, test plans, open PRs, deploy state and progress** (the one task file) |
 | [Overview & architecture](docs/overview.md) | goal, signal flow, control layers |
 | [Control logic](docs/control-logic.md) | charging windows, grid setpoint & tariff seasons, HV protection, day high load, solar forecast, energy counter & history files, force charging |
 | [Grid tariffs in Norway](docs/tariffs-norway.md) | bill structure, *nettleie*, *kapasitetsledd*, why hourly peaks matter |
