@@ -69,7 +69,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | ID | Task | Notes |
 |---|---|---|
-| H0 | Investigate why the pump idles / waits | From the stored history and the Automation log: every compressor-off period outside DHW and defrost with its cause (curve point reached / pump hysteresis DP 121, controller waits, Off / Test, too warm, fault). Propose curve / band / hysteresis changes; findings in `docs/heat-pump-work-log.md`. Feeds H11. |
+| H0 | Investigate why the pump idles / waits | in progress: `hp-idle-utcp`. From the stored history and the Automation log: every compressor-off period outside DHW and defrost with its cause (curve point reached / pump hysteresis DP 121, controller waits, Off / Test, too warm, fault). Propose curve / band / hysteresis changes; findings in `docs/heat-pump-work-log.md`. Feeds H11. |
 | H1 | Heating curve "now" marker shows values | Curve target now, reported heating set (DP 125), supply now. |
 | H3 | Temperatures page "All sensor temperatures": rooms only | Same single room list as `50 Devices model.js` / `tools/sensor-history.js`. |
 | H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
@@ -77,8 +77,10 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
 | H10 | History by day: week navigation, at most 14 day chips | `39 Heat pump history page.html` / `38`. |
-| H11 | "Idle" in the event lane and the Automation log | Idle segments (compressor off, not DHW / defrost) with the reason in the tooltip; log "Idle: reason" and "running again after N min". Test GX scenario. |
-
+| H11 | "Idle" in the event lane and the Automation log | in progress: `hp-idle-utcp`. Idle segments (compressor off, not DHW / defrost) with the reason in the tooltip; log "Idle: reason" and "running again after N min". Test GX scenario. |
+| H13 | Data gaps on 2026-11-21 (10:26, 12:42, 13:14, 14:20, 15:53, 16:22) | in progress: `hp-idle-utcp`. Explain each gap (restart, deploy, stale device, recorder), fix what is ours (marker rows; a skipped gate run must not touch the GX), show gaps as gaps in the history. |
+| H14 | UTCP manual for the GX | in progress: `hp-idle-utcp`. `GET /utcp` next to MCP: read tools + guarded control actions (`confirm: true`, token, rate limit, logged). `docs/utcp.md`. |
+| H15 | Test GX coverage for idle | in progress: `hp-idle-utcp`. Unit tests + `heat-pump-idle.yml` scenarios. |
 ## 4. Review follow-ups (deferred Low / Nit)
 
 | From | Item |
