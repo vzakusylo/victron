@@ -76,6 +76,18 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
   assert.match(deploy, /"\$MODE" == "apply" && "\$CONFIRM" != "deploy-gx-code"/);
 });
 
+test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {
+  const step = deploy.split('- name: Send deploy mail')[1].split('\n      - name:')[0];
+  assert.ok(deploy.indexOf('- name: Deploy from master') < deploy.indexOf('- name: Send deploy mail'));
+  assert.match(step, /if: steps\.deploy\.outcome == 'success' && env\.MODE == 'apply'/);
+  assert.match(step, /continue-on-error: true/);
+  assert.match(step, /node \/data\/home\/nodered\/tools\/send-mail\.js/);
+  assert.match(step, /::warning::deploy mail: failed/);
+  assert.match(step, /deploy mail: sent/);
+  assert.doesNotMatch(step, /dry-run|MODE == 'dry/);
+  assert.equal(deploy.split('send-mail.js').length - 1, 1, 'one mail step only');
+});
+
 test('test-gx workflow: required check always reports; only PRs cancel in-progress runs', () => {
   assert.doesNotMatch(testGx, /^\s+paths:/m);
   assert.match(testGx, /^  scenarios:/m);

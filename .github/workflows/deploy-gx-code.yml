@@ -168,6 +168,33 @@ jobs:
           & pwsh @arguments
           exit $LASTEXITCODE
 
+      # Mail failures are warnings only; dry runs and failed applies send nothing.
+      - name: Send deploy mail
+        if: steps.deploy.outcome == 'success' && env.MODE == 'apply'
+        continue-on-error: true
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          RUN_FOLDER: ${{ steps.deploy.outputs.run_folder }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          TEST_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          note() {
+            echo "::warning::deploy mail: failed ($1)"
+            echo "deploy mail: failed ($1)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          mail="$RUNNER_TEMP/deploy-mail.json"
+          node ./tools/gx/deploy-mail.js "$RUN_FOLDER" > "$mail" || note "could not build the mail"
+          result="$(ssh -i "$HOME/.ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "$GX_SSH_HOST" 'node /data/home/nodered/tools/send-mail.js' < "$mail" 2>&1)" || note "ssh failed"
+          error="$(printf '%s' "$result" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s.trim().split("\n").pop());console.log(r.ok?"":String(r.error||"unknown").replace(/[\r\n]+/g," ").slice(0,200))}catch{console.log("unreadable send-mail output")}})')"
+          if [[ -n "$error" ]]; then note "$error"; fi
+          echo "deploy mail: sent"
+          echo "deploy mail: sent" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Prepare public deployment summary
         if: always() && steps.deploy.outputs.run_folder != ''
         env:

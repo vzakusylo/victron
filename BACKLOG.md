@@ -73,7 +73,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | H1 | Heating curve "now" marker shows values | Curve target now, reported heating set (DP 125), supply now. |
 | H3 | Temperatures page "All sensor temperatures": rooms only | Same single room list as `50 Devices model.js` / `tools/sensor-history.js`. |
 | H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
-| H5 | Email after every GX deploy with what changed | New d#, commit, commits since the previous GX version, trigger, Test GX link. Existing mail path, no secrets in the repo. |
+| H5 | Email after every GX deploy with what changed (in progress: `deploy-mail`) | New d#, commit, commits since the previous GX version, trigger, Test GX link. Existing mail path, no secrets in the repo. |
 | H6 | Heating curve chart: low and high band lines | Point − `bandDown` and point + `bandUp` along the curve. |
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
