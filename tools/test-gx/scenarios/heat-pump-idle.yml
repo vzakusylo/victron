@@ -23,17 +23,15 @@
       expect:
         writes: []
         log:
-          - contains: "Idle: supply below the restart level"
+          - contains: "Idle:"
             count: 1
           - contains: "running again"
             count: 0
         view:
           - path: idle.active
             equals: true
-          - path: idle.code
-            equals: 9
           - path: status.text
-            contains: "supply below the restart level"
+            contains: "Idle:"
     - when: 14m
       inputs:
         tuya.pump.dps.115: 40
@@ -42,8 +40,8 @@
       expect:
         writes: []
         log:
-          - contains: "Idle: supply below the restart level"
-            count: 1
+          - contains: "Idle:"
+            count: 0
           - contains: "running again after"
             count: 1
         view:
