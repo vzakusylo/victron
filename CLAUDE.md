@@ -4,6 +4,19 @@ Node-RED control for a Victron Cerbo GX (Venus OS): battery / grid control under
 heat pump with boiler (DHW), room sensors and the dashboards. The live GX runs `flows.json`; everything else is source,
 tools, tests and docs. `camera-ai/` is a separate project with its own README and PLAN.
 
+## Start of every session (before any work)
+
+1. `git fetch origin`; master tip and `d#` (`node tools/flows.js version`); what the GX runs (last Deploy GX code run).
+2. Open PRs and checks: `gh pr list --state open`, `gh pr checks <N>`.
+3. **Herdr**: `herdr status` → `running`, else start `herdr` in its own terminal tab (never restart a running server
+   without the owner). `herdr agent list`, then `read` every worker.
+4. `BACKLOG.md`: in progress / next. Then tell the owner in a few lines what is running.
+
+Full rules (from Claude's memory and the owner's decisions): **[docs/claude-operating-guide.md](docs/claude-operating-guide.md)**.
+**Self-improvement:** when the process costs time or fails, fix it, then update the rule (this file, the guide,
+`docs/agent-workflow.md`, `.github/copilot-instructions.md`, a skill or memory) in the same session and add a line to
+**[docs/agent-process-log.md](docs/agent-process-log.md)**, the dated log of what is going on.
+
 ## Where things are
 
 | Path | What |
@@ -60,10 +73,27 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
 
 ## Agents
 
-Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file
-(`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'`). **Copilot model: `gpt-6.2-sol`** for every
-new task (exact id; `gpt-sol-6.2` is rejected, and without `--model` Copilot uses its own default). One agent per worktree. Copilot's rules:
-`.github/copilot-instructions.md`; the loop: `docs/agent-workflow.md`. Every report ends with the branch name.
+Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file.
+**Copilot model: `gpt-6.2-sol`** for every new task (exact id; `gpt-sol-6.2` is rejected, and without `--model`
+Copilot uses its own default). One agent per worktree. Copilot's rules: `.github/copilot-instructions.md`; the loop:
+`docs/agent-workflow.md`. Every report ends with the branch name.
+
+**Every new Copilot task runs as a Herdr worker** (since 2026-11-21), so Claude can send corrections and ask for
+progress instead of the owner relaying text:
+1. `herdr status` must say `running` (else start `herdr` in its own terminal; never restart a running server without
+   the owner: it kills all workers).
+2. `herdr-task.ps1 new <branch> -Base origin/master` → worktree `~\.herdr\worktrees\victron\<branch>`, Copilot on
+   `gpt-6.2-sol` **with `--allow-all`** as agent `w-<branch>`. Without `--allow-all` the worker stops at a
+   permission prompt for every command and nobody can answer it through the harness (21 Nov: a worker waited 6 min on
+   `git fetch`). Check the first `read` after `send`: a "Do you want to run this command?" box means it was started
+   without it; close and start it again with the current script.
+3. Write `.copilot-brief-<branch>.md` in that worktree (goal, context, steps, tests, delivery: PR + auto-merge).
+4. `herdr-task.ps1 send <branch> "Read .copilot-brief-<branch>.md and do all of it."`; later `send` for corrections /
+   "progress?", `read <branch>` to look without interrupting, `wait <branch>` until idle / blocked.
+5. After the PR merges: `herdr-task.ps1 close <branch>`.
+`herdr-task.ps1` is the owner's `herdr-worker` skill script (`~\.claude\skills\herdr-worker\`). A plain
+`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'` in a terminal is the fallback when Herdr is not
+available; then nobody can type into it except the owner.
 
 Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, auto-merge), `test-gx-local` (Docker
 scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP).
