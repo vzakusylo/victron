@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const {
-    assertChangedWrites, assertOutputs, ScenarioAssertionError, createAdmin, loadScenarios, parseDuration, runScenario
+    assertChangedWrites, assertOutputs, ScenarioAssertionError, createAdmin, faketimeRate, loadScenarios, parseDuration, runScenario
 } = require('../tools/test-gx/run-scenarios');
 const { preserveController, CONTEXT_KEYS, contextBridgeSource } = require('../tools/test-gx/scenario-controller');
 const { loadNode } = require('./harness');
@@ -14,7 +14,7 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
     test(`controller fixture: ${scenario.name}`, () => {
         const controller = loadNode('01 Battery + Grid Controller.js');
         const protection = loadNode('06 Apply HV settings.js');
-        const start = new Date(scenario.faketime.slice(1)).getTime();
+        const start = new Date(scenario.faketime.slice(1, 20).replace(' ', 'T')).getTime();
         let inputs = { batt_v: 50, consumed_ah: -112, grid_w: 1000, load_w: 800, pv_w: 0,
             ...scenario.initial?.inputs };
         let freshForecast;
@@ -27,9 +27,15 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
         applyProtection(scenario.controller.protection || {});
         const topics = { consumed_ah: 'battery-consumed-ah', batt_v: 'battery-voltage',
             grid_w: 'grid-power', load_w: 'ac-load-power', pv_w: 'pv-charger-power' };
-        for (const step of scenario.steps) {
+        const sources = { batt_v: 'battery./Dc/0/Voltage', consumed_ah: 'battery./ConsumedAmphours',
+            grid_w: 'system./Ac/Grid/L1/Power', load_w: 'system./Ac/Consumption/L1/Power', pv_w: 'system./Dc/Pv/Power' };
+        const staleUntil = new Map();
+        for (const [index, step] of scenario.steps.entries()) {
             const at = start + parseDuration(step.when);
             inputs = { ...inputs, ...step.inputs };
+            for (const [source, seconds] of Object.entries(step.stale || {})) {
+                staleUntil.set(source, at + seconds * 1000 * faketimeRate(scenario.faketime));
+            }
             const action = step.controller || {};
             if (action.protection) applyProtection(action.protection);
             if (action.refreshForecast) {
@@ -63,7 +69,9 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
             let last;
             for (let second = 0; second <= parseDuration(step.settle) / 1000; second++) {
                 for (const [key, topic] of Object.entries(topics)) {
-                    last = controller.run({ topic, payload: inputs[key] }, { now: at + second * 1000 });
+                    const now = at + second * 1000;
+                    if (staleUntil.get(sources[key]) > now) continue;
+                    last = controller.run({ topic, payload: inputs[key] }, { now });
                 }
             }
             const values = {
@@ -79,11 +87,14 @@ for (const scenario of loadScenarios().filter(item => item.controller)) {
             if (fractionalCurrent !== undefined && step === scenario.steps[0]) {
                 assert.equal(values['/Settings/SystemSetup/MaxChargeCurrent'], fractionalCurrent);
             }
-            for (const expected of step.expect.writes) {
-                assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
-            }
-            for (const expected of step.expect.outputs || []) {
-                assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
+            const expectations = [...(step.expect.writes || []), ...(step.expect.outputs || [])];
+            if (index + 1 === scenario.expected_fail_step) {
+                assert.ok(expectations.some(expected => values[expected.path] !== expected.value),
+                    `${scenario.name}: safe-mode assertions now pass; remove expected_fail`);
+            } else {
+                for (const expected of expectations) {
+                    assert.equal(values[expected.path], expected.value, `${scenario.name} at ${step.when}: ${expected.path}`);
+                }
             }
         }
     });
@@ -262,6 +273,29 @@ services.clear()
 actual = namespace['actuator_outputs']()
 assert all(item['value'] is None and item['error'] for item in actual)
 assert namespace['settings_value']('path', 42) == 42
+`, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator', 'emulator.py')], { stdio: 'pipe' });
+});
+
+test('emulator property freeze leaves sibling sensors live and expires on the emulator clock', () => {
+    execFileSync(process.platform === 'win32' ? 'py' : 'python3', ['-c', `
+import ast, sys, types
+source = ast.parse(open(sys.argv[1], encoding='utf-8').read())
+function = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'publish')
+grid, pv = '/Ac/Grid/L1/Power', '/Dc/Pv/Power'
+system = {grid: -200, pv: 2000}
+clock = [10]
+namespace = {
+    'services': {'system': system}, 'time': types.SimpleNamespace(time=lambda: clock[0]),
+    'state': {'load_w': 1000, 'pv_w': 500, 'soc': 60}, 'failed': {},
+    'computed': {'grid_w': 1000, 'batt_v': 54, 'batt_a': 0, 'batt_w': 0},
+    'stale_until': {'system.' + grid: 20},
+}
+exec(compile(ast.Module(body=[function], type_ignores=[]), '<publish>', 'exec'), namespace)
+namespace['publish']('system')
+assert (system[grid], system[pv]) == (-200, 500)
+clock[0] = 20
+namespace['publish']('system')
+assert system[grid] == 1000
 `, path.join(__dirname, '..', 'tools', 'test-gx', 'emulator', 'emulator.py')], { stdio: 'pipe' });
 });
 

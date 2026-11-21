@@ -1,0 +1,51 @@
+- name: grid import step moves the HV-limited ESS setpoint and returns
+  # Delay nodes use real timers. G2 target: <2 s on the input side, plus the output rate limit.
+  faketime: '@2026-11-16 13:00:00 x2'
+  controller: {"protection":{"gridSupportW":500,"gridSupportMode":"hv-only"}}
+  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+  # 1600 W AC load minus 500 W of HV support caps the response at 1100 W:
+  # this isolates the first CT-driven response from subsequent 100 W slew steps.
+  initial: {"inputs":{"batt_v":55.4,"consumed_ah":-40,"grid_w":1000,"load_w":1600,"pv_w":0}}
+  steps:
+    - when: 0s
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
+    - when: 50s
+      inputs: {"grid_w":3000}
+      settle: 50s
+      expect: {"if_changed":true,"maxWriteDelay":"23s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1100}]}
+    - when: 105s
+      inputs: {"grid_w":1000}
+      settle: 50s
+      expect: {"if_changed":true,"maxWriteDelay":"23s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
+
+- name: grid export raises DVCC and normal import releases it
+  faketime: '@2026-11-16 13:00:00 x2'
+  controller: {"protection":{"exportGuardEnabled":true,"gridSupportMinGridImportW":200}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":1500,"pv_w":2000}}
+  steps:
+    - when: 0s
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 50s
+      inputs: {"grid_w":-20}
+      settle: 50s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 105s
+      inputs: {"grid_w":1000}
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}
+    # Fresh PV samples drive the integrator down once the CT reports import.
+    - when: 155s
+      inputs: {"pv_w":1990}
+      settle: 20s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}
+    - when: 180s
+      inputs: {"pv_w":1980}
+      settle: 20s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}
+    - when: 205s
+      inputs: {"pv_w":1970}
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0},{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":4950}]}

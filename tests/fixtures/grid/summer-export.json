@@ -1,0 +1,11 @@
+{
+  "protection": {"start":55.2,"full":55.4,"release":55,"exportGuardEnabled":true},
+  "samples": [
+    {"at":"2026-07-14T13:15:00","readings":{"batteryV":54,"consumedAh":-32,"gridW":650,"loadW":1800,"dcW":-130,"pvW":1200}},
+    {"at":"2026-07-14T13:17:00","readings":{"pvW":2200,"gridW":-390,"loadW":1720}},
+    {"at":"2026-07-14T13:17:30","readings":{"gridW":-190,"pvW":2160}},
+    {"at":"2026-07-14T13:18:00","readings":{"gridW":870,"loadW":2400,"pvW":1500}},
+    {"at":"2026-07-14T13:18:30","readings":{"pvW":980,"gridW":1300,"batteryV":54.1}},
+    {"at":"2026-07-14T13:19:00","readings":{"gridW":1250,"loadW":2260}}
+  ]
+}

@@ -1,0 +1,15 @@
+- name: grid tariff switches the physical ESS and VE.Bus limits at the 06:00 hour boundary
+  faketime: '@2026-07-14 05:57:30 x2'
+  controller: {"protection":{}}
+  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"},{"service":"vebus","path":"/Ac/In/1/CurrentLimit"}]
+  initial: {"inputs":{"batt_v":53,"consumed_ah":0,"grid_w":1000,"load_w":1000,"pv_w":0}}
+  steps:
+    - when: 0s
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":2850},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":13.5}]}
+    # A fresh CT sample after 06:00 exercises the day profile even if the host's
+    # real-time cron callback has not fired yet. Wh accounting is asserted in the replay.
+    - when: 165s
+      inputs: {"grid_w":1100}
+      settle: 50s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1950},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":9.5}]}
