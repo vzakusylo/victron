@@ -471,7 +471,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 - Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.
 - `/writes` records actuator commands (D-Bus and Tuya), not settings/log file effects, UI rendering, exec-node behavior or SMTP delivery.
 - The deploy-window check is covered by a direct test of `tools/gx/window.js`, not by an API scenario.
-- A finite but out-of-range saved heat-pump curve is not range-checked on load before restoration to pump DP 133/134. The in-process test marks this as expected_fail HP-SETTINGS-1; the scenario API cannot inject a settings file.
+- Invalid saved heat-pump curves are covered by in-process load and restore tests (HP-SETTINGS-1, fixed in d#207). YAML cannot seed an invalid settings file and validates injected curves first (inventory U5).
 - Scenario timing requires the Test GX stack and Docker. Accelerated faketime (`xN`) changes Node's wall clock while monotonic timers remain real; with `x60`, the watchdog drops the Er03 sequence after its first valve command. The full-sequence scenario runs at normal speed instead.
 - The eight-scenario heat-pump suite takes about 30 real minutes because DHW and full Er03 controls run at `x1`; CI should use a separate slow-scenario job.
 - A previously observed Docker health-check failure refers to missing `/data/settings.js` even while the Node-RED API answers. Health-check cleanup belongs to `test-gx-ci`; API readiness is checked independently by the runner.

@@ -78,8 +78,8 @@ The node has seven wired outputs. Output indexes below are 1-based; command valu
 - **U2 — filesystem / exec effects:** `/writes` records device commands, not settings/log file contents, exec shell commands, or UI rendering. Node 40 output ports and settings payloads are checked in-process; node 42 file retention and exec output are not exercised by the API runner.
 - **U3 — external mail:** alert digest selection/content is unit-tested, but sending through the configured SMTP account is not part of this test.
 - **U4 — deploy window:** `tools/gx/window.js` is tested directly in `tests/test-gx-scenarios.test.js` while a DHW cycle is active. The scenario runner observes emulator device writes only and cannot assert the deploy CLI's WAIT verdict.
-- **U5 — persisted curve bounds:** node 40 accepts finite `settings.heatCurve.p23/p24` values from its JSON file without validating them against pump bounds, then may restore them as DP 133/134. The API runner cannot inject that file; `tests/heat-automation.test.js` reproduces this as expected_fail HP-SETTINGS-1. Do not repair production code in the Test GX scenario branch.
+- **U5 — persisted curve bounds:** the YAML runner validates `settings.heatCurve` before injecting a `load` message and can only snapshot/restore the settings file, not seed it with invalid values. `tests/heat-automation.test.js` instead exercises node 40's `load` message with the same JSON payload as the file, checks the warning and live recapture, and verifies that invalid DP 133/134 writes are refused.
 
 ## Suspected bugs
 
-- **HP-SETTINGS-1:** out-of-range but finite saved heating-curve values are not range-checked on load, and the in-process reproduction queues out-of-range DP 133/134 commands. Expected failure is tracked in the test above; uncovered by YAML for U5.
+- **HP-SETTINGS-1 — fixed in d#207:** node 40 drops invalid saved curves on load and refuses invalid curve writes at dispatch. The pump limits are P23 (DP 133) 0–40 °C and P24 (DP 134) 1–30, inclusive. Valid curves still restore at the end of DHW.

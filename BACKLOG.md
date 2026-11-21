@@ -57,7 +57,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | TH2 | A2 heating | Band option: DP 121 whole number (d#206 fix), owner hysteresis back when Off / Test | open |
 | TH3 | A2 heating | Stuck-supply kick (F40-09) scenarios; no kick in DHW / defrost | open |
 | TH4 | A2 heating | Defrost start / end rules (F40-03 / 04) against a recorded sequence (test half of H8) | open |
-| TH5 | A2 heating | Bug HP-SETTINGS-1: saved curve P23 / P24 out of range not checked on load, can be written to the pump; own bug-fix PR | open (bug) |
+| TH5 | A2 heating | Bug HP-SETTINGS-1: saved curve P23 / P24 out of range not checked on load, can be written to the pump; own bug-fix PR | in progress: `fix-hp-settings-1` |
 | TGX3 | A3 boiler | DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline (Test GX plan 3) | open, raised |
 | TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | open |
 | TB2 | A3 boiler | DHW with defrost: defrost during a cycle, DHW after defrost, minimum gap | open |
