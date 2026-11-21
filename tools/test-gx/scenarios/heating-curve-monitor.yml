@@ -1,0 +1,126 @@
+- name: Supply below the curve for offCurveMin gives one warning, status line and daily count
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0,"offCurveC":1,"offCurveMin":10},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 33m
+      settle: 3m
+      expect:
+        writes: []
+        log:
+          - contains: "not following the curve"
+            count: 1
+        view:
+          - path: status.text
+            contains: "NOT following the curve since"
+          - path: heat.offCurve.warned
+            equals: true
+          - path: heat.offCurve.today
+            equals: 1
+    - when: 36m
+      inputs:
+        tuya.pump.dps.101: 31.4
+        tuya.pump.dps.102: 36.4
+      settle: 7m
+      expect:
+        writes: []
+        log:
+          - contains: "following the curve again"
+            count: 1
+          - contains: "not following the curve"
+            count: 0
+        view:
+          - path: heat.offCurve.warned
+            equals: false
+          - path: heat.offCurve.today
+            equals: 1
+
+- name: Inside the band no warning
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"offCurveC":1,"offCurveMin":10},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 30
+      tuya.pump.dps.102: 35
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 33m
+      settle: 3m
+      expect:
+        writes: []
+        log:
+          - contains: "not following the curve"
+            count: 0
+        view:
+          - path: heat.offCurve.warned
+            equals: false
+          - path: heat.offCurve.today
+            equals: 0
+
+- name: A DHW valve hold resets the not following monitor
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0,"allowPowerful":false,"maxBoost":0,"offCurveC":1,"offCurveMin":15},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: smart
+      tuya.pump.dps.101: 28
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 69
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 27m
+      inputs:
+        tuya.valve.dps.1: true
+      settle: 1m
+      expect:
+        writes: []
+        log:
+          - contains: "not following the curve"
+            count: 0
+    - when: 29m
+      inputs:
+        tuya.valve.dps.1: false
+      settle: 1m
+      expect:
+        writes: []
+    - when: 43m
+      settle: 1m
+      expect:
+        writes: []
+        log:
+          - contains: "not following the curve"
+            count: 0
+        view:
+          - path: heat.offCurve.warned
+            equals: false
+          - path: heat.offCurve.today
+            equals: 0
