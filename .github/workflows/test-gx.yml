@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        files: [charging.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, trivial.yml]
+        files: [charging.yml, defrost-outdoor.yml, heat-pump-deploy.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, heat-pump-idle.yml, trivial.yml]
     permissions:
       contents: read
     env:

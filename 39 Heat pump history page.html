@@ -143,7 +143,7 @@
         <text x="4" ng-attr-y="{{h.day.chart.t1 + 4}}">°C</text>
       </g>
       <g ng-if="h.day.chart.events">
-        <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-stroke="{{e.err ? '#7a0f0d' : 'none'}}" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" opacity="0.85"><title>{{e.kind}} {{e.from}} · {{e.min}} min</title></rect>
+        <rect ng-repeat="e in h.day.chart.events track by $index" ng-attr-stroke="{{e.err ? '#7a0f0d' : 'none'}}" ng-attr-x="{{e.x}}" ng-attr-y="{{h.day.chart.evTop}}" ng-attr-width="{{e.w}}" ng-attr-height="{{h.day.chart.evH}}" ng-attr-fill="{{e.color}}" opacity="0.85"><title>{{e.tip || e.kind}} {{e.from}} · {{e.min}} min</title></rect>
       </g>
       <g ng-if="h.day.chart.plan && h.day.chart.plan.yTarget !== null && h.day.chart.plan.yTarget !== undefined && h.day.chart.plan.xEnd !== null && h.day.chart.plan.xEnd !== undefined">
         <line class="plan-target" ng-attr-x1="{{h.day.chart.plan.x0}}" ng-attr-x2="{{h.day.chart.plan.xEnd}}" ng-attr-y1="{{h.day.chart.plan.yTarget}}" ng-attr-y2="{{h.day.chart.plan.yTarget}}"></line>
@@ -267,7 +267,7 @@
             rows.push({ name: s.name, color: s.color, unit: s.unit, v: v === undefined ? null : v, y: v === null || v === undefined ? null : yOf(s, v) });
         });
         var ev = null;
-        (c.events || []).forEach(function (x) { if (xb >= x.x && xb <= x.x + x.w) ev = x.kind; });
+        (c.events || []).forEach(function (x) { if (xb >= x.x && xb <= x.x + x.w) ev = (x.tip || x.kind) + ' · ' + x.from + ' · ' + x.min + ' min'; });
         var sec = i * c.bucketS;
         scope.h.hov = { chart: which, x: xb, leftPct: xb / 760 * 100, flip: xb > 520, rows: rows, ev: ev,
             time: pad2(Math.floor(sec / 3600)) + ':' + pad2(Math.floor(sec % 3600 / 60)) };

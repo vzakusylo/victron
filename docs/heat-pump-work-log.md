@@ -166,6 +166,10 @@ less than intended. Fix: `pumpOutdoor(P23, P24, set) = P23 − (set − 20) / (P
 heating lag, the heating controller's point, the DHW boiler curve (kept for the whole cycle) and the page (`34`, label "pump outdoor … (from its set point)");
 older than 3 h or never valid → the old average / live-sensor rules, labelled "fallback".
 
+### 2026-11-21: why the pump idles, gaps, UTCP (d#206)
+
+Stored history 14–21 Nov (`tools/heatpump-idle-report.js`): 101 compressor-off periods ≥ 1 min outside DHW, 685 min. Causes: the pump's 3 min restart protection after a defrost (about hourly) 83 periods / 484 min; supply below the pump's own restart level (its set point − DP 121 hysteresis) 7 / 121; DHW end 10 / 48; hysteresis 1 / 32. The pump stops and restarts on its own curve (P23/P24), not on the owner's point. Fixed a controller bug found on the way: DP 121 is an integer, the band hysteresis was written fractional (3.5 read back as 3) and rewritten every ~2 min (46 writes on 21 Nov); it is now a whole number. The 21 Nov "gaps" were compressor-off periods (the recorded rows have no hole); skipped Deploy GX gate runs have no secrets and do not touch the GX. New: idle cause per sample (`idl`), node-start marker (`mk`), Idle / Gap segments in the event lane, "Idle: …" log lines, the UTCP endpoint ([utcp.md](utcp.md)). Follow-ups: BACKLOG H16.
+
 ## Errors and incidents (8–11 Nov)
 
 Everything that went wrong, in order, with the effect on the house and what was done.

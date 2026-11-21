@@ -46,6 +46,11 @@
 // 3. SA1 power meter (d#121): meter DPs as `m<dp>`, decoded power as `pw`, 4th state letter.
 //    Read back by "Heat pump command" (37) + "Build heat pump history" (38) for the history page.
 // 5. d#134: battery sensors (acc, plate) count as stale only after 24 h (they report on change).
+// 6. H11 / H13: column `idl` = idle cause code (0 = none; the codes of IDLE_CAUSES in lib/heat-pump/idle.js,
+//    never renumbered) while the compressor is idle, from flow.dhwView.idle when fresh (≤ 2 min);
+//    column `mk` = marker text on the first row after a node start / deploy ('node start d#N'), '-' otherwise.
+//    38 reads both: idle segments with their cause, and the reason of a gap in the records.
+//    Older files have neither column.
 // 4. Cloud sensors (d#132): Accumulator tank temp as `atemp` / `ahum` / `abat`, Exchange plate as
 //    `xtemp` / `xhum` / `xbat` (from 44 via 34); state letters 5 and 6. Files before d#132
 //    have 4 letters.
@@ -117,6 +122,12 @@ if (shower) {
     values.shower_demand = cell(shower.requested);
     values.shower_expected_ms = cell(shower.expectedAt || 0);
 }
+
+// idle cause code for the history event lane (always a number: an empty delta cell means "unchanged")
+values.idl = dhwView.at && nowMs - dhwView.at <= 2 * 60 * 1000 && dhwView.idle && dhwView.idle.active ? cell(Number(dhwView.idle.code) || 0) : '0';
+// marker: the recorder context is empty only after a node start / deploy; '-' clears the delta cell
+const dLabel = String(env.get('NR_FLOW_NAME') || '').match(/d#\d+/);
+values.mk = context.get('rec') ? '-' : 'node start' + (dLabel ? ' ' + dLabel[0] : '');
 
 const stateLetters = ROLES.map(([role]) => {
     const dev = st[role];

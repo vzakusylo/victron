@@ -85,7 +85,7 @@ test('old saved lagUp / overC become the band limits, also when the old band was
     assert.equal(cb.bandUp, 1);
     assert.ok(b.node.context.get('log').some((e) => /heating settings migrated: lagUp 1.5 → band down 1.5, overC 1 → band up 1/.test(e.text)));
     b.run(NOW, NOW + 6 * MIN, { 121: 5 });
-    assert.deepEqual([...new Set(b.writes.filter((w) => w.dps === 121).map((w) => w.set))], [2.5], 'DP 121 = max(2, up + down) of the migrated band');
+    assert.deepEqual([...new Set(b.writes.filter((w) => w.dps === 121).map((w) => w.set))], [3], 'DP 121 = max(2, ceil(up + down)) of the migrated band (whole degrees)');
 });
 
 test('Silent ⇄ Smart does not hunt: back to Silent only at lag ≥ up / 2', () => {
