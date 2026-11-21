@@ -154,7 +154,9 @@ test('runner extracts the committed additions helper and uploads it with the dry
     const added = 'utcp-http-get-01';
     const flows = JSON.parse(gitShow('flows.json')).filter((node) => node.id !== added);
     const { snapshot } = require('../tools/gx/live-snapshot.js');
+    const snapshotFile = path.join(dir, 'live.b64');
     const before = require('node:zlib').gzipSync(JSON.stringify(snapshot(flows, 'test-revision', { topology: true }))).toString('base64');
+    fs.writeFileSync(snapshotFile, before);
     const run = path.join(dir, 'run');
     const result = spawnSync('pwsh', ['-NoProfile', '-Command', `
         $realGit = (Get-Command git -CommandType Application).Source | Select-Object -First 1
@@ -168,7 +170,7 @@ test('runner extracts the committed additions helper and uploads it with the dry
         function ssh {
             $global:LASTEXITCODE = 0
             switch -Wildcard ($args[-1]) {
-                '*node - --topology' { return $env:GX_TEST_SNAPSHOT }
+                '*node - --topology' { return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT }
                 '*node - --for deploy' { return 'SAFE for deploy' }
                 '*mktemp*' { return '/tmp/gx-deploy.Test' }
                 'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
@@ -186,8 +188,9 @@ test('runner extracts the committed additions helper and uploads it with the dry
         }
         & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -AllowNewNodes -RunDirectory $env:GX_TEST_RUN
         exit $LASTEXITCODE
-    `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: before,
+    `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: snapshotFile,
         GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run } });
+    assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.deepEqual(fs.readFileSync(path.join(run, helper)), gitShow(helper));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).add, [added]);
