@@ -57,7 +57,6 @@
     - when: 24m
       inputs:
         tuya.pump.dps.103: 40
-        tuya.pump.dps.125: 37
         tuya.pump.dps.116: 596
         tuya.pump.dps.102: 27
       settle: 1m
@@ -81,6 +80,17 @@
             dps: "1"
             value: false
             applied: true
+    # The outdoor spike subsides within the quiet period. Leave time for the emulator
+    # to recompute DP 125 (37) from the new sensor value before checking recovery.
+    - when: 30m
+      inputs:
+        tuya.pump.dps.103: -4.5
+      settle: 1m
+      expect:
+        writes: []
+        view:
+          - path: "pumpOut.v"
+            equals: -2
     # Beyond the 15-min quiet period: 31 is still below min(37 - 5, 36 - 0.5).
     - when: 42m
       inputs:
@@ -101,7 +111,6 @@
             contains: "supply recovering after the defrost"
     - when: 47m
       inputs:
-        tuya.pump.dps.103: -2
         tuya.pump.dps.102: 32
       settle: 1m
       expect:

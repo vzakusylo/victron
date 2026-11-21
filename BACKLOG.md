@@ -53,10 +53,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 |---|---|---|---|
 | TGX5 | A1 grid | Edges: midnight, DST, month change, tariff tier change, sensor failures (Test GX plan 5) | open, raised |
 | TGX6 | A1 grid | BMS watchdog scenarios (Test GX plan 6) | open, raised |
-| TH1 | A2 heating | Warm-up start / end / cancel, curve back to the owner's | in progress: heating-testgx-a2 |
-| TH2 | A2 heating | Band option: DP 121 whole number (d#206 fix), owner hysteresis back when Off / Test | in progress: heating-testgx-a2 |
-| TH3 | A2 heating | Stuck-supply kick (F40-09) scenarios; no kick in DHW / defrost | in progress: heating-testgx-a2 |
-| TH4 | A2 heating | Defrost start / end rules (F40-03 / 04) against a recorded sequence (test half of H8) | in progress: heating-testgx-a2 |
 | TH5 | A2 heating | Bug HP-SETTINGS-1: saved curve P23 / P24 out of range not checked on load, can be written to the pump; own bug-fix PR | open (bug) |
 | TGX3 | A3 boiler | DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline (Test GX plan 3) | open, raised |
 | TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | open |
@@ -178,6 +174,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#109 TH1–TH4 (d#206): Test GX coverage for warm-up, band hysteresis, stuck-supply kick and defrost/recovery (test half of H8). Expected failures to fix separately: the Off view omits the warm-up note (TH1); the kick logic still runs during DHW (TH3).
 
 #107 D1: manual opt-in for reviewed GX node additions, with dry-run reporting and readback verification. Tested the six UTCP additions from d#205 to d#206 in isolated Node-RED; no d# bump.
 
