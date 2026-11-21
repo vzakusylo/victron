@@ -71,7 +71,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
 | T1 | Unit-test coverage of the control logic | 1–2 | Per function node: list every decision (input → expected write), add missing tests, list uncovered decisions. After the open PRs merge. |
-| D1 | Deploy tool adds reviewed new nodes | 0.5 | In progress: `deploy-new-nodes`. The d#206 dry run stopped on six new UTCP nodes. |
 | B6 | Temperatures page: all sensors, day-by-day paging, motion sensor | 0–1 | Check first: a temperatures page with motion exists since `a4af86d`. |
 | B8 | Battery round-trip efficiency | 0.5–1 | |
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
@@ -179,6 +178,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#107 D1: manual opt-in for reviewed GX node additions, with dry-run reporting and readback verification. Tested the six UTCP additions from d#205 to d#206 in isolated Node-RED; no d# bump.
 
 #106 TG1–TG3: d#206 test-only grid coverage. The +3 kW import step moved the HV-limited ESS target from 1,000 W to
 1,100 W in 21.55 s locally (14.11 s on return). The export guard raised and released the DVCC limit. Three G2 safe-mode
