@@ -61,7 +61,8 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
 ## Agents
 
 Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file
-(`copilot --allow-all -i 'Read <brief> and do it'`). One agent per worktree. Copilot's rules:
+(`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'`). **Copilot model: `gpt-6.2-sol`** for every
+new task (exact id; `gpt-sol-6.2` is rejected, and without `--model` Copilot uses its own default). One agent per worktree. Copilot's rules:
 `.github/copilot-instructions.md`; the loop: `docs/agent-workflow.md`. Every report ends with the branch name.
 
 Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, auto-merge), `test-gx-local` (Docker
