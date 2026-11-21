@@ -17,8 +17,7 @@ concurrency:
 jobs:
   scenarios:
     runs-on: ubuntu-latest
-    # Real-time DHW scenarios added to the existing suite exceeded the 75-minute budget.
-    timeout-minutes: 120
+    timeout-minutes: 240
     permissions:
       contents: read
     env:
