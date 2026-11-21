@@ -11,8 +11,8 @@
 //      raw.githubusercontent.com and checks their SHA-256 against the plan (large pushes from the PC stall)
 //   2. GET /flows; the live revision must still be plan.expectRev (nobody deployed since the comparison)
 //   3. the heat pump automations must not be in a DHW cycle (their node context is lost on a redeploy)
-//   4. copies only the planned code fields from the commit into the live nodes; a node that differs
-//      from the commit in anything else (wires, outputs) stops the deploy
+//   4. copies only the planned code and new-node wiring from the commit, and adds reviewed nodes;
+//      any other settings differences on a patched node stop the deploy
 //   5. sets the d#<n> tab label of the commit and stamps the source commit (tools/deploy-version.js)
 //   6. DRY=0 only: copies flows.json,
 //      flows_cred.json and the original live flow to .node-red/backup-<time>-pre-d<n>/, replaces the tool
@@ -25,6 +25,7 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { additionPlan, describe } = require('./node-additions.js');
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
 // Overridden only by the end-to-end test (tests/gx-deploy-e2e.test.js): a local admin API and file server.
@@ -71,6 +72,10 @@ function readPlan(file) {
     if (!hex(plan.flowsSha256, 64) || !hex(plan.stampSha256, 64)) fail('plan file hashes are missing');
     if (typeof plan.expectRev !== 'string' || !plan.expectRev) fail('plan.expectRev is missing');
     if (!plan.patch || typeof plan.patch !== 'object' || Array.isArray(plan.patch)) fail('plan.patch must be an object');
+    for (const key of ['add', 'wire']) {
+        if (plan[key] === undefined) plan[key] = [];
+        if (!Array.isArray(plan[key]) || plan[key].some((id) => typeof id !== 'string')) fail('plan.' + key + ' must list node IDs');
+    }
     if (!Array.isArray(plan.scopes) || !plan.scopes.length || plan.scopes.some((scope) => !SCOPES.includes(scope))) fail('plan.scopes must list dashboard and/or automations');
     plan.tools = plan.tools || {};
     for (const [tool, hash] of Object.entries(plan.tools)) {
@@ -119,7 +124,12 @@ function readPlan(file) {
         const number = (label) => Number((/d#(\d+)/.exec(label) || [])[1]);
         if (!(number(liveTab.label) <= number(repoTab.label))) fail('Live ' + liveTab.label + ' is newer than the commit ' + repoTab.label + '.');
 
-        const ids = Object.keys(plan.patch);
+        const nodes = additionPlan(original.flows, repoFlows, plan.add.length > 0);
+        for (const key of ['add', 'wire']) {
+            if (stable(plan[key]) !== stable(nodes[key])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
+        }
+        const wireIds = new Set(nodes.wire);
+        const ids = [...new Set([...Object.keys(plan.patch), ...wireIds])];
         if (liveById.has(AUTOMATIONS_NODE)) {
             const raw = JSON.parse(await api('GET', '/context/node/' + AUTOMATIONS_NODE + '/dhw'));
             // Fail closed: only a value that was never set counts as "no context".
@@ -137,18 +147,28 @@ function readPlan(file) {
         for (const id of ids) {
             const node = liveById.get(id) || fail('Planned node ' + id + ' is not on the GX.');
             const source = repoById.get(id) || fail('Planned node ' + id + ' is not in the commit.');
-            for (const field of plan.patch[id]) {
+            for (const field of plan.patch[id] || []) {
                 if (!['func', 'initialize', 'finalize', 'format', 'command'].includes(field)) fail('Field ' + field + ' cannot be deployed by a plan.');
                 if (norm(node[field]) !== norm(source[field])) changes.push(id + '.' + field + ': ' + norm(node[field]).split('\n').length + ' -> ' + norm(source[field]).split('\n').length + ' lines');
                 node[field] = source[field];
             }
+            if (wireIds.has(id)) {
+                node.wires = source.wires;
+                if (Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
+                console.log('wire patch      : ' + id + ' ' + JSON.stringify(node.wires));
+            }
             if (withoutLayout(node) !== withoutLayout(source)) fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
+        }
+        for (const id of nodes.add) {
+            const node = repoById.get(id);
+            payload.flows.push(Object.assign({}, node));
+            console.log('node to add     : ' + JSON.stringify(describe(node)));
         }
         const oldLabel = liveTab.label;
         liveTab.label = repoTab.label;
         const commits = Object.fromEntries(plan.scopes.map((scope) => [scope, plan.sha]));
         const stamped = stampDeployment(payload, commits, original);
-        if (stamped.flows.length !== original.flows.length) fail('Node count changed.');
+        if (stamped.flows.length !== original.flows.length + nodes.add.length) fail('Unexpected node count.');
 
         const before = new Map(original.flows.map((node) => [node.id, node]));
         const touched = stamped.flows.filter((node) => stable(node) !== stable(before.get(node.id)));
@@ -212,9 +232,16 @@ function readPlan(file) {
         await new Promise((resolve) => setTimeout(resolve, 4000));
         const after = JSON.parse(await api('GET', '/flows'));
         afterById = new Map(after.flows.map((node) => [node.id, node]));
-        for (const id of ids) for (const field of plan.patch[id]) {
-            // The POST was accepted, so the new flow runs with the new tools: keep both and report.
-            if (norm(afterById.get(id)[field]) !== norm(repoById.get(id)[field])) fail('VERIFY FAILED: ' + id + '.' + field + '. The flow was posted and the tool files replaced; roll back both from ' + backup);
+        // The POST was accepted, so the new flow runs with the new tools: keep both and report.
+        const verifyFailed = (item) => fail('VERIFY FAILED: ' + item + '. The flow was posted and the tool files replaced; roll back both from ' + backup);
+        for (const id of nodes.add) {
+            if (stable(afterById.get(id)) !== stable(repoById.get(id))) verifyFailed(id);
+        }
+        for (const id of ids) {
+            const got = afterById.get(id), want = repoById.get(id);
+            if (!got) verifyFailed(id);
+            for (const field of plan.patch[id] || []) if (norm(got[field]) !== norm(want[field])) verifyFailed(id + '.' + field);
+            if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) || got.outputs !== want.outputs)) verifyFailed(id + '.wires/outputs');
         }
         console.log('DEPLOYED        : ' + afterById.get(repoTab.id).label + ' (rev ' + JSON.parse(reply).rev.slice(0, 12) + ')');
         console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');

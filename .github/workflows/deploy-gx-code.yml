@@ -21,6 +21,10 @@ on:
         description: "Pass -AllowLiveOnlyLines: only when the commit is meant to remove the GX-only code lines (check compare-before.txt first)."
         type: boolean
         default: false
+      allow_new_nodes:
+        description: "Pass -AllowNewNodes for reviewed additions. Review a dry run of the same commit before apply."
+        type: boolean
+        default: false
   # Every green Test GX run on a push to master deploys that commit: apply, no manual approval.
   workflow_run:
     workflows: ["Test GX scenarios"]
@@ -80,6 +84,7 @@ jobs:
       MODE: ${{ github.event_name == 'workflow_run' && 'apply' || inputs.mode }}
       VERSION_TYPE: ${{ github.event_name == 'workflow_run' && 'test' || inputs.version }}
       ALLOW_LIVE_ONLY_LINES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_live_only_lines }}
+      ALLOW_NEW_NODES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_new_nodes }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -165,6 +170,7 @@ jobs:
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
           if ($env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
+          if ($env:ALLOW_NEW_NODES -eq 'true') { $arguments += '-AllowNewNodes' }
           & pwsh @arguments
           exit $LASTEXITCODE
 

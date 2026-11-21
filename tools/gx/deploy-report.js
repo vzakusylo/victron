@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-// Only counts and validated commit IDs may leave the private run folder.
+// Only counts, validated commit IDs and addition metadata from Git may leave the private run folder.
 function publicSummary(before, after, { commit, mode, outcome, version }) {
     if (!/^[0-9a-f]{40}$/.test(commit || '')) throw new Error('Expected a full deployment commit SHA.');
     if (!['dry-run', 'apply'].includes(mode)) throw new Error('Unexpected deployment mode.');
@@ -24,6 +24,23 @@ function publicSummary(before, after, { commit, mode, outcome, version }) {
         before: counts(before),
         after: counts(after)
     };
+}
+
+function plannedAdditions(runFolder, commit, root = path.join(__dirname, '..', '..')) {
+    const file = path.join(runFolder, 'plan.json');
+    if (!fs.existsSync(file)) return [];
+    const plan = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (plan.add === undefined || plan.add.length === 0) return [];
+    if (!/^[0-9a-f]{40}$/.test(commit || '') || plan.sha !== commit || !Array.isArray(plan.add)) {
+        throw new Error('Invalid addition plan for deployment report.');
+    }
+    const flows = JSON.parse(execFileSync('git', ['-C', root, 'show', commit + ':flows.json'], { maxBuffer: 1 << 27 }));
+    const byId = new Map(flows.map((node) => [node.id, node]));
+    const { describe } = require('./node-additions.js');
+    return plan.add.map((id) => {
+        if (!byId.has(id)) throw new Error('Planned addition is not in the reporting commit.');
+        return describe(byId.get(id));
+    });
 }
 
 function repositoryChanges(previous, commit, root = path.join(__dirname, '..', '..')) {
@@ -90,10 +107,14 @@ function formatReport(report) {
     for (const key of ['code', 'trailing', 'config', 'onlyLive', 'onlyRepo', 'liveOnlyLines']) {
         lines.push(`| ${key} | ${report.before?.[key] ?? 'unavailable'} | ${report.after?.[key] ?? 'unavailable'} |`);
     }
+    if (report.additions?.length) {
+        lines.push('', `Planned node additions (${report.additions.length}; from the target commit):`);
+        for (const node of report.additions) lines.push('- ' + escape(JSON.stringify(node)));
+    }
     return lines.join('\n') + '\n';
 }
 
-module.exports = { publicSummary, repositoryChanges, formatReport };
+module.exports = { publicSummary, repositoryChanges, formatReport, plannedAdditions };
 
 if (require.main === module) {
     const [runFolder, output] = process.argv.slice(2);
@@ -103,10 +124,11 @@ if (require.main === module) {
         return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
     };
     const report = publicSummary(read('summary-before.json'), read('summary-after.json'), {
-        commit: process.env.GITHUB_SHA, mode: process.env.MODE, outcome: process.env.DEPLOY_OUTCOME,
+        commit: process.env.DEPLOY_SHA || process.env.GITHUB_SHA, mode: process.env.MODE, outcome: process.env.DEPLOY_OUTCOME,
         version: process.env.VERSION_TYPE
     });
     report.changes = repositoryChanges(report.previous, report.commit);
+    report.additions = plannedAdditions(runFolder, report.commit);
     fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
     process.stdout.write(formatReport(report));
 }

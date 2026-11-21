@@ -72,7 +72,7 @@ The steps (`-Steps` prints them):
 ```text
 1 preflight   fetch, resolve the commit, check that it is pushed, extract the scripts of the commit
 2 snapshot    read the live flow from the GX (read-only)
-3 compare     live code vs the commit; stop on added / removed nodes or on GX-only code lines
+3 compare     live code vs the commit; stop on removals or unapproved additions / GX-only code lines
 4 plan        write the deploy plan: nodes, tool files, hashes, expected live revision
 5 window      no DHW cycle, no running rule sequence, no defrost (read-only)
 6 dry run     all checks of tools/gx/deploy.js on the GX, nothing changed

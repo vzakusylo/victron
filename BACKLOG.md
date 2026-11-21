@@ -71,7 +71,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
 | T1 | Unit-test coverage of the control logic | 1–2 | Per function node: list every decision (input → expected write), add missing tests, list uncovered decisions. After the open PRs merge. |
-| D1 | Deploy tool adds reviewed new nodes | 0.5 | `tools/gx/deploy-local.js` only accepts new `temps-*` nodes; `gx-deploy.ps1` stops on added nodes. The P1 `dashboard-version-*` nodes had to be added by hand. |
+| D1 | Deploy tool adds reviewed new nodes | 0.5 | In progress: `deploy-new-nodes`. The d#206 dry run stopped on six new UTCP nodes. |
 | B6 | Temperatures page: all sensors, day-by-day paging, motion sensor | 0–1 | Check first: a temperatures page with motion exists since `a4af86d`. |
 | B8 | Battery round-trip efficiency | 0.5–1 | |
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
