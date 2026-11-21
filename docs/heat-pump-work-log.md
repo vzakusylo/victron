@@ -225,3 +225,4 @@ Heat Pump tab → Boiler column → set the cold end and the warm end of the cur
 - Battery sensors: confirm that both sensors arrive locally (device chips show *(local)*); the accumulator sensor reports only on a change, so its first local reading can take hours.
 - SA1 power meter: move it to the Telia / ASUS network, set its IP and key, then calibrate 220 W/A against the meter.
 - Compressor run hours from the pump panel, if available, replace the weather estimate in `45`.
+- Heating can stay in Silent while the supply is below the curve (BACKLOG P1), and there is no "not following the curve" monitor yet (BACKLOG P2).

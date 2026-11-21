@@ -45,6 +45,8 @@ Update this file when a task starts, finishes or changes.
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
 | B5 | Docs: the victron-gx MCP connector (what, how to create, how it works, how to use) | 0.5 | |
 | B3 | Data Analytics: train on history to predict solar generation | 2+ | |
+| P1 | Heating stuck in Silent: step Silent → Smart → Powerful when the supply does not follow the curve | 1–2 | The supply stays below the curve point and the controller keeps Silent, so the house cannot warm. Investigate `40 Heat pump automations.js` (`heatDecide`, band, `stepMin`, `kickTick` d#175, `coldLimit` "Silent only", `allowPowerful=false` default, deploy quiet period, Test mode = no writes). Find every path where lag > `bandDown` but no step up is written (cold limit forces Silent, `allowPowerful` off caps at Smart, 10-min average not ready, mode read from the pump disagrees, step timer reset by DHW / defrost). Done when: lag below point − `bandDown` for one `stepMin` → Silent → Smart; still lagging after the next `stepMin` → Powerful (when allowed) or curve +1 °C up to the boost cap; back down at point. Each blocked step logs the reason. Unit tests for every path + Test GX scenario "supply stuck below curve in Silent steps up". |
+| P2 | Detect and monitor "heating not following the curve" | 1 | Supply 10-min average below point − X °C for > N min while heating (not DHW, not defrost) → status line + Automation log warning "not following curve: point p, supply s, mode m, reason r" and a per-day counter on the Heat Pump page. Defaults X = `bandDown` + 1, N = 45 min, configurable in Advanced. Optional push / notify later. Unit tests; Test GX scenarios for the warning and for no warning inside the band. |
 | C1 | Move private hosts / IDs out of `flows.json` and `NN *.js` | 1 | Only if the repository becomes public; needs a `d#` deploy. |
 
 ## 4. Review follow-ups (deferred Low / Nit)
@@ -74,12 +76,28 @@ Update this file when a task starts, finishes or changes.
 | 8 / 8g | Scenario CI job, green | Done (#54, #72); #74 / #75 timeout cleanup |
 | 2 | Charging scenarios | Done (#55); follow-ups in section 4 |
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
-| 8p | Parallel isolated stacks; faketime to shorten the ~32 min run | Pending |
+| 8p / T1 | Speed up Test GX (now 70+ min, one scenario ~17 real min); target < 20 min | Pending; see T1 below |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Pending |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |
 | 7 | Tuya cloud / local API stub where the logic reads it | Pending |
 | — | Compare the Test GX with the live GX over SSH | Pending (needs GX access) |
+
+### T1. Speed up Test GX (merges 8p)
+
+Measure first: write per-step timings (image build, stack up, each scenario) to the job summary. Then, in order of
+expected gain:
+
+1. Matrix: one job per scenario file (charging, heating-review, heat-pump-deploy, trivial) in parallel; a final job named
+   `scenarios` that needs all of them, so the required check name stays `scenarios`.
+2. Fake time: scenarios wait real minutes for the quiet period, `stepMin` and the 15-min defrost recovery. Use faketime
+   (`tools/test-gx/test-faketime.ps1` exists) or a test-only time scale read from the fixture, so 15 min runs in ~1 min.
+   Real code paths stay unchanged; the scale exists only in the synthetic fixture.
+3. Docker layer cache: buildx with `cache-from` / `cache-to: type=gha` for the Venus image (pinned `VENUS_DOCKER_REV`).
+4. Reuse one stack per scenario file; reset state between scenarios instead of restarting containers.
+5. Lower `timeout-minutes` back to 60 once runs are under 30 min.
+
+Target: whole Test GX < 20 min.
 
 Rule for logic branches: inventory every decision per function node first; done = every decision has a scenario;
 production code unchanged; a found bug is marked `expected_fail` and fixed in its own PR. Every Test GX branch adds its
