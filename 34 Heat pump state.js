@@ -222,6 +222,14 @@ function curveTarget(p23, p24, outdoor) {
     return Math.max(CURVE_MIN_C, Math.min(CURVE_MAX_C, Math.round(t * 10) / 10));
 }
 
+// H2 / H7: during a defrost and its recovery DP 103 reads 30–47 °C; 40 holds the 10-min average (dhwView.outHeld)
+function outdoorShown(d) {
+    const dv = flow.get('dhwView');
+    const fresh = !!(dv && dv.at && Date.now() - dv.at <= DHW_VIEW_STALE_MS);
+    const held = fresh && dv.outHeld === true && Number.isFinite(dv.outAvg);
+    return { value: held ? dv.outAvg : num(d['103']), held, raw: num(d['103']) };
+}
+
 function buildCurveChart(d) {
     const dv = flow.get('dhwView');
     const boilerActive = dhwCycle() && dv && dv.heatCurve;
@@ -364,7 +372,9 @@ function buildModel(st, now) {
             supply: num(d['102']),
             ret: num(d['101']),
             tank: num(d['108']),
-            outdoor: num(d['103']),
+            outdoor: outdoorShown(d).value,
+            outdoorHeld: outdoorShown(d).held,
+            outdoorRaw: num(d['103']),
             accTemp: cloudTemp('acc'),
             plateTemp: cloudTemp('plate'),
             compressorHz: freq,

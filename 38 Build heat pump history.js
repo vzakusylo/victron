@@ -65,6 +65,7 @@ const faultCodes = (v) => FAULT_LABELS.filter((_, i) => (Number(v) & (1 << i)) !
 const K = {};
 KEYS.forEach((k, i) => { K[k] = i; });
 const MAX_DT = 120;
+const DEFROST_QUIET_MIN = 15;   // same as 40
 const W_PER_A = 220;   // nameplate PW030-DKZLRS-A: 2130 W / 9.67 A (d#133); only when DP 114 is missing
 // d#134 (owner): compressor power = DC bus voltage (DP 114) × compressor current (DP 112)
 const compW = (amp, bus) => (amp === null ? null : Math.max(0, amp) * (bus !== null && bus > 0 ? bus : W_PER_A));
@@ -170,7 +171,7 @@ function stats(rows) {
     const T = { outdoor: acc(), supply: acc(), ret: acc(), tank: acc() };
     let coverS = 0, runS = 0, hzRunSum = 0, starts = 0, defrost = 0, dhwS = 0, bypassS = 0;
     let wh = 0, meterS = 0, maxW = null, compWh = 0;
-    let wasRun = null, wasDefrost = false;
+    let wasRun = null, wasDefrost = false, lastDefrostS = null;
     const hourly = [];
     for (let h = 0; h < 24; h++) hourly.push({ hour: h, outdoor: acc(), supply: acc(), runS: 0, wh: 0, meterS: 0, compWh: 0 });
 
@@ -183,8 +184,13 @@ function stats(rows) {
         const hz = a[K['115']], amp = a[K['112']], bus = a[K['114']], fan = a[K['116']], pw = a[K.pw];
         const H = hourly[Math.min(23, Math.floor(r.s / 3600))];
         coverS += dt;
-        add(T.outdoor, a[K['103']]); add(T.supply, a[K['102']]); add(T.ret, a[K['101']]); add(T.tank, a[K['108']]);
-        add(H.outdoor, a[K['103']]); add(H.supply, a[K['102']]);
+        // H2 / H7: DP 103 is not the air temperature in a defrost and DEFROST_QUIET_MIN after it
+        const defrNow = fan === 0 && hz !== null && hz > 30;
+        if (defrNow) lastDefrostS = r.s;
+        const outOk = !defrNow && (lastDefrostS === null || r.s - lastDefrostS >= DEFROST_QUIET_MIN * 60);
+        if (outOk) { add(T.outdoor, a[K['103']]); add(H.outdoor, a[K['103']]); }
+        add(T.supply, a[K['102']]); add(T.ret, a[K['101']]); add(T.tank, a[K['108']]);
+        add(H.supply, a[K['102']]);
         const run = hz !== null && hz > 0;
         if (run) { runS += dt; hzRunSum += hz * dt; H.runS += dt; }
         if (run && wasRun === false) starts++;

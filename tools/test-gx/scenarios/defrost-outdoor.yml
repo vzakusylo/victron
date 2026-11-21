@@ -1,0 +1,40 @@
+- name: Defrost with the outdoor sensor at 40 °C: heating does not use it (no curve change, no mode change)
+  faketime: '@2026-11-16 20:00:00 x3'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heat":{"bandDown":1.5,"bandUp":1,"stepMin":10,"kickMin":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 12m
+      settle: 2m
+      expect:
+        writes: []
+    - when: 20m
+      inputs:
+        tuya.pump.dps.103: 40
+        tuya.pump.dps.102: 27
+        tuya.pump.dps.116: 0
+        tuya.pump.dps.115: 60
+      settle: 3m
+      expect:
+        writes: []
+    - when: 30m
+      inputs:
+        tuya.pump.dps.103: 40
+        tuya.pump.dps.102: 30
+        tuya.pump.dps.116: 596
+        tuya.pump.dps.115: 50
+      settle: 10m
+      expect:
+        writes: []
