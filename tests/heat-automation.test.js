@@ -93,6 +93,28 @@ test('with the GX kick settings a supply stuck below the curve gets Smart for ab
     assert.equal(mode === 'mute' || c.node.context.get('kick').phase === 'smart', true, 'never left in Smart outside a kick');
 });
 
+test('expected_fail TH3: a running DHW cycle should not qualify for a stuck-supply kick', t => {
+    const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
+    for (let i = 0; i < 30; i++) c.tick(NOW + i * 10 * S, { 108: 49 });
+
+    const at = NOW + 5 * MIN;
+    const d = c.node.context.get('dhw');
+    Object.assign(d, { state: 'DHW', since: at - 30 * S, startAt: at - 3 * MIN, startTank: 44,
+        run: (at - 3 * MIN) + ':dhw', live: true, pumpLatch: -2,
+        p23Cmd: 22, p24Cmd: 12, goal: 25, p24Goal: 12, tickAt: at - 30 * S });
+    c.node.context.set('dhw', d);
+    for (let i = 0; i <= 6; i++) {
+        c.tick(at + i * 10 * S, { 108: 44, 133: 22, 134: 12, 102: 45, 101: 41 }, true);
+        assert.equal(c.node.context.get('dhw').state, 'DHW');
+    }
+
+    const kick = c.node.context.get('kick');
+    assert.equal(kick.phase, 'smart', 'unexpected pass: remove expected_fail after fixing TH3');
+    assert.ok(c.writes.some(w => w.t === kick.at && w.device === 'pump' && String(w.dps) === '2' && w.set === 'smart'),
+        'the undesired kick must reach the pump output');
+    t.skip('expected_fail TH3: kickTick accepts a running DHW cycle and kicks against the boiler curve');
+});
+
 test('heating controller holds during a DHW cycle and for 10 min after it', () => {
     const c = heating({ dhw: 'live' });
     for (let i = 0; i < 30; i++) c.tick(NOW + i * 10 * S, { 108: 49 });   // tank warm: no DHW start

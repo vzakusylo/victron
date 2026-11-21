@@ -1,0 +1,125 @@
+- name: "Heating band writes DP 121 as 3 once and restores the owner value on Off, Test and band off"
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live"},"heat":{"band":false,"bandDown":1.5,"bandUp":1,"kickMin":0,"maxBoost":0},"heatCurve":{"p23":35,"p24":5},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.101: 32
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: 3
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.121: 6
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 35
+      tuya.pump.dps.134: 5
+  steps:
+    - when: 20m
+      heating: {"action":"heatSet","cfg":{"band":true}}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 37
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 3
+            applied: true
+    - when: 25m
+      expect:
+        writes: []
+    - when: 27m
+      heating: {"action":"mode","id":"heat","mode":"off"}
+      settle: "4m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 5
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 35
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 6
+            applied: true
+    - when: 33m
+      heating: {"action":"mode","id":"heat","mode":"live"}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 37
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 3
+            applied: true
+    - when: 39m
+      heating: {"action":"mode","id":"heat","mode":"dry"}
+      settle: "4m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "134"
+            value: 5
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 35
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 6
+            applied: true
+    - when: 45m
+      heating: {"action":"mode","id":"heat","mode":"live"}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 37
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 3
+            applied: true
+    - when: 51m
+      heating: {"action":"heatSet","cfg":{"band":false}}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 35
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "121"
+            value: 6
+            applied: true
+    - when: 56m
+      expect:
+        writes: []

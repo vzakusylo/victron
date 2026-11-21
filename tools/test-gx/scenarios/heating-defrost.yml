@@ -1,0 +1,115 @@
+- name: Recorded-style defrost switches bypass on and off and holds heating and outdoor until recovery
+  faketime: '@2026-11-16 20:00:00 x30'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live","df_exchange_off":"live","df_exchange_on":"live"},"heat":{"kickMin":3,"kickSec":60},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 36
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+      tuya.bypass.dps.1: false
+  steps:
+    - when: 19m
+      expect:
+        writes: []
+        view:
+          - path: "outAvg"
+            equals: -2
+          - path: "pumpOut.v"
+            equals: -2
+          - path: "heat.lastStep"
+            equals: 0
+    # Fan stopped and compressor still spinning; supply has not crossed <27 yet.
+    - when: 20m
+      inputs:
+        tuya.pump.dps.116: 0
+        tuya.pump.dps.115: 60
+        tuya.pump.dps.102: 27
+      settle: 1m
+      expect:
+        writes: []
+        view:
+          - path: "heat.why"
+            contains: "defrost now"
+    - when: 22m
+      inputs:
+        tuya.pump.dps.102: 24
+      settle: 1m
+      expect:
+        writes:
+          - device: "bypass"
+            operation: "SET"
+            dps: "1"
+            value: true
+            applied: true
+        log:
+          - contains: "defrost flag ON (DF exchange off)"
+            count: 1
+    # The outdoor sensor spike must not affect either outdoor source.
+    - when: 24m
+      inputs:
+        tuya.pump.dps.103: 40
+        tuya.pump.dps.125: 37
+        tuya.pump.dps.116: 596
+        tuya.pump.dps.102: 27
+      settle: 1m
+      expect:
+        writes: []
+        view:
+          - path: "outHeld"
+            equals: true
+          - path: "outAvg"
+            equals: -2
+          - path: "pumpOut.v"
+            equals: -2
+    - when: 26m
+      inputs:
+        tuya.pump.dps.102: 28
+      settle: 1m
+      expect:
+        writes:
+          - device: "bypass"
+            operation: "SET"
+            dps: "1"
+            value: false
+            applied: true
+    # Beyond the 15-min quiet period: 31 is still below min(37 - 5, 36 - 0.5).
+    - when: 42m
+      inputs:
+        tuya.pump.dps.102: 31
+      settle: 4m
+      expect:
+        writes: []
+        view:
+          - path: "outHeld"
+            equals: true
+          - path: "outAvg"
+            equals: -2
+          - path: "pumpOut.v"
+            equals: -2
+          - path: "heat.lastStep"
+            equals: 0
+          - path: "heat.why"
+            contains: "supply recovering after the defrost"
+    - when: 47m
+      inputs:
+        tuya.pump.dps.103: -2
+        tuya.pump.dps.102: 32
+      settle: 1m
+      expect:
+        writes: []
+        view:
+          - path: "outHeld"
+            equals: false
+          - path: "pumpOut.v"
+            equals: -4.5
+          - path: "heat.lastStep"
+            equals: 0

@@ -1,0 +1,69 @@
+- name: Bypass blocks a flat-supply kick; in heating it runs Smart then Silent with a cooldown
+  # The slower rate retains enough real time to observe the Smart phase on its own.
+  faketime: '@2026-11-16 20:00:00 x20'
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live"},"heat":{"bandDown":5,"kickMin":3,"kickSec":60},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: mute
+      tuya.pump.dps.101: 30
+      tuya.pump.dps.102: 33
+      tuya.pump.dps.103: -2
+      tuya.pump.dps.108: 47
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 36
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+      tuya.bypass.dps.1: true
+  steps:
+    - when: 19m
+      expect:
+        writes: []
+        view:
+          - path: "heat.why"
+            contains: "bypass ON"
+    - when: 20m
+      inputs:
+        tuya.bypass.dps.1: false
+      settle: 1m
+      expect: {"writes":[]}
+    - when: 23m
+      settle: 0s
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "2"
+            value: "smart"
+            applied: true
+        view:
+          - path: "heat.kick.phase"
+            equals: "smart"
+    - when: 24m
+      settle: 20s
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "2"
+            value: "mute"
+            applied: true
+    - when: 28m
+      settle: 0s
+      expect: {"writes":[]}
+    - when: 30m
+      settle: 10s
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "2"
+            value: "smart"
+            applied: true
+          - device: "pump"
+            operation: "SET"
+            dps: "2"
+            value: "mute"
+            applied: true
