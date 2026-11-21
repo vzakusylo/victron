@@ -56,7 +56,7 @@
   Hash-checked selective deployment for an explicit owner request to deploy an
   uncommitted snapshot. No commit, push or automation-source relabelling.
 
-- `garag-venus-os/1.txt`, `dbus-serialbattery-config.ini`  
+- `config/gx/serialbattery-install-notes.txt`, `config/gx/dbus-serialbattery-config.ini`  
   dbus-serialbattery install, config and troubleshooting notes for the GX device.
 
 - `victron_elvenett_context.md`  

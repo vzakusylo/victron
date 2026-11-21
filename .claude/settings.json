@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tools/flows.js check)",
+      "Bash(node tools/flows.js sync)",
+      "Bash(node tools/flows.js sync --no-bump)",
+      "Bash(node --test:*)",
+      "Bash(node tools/test-gx/run-scenarios.js:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "PowerShell(node tools/flows.js check)",
+      "PowerShell(node tools/flows.js sync)",
+      "PowerShell(node --test:*)",
+      "PowerShell(git status:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git log:*)",
+      "PowerShell(gh pr view:*)",
+      "PowerShell(gh pr list:*)",
+      "PowerShell(gh pr checks:*)",
+      "PowerShell(gh run view:*)",
+      "PowerShell(gh run list:*)"
+    ],
+    "deny": [
+      "Read(./.secrets/**)",
+      "Edit(./flows.json)",
+      "Write(./flows.json)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/flows-check.js\"", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}
