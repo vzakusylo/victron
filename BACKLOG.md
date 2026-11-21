@@ -106,7 +106,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | 8 / 8g | Scenario CI job, green | Done (#54, #72); #74 / #75 timeout cleanup |
 | 2 | Charging scenarios | Done (#55); follow-ups in section 4 |
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
-| 8p / T1 | Speed up Test GX; target < 20 min | In progress: `testgx-faketime-2` / #103 (step 2, faster fake time). Step 1 matrix done (#87, slowest file heating-review.yml 67 min). Docker cache is separate. See T1 below |
+| 8p / T1 | Speed up Test GX; target < 20 min | Steps 1–2: parallel matrix (#87) and faster fixture fake time (#103). Remaining: Docker cache and stack reuse. See T1 below |
 | P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | In progress: #89 |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Pending |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
@@ -135,6 +135,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#103 T1 step 2: faster synthetic Test GX clocks and balanced CI shards (d#205 unchanged).
 
 2026-11-20/21: #79 simpler heating and boiler (d#201) · #80 review fixes (d#203) · #81 / #83 auto-deploy after Test GX
 (gate tests, visible skips) · #82 / #84 Test GX scenario fixes · #85 / #88 backlog · #86 P1 step up when the pump leaves

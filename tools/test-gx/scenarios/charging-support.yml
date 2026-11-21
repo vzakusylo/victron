@@ -60,7 +60,7 @@
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
     - when: 40s
       inputs: {"grid_w":1000}
-      settle: 120s
+      settle: 90s
       expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
 
 - name: charging HV grid support also scales the current

@@ -586,7 +586,7 @@ are skipped; an unexpected pass fails the job. The required check is the final `
 when every file job passed. The `test-gx-logs-<n>` artifacts retain JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. A new scenario file must be added to the `files` matrix (a unit test checks it).
 The whole run takes as long as the slowest file. Charging scenarios retain their real-time pacing
-and run in four matrix files; `--suite charging` selects all four locally.
+and run in five matrix files; `--suite charging` selects all five locally.
 
 ## Fixture isolation and verification
 
