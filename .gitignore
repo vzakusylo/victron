@@ -16,3 +16,7 @@ HANDOFF-CLOUD.md
 # Test GX copies generated from repository sources before a build
 tools/test-gx/fixture-synthetic/nodered/.node-red/flows.json
 tools/test-gx/fixture-synthetic/nodered/tools/
+
+# Claude Code: personal settings and worktrees stay local
+.claude/settings.local.json
+.claude/worktrees/
