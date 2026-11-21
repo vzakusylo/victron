@@ -71,7 +71,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 |---|---|---|
 | H0 | Investigate why the pump idles / waits | From the stored history and the Automation log: every compressor-off period outside DHW and defrost with its cause (curve point reached / pump hysteresis DP 121, controller waits, Off / Test, too warm, fault). Propose curve / band / hysteresis changes; findings in `docs/heat-pump-work-log.md`. Feeds H11. |
 | H1 | Heating curve "now" marker shows values | Curve target now, reported heating set (DP 125), supply now. |
-| H2 + H7 | Hold the pump outdoor value during a defrost | The pump's outdoor (`pumpOutNow`) jumps in a defrost: hold the last value from before it during the defrost and the recovery, skip it in the averages, show "outdoor held (defrost)". Unit + Test GX. |
 | H3 | Temperatures page "All sensor temperatures": rooms only | Same single room list as `50 Devices model.js` / `tools/sensor-history.js`. |
 | H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
 | H5 | Email after every GX deploy with what changed | New d#, commit, commits since the previous GX version, trigger, Test GX link. Existing mail path, no secrets in the repo. |
@@ -141,7 +140,7 @@ scenarios to the CI job.
 2026-11-20/21: #79 simpler heating and boiler (d#201) · #80 review fixes (d#203) · #81 / #83 auto-deploy after Test GX
 (gate tests, visible skips) · #82 / #84 Test GX scenario fixes · #85 / #88 backlog · #86 P1 step up when the pump leaves
 the mode + blocked-step log, P2 curve monitor (d#204) · #87 T1 step 1: parallel Test GX jobs · #65 P3 warm-up · #66 P6
-band · #73 B1 SVG guard · #75 Test GX timeout cleanup.
+band · #73 B1 SVG guard · #75 Test GX timeout cleanup · H2 + H7 hold the outdoor value in a defrost (d#205, PR pending).
 
 #59 deploy input `allow_live_only_lines` · #60 several open PRs · #61 P4 motion and hot-water stats · #62 DHW start from
 the pump's live outdoor value · #63 P2 Force boiler run · #64 / #67 DHW start replay tests · #68 `startGap` on the

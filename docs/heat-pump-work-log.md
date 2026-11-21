@@ -125,6 +125,8 @@ Smart returns to Silent only at lag ≥ up / 2 (no Silent ⇄ Smart hunting). On
 
 d#204 (P1 / P2): the controller steps up again at once when the pump leaves the mode it set; a blocked step up (Silent at high current, Powerful not allowed, boost cap) is logged once with its reason; a 10-min supply average more than band down + 1 °C below the point for 45 min raises a *not following the curve* warning (status line, Automation log, Heat Pump page).
 
+d#205 (H2 / H7): in a defrost and until the supply has recovered the 10-min outdoor average and the pump outdoor latch are held at the value from before it; the Heat Pump page shows "outdoor held (defrost)" (raw sensor in the tooltip) and the history averages skip the defrost and the 15 min after it.
+
 ### PR #33 review corrections (d#186-d#187)
 
 Corrupt archive rows are skipped with visible counts and warnings, and fatal

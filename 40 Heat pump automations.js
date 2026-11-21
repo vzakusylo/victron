@@ -301,7 +301,7 @@ function pumpOutTick() {
     const k = context.get('pumpCurve');
     if (!k || k.key !== key) { context.set('pumpCurve', { key, since: now }); return; }
     const defNow = dhwMeasurement(H['116']) === 0 && dhwMeasurement(H['115']) > 30;
-    if (defNow || recentDefrost || now - k.since < PUMP_OUT_SETTLE_MS) return;
+    if (defNow || recentDefrost || defRecovering || now - k.since < PUMP_OUT_SETTLE_MS) return;   // H2 / H7: held until recovered
     if (!ready('valve') || !ready('bypass') || V['1'] !== false || B['1'] !== false) return;
     const v = pumpOutdoor(P23, P24, set, String(H['132']) === '1');
     if (v !== null) context.set('pumpOut', { v, at: now });
@@ -914,7 +914,9 @@ function dhwTick() {
     const heatTxt = heat ? 'P23 ' + heat.p23 + ' / P24 ' + heat.p24 : 'no stored heating curve';
 
     // outdoor: 10-min average outside defrosts (the sensor reads 30–47 °C during / after them)
-    if (ready('hp') && Number.isFinite(out) && !recentDefrost && !defNow) d.outS.push([now, out]);
+    // H2 / H7: also not while the supply still recovers after the defrost; the average is held meanwhile
+    d.outHeld = !!(defNow || recentDefrost || defRecovering);
+    if (ready('hp') && Number.isFinite(out) && !d.outHeld) d.outS.push([now, out]);
     d.outS = d.outS.filter((x) => now - x[0] <= 10 * MIN);
     if (d.outS.length) d.outAvg = Math.round(d.outS.reduce((a, x) => a + x[1], 0) / d.outS.length * 10) / 10;
     // heating lag: 30-min average of supply − heating curve while heating runs on the heating values
@@ -1327,7 +1329,7 @@ function statusLine() {
     if (reason.length > 90) reason = reason.slice(0, 89).trimEnd() + '…';
     return { kind: 'idle', text: 'Idle: ' + reason, since: 0 };
 }
-function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, master: settings.master, heat: heatModel(), pumpOut: pumpOutNow(), status: statusLine() })); }
+function publishView() { flow.set('dhwView', Object.assign(dhwModel(), { at: now, outHeld: !!(context.get('dhw') || {}).outHeld, master: settings.master, heat: heatModel(), pumpOut: pumpOutNow(), status: statusLine() })); }
 function heatTick() {
     const h = heatState(), c = settings.heat || heatCfg({});
     const md = modeOf(HEAT_ID);
