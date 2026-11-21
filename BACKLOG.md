@@ -139,7 +139,7 @@ scenarios to the CI job.
 the mode + blocked-step log, P2 curve monitor (d#204) · #87 T1 step 1: parallel Test GX jobs · #65 P3 warm-up · #66 P6
 band · #73 B1 SVG guard · #75 Test GX timeout cleanup · H2 + H7 hold the outdoor value in a defrost (d#205, #94) · H5 mail after every GX deploy (#95, no d# bump).
 
-2026-11-21: H0 idle investigation + H11 idle / gap lane + H13 gaps + H14 UTCP + H15 idle tests (d#206, PR #97). Idle Nov 14-21 (101 periods, 685 min): defrost restart protection 83 / 484 min, below restart level 7 / 121, DHW end 10 / 48, hysteresis 1 / 32. Gaps of 21 Nov were compressor-off periods, not missing data; skipped gate runs never touch the GX. Review fixes (d#207): UTCP control needs its own switch (default OFF, Agent (MCP) page), audit IP from req.ip, `utcpLog` only with the UTCP marker, constant-time token compare, docs/utcp.md networks.
+2026-11-21: H0 idle investigation + H11 idle / gap lane + H13 gaps + H14 UTCP + H15 idle tests (d#206, PR #97). Idle Nov 14-21 (101 periods, 685 min): defrost restart protection 83 / 484 min, below restart level 7 / 121, DHW end 10 / 48, hysteresis 1 / 32. Gaps of 21 Nov were compressor-off periods, not missing data; skipped gate runs never touch the GX. Review fixes (included in d#206): UTCP control needs its own switch (default OFF, Agent (MCP) page), audit IP from req.ip, `utcpLog` only with the UTCP marker, token comparison without an early exit, and network documentation in `docs/utcp.md`. Startup no longer reports a defrost that did not happen.
 
 #59 deploy input `allow_live_only_lines` · #60 several open PRs · #61 P4 motion and hot-water stats · #62 DHW start from
 the pump's live outdoor value · #63 P2 Force boiler run · #64 / #67 DHW start replay tests · #68 `startGap` on the
