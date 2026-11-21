@@ -514,6 +514,14 @@ test('a run stopped on the cleanup grace timeout still writes JUnit with the ear
     }
 });
 
+test('T1: every loaded scenario knows its file (not enumerable), --file rejects an unknown file', async () => {
+    const all = loadScenarios();
+    const files = fs.readdirSync(path.join(__dirname, '..', 'tools', 'test-gx', 'scenarios')).filter(f => /\.ya?ml$/.test(f)).sort();
+    assert.deepEqual([...new Set(all.map(s => s.file))].sort(), files);
+    assert.equal(Object.keys(all[0]).includes('file'), false, 'file is not sent with the scenario');
+    await assert.rejects(main(['--file', 'nope.yml']), /--file: no scenario file nope\.yml/);
+});
+
 test('duplicate scenario names are rejected when loading', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tgx-dup-'));
     try {

@@ -559,11 +559,15 @@ push runs always run the full suite. A scenario that exceeds its time limit
 earlier red run 44573678310 was on an older `master` commit (`9fc2f5d`) and failed the Tuya
 proxy function-hash check; current `master` no longer reproduces it.
 
-Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. The single
-job has a 240-minute limit. It builds the repository-only synthetic fixture, runs all checked-in scenarios,
-and summarizes their JUnit results. Expected failures are skipped; an unexpected pass fails
-the job. The `test-gx-logs` artifact retains JUnit, Compose and Node-RED logs, and the
-`/writes` dump for 14 days. Every new Test GX branch adds its scenarios to this job.
+Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. One job per
+scenario file runs in parallel (`scenarios (<file>)`, 120-minute limit each), on its own VM with its own stack:
+`run-scenarios.js --file <file>` (comma list allowed). Each builds the repository-only synthetic fixture, runs
+that file's scenarios and summarizes their JUnit results with the real minutes per scenario. Expected failures
+are skipped; an unexpected pass fails the job. The required check is the final `scenarios` job: it passes only
+when every file job passed. The `test-gx-logs-<n>` artifacts retain JUnit, Compose and Node-RED logs, and the
+`/writes` dump for 14 days. A new scenario file must be added to the `files` matrix (a unit test checks it).
+The whole run now takes as long as the slowest file. Next speed-ups: raise the faketime rate (`x60`) of the
+slow scenarios (the DHW quiet-period ones run at real time), then split heating-review.yml.
 
 ## Fixture isolation and verification
 
