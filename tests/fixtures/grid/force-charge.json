@@ -1,0 +1,11 @@
+{
+  "protection": {"start":55.2,"full":55.4,"release":55,"forceChargeEnabled":true,"forceChargeGridW":1000,"forceChargeLimiterEnabled":true,"forceChargeLimiterStart":53,"forceChargeLimiterFull":52,"forceChargeLimiterRelease":54},
+  "samples": [
+    {"at":"2026-01-19T14:00:00","readings":{"batteryV":51.8,"consumedAh":-46,"gridW":800,"loadW":800,"dcW":-130,"pvW":0}},
+    {"at":"2026-01-19T14:14:00","readings":{"gridW":2240,"loadW":950,"batteryV":52.5,"consumedAh":-40}},
+    {"at":"2026-01-19T14:33:00","readings":{"loadW":2200,"gridW":3150,"batteryV":53.3,"consumedAh":-33,"pvW":60}},
+    {"at":"2026-01-19T14:50:00","readings":{"batteryV":54,"consumedAh":-29,"gridW":2150}},
+    {"at":"2026-01-19T14:59:59","readings":{"batteryV":53.5,"loadW":960,"gridW":950}},
+    {"at":"2026-01-19T15:00:00","readings":{"gridW":950}}
+  ]
+}

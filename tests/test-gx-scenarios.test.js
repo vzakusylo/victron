@@ -364,6 +364,40 @@ test('charging scenarios assert selected D-Bus writes rather than unrelated traf
     assert.throws(() => validateScenario({ ...scenario, observe: [{}] }), /service and path selectors/);
 });
 
+test('a D-Bus response is timed from the pre-step emulator snapshot, not the fake clock', async () => {
+    const selector = { service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint' };
+    const scenario = {
+        name: 'timed grid step',
+        faketime: '@2026-11-16 13:00:00 x2',
+        observe: [selector],
+        steps: [
+            { when: '0s', settle: '0s', expect: { outputs: [{ ...selector, value: 1000 }] } },
+            { when: '0s', settle: '0s', inputs: { grid_w: 3000 }, expect: {
+                if_changed: true, maxWriteDelay: '23s', writes: [{ ...selector, value: 1100 }]
+            } }
+        ]
+    };
+    async function run(delay) {
+        let changed = false;
+        const timings = [];
+        await runScenario(scenario, {
+            api: {
+                post: async route => { if (route === '/set') changed = true; },
+                getState: async () => ({ now: 100, outputs: [{ ...selector, value: changed ? 1100 : 1000 }] }),
+                getWrites: async () => [{ ...selector, value: 1000, ts: 99 },
+                    ...(changed ? [{ ...selector, value: 1100, ts: 100 + delay }] : [])]
+            },
+            onTiming: timing => timings.push(timing),
+            waitReady: false,
+            setFaketime: async () => {}
+        });
+        return timings;
+    }
+    assert.match((await run(20))[0], /after 20\.00 real s/);
+    await assert.rejects(run(24), /expected a new write within 23 s/);
+    await assert.rejects(run(-1), /expected a new write within 23 s/);
+});
+
 test('scenario waits for Node-RED readiness before applying test settings', async () => {
     const calls = [];
     const scenario = {
@@ -464,6 +498,23 @@ test('expected_fail scenarios are distinguished from failures and unexpected pas
     const xml = junitXml(results);
     assert.match(xml, /expected_fail: BUG-heatpump-1/);
     assert.match(xml, /name="unexpected pass" time="[\d.]+"><failure/);
+});
+
+test('an expected failure at a specified step does not mask a broken positive control', async () => {
+    const pass = { when: '0s', settle: '0s', expect: { writes: [] } };
+    const fail = { ...pass, expect: { writes: [{ dps: '133' }] } };
+    const scenario = {
+        name: 'stale sensor', faketime: '@2026-11-16 13:00:00',
+        expected_fail: 'G2 safe mode', expected_fail_step: 2, steps: [pass, fail]
+    };
+    const results = await runScenarios([scenario, { ...scenario, name: 'broken setup', steps: [fail, fail] }], {
+        api: { post: async () => {}, getWrites: async () => [] },
+        waitReady: false,
+        setFaketime: async () => {},
+        restoreFaketime: false
+    });
+    assert.deepEqual(results.map(r => r.status), ['expected_fail', 'fail']);
+    assert.throws(() => validateScenario({ ...scenario, expected_fail_step: 3 }), /expected_fail_step/);
 });
 
 test('a hung scenario times out on its own and the run continues', async () => {

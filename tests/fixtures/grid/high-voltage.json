@@ -1,0 +1,11 @@
+{
+  "protection": {"start":55.2,"full":55.4,"release":55.0,"gridSupportW":500,"gridSupportMode":"hv-only"},
+  "samples": [
+    {"at":"2026-01-19T08:13:00","readings":{"batteryV":54.9,"consumedAh":-15,"gridW":2430,"loadW":1040,"dcW":-120,"pvW":160}},
+    {"at":"2026-01-19T08:13:30","readings":{"batteryV":55.3,"gridW":2040}},
+    {"at":"2026-01-19T08:13:45","readings":{"batteryV":55.4,"gridW":840,"pvW":220}},
+    {"at":"2026-01-19T08:14:00","readings":{"gridW":630,"loadW":1160,"dcW":-90}},
+    {"at":"2026-01-19T08:14:30","readings":{"batteryV":55.1,"gridW":680,"consumedAh":-14.5}},
+    {"at":"2026-01-19T08:15:00","readings":{"batteryV":54.98,"gridW":1800,"loadW":1150}}
+  ]
+}

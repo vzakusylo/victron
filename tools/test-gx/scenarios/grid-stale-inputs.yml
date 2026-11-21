@@ -1,0 +1,58 @@
+- name: stale grid CT must not keep the export-charge request alive
+  expected_fail: "G2 safe mode: cached negative CT still requests 25 A after CT updates stop"
+  expected_fail_step: 3
+  faketime: '@2026-11-16 13:00:00 x2'
+  controller: {"protection":{"exportGuardEnabled":true}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":1500,"pv_w":2000}}
+  steps:
+    - when: 0s
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 50s
+      inputs: {"grid_w":-200}
+      settle: 50s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 105s
+      stale: {"system./Ac/Grid/L1/Power":180}
+      inputs: {"load_w":1700,"pv_w":1700}
+      settle: 105s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+
+- name: stale battery voltage must inhibit force charging
+  expected_fail: "G2 safe mode: last low voltage leaves force charging at 20 A"
+  expected_fail_step: 2
+  faketime: '@2026-11-16 13:00:00 x2'
+  controller: {"protection":{"forceChargeEnabled":true,"forceChargeGridW":1000}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":50,"consumed_ah":-40,"grid_w":1000,"load_w":1500,"pv_w":0}}
+  steps:
+    - when: 0s
+      settle: 50s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":20}]}
+    - when: 55s
+      stale: {"battery./Dc/0/Voltage":180}
+      inputs: {"consumed_ah":-35,"grid_w":1200}
+      settle: 105s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+
+- name: stale PV must not be counted in the export-charge limit
+  expected_fail: "G2 safe mode: cached 2 kW PV still saturates DVCC at 25 A despite fresh CT data"
+  expected_fail_step: 3
+  faketime: '@2026-11-16 13:00:00 x2'
+  controller: {"protection":{"exportGuardEnabled":true}}
+  observe: [{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent"}]
+  initial: {"inputs":{"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":1500,"pv_w":2000}}
+  steps:
+    - when: 0s
+      settle: 45s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}
+    - when: 50s
+      inputs: {"grid_w":-200}
+      settle: 50s
+      expect: {"if_changed":true,"writes":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":25}]}
+    - when: 105s
+      stale: {"system./Dc/Pv/Power":180}
+      inputs: {"grid_w":-350}
+      settle: 105s
+      expect: {"outputs":[{"service":"settings","path":"/Settings/SystemSetup/MaxChargeCurrent","value":0}]}

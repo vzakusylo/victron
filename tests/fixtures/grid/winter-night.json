@@ -1,0 +1,10 @@
+{
+  "protection": {},
+  "samples": [
+    {"at":"2026-01-19T23:40:00","readings":{"batteryV":51.8,"consumedAh":-162,"gridW":2820,"loadW":1450,"dcW":-150,"pvW":0}},
+    {"at":"2026-01-19T23:48:00","readings":{"gridW":3030,"loadW":1640,"batteryV":52.1,"consumedAh":-159}},
+    {"at":"2026-01-19T23:59:45","readings":{"batteryV":52.3,"consumedAh":-154,"gridW":2410,"loadW":1020}},
+    {"at":"2026-01-20T00:00:00","readings":{"gridW":2390}},
+    {"at":"2026-01-20T00:18:00","readings":{"batteryV":52.6,"consumedAh":-146.5,"gridW":1100,"loadW":1090,"dcW":-125}}
+  ]
+}

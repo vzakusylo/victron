@@ -200,6 +200,11 @@ function validateScenario(scenario, source = 'scenario') {
     if (scenario.expected_fail !== undefined && (typeof scenario.expected_fail !== 'string' || !scenario.expected_fail.trim())) {
         throw new Error(`${source} expected_fail must be a bug reference`);
     }
+    if (scenario.expected_fail_step !== undefined && (!scenario.expected_fail ||
+        !Number.isInteger(scenario.expected_fail_step) || scenario.expected_fail_step < 1 ||
+        scenario.expected_fail_step > scenario.steps.length)) {
+        throw new Error(`${source} expected_fail_step must identify a step of an expected_fail scenario`);
+    }
     if (scenario.settings !== undefined && (!scenario.settings || typeof scenario.settings !== 'object' || Array.isArray(scenario.settings))) {
         throw new Error(`${source} settings must be a mapping`);
     }
@@ -243,8 +248,9 @@ function validateScenario(scenario, source = 'scenario') {
             throw new Error(`${source} step ${index + 1} fromDeploy requires heat-pump settings and the value true`);
         }
         parseDuration(step.settle === undefined ? '12s' : step.settle, `${source} step ${index + 1} settle`);
-        if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) || !Array.isArray(step.expect.writes)) {
-            throw new Error(`${source} step ${index + 1} requires an expect.writes sequence`);
+        if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) ||
+            (step.expect.writes === undefined ? !step.expect.outputs?.length : !Array.isArray(step.expect.writes))) {
+            throw new Error(`${source} step ${index + 1} requires an expect.writes sequence or nonempty expect.outputs`);
         }
         if (step.expect.outputs !== undefined && (!Array.isArray(step.expect.outputs) ||
             step.expect.outputs.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
@@ -268,8 +274,16 @@ function validateScenario(scenario, source = 'scenario') {
                 Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
             throw new Error(`${source} step ${index + 1} expect.view must contain path and exactly one of equals or contains`);
         }
-        if (step.expect.if_changed !== undefined && (typeof step.expect.if_changed !== 'boolean' || !scenario.observe)) {
-            throw new Error(`${source} step ${index + 1} if_changed requires D-Bus observe selectors`);
+        if (step.expect.if_changed !== undefined &&
+            (typeof step.expect.if_changed !== 'boolean' || !scenario.observe || !step.expect.writes)) {
+            throw new Error(`${source} step ${index + 1} if_changed requires D-Bus observe selectors and writes`);
+        }
+        if (step.expect.maxWriteDelay !== undefined) {
+            if (!step.expect.if_changed || step.expect.writes.length !== 1 || Object.keys(step.inputs || {}).length !== 1 ||
+                step.controller || step.fail || step.stale || index === 0) {
+                throw new Error(`${source} step ${index + 1} maxWriteDelay requires a single input change and expected D-Bus write after setup`);
+            }
+            parseDuration(step.expect.maxWriteDelay, `${source} step ${index + 1} maxWriteDelay`);
         }
         if (step.controller !== undefined && (!scenario.controller || !step.controller ||
             typeof step.controller !== 'object' || Array.isArray(step.controller) ||
@@ -633,6 +647,7 @@ async function runScenario(scenario, options = {}) {
     let controllerSettingsApplied = false;
     let failure;
     let stopped = false;
+    let activeStep;
     try {
         if (scenario.controller) {
             if (options.waitReady !== false) await waitReady(api, options.readyTimeoutMs, signal);
@@ -676,6 +691,7 @@ async function runScenario(scenario, options = {}) {
         const readLog = async () => (await admin.readContext('node', AUTOMATIONS_NODE, 'log')) || [];
         let logSeen = scenario.steps.some(step => step.expect.log) ? logSnapshot(await readLog()) : undefined;
         for (const [index, step] of scenario.steps.entries()) {
+            activeStep = index + 1;
             const offset = parseDuration(step.when, 'when');
             const elapsed = step.fromDeploy ? await admin.deployElapsed() : 0;
             if (step.fromDeploy && elapsed > offset) {
@@ -702,7 +718,18 @@ async function runScenario(scenario, options = {}) {
             const finalState = step.expect.if_changed || step.expect.outputs ? await api.getState() : undefined;
             if (step.expect.if_changed) {
                 assertChangedWrites(current, step.expect.writes, before, finalState, scenario.name, index + 1);
-            } else assertWrites(current, step.expect.writes, scenario.name, index + 1);
+            } else if (step.expect.writes) assertWrites(current, step.expect.writes, scenario.name, index + 1);
+            if (step.expect.maxWriteDelay !== undefined) {
+                // /state and /writes use the same unfaked emulator clock.
+                const delayMs = (current[0].ts - before.now) * 1000;
+                if (!Number.isFinite(delayMs)) throw new Error('State or write timestamp is missing from emulator API');
+                const limitMs = parseDuration(step.expect.maxWriteDelay, 'maxWriteDelay');
+                const timing = `${scenario.name} step ${index + 1}: D-Bus write after ${(delayMs / 1000).toFixed(2)} real s`;
+                if (delayMs < 0 || delayMs > limitMs) {
+                    throw new ScenarioAssertionError(`${timing}; expected a new write within ${limitMs / 1000} s`);
+                }
+                options.onTiming?.(timing);
+            }
             if (step.expect.outputs) assertOutputs(finalState, step.expect.outputs, scenario.name, index + 1);
             if (step.expect.log) {
                 const log = await readLog();
@@ -714,6 +741,7 @@ async function runScenario(scenario, options = {}) {
             }
         }
     } catch (error) {
+        if (error instanceof ScenarioAssertionError) error.step = activeStep;
         failure = error;
         throw error;
     } finally {
@@ -807,7 +835,8 @@ async function runScenarios(scenarios, options = {}) {
                         stopError = new Error(`Scenario "${scenario.name}" timed out and its cleanup did not finish within ${Math.round(graceMs / 1000)} s; stopping the run because the stack was not restored`);
                     } else if (outcome instanceof ScenarioCleanupError) cleanupFailed = true;
                 }
-                const expected = scenario.expected_fail && error instanceof ScenarioAssertionError;
+                const expected = scenario.expected_fail && error instanceof ScenarioAssertionError &&
+                    (scenario.expected_fail_step === undefined || error.step === scenario.expected_fail_step);
                 results.push({
                     name: scenario.name,
                     status: expected ? 'expected_fail' : 'fail',
@@ -906,6 +935,7 @@ async function main(args = process.argv.slice(2), overrides = {}) {
     options.onResult = result => console.log(
         `${result.status === 'pass' ? 'PASS' : result.status === 'expected_fail' ? 'EXPECTED_FAIL' : 'FAIL'} ${result.name}${result.message ? `: ${result.message}` : ''}`);
     options.onProgress = result => console.log(`RUNNING ${result.name}: ${Math.floor(result.durationMs / 60000)} real min elapsed`);
+    options.onTiming = timing => console.log(`TIMING ${timing}`);
     let results;
     let stopError;
     try { results = await runScenarios(scenarios, options); } catch (error) {

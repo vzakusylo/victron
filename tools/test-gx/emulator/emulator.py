@@ -11,7 +11,7 @@
 #   GET  /state                       inputs, computed values, faults
 #   GET  /writes?since=<ts>           what the flow wrote (D-Bus outputs): [{ts, service, path, value}]
 #   POST /set   {"path": "soc", "value": 35}       input (pv_w, load_w, soc, ...) or forced output (grid_w, batt_v, batt_a)
-#   POST /stale {"path": "battery", "seconds": 900} freeze the values on D-Bus (service stays, data stops changing)
+#   POST /stale {"path": "battery", "seconds": 900} freeze a service, or use "battery./Dc/0/Voltage" for one property
 #   POST /fail  {"path": "battery", "mode": "invalid"|"offline"|"ok"}   invalid values / service disappears / back to normal
 #   POST /reset                       defaults, no faults, no writes
 #   POST /mqtt {"topic": "qingping/<fake mac>/up", "payload": {...}}  QoS 1 to the internal test broker
@@ -42,7 +42,7 @@ SERVICES = ('system', 'vebus', 'battery')
 lock = threading.Lock()
 state = dict(DEFAULTS)
 forced = {}
-stale_until = {}      # service -> unix time
+stale_until = {}      # service or service.property -> unix time
 failed = {}           # service -> 'invalid' | 'offline'
 writes = []
 ready = False         # API answers 200 only after all services are registered and the startup write is dropped
@@ -195,30 +195,32 @@ def publish(name):
     svc = services.get(name)
     if not svc or (name in stale_until and stale_until[name] > time.time()):
         return
-    value = lambda v: None if kind == 'invalid' else v
+    def update(path, value):
+        if stale_until.get(f'{name}.{path}', 0) <= time.time():
+            svc[path] = None if kind == 'invalid' else value
     if name == 'system':
-        svc['/Ac/Grid/L1/Power'] = value(round(c['grid_w'], 1))
-        svc['/Ac/Consumption/L1/Power'] = value(round(s['load_w'], 1))
-        svc['/Dc/System/Power'] = value(0.0)
-        svc['/Dc/Pv/Power'] = value(round(s['pv_w'], 1))
-        svc['/Dc/Battery/Soc'] = value(round(s['soc'], 1))
-        svc['/Dc/Battery/Voltage'] = value(round(c['batt_v'], 2))
-        svc['/Dc/Battery/Current'] = value(round(c['batt_a'], 2))
-        svc['/Dc/Battery/Power'] = value(round(c['batt_w'], 1))
+        update('/Ac/Grid/L1/Power', round(c['grid_w'], 1))
+        update('/Ac/Consumption/L1/Power', round(s['load_w'], 1))
+        update('/Dc/System/Power', 0.0)
+        update('/Dc/Pv/Power', round(s['pv_w'], 1))
+        update('/Dc/Battery/Soc', round(s['soc'], 1))
+        update('/Dc/Battery/Voltage', round(c['batt_v'], 2))
+        update('/Dc/Battery/Current', round(c['batt_a'], 2))
+        update('/Dc/Battery/Power', round(c['batt_w'], 1))
     elif name == 'vebus':
-        svc['/Soc'] = value(round(s['soc'], 1))
-        svc['/Ac/ActiveIn/L1/P'] = value(round(c['grid_w'], 1))
-        svc['/Ac/Out/L1/P'] = value(round(s['load_w'], 1))
-        svc['/Dc/0/Voltage'] = value(round(c['batt_v'], 2))
-        svc['/Dc/0/Current'] = value(round(c['batt_a'], 2))
+        update('/Soc', round(s['soc'], 1))
+        update('/Ac/ActiveIn/L1/P', round(c['grid_w'], 1))
+        update('/Ac/Out/L1/P', round(s['load_w'], 1))
+        update('/Dc/0/Voltage', round(c['batt_v'], 2))
+        update('/Dc/0/Current', round(c['batt_a'], 2))
     else:
-        svc['/Dc/0/Voltage'] = value(round(c['batt_v'], 2))
-        svc['/Dc/0/Current'] = value(round(c['batt_a'], 2))
-        svc['/Dc/0/Power'] = value(round(c['batt_w'], 1))
-        svc['/ConsumedAmphours'] = value(round(c['consumed_ah'], 2))
-        svc['/Soc'] = value(round(s['soc'], 1))
-        svc['/Info/MaxChargeCurrent'] = value(s['bms_max_charge_a'])
-        svc['/Info/MaxDischargeCurrent'] = value(s['bms_max_discharge_a'])
+        update('/Dc/0/Voltage', round(c['batt_v'], 2))
+        update('/Dc/0/Current', round(c['batt_a'], 2))
+        update('/Dc/0/Power', round(c['batt_w'], 1))
+        update('/ConsumedAmphours', round(c['consumed_ah'], 2))
+        update('/Soc', round(s['soc'], 1))
+        update('/Info/MaxChargeCurrent', s['bms_max_charge_a'])
+        update('/Info/MaxDischargeCurrent', s['bms_max_discharge_a'])
 
 
 last = [time.time()]
@@ -384,7 +386,11 @@ class Api(BaseHTTPRequestHandler):
                     if body['path'].startswith('tuya.'):
                         tuya.stale(body['path'][5:], body.get('seconds'))
                     else:
-                        stale_until[service_of(body['path'])] = time.time() + float(body['seconds'])
+                        name, dot, prop = body['path'].partition('.')
+                        name = service_of(name)
+                        if dot and (not prop.startswith('/') or prop not in services[name]):
+                            raise KeyError('unknown property ' + body['path'])
+                        stale_until[body['path']] = time.time() + float(body['seconds'])
                 elif self.path == '/fail':
                     mode = body.get('mode', 'invalid')
                     if body['path'].startswith('tuya.'):
