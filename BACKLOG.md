@@ -86,7 +86,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
-| G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | in progress: grid-g2-cadence | Replaces NR2. [Input inventory and freshness contract](docs/grid-g2-design.md); no verified source heartbeat yet. |
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
 | G4 | Isolation and heartbeat: no exec / file I/O in the grid path; event-loop lag p95 < 100 ms; alarm if the loop is silent 10 s | G3 | open | With `grid-isolation.yml`, `grid-heartbeat.yml`. |
@@ -166,6 +165,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#136 G2 (d#212 · i#5): one 2 s decision tick plus immediate CT steps over 1 kW; removed the fixed input delays, kept the output rate limits, and tightened the synthetic write ceiling to 16 s. Owner manual topology apply required. [Candidate freshness signals](docs/grid-g2-design.md) await read-only verification; G2-SAFE remains blocked.
 
 #131 G1 (d#211 · i#4): pure grid decisions in `lib/grid/control.js`, with budgets, tariffs, logs and status in `63 Grid bookkeeping.js`. Frozen replays pass unchanged. Owner manual dry-run and apply with `allow_new_nodes=true` required.
 
