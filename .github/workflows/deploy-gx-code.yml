@@ -169,7 +169,8 @@ jobs:
             '-RunDirectory', $runFolder
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
-          if ($env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
+          if ($env:AUTO -eq 'true') { $arguments += '-AllowReplaceDeployedLines' }
+          elseif ($env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
           if ($env:ALLOW_NEW_NODES -eq 'true') { $arguments += '-AllowNewNodes' }
           & pwsh @arguments
           exit $LASTEXITCODE

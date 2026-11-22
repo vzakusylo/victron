@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { snapshot } = require('../tools/gx/live-snapshot.js');
-const { diffSnapshots, buildPatch } = require('../tools/gx/compare.js');
+const { diffSnapshots, buildPatch, verifyDeployedCode } = require('../tools/gx/compare.js');
 
 const repoFlows = () => [
     { id: 'tab1', type: 'tab', label: 'd#7 Main', info: '' },
@@ -41,4 +41,24 @@ test('GX snapshot carries code and hashes, never node settings or credentials', 
     assert.ok(text.includes('return msg;'));
     assert.ok(!text.includes('do-not-export'));
     assert.ok(!text.includes('template'));
+});
+
+test('automatic replacement accepts only the recorded common SHA and matching node code', () => {
+    const sha = 'a'.repeat(40);
+    const record = { dashboard: sha, automations: sha };
+    const previous = snapshot(repoFlows());
+    const read = value => {
+        assert.equal(value, sha);
+        return previous;
+    };
+    const live = repoFlows();
+    live[3].func = live[3].func.replace('\n', '\r\n');
+    live[4].deviceId = '${VICTRON_TUYA1_ID}';
+    assert.equal(verifyDeployedCode(snapshot(live), record, read), sha);
+    for (const invalid of [null, { dashboard: sha }, { ...record, automations: 'b'.repeat(40) }]) {
+        assert.throws(() => verifyDeployedCode(snapshot(live), invalid,
+            () => assert.fail('must not read a commit')), /not recorded/);
+    }
+    live[2].func += '\n';
+    assert.throws(() => verifyDeployedCode(snapshot(live), record, read), /differ from the recorded deployment/);
 });

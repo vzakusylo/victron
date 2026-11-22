@@ -61,7 +61,22 @@ function buildPatch(diff, includeTrailing) {
     return patch;
 }
 
-module.exports = { diffSnapshots, buildPatch };
+function verifyDeployedCode(live, record, readPrevious) {
+    const sha = record?.dashboard;
+    if (typeof sha !== 'string' || !/^[a-f0-9]{40}$/.test(sha) || record.automations !== sha) {
+        throw new Error('an identical Git deployment SHA for dashboard and automations is not recorded');
+    }
+    const previous = readPrevious(sha);
+    const diff = diffSnapshots(live, previous);
+    const types = new Map(previous.nodes.map(node => [node.id, node.type]));
+    if (diff.onlyLive.length || diff.onlyRepo.length || diff.code.length || diff.trailing.length ||
+        live.nodes.some(node => types.get(node.id) !== node.type)) {
+        throw new Error('the live nodes or code differ from the recorded deployment ' + sha.slice(0, 12));
+    }
+    return sha;
+}
+
+module.exports = { diffSnapshots, buildPatch, verifyDeployedCode };
 
 function readSnapshot(file) {
     // PowerShell may add a BOM or write UTF-16; keep only the base64 characters.
@@ -157,6 +172,32 @@ function main() {
         }
     }
 
+    const planFile = option('--plan');
+    const verifyReplacement = args.includes('--allow-replace-deployed-lines');
+    if (verifyReplacement && (!planFile || !commit)) throw new Error('--allow-replace-deployed-lines requires --plan and --commit.');
+    let replacedFrom = null;
+    if (verifyReplacement && liveOnlyCode.length) {
+        try {
+            const info = liveTab?.info || '';
+            if ((info.match(/<!-- victron-deployment-source -->/g) || []).length !== 1 ||
+                (info.match(/<!-- \/victron-deployment-source -->/g) || []).length !== 1 || !meta) {
+                throw new Error('the deployment record is missing or ambiguous');
+            }
+            replacedFrom = verifyDeployedCode(live, JSON.parse(meta[1]), sha => {
+                try {
+                    if (git('cat-file', '-t', sha).toString().trim() !== 'commit') throw new Error('not a commit');
+                    git('merge-base', '--is-ancestor', sha, commit);
+                    return snapshot(JSON.parse(git('show', sha + ':flows.json').toString('utf8')));
+                } catch {
+                    throw new Error('the recorded deployment is not a readable ancestor of the target commit');
+                }
+            });
+        } catch (error) {
+            throw new Error('Automatic replacement of GX-only code lines refused: ' + error.message);
+        }
+        console.log('GX-only lines match the recorded deployment ' + replacedFrom.slice(0, 12) + '; replacement allowed.');
+    }
+
     // Machine-readable result for scripts/gx-deploy.ps1: what a runner needs to decide, nothing else.
     const summaryFile = option('--summary');
     if (summaryFile) {
@@ -169,7 +210,6 @@ function main() {
         }, null, 2) + '\n');
     }
 
-    const planFile = option('--plan');
     if (planFile) {
         if (!commit) throw new Error('--plan needs --commit: a deploy is always from a pushed commit.');
         if (git('status', '--porcelain', '--', 'flows.json').toString().trim()) console.log('\nNote: flows.json has uncommitted changes; the plan uses the commit, not the work tree.');
@@ -193,7 +233,8 @@ function main() {
             repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev,
             flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
-            patch: buildPatch(diff, args.includes('--include-trailing')), ...nodes, tools
+            patch: buildPatch(diff, args.includes('--include-trailing')), ...nodes, tools,
+            ...(replacedFrom ? { replacedFrom } : {})
         };
         fs.writeFileSync(planFile, JSON.stringify(plan, null, 2) + '\n');
         console.log('\nplan written to ' + planFile + ': ' + Object.keys(plan.patch).length + ' code patch(es), ' + nodes.wire.length +
