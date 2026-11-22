@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { plannedAdditions } = require('./deploy-report.js');
+const { versions } = require('../infra-version.js');
 
 const MAX_COMMITS = 40;
 const SHA = /^[0-9a-f]{40}$/;
@@ -76,9 +77,8 @@ function buildMail(input) {
 function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
     const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', maxBuffer: 1 << 27, stdio: ['ignore', 'pipe', 'pipe'] });
     const newCommit = env.DEPLOY_SHA;
-    const tab = JSON.parse(fs.readFileSync(path.join(root, 'flows.json'), 'utf8'))
-        .find((node) => node.type === 'tab' && /d#\d+/.test(node.label || ''));
-    const newLabel = tab ? /d#\d+/.exec(tab.label)[0] : null;
+    const { d, i } = versions(root);
+    const newLabel = `${d} · ${i}`;
 
     let before = null;
     const beforeFile = path.join(runFolder, 'summary-before.json');

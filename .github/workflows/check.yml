@@ -1,6 +1,6 @@
 name: Check
 
-# flows.json in sync with the numbered sources, valid wiring, no Tuya keys; unit tests.
+# Flow sync, valid wiring, no Tuya keys, infrastructure version, and unit tests.
 on:
   pull_request:
   push:
@@ -14,10 +14,21 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: node tools/flows.js check
+      - name: Check infrastructure version
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull_request checkout is the synthetic merge commit; its first parent is the tested base.
+          base="$BEFORE"
+          if [[ "$EVENT" == pull_request ]]; then base="$(git rev-parse HEAD^1)"; fi
+          node tools/infra-version.js check "${base:?Missing infrastructure comparison base}"
       - run: node --test "tests/*.test.js"
 
   secret-files:
