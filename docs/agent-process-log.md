@@ -5,6 +5,8 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-22 | G2-SAFE deferred (decision): the grid worker found no source timestamps on the Victron inputs (cached values re-emitted every 5 s), so stale vs healthy-constant cannot be detected safely | Claude chose: no change to `01` now; G2-SAFE blocked in BACKLOG until a freshness design inside G2; expected_fails stay. Worker moved to the DST fold fix. |
+| 2026-11-22 | P-R1 review of #103 done (Sonnet subagent): OK with Low findings | follow-ups T-R1a..c in BACKLOG |
 | 2026-11-22 | Herdr server found not running; "Herdr server" scheduled task fails at start (0xC000013A) | Claude starts `herdr` in a Terminal-panel tab (`run_in_terminal`) and watches it with `read_terminal`; all six workers came back idle. Scheduled task still to fix. |
 | 2026-11-21 | d#206 deploy dry run stopped on six new UTCP nodes | D1 adds a manual opt-in; automatic deploy still stops. Review caught a missing helper in committed-script extraction; the PowerShell runner test now covers extraction and upload. |
 | 2026-11-21 | Claude operating guide written from Claude's memory notes; session-start checklist (incl. `herdr status`) and self-improvement rule | `docs/claude-operating-guide.md`, `CLAUDE.md` |

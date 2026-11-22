@@ -57,8 +57,12 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
-| P-R1 | process | After-the-fact review of #103 (merged before review) | open |
+| P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
+| T-R1a | test | heat-pump-deploy.yml 14m step: settle 0s barely proves "no writes in the quiet period"; give it a real window or drop it | open |
+| T-R1b | test | Tick gate liveness: assert each gated tick fires at least once, so `writes: []` / `equals: 0` cannot pass vacuously | open |
+| T-R1c | test | `run-scenarios.js deployElapsed()`: use a dedicated deploy-timestamp key instead of `lastDefrost`; clear error when missing | open |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
+| P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
@@ -91,6 +95,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | G0 | Test GX gate before grid refactoring: existing 33 charging scenarios green twice on master; replay test `tests/grid-replay.test.js` from synthetic inputs; new `grid-reaction.yml`, `grid-stale-inputs.yml` describing today's behaviour | NR1 | in progress: grid-testgx-a1 / #106 | Wait for two consecutive green charging runs on master. Coverage map: plan section 3a G0. |
 | G1 | Split `01` into a pure control loop (`lib/grid/control.js`) and a separate "Grid bookkeeping" node (budgets, peaks, tariff, logs, CSV, status) | G0 | open | Pure move, proven by the replay test; d# bump. |
 | G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | open | Replaces NR2. Expected −90 % controller runs, −10 s control latency. |
+| G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
 | G4 | Isolation and heartbeat: no exec / file I/O in the grid path; event-loop lag p95 < 100 ms; alarm if the loop is silent 10 s | G3 | open | With `grid-isolation.yml`, `grid-heartbeat.yml`. |
 | G5 | Dashboard "Grid control" block: decision + reason, writes with read-back, input ages, safe mode, alarms, loop cadence | G3 | open | |
