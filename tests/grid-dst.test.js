@@ -3,10 +3,10 @@ process.env.TZ = 'Europe/Oslo';
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { loadNode } = require('./harness');
+const { loadGrid, loadNode } = require('./harness');
 
 function controller(at, watts) {
-    const node = loadNode('01 Battery + Grid Controller.js');
+    const node = loadGrid();
     const run = (now, topic = 'test-tick', payload) => node.run({ topic, payload }, { now }).result;
     run(at, 'battery-voltage', 53);
     run(at, 'battery-consumed-ah', 0);

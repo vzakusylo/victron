@@ -23,7 +23,7 @@ Full rules (from Claude's memory and the owner's decisions): **[docs/claude-oper
 |---|---|
 | `NN Name.js` / `NN Name.html` (root) | Source of every function node / dashboard template. **Edit these, never `flows.json` by hand.** |
 | `NN Name.init.js` | The node's "On Start" code |
-| `lib/heat-pump/*.js`, `lib/grid/*.js` | Parts of `40` / `01`, pulled in by a `// #include lib/…js` line at build time (`tools/includes.js`): same scope as the node, not modules. Each lib file belongs to exactly one source (`check` enforces it). `//!` header lines are not embedded. |
+| `lib/heat-pump/*.js`, `lib/grid/*.js` | Pulled in by `// #include lib/…js` at build time (`tools/includes.js`): same scope as the node, not modules. A library may serve multiple sources only with `//! @shared` in its header. `//!` header lines are not embedded. |
 | `flows.json` | Built from the `NN` sources by `tools/flows.js sync`; the tab label carries the version `d#<n>` |
 | `tests/*.test.js` | Unit tests (`node:test`); `tests/harness.js` loads a node with fake `flow` / `context` |
 | `tools/flows.js` | `sync`, `check`, `bump` |

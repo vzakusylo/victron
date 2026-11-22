@@ -138,7 +138,7 @@ function cmdCheck() {
         }
     }
 
-    // every lib/ file is included by exactly one numbered source (no dead or shared copies)
+    // Shared libraries must opt in explicitly; all libraries must be included.
     const libDir = path.join(ROOT, 'lib');
     const libFiles = [];
     (function walk(dir) {
@@ -155,7 +155,8 @@ function cmdCheck() {
     }
     for (const lib of libFiles) {
         const u = users[lib] || [];
-        if (u.length !== 1) problems.push(lib + ': included by ' + (u.length ? u.join(', ') : 'no numbered source') + ' (must be exactly one)');
+        const shared = u.length > 1 && /^\uFEFF?\/\/! @shared\r?$/m.test(fs.readFileSync(path.join(ROOT, lib), 'utf8').split('\n', 1)[0]);
+        if (u.length !== 1 && !shared) problems.push(lib + ': included by ' + (u.length ? u.join(', ') : 'no numbered source') + ' (must be exactly one unless marked @shared)');
     }
 
     const sourced = new Set(listSources().filter((s) => s.type === 'function').map((s) => s.name));

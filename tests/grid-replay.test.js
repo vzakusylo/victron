@@ -6,10 +6,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { loadNode } = require('./harness');
+const { loadGrid } = require('./harness');
 
 const fixtures = path.join(__dirname, 'fixtures', 'grid');
-const controller = () => loadNode('01 Battery + Grid Controller.js');
+const controller = () => loadGrid();
 const read = file => JSON.parse(fs.readFileSync(path.join(fixtures, file), 'utf8'));
 const topics = {
     batteryV: 'battery-voltage',

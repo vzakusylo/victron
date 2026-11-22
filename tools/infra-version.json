@@ -1,5 +1,5 @@
 {
-  "i": 3,
+  "i": 4,
   "changes": [
     {
       "i": 1,
@@ -18,6 +18,12 @@
       "date": "2026-11-22",
       "pr": 130,
       "what": "Verify prior GX deployments and select the newest eligible green master commit"
+    },
+    {
+      "i": 4,
+      "date": "2026-11-22",
+      "pr": 131,
+      "what": "Validate and exercise the split grid controller in Test GX"
     }
   ]
 }

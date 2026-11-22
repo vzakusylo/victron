@@ -34,7 +34,7 @@ test('missing files, nesting and paths outside lib/ are errors', () => {
     assert.throws(() => expand('// #include lib/../x.js', dir), /inside lib/);
 });
 
-test('the repository lib/ files are each included exactly once and flows.js check passes', () => {
+test('only explicitly shared repository lib/ files can be included more than once', () => {
     const root = path.join(__dirname, '..');
     const r = spawnSync(process.execPath, [path.join(root, 'tools', 'flows.js'), 'check'], { cwd: root, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -42,5 +42,9 @@ test('the repository lib/ files are each included exactly once and flows.js chec
         .flatMap((f) => includesOf(fs.readFileSync(path.join(root, f), 'utf8')));
     assert.ok(used.includes('lib/heat-pump/heating-decide.js'));
     assert.ok(used.includes('lib/grid/helpers.js'));
-    assert.equal(new Set(used).size, used.length);
+    for (const include of new Set(used)) {
+        if (used.indexOf(include) !== used.lastIndexOf(include)) {
+            assert.match(fs.readFileSync(path.join(root, include), 'utf8'), /^\/\/! @shared\b/);
+        }
+    }
 });

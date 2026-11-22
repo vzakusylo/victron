@@ -19,7 +19,7 @@ const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 const AUTOMATIONS_NODE = 'hpa-fn-01';
 const AUTOMATIONS_FLOW = '995ac4ed6222a706';
 const BMS_VIEW = 'bmsWatchdogState';
-const GRID_NODE = 'e4766632305fb432';
+const GRID_BOOKKEEPING = 'grid-bookkeeping-01';
 const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth'];
 
 class ScenarioTimeoutError extends Error {}
@@ -799,7 +799,7 @@ async function runScenario(scenario, options = {}) {
             }
             if (step.expect.grid) {
                 const keys = [...new Set(step.expect.grid.map(item => item.path.split('.')[0]))];
-                const values = await Promise.all(keys.map(key => admin.readContext('node', GRID_NODE, key)));
+                const values = await Promise.all(keys.map(key => admin.readContext('node', GRID_BOOKKEEPING, key)));
                 assertView(Object.fromEntries(keys.map((key, i) => [key, values[i]])), step.expect.grid, scenario.name, index + 1);
             }
         }
