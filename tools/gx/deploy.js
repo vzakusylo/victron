@@ -112,8 +112,11 @@ function readPlan(file) {
             execFileSync(process.execPath, ['--check', staged]);
             const dest = path.join(HOME, tool);   // tools/<name>.js or tools/gx/<name>.js
             const current = fs.existsSync(dest) ? sha256(Buffer.from(fs.readFileSync(dest, 'latin1').replace(/\r/g, ''), 'latin1')) : null;
-            if (current === hash) console.log('tool up to date : ' + tool);
-            else { console.log('tool to replace : ' + tool + (current ? '' : ' (new)')); toolJobs.push({ staged, dest }); }
+            const executable = tool === 'tools/camera-mail-gate.js';
+            const mode = executable ? 0o755 : 0o644;
+            const modeOk = !executable || (current && (fs.statSync(dest).mode & 0o777) === mode);
+            if (current === hash && modeOk) console.log('tool up to date : ' + tool);
+            else { console.log('tool to replace : ' + tool + (current ? '' : ' (new)')); toolJobs.push({ staged, dest, mode }); }
         }
 
         const originalText = await api('GET', '/flows');
@@ -235,9 +238,10 @@ function readPlan(file) {
                     saved = path.join(backup, path.relative(toolsDir, job.dest).replace(/[\\/]/g, '__'));
                     fs.copyFileSync(job.dest, saved, fs.constants.COPYFILE_EXCL);
                     fs.chownSync(saved, owner.uid, owner.gid);
+                    fs.chmodSync(saved, fs.statSync(job.dest).mode & 0o777);
                 }
                 fs.chownSync(job.staged, owner.uid, owner.gid);
-                fs.chmodSync(job.staged, 0o644);
+                fs.chmodSync(job.staged, job.mode);
                 fs.renameSync(job.staged, job.dest);   // replaces a symlink instead of writing through it
                 replaced.push({ dest: job.dest, saved });
                 console.log('tool replaced   : ' + job.dest);
