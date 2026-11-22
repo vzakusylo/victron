@@ -1,5 +1,5 @@
 {
-  "i": 14,
+  "i": 15,
   "changes": [
     {
       "i": 1,
@@ -84,6 +84,12 @@
       "date": "2026-11-22",
       "pr": 143,
       "what": "Manage the restricted GX camera mail key"
+    },
+    {
+      "i": 15,
+      "date": "2026-11-22",
+      "pr": 144,
+      "what": "Characterize heat pump state outputs before its source split"
     }
   ]
 }
