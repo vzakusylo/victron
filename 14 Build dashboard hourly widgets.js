@@ -59,8 +59,9 @@ function parseSummaryText(rawText, dateKey) {
         rawText.split(/\r?\n/).forEach(line => {
             const trimmed = line.trim();
             const legacyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \| Grid ([-]?\d+)Wh \| AC ([-]?\d+)Wh(?:\s*\|\s*Sol\s*([-]?\d+)Wh)?/);
-            const csvMatch = legacyMatch ? null : trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),([-]?\d+),([-]?\d+),([-]?\d+)/);
-            const match = legacyMatch || (csvMatch ? [csvMatch[0], csvMatch[1], csvMatch[2] + ':00', csvMatch[3], csvMatch[4], csvMatch[5]] : null);
+            const csvMatch = legacyMatch ? null : trimmed.match(/^(\d{4}-\d{2}-\d{2}) (\d{2})([+-]\d{4})?,(-?\d+),(-?\d+),(-?\d+)/);
+            const match = legacyMatch || (csvMatch ? [csvMatch[0], csvMatch[1], csvMatch[2] + ':00' +
+                (csvMatch[3] ? ' ' + csvMatch[3] : ''), csvMatch[4], csvMatch[5], csvMatch[6]] : null);
 
             if (!match || match[1] !== dateKey) {
                 return;
@@ -76,7 +77,9 @@ function parseSummaryText(rawText, dateKey) {
         });
     }
 
-    summary.hours = summary.hours.map(row => rowsByHour[row.hour] || row);
+    summary.hours = summary.hours.map(row => rowsByHour[row.hour] || row)
+        .concat(Object.values(rowsByHour).filter(row => row.hour.length > 5))
+        .sort((a, b) => a.hour.localeCompare(b.hour));
     summary.availableHours = summary.hours.filter(row => row.status === 'done').length;
     summary.totalGrid = summary.hours.reduce((sum, row) => sum + (row.status === 'done' ? row.gridWh : 0), 0);
     summary.totalAc = summary.hours.reduce((sum, row) => sum + (row.status === 'done' ? row.acWh : 0), 0);
@@ -159,8 +162,13 @@ let displaySolarTotal = Number(summary.totalSolar) || 0;
 let liveText = 'Selected day loaded from file';
 
 if (isToday && live && live.hourKey && live.hourKey.substring(0, 10) === selectedDate) {
-    const liveHourLabel = live.hourKey.substring(11, 13) + ':00';
-    const liveRow = rows.find(row => row.hour === liveHourLabel);
+    const liveHourLabel = live.hourKey.slice(11, 13) + ':00' + (live.hourKey.length > 13 ? ' ' + live.hourKey.slice(13) : '');
+    let liveRow = rows.find(row => row.hour === liveHourLabel);
+    if (!liveRow && live.hourKey.length > 13) {
+        liveRow = { hour: liveHourLabel };
+        rows.push(liveRow);
+        rows.sort((a, b) => a.hour.localeCompare(b.hour));
+    }
 
     if (liveRow) {
         liveRow.gridWh = Math.round(live.gridWh);
@@ -188,7 +196,7 @@ const chart = {
     ]
 };
 
-const summaryText = selectedDate + ' | Hours ' + summary.availableHours + '/24 | Grid ' + displayGridTotal + 'Wh | AC ' + displayAcTotal + 'Wh | Sol ' + displaySolarTotal + 'Wh';
+const summaryText = selectedDate + ' | Hours ' + summary.availableHours + '/' + rows.length + ' | Grid ' + displayGridTotal + 'Wh | AC ' + displayAcTotal + 'Wh | Sol ' + displaySolarTotal + 'Wh';
 
 return [
     { topic: 'hourly-load-stats', payload: [chart] },
