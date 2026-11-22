@@ -1,5 +1,5 @@
 {
-  "i": 10,
+  "i": 11,
   "changes": [
     {
       "i": 1,
@@ -60,6 +60,12 @@
       "date": "2026-11-22",
       "pr": 139,
       "what": "Add manual Git-verified GX node removals"
+    },
+    {
+      "i": 11,
+      "date": "2026-11-22",
+      "pr": 140,
+      "what": "Start every new task from the latest origin/master"
     }
   ]
 }
