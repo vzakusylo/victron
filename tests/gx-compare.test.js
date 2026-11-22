@@ -1,6 +1,12 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync, spawnSync } = require('node:child_process');
+const { gzipSync } = require('node:zlib');
+const { ROOT } = require('./harness');
 const { snapshot } = require('../tools/gx/live-snapshot.js');
 const { diffSnapshots, buildPatch, verifyDeployedCode } = require('../tools/gx/compare.js');
 
@@ -60,5 +66,49 @@ test('automatic replacement accepts only the recorded common SHA and matching no
             () => assert.fail('must not read a commit')), /not recorded/);
     }
     live[2].func += '\n';
+    assert.equal(verifyDeployedCode(snapshot(live), record, read), sha);
+    live[2].func = 'return  msg;\n';
     assert.throws(() => verifyDeployedCode(snapshot(live), record, read), /differ from the recorded deployment/);
+});
+
+test('d#210 to d#214 verified replacement accepts trailing whitespace with the G2 allowlist, not a local edit', t => {
+    const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 27 });
+    const sha = 'e85eece1acab82d754fdd18cdd93b1095c7da7ae';
+    const target = 'b1f40f04ffdd307897e630919b0428b5e92957cf';
+    if (git('rev-parse', '--is-shallow-repository').toString().trim() === 'true' &&
+        [sha, target].some(commit => spawnSync('git', ['cat-file', '-e', commit], { cwd: ROOT }).status !== 0)) {
+        return t.skip('requires the d#210 and d#214 commits (covered by full-history CI)');
+    }
+    const before = JSON.parse(git('show', `${sha}:flows.json`));
+    const after = JSON.parse(git('show', `${target}:flows.json`));
+    const targetIds = new Set(after.map(node => node.id));
+    const removed = before.filter(node => !targetIds.has(node.id)).map(node => node.id);
+    assert.equal(removed.length, 15);
+    const { stampDeployment } = require('../tools/deploy-version.js');
+    const { flows } = stampDeployment({ flows: before }, { dashboard: sha, automations: sha });
+    flows.find(node => node.id === 'hpc-fn-01').func += '\n\n';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-verified-replacement-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const input = path.join(dir, 'live.b64'), plan = path.join(dir, 'plan.json');
+    const run = () => {
+        fs.rmSync(plan, { force: true });
+        fs.writeFileSync(input, gzipSync(JSON.stringify(snapshot(flows, 'recorded-rev', { topology: true }))).toString('base64'));
+        const result = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'gx', 'compare.js'), input, '--commit', target,
+            '--plan', plan, '--allow-new-nodes', '--allow-removed-nodes', removed.join(','), '--allow-replace-deployed-lines'],
+        { cwd: ROOT, encoding: 'utf8' });
+        assert.ifError(result.error);
+        return result;
+    };
+    const ok = run();
+    assert.equal(ok.status, 0, ok.stderr);
+    const result = JSON.parse(fs.readFileSync(plan, 'utf8'));
+    assert.equal(result.replacedFrom, sha);
+    assert.deepEqual(result.remove, removed);
+    assert.equal(result.add.length, 3);
+    assert.equal(result.patch['hpc-fn-01'], undefined);
+    flows.find(node => node.id === 'e4766632305fb432').func += '\n// Local edit';
+    const refused = run();
+    assert.equal(refused.status, 1, refused.stdout);
+    assert.match(refused.stderr, /Verified replacement.*refused: the live nodes or code differ/);
+    assert.ok(!fs.existsSync(plan));
 });

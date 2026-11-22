@@ -69,7 +69,8 @@ function verifyDeployedCode(live, record, readPrevious) {
     const previous = readPrevious(sha);
     const diff = diffSnapshots(live, previous);
     const types = new Map(previous.nodes.map(node => [node.id, node.type]));
-    if (diff.onlyLive.length || diff.onlyRepo.length || diff.code.length || diff.trailing.length ||
+    // Match the post-deploy check: trailing-only differences are not code drift.
+    if (diff.onlyLive.length || diff.onlyRepo.length || diff.code.length ||
         live.nodes.some(node => types.get(node.id) !== node.type)) {
         throw new Error('the live nodes or code differ from the recorded deployment ' + sha.slice(0, 12));
     }

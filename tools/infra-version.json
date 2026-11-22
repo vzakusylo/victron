@@ -1,5 +1,5 @@
 {
-  "i": 11,
+  "i": 12,
   "changes": [
     {
       "i": 1,
@@ -66,6 +66,12 @@
       "date": "2026-11-22",
       "pr": 140,
       "what": "Start every new task from the latest origin/master"
+    },
+    {
+      "i": 12,
+      "date": "2026-11-22",
+      "pr": 141,
+      "what": "Ignore trailing whitespace in verified GX code replacement"
     }
   ]
 }

@@ -167,6 +167,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#141 P-D1 follow-up (d#214 unchanged, i#12): verified replacement ignores trailing-only differences, matching deploy readback. Run 45053215705 read the same d#210 revision already verified with no substantive code drift.
+
 #139 (d#214 unchanged · i#10): manual allowlist for Git-verified GX node removals after G2.
 
 #138 NR9 (node 26 only, d#214 · i#9): split the backup dashboard into mail scheduling, archive scripts, mail scripts, and view includes (775 → 341 lines); two characterization tests preserve current behavior.
