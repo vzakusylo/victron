@@ -167,6 +167,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+In progress (`deploy-fix-verified-replacement`): P-D1 rejected the unchanged d#210 revision because its already-verified snapshot had trailing whitespace.
+
 #139 (d#214 unchanged · i#10): manual allowlist for Git-verified GX node removals after G2.
 
 #138 NR9 (node 26 only, d#214 · i#9): split the backup dashboard into mail scheduling, archive scripts, mail scripts, and view includes (775 → 341 lines); two characterization tests preserve current behavior.
