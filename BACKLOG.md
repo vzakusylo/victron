@@ -55,7 +55,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
 | P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
-| P-D2 | deploy | Verify recorded GX-only lines for manual runs and deploy the newest eligible green master ancestor | in progress: deploy-verified-lines |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 | P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
 
@@ -169,6 +168,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#130 P-D2 (d#210 unchanged · i#3): manual GX runs verify replaced lines against the recorded deployment, blocked dry runs report the reason and next step, and automatic runs select the newest eligible green master ancestor.
 
 #129 T-R1a..c (d#210 unchanged · i#2): observe the deploy quiet period for 40 fake seconds at 14 minutes, require all six fixture gates to forward ticks, and use a dedicated fixture deploy timestamp.
 

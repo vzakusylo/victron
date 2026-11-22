@@ -16,7 +16,7 @@
     {
       "i": 3,
       "date": "2026-11-22",
-      "pr": null,
+      "pr": 130,
       "what": "Verify prior GX deployments and select the newest eligible green master commit"
     }
   ]
