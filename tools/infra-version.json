@@ -52,7 +52,7 @@
     {
       "i": 9,
       "date": "2026-11-22",
-      "pr": null,
+      "pr": 139,
       "what": "Add manual Git-verified GX node removals"
     }
   ]
