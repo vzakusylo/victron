@@ -93,7 +93,7 @@ test('with the GX kick settings a supply stuck below the curve gets Smart for ab
     assert.equal(mode === 'mute' || c.node.context.get('kick').phase === 'smart', true, 'never left in Smart outside a kick');
 });
 
-test('expected_fail TH3: a running DHW cycle should not qualify for a stuck-supply kick', t => {
+test('a running DHW cycle does not qualify for a stuck-supply kick', () => {
     const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
     for (let i = 0; i < 30; i++) c.tick(NOW + i * 10 * S, { 108: 49 });
 
@@ -109,10 +109,38 @@ test('expected_fail TH3: a running DHW cycle should not qualify for a stuck-supp
     }
 
     const kick = c.node.context.get('kick');
-    assert.equal(kick.phase, 'smart', 'unexpected pass: remove expected_fail after fixing TH3');
-    assert.ok(c.writes.some(w => w.t === kick.at && w.device === 'pump' && String(w.dps) === '2' && w.set === 'smart'),
-        'the undesired kick must reach the pump output');
-    t.skip('expected_fail TH3: kickTick accepts a running DHW cycle and kicks against the boiler curve');
+    assert.equal(kick.phase, null);
+    assert.deepEqual(kick.s, []);
+    assert.ok(!c.writes.some(w => w.device === 'pump' && String(w.dps) === '2' && w.set === 'smart'));
+});
+
+test('forced DHW starts by ending an active heating kick and restoring Silent', () => {
+    const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
+    for (let i = 0; i <= 3; i++) c.tick(NOW + i * 10 * S, { 102: 33, 108: 50 });
+    assert.equal(c.node.context.get('kick').phase, 'smart');
+    assert.equal(c.writes.at(-1).set, 'smart');
+    c.node.context.set('pumping', false); // The harness does not run the write-gap timer.
+    const at = NOW + 40 * S;
+    c.node.run({ topic: 'ui', payload: { action: 'dhwForceRun', on: true } }, { now: at });
+    c.tick(at, { 2: 'smart', 108: 25 });
+    assert.equal(c.node.context.get('dhw').state, 'STOP');
+    assert.equal(c.node.context.get('kick').phase, null);
+    assert.deepEqual(c.writes.filter(w => w.t === at && w.dps === 2).map(w => w.set), ['mute']);
+});
+
+test('pending DHW and the post-cycle cooldown discard kick samples', () => {
+    const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
+    const lowSupply = { 102: 33, 108: 50 };
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, lowSupply);
+    c.tick(NOW + 30 * S, { ...lowSupply, 108: 25 });
+    const d = c.node.context.get('dhw');
+    assert.equal(d.state, 'HEATING');
+    assert.ok(d.streak > 0);
+    assert.deepEqual(c.node.context.get('kick').s, []);
+    d.lastEnd = NOW + MIN;
+    for (let i = 0; i <= 6; i++) c.tick(d.lastEnd + i * 10 * S, lowSupply);
+    assert.deepEqual(c.node.context.get('kick').s, []);
+    assert.deepEqual(c.writes, []);
 });
 
 test('heating controller holds during a DHW cycle and for 10 min after it', () => {

@@ -175,7 +175,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#125 TGX5-DST-FOLD (d#208): separate the two Oslo October 02:00 budgets and preserve both CSV rows and local tariff peaks. Unit and synthetic Test GX coverage also verifies the March gap.
+#125 TGX5-DST-FOLD (d#209): separate the two Oslo October 02:00 budgets and preserve both CSV rows and local tariff peaks. Unit and synthetic Test GX coverage also verifies the March gap.
+
+#123 TH3 (d#208): stuck-supply Smart kicks are heating-only; pending and active DHW suppress kicks, and a running kick returns to Silent when DHW takes over.
 
 #118 P-D1 (d#207 unchanged): automatic replacement of GX-only code lines requires an exact match to the recorded Git deployment; fake-GX tests cover matching, hand-edited, and missing records.
 
