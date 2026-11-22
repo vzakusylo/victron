@@ -234,6 +234,11 @@ unchanged. Before curve enforcement (HP-M2 stage 3), the owner must decide wheth
 a manual move overrides heating or updates the baseline for later application,
 and how the dashboard should communicate that behavior.
 
+The separate **same-writer supersessions** count compares the original writer
+with the current owner. If ownership goes A → B → A before a check, A's old write
+counts as a same-writer supersession and B's superseded write counts as a
+disagreement. These counters count checks, not every ownership transition.
+
 Every event of the local automations is one JSON line in `/data/home/nodered/grid-control-logs/automations/YYYY-MM-DD.jsonl` (local date of the GX, file node *Append automation log*): `{ t, kind, text, rule, cloud, run, live }`. Kinds: `test` / `start` (a rule run begins), `dry` / `write` / `step` (steps), `ok` / `fail` (write checked against the device), `done` / `stop` (run ends), `flag`, `setting`, `warn`. Events of one run share `run`.
 
 The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20Automation%20log.js), exec node *Read automation log*, ui_template [`43`](../43%20Automation%20log%20page.html)) shows one day like the Smart Life log:
