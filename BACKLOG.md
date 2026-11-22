@@ -166,6 +166,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+In progress (`deploy-auto-sparse-fix`): isolate the automatic deploy recheck checkout so the pinned checkout includes `scripts/gx-deploy.ps1`.
+
 #144 NR9 (node 34, d#215 · i#15): split heat pump state into device decoding, heating curve, dashboard model, and DHW view includes (594 → 150 lines). Two characterization tests preserve current outputs and state. NR9 is complete.
 
 #143 (d#214 unchanged · i#14): add owner tooling and documentation for checking, installing, testing, rotating, and revoking the restricted camera SSH public key. Checked offline; no live key changes.

@@ -1,5 +1,5 @@
 {
-  "i": 15,
+  "i": 16,
   "changes": [
     {
       "i": 1,
@@ -90,6 +90,12 @@
       "date": "2026-11-22",
       "pr": 144,
       "what": "Characterize heat pump state outputs before its source split"
+    },
+    {
+      "i": 16,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Isolate the automatic GX deploy gate checkout"
     }
   ]
 }
