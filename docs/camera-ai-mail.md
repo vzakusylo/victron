@@ -29,7 +29,7 @@ It retries 3 times, 10 s apart, on scp errors or timeouts, because the Wi-Fi lin
 | SMTP host / user / app password / recipient | `/data/home/nodered/grid-control-config/email.json` on the GX, mode 600 | never in a repo; see the header of `tools/send-mail.js` |
 | Attachment limit | `send-mail.js` `MAX_ATTACH` | 18 MB in total |
 
-**Access:** the GX allows only root SSH logins. An **unrestricted** camera key in `/root/.ssh/authorized_keys` would
+**Access:** the GX allows only root SSH logins. An **unrestricted** camera key in the GX's `authorized_keys` would
 give omarchy full root on the GX, which also runs the battery and grid control. The owner decided (2026-11-22) not to
 add it unrestricted and to use the restricted key below instead.
 
@@ -38,7 +38,7 @@ add it unrestricted and to use the restricted key below instead.
 The camera key may run **only** `camera-mail-gate.js`:
 
 ```text
-restrict,command="/data/home/nodered/tools/camera-mail-gate.js" ssh-ed25519 AAAA…YrsYa camera-ai@omarchy
+restrict,command="/data/home/nodered/tools/camera-mail-gate.js" ssh-ed25519 <public-key-blob> camera-ai@omarchy
 ```
 
 - `restrict` turns off port, agent and X11 forwarding, the pty and `~/.ssh/rc`. `command=` ignores whatever command
@@ -53,18 +53,41 @@ restrict,command="/data/home/nodered/tools/camera-mail-gate.js" ssh-ed25519 AAAA
 - **Client:** `alerts.py` in `vzakusylo/camera-ai` (PR vzakusylo/camera-ai#1, branch `gx-mail-gate`) changes to this single piped `ssh` call, with no `scp`. It keeps the
   same timeouts, retries and `{ok, error}` result.
 
-### Rollout order
+### Set up / rotate / revoke the camera key
 
-1. Merge the victron gate PR, then deploy it to the GX with Deploy GX code.
-2. **Owner:** append the restricted line above to `/root/.ssh/authorized_keys` on the GX.
-3. The camera-ai client PR (in `vzakusylo/camera-ai`) merges after the owner approves, and is deployed on omarchy.
-4. Test from omarchy: `ssh -i ~/.ssh/id_ed25519_cerbo root@<gx-host> check` should print `{"ok":true}`. Then send one
-   test alert.
+The GX's OpenSSH 9.6 supports `restrict` and uses `/data/home/root/.ssh/authorized_keys`; `/root/.ssh` does not
+exist on this GX. `.ssh` must be mode 700 and `authorized_keys` mode 600.
+The [public key](../config/camera-ai.pub) has fingerprint `SHA256:91Mhj59t2c4XPqr/JElreNI8gCCSUMkU8qatAHJiPis`.
 
-### Revoke
+After deploying the gate, run these from the repository root in PowerShell 5.1 or 7. Set `$gx` and
+`$adminKey` to the known GX SSH destination and the **administrator** identity path, not the camera's key.
+The GX host key must already be trusted.
 
-Delete the line ending in `camera-ai@omarchy` from `/root/.ssh/authorized_keys` on the GX. Nothing else on the GX
-depends on it.
+```powershell
+.\scripts\gx-camera-key.ps1 -GxHost $gx -KeyPath $adminKey -Check
+.\scripts\gx-camera-key.ps1 -GxHost $gx -KeyPath $adminKey -Add
+.\scripts\gx-camera-key.ps1 -GxHost $gx -KeyPath $adminKey -Test
+```
+
+`-Check` is the default and read-only. It prints the path and expected fingerprint, checks the exact restricted
+line, permissions, duplicates and non-ASCII bytes, and exits 1 if any check fails. The owner runs `-Add` only when
+the camera key is missing. It requires an existing administrator-owned `authorized_keys`, takes a timestamped
+backup before changing it, preserves unrelated keys, and checks the result. It refuses to add over a different or
+ambiguous camera entry. `-Test` runs the mail gate's SMTP login check as the administrator; expect
+`OK gate: {"ok":true,"check":true}`. To test the actual SSH key and forced command, also run this from omarchy:
+
+```bash
+ssh -T -o IdentitiesOnly=yes -o BatchMode=yes -i ~/.ssh/id_ed25519_cerbo root@<gx-host> check
+```
+
+Expect `{"ok":true,"check":true}` before sending one test alert. To **revoke**, run
+`.\scripts\gx-camera-key.ps1 -GxHost $gx -KeyPath $adminKey -Remove` and close any existing connections using
+the camera key. Removal backs up the file and deletes only entries matching the supplied key and camera label.
+To **rotate**, keep the old public key available, remove it with `-Remove -PubKeyFile <old.pub>`, then add the
+new Ed25519 public key (comment `camera-ai@omarchy`) with `-Add -PubKeyFile <new.pub>` after verifying its
+fingerprint. Update the camera's configured identity and retest from omarchy. This order briefly interrupts alerts.
+Don't edit `authorized_keys` manually while the script is running; inspect and remove a stale
+`.camera-key.lock` only after confirming no key operation is active.
 
 ## Troubleshooting
 
@@ -72,5 +95,5 @@ depends on it.
 |---|---|
 | `scp: …` / `timeout talking to the GX` | Wi-Fi or GX not reachable from omarchy (retried 3×); check with `scripts/gx-reach.ps1` from the PC |
 | `no mail settings: …email.json` | the mail settings file on the GX is missing (e.g. after a firmware reinstall); restore it, see `docs/backup-restore.md` |
-| `Permission denied (publickey)` | the camera key is not in the `authorized_keys` file sshd reads (on Venus OS check both `~/.ssh` and `/data/home/root/.ssh`), `.ssh` is not 700 / the file not 600, or the line has non-ASCII (typographic) quotes; fingerprint must be `SHA256:91Mhj59t2c4XPqr/JElreNI8gCCSUMkU8qatAHJiPis` |
+| `Permission denied (publickey)` | Run `gx-camera-key.ps1 -Check` to inspect `/data/home/root/.ssh/authorized_keys`, permissions, duplicates, non-ASCII characters, and the expected fingerprint. |
 | Gmail rejects the login | the app password changed; set it again with `tools/set-mail-password.js` on the GX |

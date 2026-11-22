@@ -167,6 +167,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#143 (d#214 unchanged · i#14): add owner tooling and documentation for checking, installing, testing, rotating, and revoking the restricted camera SSH public key. Checked offline; no live key changes.
+
 #142 (d#214 unchanged · i#13): deploy the restricted GX SSH mail gate with bounded stdin JSON and a documented camera client protocol. The separate `camera-ai` repository owns the production client.
 
 #141 P-D1 follow-up (d#214 unchanged, i#12): verified replacement ignores trailing-only differences, matching deploy readback. Run 45053215705 read the same d#210 revision already verified with no substantive code drift.
