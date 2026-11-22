@@ -169,6 +169,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#130 P-D2 (d#210 unchanged · i#3): manual GX runs verify replaced lines against the recorded deployment, blocked dry runs report the reason and next step, and automatic runs select the newest eligible green master ancestor.
+
 #129 T-R1a..c (d#210 unchanged · i#2): observe the deploy quiet period for 40 fake seconds at 14 minutes, require all six fixture gates to forward ticks, and use a dedicated fixture deploy timestamp.
 
 #128 I1 (`d#210` unchanged · `i#1`): infrastructure changes require one separate version bump, checked in CI and shown alongside the production version in the CLI, Test GX summary, and deploy mail and report.

@@ -18,20 +18,21 @@ on:
         options: [test, stable]
         default: test
       allow_live_only_lines:
-        description: "Pass -AllowLiveOnlyLines: only when the commit is meant to remove the GX-only code lines (check compare-before.txt first)."
+        description: "Override GX-only lines that could not be verified against the deploy record. Review those lines first."
         type: boolean
         default: false
       allow_new_nodes:
         description: "Pass -AllowNewNodes for reviewed additions. Review a dry run of the same commit before apply."
         type: boolean
         default: false
-  # Every green Test GX run on a push to master deploys that commit: apply, no manual approval.
+  # A green Test GX push to master can deploy the newest eligible green commit.
   workflow_run:
     workflows: ["Test GX scenarios"]
     types: [completed]
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-gx-code
@@ -50,7 +51,7 @@ jobs:
         with:
           sparse-checkout: tools/gx/deploy-gate.js
           sparse-checkout-cone-mode: false
-          persist-credentials: false
+          fetch-depth: 0
       - name: Decide whether to deploy
         id: gate
         env:
@@ -69,7 +70,8 @@ jobs:
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          export MASTER_SHA="$(gh api "repos/$REPO/git/ref/heads/master" --jq .object.sha || true)"
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          export MASTER_SHA="$(git rev-parse origin/master)"
           node tools/gx/deploy-gate.js
 
   deploy:
@@ -87,15 +89,43 @@ jobs:
       ALLOW_NEW_NODES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_new_nodes }}
     steps:
       - uses: actions/checkout@v7
+        if: env.AUTO == 'true'
+        with:
+          fetch-depth: 0
+          sparse-checkout: tools/gx/deploy-gate.js
+          sparse-checkout-cone-mode: false
+
+      - name: Recheck the selected green commit
+        if: env.AUTO == 'true'
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+          PINNED_SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          export MASTER_SHA="$(git rev-parse origin/master)"
+          node tools/gx/deploy-gate.js
+
+      - uses: actions/checkout@v7
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         with:
           ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         with:
           node-version: 22
 
       - name: Require master and validate deployment inputs
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         env:
           CONFIRM: ${{ inputs.confirm }}
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
@@ -105,14 +135,7 @@ jobs:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
           set -euo pipefail
-          if [[ "$AUTO" == "true" ]]; then
-            # the gate job verified a green Test GX push run of exactly this master tip
-            git fetch --no-tags origin master
-            [[ "$(git rev-parse origin/master)" == "$DEPLOY_SHA" ]] || {
-              echo "::error::master moved past $DEPLOY_SHA; a newer run deploys it."
-              exit 1
-            }
-          else
+          if [[ "$AUTO" != "true" ]]; then
             [[ "$GITHUB_REF" == "refs/heads/master" ]] || {
               echo "::error::Deploy GX code must be run from master."
               exit 1
@@ -134,6 +157,7 @@ jobs:
           }
 
       - name: Connect to the tailnet
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -141,6 +165,7 @@ jobs:
           tags: tag:ci
 
       - name: Configure SSH
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         env:
           GX_SSH_KEY: ${{ secrets.GX_SSH_KEY }}
           GX_SSH_KNOWN_HOSTS: ${{ secrets.GX_SSH_KNOWN_HOSTS }}
@@ -152,6 +177,7 @@ jobs:
           chmod 600 "$HOME/.ssh/key" "$HOME/.ssh/known_hosts"
 
       - name: Deploy from master
+        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
         id: deploy
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
@@ -169,8 +195,8 @@ jobs:
             '-RunDirectory', $runFolder
           )
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
-          if ($env:AUTO -eq 'true') { $arguments += '-AllowReplaceDeployedLines' }
-          elseif ($env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
+          if ($env:AUTO -ne 'true' -and $env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
+          else { $arguments += '-AllowReplaceDeployedLines' }
           if ($env:ALLOW_NEW_NODES -eq 'true') { $arguments += '-AllowNewNodes' }
           & pwsh @arguments
           exit $LASTEXITCODE

@@ -12,7 +12,7 @@ const path = require('node:path');
 const http = require('node:http');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
-const { execFile, execFileSync } = require('node:child_process');
+const { execFile, execFileSync, spawnSync } = require('node:child_process');
 const { ROOT } = require('./harness');
 
 const GX = (name) => path.join(ROOT, 'tools', 'gx', name);
@@ -69,8 +69,8 @@ let available = true;
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', 'HEAD^{commit}'], { stdio: 'ignore' }); execFileSync('curl', ['--version'], { stdio: 'ignore' }); }
 catch { available = false; }
 
-test('automatic code replacement plans against a fake GX only when it matches the recorded Git deployment',
-    { skip: !available && 'needs git and curl', timeout: 30000 }, async t => {
+test('verified dry-run code replacement plans against a fake GX only when it matches the recorded Git deployment',
+    { skip: !available && 'needs git and curl', timeout: 60000 }, async t => {
         const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-replacement-test-'));
         t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
         const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -98,7 +98,7 @@ test('automatic code replacement plans against a fake GX only when it matches th
         const api = await listen((req, res) => {
             assert.equal(req.method, 'GET');
             assert.equal(req.url, '/flows');
-            res.end(JSON.stringify({ rev: 'fake-rev', flows: live }));
+            res.end(JSON.stringify({ rev: 'fake-revision-001', flows: live }));
         });
         t.after(() => api.close());
         const env = { VICTRON_API_PORT: api.address().port };
@@ -114,8 +114,52 @@ test('automatic code replacement plans against a fake GX only when it matches th
         };
         const ok = await makePlan();
         assert.equal(ok.code, 0, ok.stderr);
+        assert.ok(ok.stdout.includes(`replaced lines of ${previous}`));
         const result = JSON.parse(fs.readFileSync(plan, 'utf8'));
-        assert.deepEqual([result.replacedFrom, result.expectRev, result.patch], [previous, 'fake-rev', { fn: ['func'] }]);
+        assert.deepEqual([result.replacedFrom, result.expectRev, result.patch], [previous, 'fake-revision-001', { fn: ['func'] }]);
+        const runManual = async name => {
+            const runner = path.join(cwd, 'scripts', 'gx-deploy.ps1');
+            fs.mkdirSync(path.dirname(runner), { recursive: true });
+            fs.copyFileSync(path.join(ROOT, 'scripts', 'gx-deploy.ps1'), runner);
+            fs.mkdirSync(path.join(cwd, 'tools', 'gx'), { recursive: true });
+            for (const script of ['compare.js', 'node-additions.js', 'deploy.js', 'window.js', 'verify.js', 'live-snapshot.js']) {
+                fs.copyFileSync(GX(script), path.join(cwd, 'tools', 'gx', script));
+            }
+            const summary = path.join(cwd, `${name}.md`);
+            // Same verified flag as workflow_dispatch. SSH/SCP are local test doubles.
+            const output = await new Promise(resolve => execFile('pwsh', ['-NoProfile', '-Command', `
+                $realGit = (Get-Command git -CommandType Application).Source | Select-Object -First 1
+                function git {
+                    if ($args[2] -eq 'fetch') { $global:LASTEXITCODE = 0; return }
+                    if ($args[2] -eq 'branch') { $global:LASTEXITCODE = 0; return 'origin/master' }
+                    & $realGit @args
+                }
+                function ssh {
+                    $global:LASTEXITCODE = 0
+                    switch -Wildcard ($args[-1]) {
+                        '*node - ' { return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT }
+                        '*node - --for deploy' { return 'SAFE for deploy' }
+                        '*mktemp*' { return '/tmp/gx-deploy.Test' }
+                        'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
+                        'rm -f /tmp/gx-deploy.Test/*' { return }
+                        default { throw "Unexpected SSH arguments: $args" }
+                    }
+                }
+                function scp { $global:LASTEXITCODE = 0 }
+                & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -AllowReplaceDeployedLines -RunDirectory $env:GX_TEST_RUN
+                exit $LASTEXITCODE
+            `], { cwd, env: { ...process.env, GITHUB_STEP_SUMMARY: summary, GX_TEST_SNAPSHOT: baseline,
+                GX_TEST_RUNNER: runner, GX_TEST_RUN: path.join(cwd, name) } },
+            (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
+            return { ...output, summary: fs.existsSync(summary) ? fs.readFileSync(summary, 'utf8') : '' };
+        };
+        const pwshAvailable = spawnSync('pwsh', ['-NoProfile', '-Command', '1']).status === 0;
+        if (pwshAvailable) {
+            const dry = await runManual('verified');
+            assert.equal(dry.code, 0, dry.stdout + dry.stderr);
+            assert.match(dry.stdout, /DRY RUN - nothing changed/);
+            assert.ok(dry.summary.includes(`replaced lines of ${previous}`));
+        }
         const mail = await run(GX('deploy-mail.js'), [cwd], { DEPLOY_SHA: target, TRIGGER_EVENT: 'workflow_run',
             ALLOW_LIVE_ONLY_LINES: 'false' }, cwd);
         assert.equal(mail.code, 0, mail.stderr);
@@ -126,6 +170,14 @@ test('automatic code replacement plans against a fake GX only when it matches th
         assert.equal(changed.code, 1);
         assert.match(changed.stderr, /differ from the recorded deployment/);
         assert.equal(fs.existsSync(plan), false);
+        if (pwshAvailable) {
+            const dry = await runManual('hand-edit');
+            assert.equal(dry.code, 1, dry.stdout + dry.stderr);
+            assert.match(dry.summary, /could not be verified against the recorded deployment/);
+            assert.match(dry.summary, /live nodes or code differ/);
+            assert.match(dry.summary, /Next: .*allow_live_only_lines/);
+            assert.doesNotMatch(dry.summary, /\/\/ hand edit/);
+        }
         live[1].func = 'msg.payload = 1;\nreturn msg;';
         delete live[0].info;
         const unrecorded = await makePlan();
