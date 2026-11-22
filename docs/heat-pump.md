@@ -227,6 +227,13 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 
 ## Automation log page (d#126)
 
+The Automations page's **shadow disagreements** count tracks decisions that differ
+from the existing write path. Shadow arbitration treats the manual P23 slider as
+an owner-baseline intent below active heating, but still sends the slider SET
+unchanged. Before curve enforcement (HP-M2 stage 3), the owner must decide whether
+a manual move overrides heating or updates the baseline for later application,
+and how the dashboard should communicate that behavior.
+
 Every event of the local automations is one JSON line in `/data/home/nodered/grid-control-logs/automations/YYYY-MM-DD.jsonl` (local date of the GX, file node *Append automation log*): `{ t, kind, text, rule, cloud, run, live }`. Kinds: `test` / `start` (a rule run begins), `dry` / `write` / `step` (steps), `ok` / `fail` (write checked against the device), `done` / `stop` (run ends), `flag`, `setting`, `warn`. Events of one run share `run`.
 
 The **Automation log** dashboard tab (function `Automation log` [`42`](../42%20Automation%20log.js), exec node *Read automation log*, ui_template [`43`](../43%20Automation%20log%20page.html)) shows one day like the Smart Life log:
