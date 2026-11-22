@@ -115,7 +115,7 @@ function parse(text) {
         if (mode === 'ELV') { elvenettText += line; continue; }
         if (mode === 'CSV') {
             const p = line.split(',');
-            if (!/^\d{4}-\d{2}-\d{2} \d{2}$/.test(p[0] || '')) continue;
+            if (!/^\d{4}-\d{2}-\d{2} \d{2}(?:[+-]\d{4})?$/.test(p[0] || '')) continue;
             hours[p[0]] = { grid: num(p[1], 0), ac: num(p[2], 0), sol: num(p[3], 0), bill: p[4] === undefined || p[4] === '' ? null : num(p[4], null), csv: true };
         }
         else if (mode === 'LOG') {

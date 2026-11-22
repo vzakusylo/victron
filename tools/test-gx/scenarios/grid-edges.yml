@@ -31,8 +31,6 @@
         grid: [{"path":"hourBudget.hourKey","equals":"2026-03-29 03"},{"path":"tariffDay.peakHourKey","equals":"2026-03-29 01"}]
 
 - name: Europe Oslo autumn transition starts a distinct second 02 hour
-  expected_fail: "TGX5-DST-FOLD: both occurrences of local 02 share an hour key and budget; the second hour never opens a new interval"
-  expected_fail_step: 2
   faketime: '@2026-10-25 01:57:30 x40'
   controller: {"protection":{}}
   observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
@@ -45,7 +43,7 @@
     - when: 3780s
       settle: 250s
       expect:
-        grid: [{"path":"tariffDay.peakHourKey","equals":"2026-10-25 02"}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 02+0100"},{"path":"tariffDay.peakHourKey","equals":"2026-10-25 02"},{"path":"tariffMonth.monthKey","equals":"2026-10"}]
 
 - name: midnight does not make a stale export CT reading safe
   expected_fail: "G2 safe mode: midnight resets the budget but does not stop export charging from a cached negative CT reading"

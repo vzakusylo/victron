@@ -126,7 +126,7 @@ function readObservedDays(now) {
             return;
         }
         text.split(/\r?\n/).forEach(line => {
-            const m = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),[-]?\d+,[-]?\d+,([-]?\d+)/);
+            const m = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2})(?:[+-]\d{4})?,[-]?\d+,[-]?\d+,([-]?\d+)/);
             if (!m || m[1] < localDayKey(first) || m[1] >= todayKey) {
                 return;
             }

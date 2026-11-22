@@ -27,7 +27,7 @@
 const wh = value => Math.round(Number(value) || 0);
 const now = new Date();
 const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-const currentHourLabel = String(now.getHours()).padStart(2, '0') + ':00';
+const hourLabel = key => key.slice(11, 13) + ':00' + (key.length > 13 ? ' ' + key.slice(13) : '');
 
 // Rows of one day from the energy files; later lines win for the same hour.
 //   CSV:    2026-10-17 22,2450,2432,0,...
@@ -35,10 +35,11 @@ const currentHourLabel = String(now.getHours()).padStart(2, '0') + ':00';
 function parseDay(rawText, dateKey) {
     const byHour = {};
     String(rawText).split(/\r?\n/).forEach(line => {
-        const m = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}),(-?\d+),(-?\d+),(-?\d+)/)
-            || line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):00 \| Grid (-?\d+)Wh \| AC (-?\d+)Wh(?:\s*\|\s*Sol\s*(-?\d+)Wh)?/);
-        if (m && m[1] === dateKey) {
-            byHour[m[2] + ':00'] = { hour: m[2] + ':00', gridWh: wh(m[3]), acWh: wh(m[4]), solarWh: wh(m[5]) };
+        const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}(?:[+-]\d{4})?),(-?\d+),(-?\d+),(-?\d+)/)
+            || line.match(/^(\d{4}-\d{2}-\d{2} \d{2}):00 \| Grid (-?\d+)Wh \| AC (-?\d+)Wh(?:\s*\|\s*Sol\s*(-?\d+)Wh)?/);
+        if (m && m[1].slice(0, 10) === dateKey) {
+            const hour = hourLabel(m[1]);
+            byHour[hour] = { hour, gridWh: wh(m[2]), acWh: wh(m[3]), solarWh: wh(m[4]) };
         }
     });
     return byHour;
@@ -53,21 +54,25 @@ if (msg.topic === 'tariff-history' && typeof msg.payload === 'string') {
         summary = { dateKey, hours: [] };
     }
     const restored = parseDay(msg.payload, dateKey);
+    const firstOccurrence = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours());
+    const inFold = firstOccurrence.getTimezoneOffset() !== now.getTimezoneOffset();
+    const clockLabel = String(now.getHours()).padStart(2, '0') + ':00';
     Object.keys(restored).forEach(hour => {
         // The running hour is not closed yet; a live row is newer than the file.
-        if (hour !== currentHourLabel && !summary.hours.some(row => row.hour === hour)) {
+        const isCurrent = hour.slice(0, 5) === clockLabel && (hour.length > 5) === inFold;
+        if (!isCurrent && !summary.hours.some(row => row.hour === hour)) {
             summary.hours.push(restored[hour]);
         }
     });
 }
 else if (msg.payload && msg.payload.hourKey) {
     dateKey = String(msg.payload.hourKey).substring(0, 10);
-    const hourLabel = String(msg.payload.hourKey).substring(11, 13) + ':00';
+    const label = hourLabel(String(msg.payload.hourKey));
     if (summary.dateKey !== dateKey) {
         summary = { dateKey, hours: [] };
     }
-    summary.hours = summary.hours.filter(row => row.hour !== hourLabel);
-    summary.hours.push({ hour: hourLabel, gridWh: wh(msg.payload.gridWh), acWh: wh(msg.payload.acWh), solarWh: wh(msg.payload.solarWh) });
+    summary.hours = summary.hours.filter(row => row.hour !== label);
+    summary.hours.push({ hour: label, gridWh: wh(msg.payload.gridWh), acWh: wh(msg.payload.acWh), solarWh: wh(msg.payload.solarWh) });
 }
 else {
     return null;

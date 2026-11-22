@@ -71,7 +71,7 @@
 // 13. d#195: curveChart.outdoor = the pump's own outdoor value (flow.dhwView.pumpOut from 40, derived from the reported
 //    set point), fallback the 10-min sensor average / DP 103; outdoorSource 'pump' | 'sensor', outdoorText for the page,
 //    sensor = DP 103 (shown as "outdoor sensor").
-// 14. d#209: battery sensor temperature expires independently of other readings (TGX7-LOCAL-AGE).
+// 14. d#210: battery sensor temperature expires independently of other readings (TGX7-LOCAL-AGE).
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];

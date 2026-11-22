@@ -51,7 +51,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 
 | ID | Phase | Task | State |
 |---|---|---|---|
-| TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
@@ -173,7 +172,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#126 TGX7-CLOUD-LATE / TGX7-LOCAL-AGE / TGX7-LOCAL-NULL (d#209): disabled cloud ignores late replies, battery-only wakes no longer refresh temperature, and JSON `null` lines no longer discard subsequent readings. All three expected failures are now passing regression tests.
+#126 TGX7-CLOUD-LATE / TGX7-LOCAL-AGE / TGX7-LOCAL-NULL (d#210): disabled cloud ignores late replies, battery-only wakes no longer refresh temperature, and JSON `null` lines no longer discard subsequent readings. All three expected failures are now passing regression tests.
+
+#125 TGX5-DST-FOLD (d#209): separate the two Oslo October 02:00 budgets and preserve both CSV rows and local tariff peaks. Unit and synthetic Test GX coverage also verifies the March gap.
 
 #123 TH3 (d#208): stuck-supply Smart kicks are heating-only; pending and active DHW suppress kicks, and a running kick returns to Silent when DHW takes over.
 

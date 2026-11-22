@@ -27,7 +27,7 @@
 // 1. Initial version (d#135).
 // 2. d#137: own node ids hpls-* (d#135 had taken the ids of the Automation log nodes by mistake).
 // 3. d#138: DPs missing in a wake (null) are not sent, so 34 keeps their last value.
-// 4. d#209: a JSON null line no longer drops the rest of the chunk (TGX7-LOCAL-NULL).
+// 4. d#210: a JSON null line no longer drops the rest of the chunk (TGX7-LOCAL-NULL).
 // ==========================
 
 const SENSORS = {
