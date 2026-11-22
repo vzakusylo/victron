@@ -64,8 +64,9 @@ Tasks are tracked in `BACKLOG.md` (section 3, "Priority plan: test first, then s
 | P-A1 | Owner approval page on the GX: expiring per-action approvals (one action, scope, expiry, audit log + mail), default off, read-only for Claude / CI, never shell or key access. Design + threat model first; until it exists, NR1 runs by the owner (command in `docs/node-red-refactoring-plan.md` NR1) |
 | P-R1 | Done 22 Nov: #103 OK with Low findings → T-R1a (heat-pump-deploy 14m step settle), T-R1b (tick gate liveness), T-R1c (`deployElapsed` own key) |
 | P-H1 | Herdr scheduled task fails at start (0xC000013A); until fixed Herdr runs in a Claude Code terminal tab |
+| I1 | **Next.** Infrastructure version `i#` for non-production functionality (Test GX, tools, scripts, workflows, tests, skills, agent docs), separate from the production `d#`; one file + change log, a check that fails on unbumped infra changes, shown in reports, Test GX summary and deploy mail (`d#N · i#M`) |
 
 ## Order
 
 A1 → A2 → A3 (TH5 as its own bug-fix PR) → NR1 → G1 … G6 → NR3 / NR4 / NR5 / NR8 / NR9 → T1b.
-P-D1, P-R1 and P-A1 can run at any time. One PR per task, Herdr worker per PR (`gpt-6.2-sol`, `--allow-all`), auto-merge.
+**Next: I1** (infrastructure version `i#`), then the fix tasks. P-A1, P-H1 and T-R1a..c can run at any time. One PR per task, Herdr worker per PR (`gpt-6.2-sol`, `--allow-all`), auto-merge.
