@@ -106,6 +106,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | H6 | Heating curve chart: low and high band lines | Point − `bandDown` and point + `bandUp` along the curve. |
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
 | HP-M2 | **Single writer with leases for HP mode + curve** (after HP-M1). One dispatcher for every DP 2 / P22–P24 / DP 121 SET (node 40 queue AND the node 37 slider); priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline; versioned owner + bounded lease per resource, generation checks at dequeue and verify, P22–P24 as one group; warm-up / band / boost composed into one heating curve request. Staged: shadow mode logging disagreements first, then mode, then curve + slider | Fixes the reproduced slider vs warm-up mixed curve (40/9) and stale queued writes after DHW takes over. Depends: HP-M1; state: open. |
+| HP-M2 stage 1 | Shadow arbitration: log ownership disagreements without changing SETs. | In progress: `hp-m2-shadow-writer`. Mode and curve/slider enforcement remain open under HP-M2. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
 | H10 | History by day: week navigation, at most 14 day chips | `39 Heat pump history page.html` / `38`. |
 ## 4. Review follow-ups (deferred Low / Nit)

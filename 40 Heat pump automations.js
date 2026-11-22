@@ -309,6 +309,7 @@ function model() {
         }),
         dhw: dhwModel(),
         queue: (context.get('queue') || []).length,
+        shadowDisagreements: (flow.get(HP_SHADOW_KEY) || {}).disagreements || 0,
         log: context.get('log') || []
     };
 }
@@ -316,6 +317,8 @@ function send(out, m) {
     const arr = [null, null, null, null, null, null]; arr[out] = m; node.send(arr);
 }
 // #include lib/heat-pump/mode-confirm.js
+// #include lib/heat-pump/arbiter.js
+// #include lib/heat-pump/arbiter-shadow.js
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
 // against the value the device reports (ok / fail in the log, like the Smart Life log).
@@ -338,9 +341,10 @@ function pump() {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
     } else if ((context.get('settings') || {}).master && !modeBlocked(item)) {
         const verifyMode = isModeWrite(item) ? startModeVerification(item) : null;
+        shadowCheck(item, 'dequeue', Date.now());
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
         node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
-        setTimeout(verifyMode || (() => {
+        const verify = verifyMode || (() => {
             if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
                 logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
                     verificationSuperseded: true,
@@ -352,7 +356,11 @@ function pump() {
             const good = String(v) === String(item.set);
             logEvent({ kind: good ? 'ok' : 'fail', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
                 text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v) });
-        }), VERIFY_MS);
+        });
+        setTimeout(() => {
+            shadowCheck(item, 'verify', Date.now());
+            verify();
+        }, VERIFY_MS);
     } else if (!(context.get('settings') || {}).master) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
@@ -393,7 +401,7 @@ function runStep(rule, token) {
         logEvent(Object.assign({ kind: 'step', text: 'notify: ' + s.note + stepTxt }, base));
     } else if (sq.live) {
         const q = context.get('queue') || [];
-        q.push({ rule: rule.id, cloud: rule.cloud, run: token, role: s.role, dps: s.dps, set: s.set, text: s.text });
+        q.push(shadowTag({ rule: rule.id, cloud: rule.cloud, run: token, role: s.role, dps: s.dps, set: s.set, text: s.text }, 'recovery', Date.now()));
         context.set('queue', q);
         logEvent(Object.assign({ kind: 'write', text: s.text + stepTxt }, base));
         pump();
