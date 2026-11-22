@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { gateTickInjects, GATED_INJECTS, GATE_SUFFIX } = require('../tools/test-gx/tick-gate');
+const { gateTickInjects, GATED_INJECTS, GATE_SUFFIX, DEPLOY_KEY, TICK_COUNT_KEY } = require('../tools/test-gx/tick-gate');
 const flows = require('../flows.json');
 
 test('fixture gates only the selected periodic injects and preserves their downstream wires', () => {
@@ -27,6 +27,7 @@ test('ten-second gate keeps phase at x60, drops missed samples and handles a bac
     const gate = gateTickInjects(flows).find(node => node.id === 'hpa-tick-01' + GATE_SUFFIX);
     const context = new Map();
     const fn = new Function('msg', 'context', 'Date', gate.func);
+    new Function('context', 'Date', gate.initialize)(context, { now: () => 99_000 });
     const msg = { payload: 1 };
     const tick = now => fn(msg, context, { now: () => now });
     const times = Array.from({ length: 21 }, (_, i) => 100_000 + i * 6000);
@@ -36,4 +37,6 @@ test('ten-second gate keeps phase at x60, drops missed samples and handles a bac
     assert.equal(tick(50_000), msg);
     assert.equal(tick(59_999), null);
     assert.equal(tick(60_000), msg);
+    assert.equal(context.get(TICK_COUNT_KEY), 16);
+    assert.equal(context.get(DEPLOY_KEY), 99_000);
 });

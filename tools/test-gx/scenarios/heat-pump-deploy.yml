@@ -39,6 +39,7 @@
       settle: 400s
       expect:
         writes: []
+        ticks: ["hp-poll-inject-01", "hp-log-inject-01", "hpa-tick-01", "cres-inject-01", "hpal-tick-01", "bmswd-inject-01"]
 
 - name: DHW demand starts after deploy quiet period
   faketime: '@2026-11-16 20:00:00 x10'
@@ -74,9 +75,11 @@
     # Anchor to the quiet period, not the runner's variable setup time.
     - when: 14m
       fromDeploy: true
-      settle: 0s
+      # Four automation tick periods, with 20 fake seconds left before the boundary.
+      settle: 40s
       expect:
         writes: []
+        ticks: ["hpa-tick-01"]
     - when: 15m
       fromDeploy: true
       inputs:

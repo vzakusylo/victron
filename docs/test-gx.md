@@ -397,8 +397,10 @@ UI inject nodes, resets emulator state, applies `inputs` through `/set`, `fail` 
 `stale` through `/stale`, advances to each `when` offset, waits `settle`, then compares new
 Tuya `SET` commands in `/writes` against `expect.writes`. Every step requires `expect.writes`,
 including an explicit `[]` for guards; missing expectations and extra selected writes fail.
-The DHW quiet-period positive control uses `fromDeploy: true` to measure its final `when` from
-the automation node's startup timestamp, before any simulated defrost changes it.
+The DHW quiet-period scenario uses `fromDeploy: true` to measure `when` from the
+fixture automation gate's `testGxDeployedAt` startup timestamp, independent of simulated defrost.
+Use `expect.ticks` with gated inject IDs and a positive `settle` to require each gate
+to forward at least one new tick during that step, even when no writes are expected.
 To observe D-Bus outputs instead, set scenario `observe` to a nonempty sequence of exact
 `service` and `path` pairs (for example `settings` and `/Settings/SystemSetup/MaxChargeCurrent`).
 Only matching writes are asserted, in order; unrelated D-Bus traffic and Tuya GETs are excluded.
@@ -441,7 +443,7 @@ suite. The [charging inventory](test-gx-charging-inventory.md#isolation-and-rest
 lists the exact resources and the narrowly scoped cached-forecast fault fallback.
 Before and after every scenario the runner also checks that no temporary nodes remain
 and SHA-256 hashes the complete production function-node definitions against `flows.json`.
-The four Test GX Tuya adapters and five tick gates are checked against the approved fixture transforms,
+The four Test GX Tuya adapters and six tick gates are checked against the approved fixture transforms,
 not mistaken for production function nodes. A changed function, restore hook, missing temperature function
 or leftover helper is a hard failure. Node-RED's verified default context store is
 memory-only: restarting it before each scenario resets node-private manual-discharge state,

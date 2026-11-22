@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { preserveSettings, ScenarioCleanupError, assertFunctionHashes, assertNoTemporaryFlows } = require('./scenario-state');
 const { preserveController } = require('./scenario-controller');
+const { GATED_INJECTS, GATE_SUFFIX, DEPLOY_GATE, DEPLOY_KEY, TICK_COUNT_KEY } = require('./tick-gate');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIOS = path.join(__dirname, 'scenarios');
@@ -279,6 +280,12 @@ function validateScenario(scenario, source = 'scenario') {
                 !Object.hasOwn(item, 'value')))) {
             throw new Error(`${source} step ${index + 1} expect.outputs must contain service, path, and value`);
         }
+        const ticks = step.expect.ticks;
+        if (ticks !== undefined && (!Array.isArray(ticks) || !ticks.length ||
+            ticks.some(id => !GATED_INJECTS.includes(id)) || new Set(ticks).size !== ticks.length ||
+            !parseDuration(step.settle ?? '12s', 'settle'))) {
+            throw new Error(`${source} step ${index + 1} expect.ticks requires distinct gated inject IDs and a positive settle`);
+        }
         if (step.expect.log !== undefined && (!Array.isArray(step.expect.log) ||
             step.expect.log.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
                 Object.keys(item).some(key => !['contains', 'count'].includes(key)) ||
@@ -514,14 +521,14 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
     return {
         async ready() { await request('GET', '/flows'); },
         async deployElapsed() {
-            const route = `/context/node/${AUTOMATIONS_NODE}/lastDefrost`;
+            const route = `/context/node/${DEPLOY_GATE}/${DEPLOY_KEY}`;
             const response = await fetchImpl(new URL(route, baseUrl), { signal: AbortSignal.timeout(10000) });
             if (!response.ok) throw new Error(`Node-RED GET ${route} returned ${response.status}`);
             const now = Date.parse(response.headers.get('date'));
-            const deployed = JSON.parse((await response.json()).msg);
-            if (!Number.isFinite(now) || !Number.isFinite(deployed) || deployed <= 0 || now < deployed) {
-                throw new Error('Node-RED did not return a valid fake wall time and deploy timestamp');
-            }
+            const encoded = (await response.json())?.msg;
+            const deployed = typeof encoded === 'string' && /^\d+$/.test(encoded) ? Number(encoded) : NaN;
+            if (!Number.isSafeInteger(deployed) || deployed <= 0) throw new Error(`Missing or invalid fixture deploy timestamp: ${DEPLOY_KEY}`);
+            if (!Number.isFinite(now) || now < deployed) throw new Error(`Invalid fake wall time for ${DEPLOY_KEY}`);
             return now - deployed;
         },
         async verifyDeployed() {
@@ -722,6 +729,12 @@ async function runScenario(scenario, options = {}) {
         let inputs = { ...scenario.initial?.inputs };
         let cursor = scenario.controller ? (await api.getWrites()).length : 0;
         const readLog = async () => (await admin.readContext('node', AUTOMATIONS_NODE, 'log')) || [];
+        const readTick = async id => {
+            const count = await admin.readContext('node', id + GATE_SUFFIX, TICK_COUNT_KEY);
+            if (count === undefined) return 0;
+            if (!Number.isSafeInteger(count) || count < 0) throw new Error(`Invalid tick counter for ${id}`);
+            return count;
+        };
         let logSeen = scenario.steps.some(step => step.expect.log) ? logSnapshot(await readLog()) : undefined;
         for (const [index, step] of scenario.steps.entries()) {
             activeStep = index + 1;
@@ -732,6 +745,8 @@ async function runScenario(scenario, options = {}) {
             }
             const due = (step.fromDeploy ? Date.now() : start) + (offset - elapsed) / rate;
             if (due > Date.now()) await wait(due - Date.now());
+            const ticks = step.expect.ticks || [];
+            const tickCounts = await Promise.all(ticks.map(readTick));
             const before = step.expect.if_changed ? await api.getState() : undefined;
             if (scenario.controller && !controllerSettingsApplied) {
                 await controller.apply({ protection: scenario.controller.protection || {} });
@@ -749,6 +764,12 @@ async function runScenario(scenario, options = {}) {
                 ? scenario.observe.some(selector => write.service === selector.service && write.path === selector.path)
                 : write.operation === 'SET');
             cursor = writes.length;
+            // Fixture failures must not be masked by a scenario's expected production failure.
+            await Promise.all(ticks.map(async (id, i) => {
+                if (await readTick(id) <= tickCounts[i]) {
+                    throw new Error(`${scenario.name} step ${index + 1}: gated inject ${id} did not forward a tick during the observation window`);
+                }
+            }));
             const finalState = step.expect.if_changed || step.expect.outputs ? await api.getState() : undefined;
             if (step.expect.if_changed) {
                 assertChangedWrites(current, step.expect.writes, before, finalState, scenario.name, index + 1);
