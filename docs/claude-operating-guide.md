@@ -15,6 +15,12 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 4. **Herdr**: `herdr status` must say `server: status: running`. If not, start `herdr` in its own terminal tab (it is
    the transport to every Copilot worker). Never restart a running server without the owner: it kills all workers.
    Then `herdr-task.ps1 list` / `herdr agent list` to see the workers and `read` each one.
+   **Start it from Claude Code so Claude can watch it:** open a Terminal-panel tab by running `herdr` with the terminal tool `run_in_terminal` (title `herdr`, cwd = the session's working directory); Claude reads that tab with
+   `read_terminal` and workers with `herdr pane read <pane>`. Check `herdr status` → `running` a few seconds later;
+   the workers come back idle (sessions are kept). Keep that tab open: closing it or the app stops all workers.
+   The "Herdr server" scheduled task currently fails at start (`0xC000013A`, 22 Nov); until fixed, use the tab.
+   Owner commands (live GX, long runs) also go in a Terminal-panel tab or the owner's primary tab, which Claude can
+   read with `read_terminal` instead of asking for pasted output.
 5. `BACKLOG.md`: what is in progress, what is next.
 6. Tell the owner in a few lines what is running before starting new work.
 
