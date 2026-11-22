@@ -1,5 +1,5 @@
 {
-  "i": 16,
+  "i": 17,
   "changes": [
     {
       "i": 1,
@@ -96,6 +96,12 @@
       "date": "2026-11-22",
       "pr": 145,
       "what": "Isolate the automatic GX deploy gate checkout"
+    },
+    {
+      "i": 17,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Test fresh heat-pump mode confirmation and incident alerts"
     }
   ]
 }
