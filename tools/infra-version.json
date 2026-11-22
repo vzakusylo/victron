@@ -1,0 +1,11 @@
+{
+  "i": 1,
+  "changes": [
+    {
+      "i": 1,
+      "date": "2026-11-22",
+      "pr": 128,
+      "what": "Introduce i# validation and version reporting"
+    }
+  ]
+}

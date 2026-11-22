@@ -7,7 +7,7 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 
 ## 1. Session start checklist (every session, before any work)
 
-1. `git fetch origin` and check `master`: `git log -1 origin/master`, `node tools/flows.js version` (the `d#`).
+1. `git fetch origin` and check `master`: `git log -1 origin/master`, `node tools/flows.js version` (`d#` and `i#`).
 2. What runs on the GX: the last **Deploy GX code** run (`gh run list --workflow deploy-gx-code.yml -L 3`); an apply
    log ends with `GX runs d#N … live code equals <sha>`. Never work on a stale base: a branch older than master gets
    `git merge origin/master` first.
@@ -59,6 +59,9 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
    `Co-Authored-By: Claude` trailer. The permission system enforces this: a refused push is a question for the owner.
 6. **Flow changes**: edit the `NN` source or its `lib/` file, `node tools/flows.js sync` (bumps `d#`), `check`, unit
    tests; never hand-edit `flows.json`. A unit test for every changed decision, failing without the change.
+   **Infrastructure changes** (including the agent docs listed in `CLAUDE.md`) instead bump `i#` once per PR with
+   `node tools/infra-version.js bump "Short description"`; verify with `node tools/infra-version.js check`. A PR that
+   changes both scopes bumps both counters. Pure docs and backlog changes need neither bump.
 7. **Test GX**: production sources are not changed in Test GX work; a found bug is `expected_fail` with a reference and
    gets its own PR. New scenario files go into the `files` matrix of `test-gx.yml`.
 8. **Deploys**: a green Test GX on a master push deploys automatically (env `victron-gx-auto`). Manual: dry run, then

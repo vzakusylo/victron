@@ -257,8 +257,16 @@ jobs:
     needs: run
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Report tested versions
+        run: |
+          version="$(node tools/flows.js version)"
+          printf '## Test GX\n\nRepository version: **%s**\n' "$version" >> "$GITHUB_STEP_SUMMARY"
       - name: All scenario files passed
         env:
           RESULT: ${{ needs.run.result }}

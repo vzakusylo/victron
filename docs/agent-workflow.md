@@ -125,7 +125,10 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
 6. Real backups, substitution maps and keys stay outside the repository and the Docker image.
 7. Live-GX access, pushing to master, deleting remote branches and removing Docker data volumes need an explicit owner request (see the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually)). Local Test GX calls (`/set`, `/fail`, `/reset`) and everything else in a task run without asking.
 8. Repository code, docs and commits are in English.
-9. Keep reports short: branch, SHA, PR, test count, what was not checked.
+9. Keep reports short: branch, SHA, PR, `d#` and `i#`, test count, what was not checked.
 10. Tasks and plans live only in [`BACKLOG.md`](../BACKLOG.md): a new task is added there before its branch, set to
     "in progress" with the branch / PR when work starts, and moved to Done with the PR and `d#` in the same PR as the
     work. No other task or plan files.
+11. Infrastructure changes (paths listed in [`CLAUDE.md`](../CLAUDE.md)) bump `i#` once per PR:
+    `node tools/infra-version.js bump "Short description"` and `node tools/infra-version.js check`.
+    Only flow changes bump `d#`; a PR affecting both scopes bumps both counters. Pure docs and backlog need neither.
