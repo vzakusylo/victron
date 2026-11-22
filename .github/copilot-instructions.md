@@ -20,7 +20,11 @@ Findings of an investigation go into the task's row or a sub-section of `BACKLOG
 Claude (in a separate chat) plans and reviews; you implement. The owner relays messages. Full model: `docs/agent-workflow.md`.
 
 - Work only on the branch named in the instructions. Never push to `master`; everything goes through a PR, including docs and these rules.
-- Several PRs may be open at once. Create each branch from a fresh `master`, keep it to its own files, and merge `origin/master` into it (no rebase, no force-push) when `master` moves. Merges use merge commits.
+- **One open PR at a time.** Create each branch from a fresh `master` and keep it to its own files.
+  - Don't open your PR while another PR is open: build and test locally, then wait until Claude releases it.
+  - Right before opening it: `git fetch origin; git rebase origin/master`, run `sync` again (`d#`), bump `i#` once on top of master, run check and all tests.
+  - Push with `--force-with-lease` if the branch was pushed before, then open the PR with auto-merge.
+  - After the PR is open, merge `origin/master` in (no further rebase) if `master` moves. Merges use merge commits.
 - Every infrastructure change bumps `i#` once per PR: `node tools/infra-version.js bump "Short description"` then `node tools/infra-version.js check`. See `CLAUDE.md` for the covered paths. Production-only and pure docs changes do not bump `i#`; report both versions from `node tools/flows.js version`.
 - Do not change production `flows.json` or numbered `NN *.js` files in Test GX work. If a scenario exposes a production bug, mark it `expected_fail` with a reference; the fix goes in its own PR.
 - Fix Medium-or-higher findings in changed code on the same branch; Low/Nit may move to the next branch or to Known limitations.

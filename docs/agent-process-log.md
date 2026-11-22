@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-22 | Owner rule: one open PR at a time; rebase the branch on the latest `origin/master` right before opening its PR (re-sync d#, one i# bump on top), merge commits for merging | `CLAUDE.md`, `docs/claude-operating-guide.md` §2a and §4, `docs/agent-workflow.md`, `.github/copilot-instructions.md`; open PRs left unchanged |
 | 2026-11-22 | Rule: every new task starts from the latest master (`git fetch origin` + new branch from `origin/master`), also in reused worker worktrees; briefs say it as step 1 | `docs/claude-operating-guide.md` §2a, `docs/agent-workflow.md` |
 | 2026-11-22 | Investigation of repeated HP "mode NOT confirmed" mails (Herdr worker, read-only): weak cached read-back + no repeat cap; writers of mode / curve not coordinated | Owner chose option 1 then 2: HP-M1 (confirm + one mail per episode), HP-M2 (single writer with leases) in BACKLOG |
 | 2026-11-22 | Rule: conflict check of every new task and push against all work in progress (open PRs, Herdr workers, queued briefs, BACKLOG) | `docs/claude-operating-guide.md` §2a, `docs/agent-workflow.md`; three workers in parallel (G1 / NR9 / T1b) checked by it |
