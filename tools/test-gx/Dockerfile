@@ -2,7 +2,6 @@ ARG NODERED_VERSION=3.1.15
 FROM nodered/node-red:${NODERED_VERSION}
 USER root
 RUN apk add --no-cache --upgrade openssh openssh-server bash curl python3 py3-dbus \
- && ssh-keygen -A \
  && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config \
  && sed -i 's/^root:[^:]*:/root:*:/' /etc/shadow
 # Alpine 3.18 has no libfaketime package. Build a pinned musl-compatible upstream release;

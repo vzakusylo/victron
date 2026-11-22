@@ -14,24 +14,23 @@ concurrency:
   group: test-gx-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  TEST_GX_SIM: emu
+  TEST_GX_TAG: synthetic-ci
+  TEST_GX_COMPOSE_PROJECT: test-gx
+  TEST_GX_COMPOSE_OVERRIDE: ${{ github.workspace }}/tools/test-gx/docker-compose.fixture.yml
+
 jobs:
-  # T1: one job per scenario file in parallel (each on its own VM with its own stack). The required check is the final
-  # `scenarios` job below: it fails unless every file job passed (a PR with nothing relevant passes them at once).
-  run:
-    name: scenarios (${{ matrix.files }})
+  build:
+    name: Build shared Test GX images
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        files: [bms-watchdog.yml, charging.yml, charging-force.yml, charging-forecast.yml, charging-support.yml, charging-guards.yml, grid-edges.yml, grid-reaction.yml, grid-stale-inputs.yml, grid-tariff.yml, defrost-outdoor.yml, dhw-defrost.yml, dhw-protection.yml, dhw-schedule.yml, heat-pump-deploy.yml, heat-pump-er03.yml, heat-pump-idle.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, heating-warmup.yml, heating-band.yml, heating-kick.yml, heating-defrost.yml, trivial.yml]
+    timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      relevant: ${{ steps.changes.outputs.relevant }}
+      image-artifact: ${{ steps.bundle.outputs.name }}
     env:
-      TEST_GX_SIM: emu
-      TEST_GX_TAG: synthetic-ci
-      TEST_GX_COMPOSE_PROJECT: test-gx
-      TEST_GX_COMPOSE_OVERRIDE: ${{ github.workspace }}/tools/test-gx/docker-compose.fixture.yml
       UBUNTU_MIRROR: http://azure.archive.ubuntu.com/ubuntu
       VENUS_DOCKER_REV: 7bd3b4fb3de24218d992d5039ee2d5a515d958b7
     steps:
@@ -80,8 +79,16 @@ jobs:
           if (!/^\d+\.\d+\.\d+$/.test(nodeRed)) throw new Error('Invalid synthetic Node-RED version');
           fs.appendFileSync(process.env.GITHUB_ENV, `TEST_GX_NODERED_VERSION=${nodeRed}\n`);
           NODE
-      - name: Prepare pinned Venus simulator source
+      # Only Venus is independent of the tested commit. Never cache the fixture image across runs.
+      - name: Restore Venus simulator cache
         if: steps.changes.outputs.relevant == 'true'
+        id: venus-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/test-gx-venus.tar.zst
+          key: test-gx-venus-${{ runner.os }}-${{ runner.arch }}-${{ env.VENUS_DOCKER_REV }}-${{ hashFiles('.github/workflows/test-gx.yml') }}
+      - name: Prepare pinned Venus simulator source
+        if: steps.changes.outputs.relevant == 'true' && steps.venus-cache.outputs.cache-hit != 'true'
         run: |
           git clone -c core.autocrlf=false --depth 1 \
             https://github.com/victronenergy/venus-docker "$RUNNER_TEMP/venus-docker"
@@ -129,22 +136,84 @@ jobs:
           dockerfile.write_text(source)
           PY
       - name: Build Venus simulator image
-        if: steps.changes.outputs.relevant == 'true'
+        if: steps.changes.outputs.relevant == 'true' && steps.venus-cache.outputs.cache-hit != 'true'
         run: |
+          set -euo pipefail
           if ! docker build --build-arg "UBUNTU_MIRROR=$UBUNTU_MIRROR" \
               -t mqtt "$RUNNER_TEMP/venus-docker"; then
             echo "::warning::Venus image build failed; retrying once."
             docker build --build-arg "UBUNTU_MIRROR=$UBUNTU_MIRROR" \
               -t mqtt "$RUNNER_TEMP/venus-docker"
           fi
-      - name: Start Test GX stack
+          docker save mqtt:latest | zstd -T2 -1 -o "$RUNNER_TEMP/test-gx-venus.tar.zst"
+      - name: Load cached Venus simulator image
+        if: steps.changes.outputs.relevant == 'true' && steps.venus-cache.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/test-gx-venus.tar.zst"
+      - name: Build synthetic Node-RED image
         if: steps.changes.outputs.relevant == 'true'
+        run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" build nodered
+      - name: Bundle shared Test GX images
+        id: bundle
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          set -euo pipefail
+          docker save mqtt:latest "test-gx-nodered:$TEST_GX_TAG" | zstd -T2 -1 -o "$RUNNER_TEMP/test-gx-images.tar.zst"
+          # A full rerun publishes a new artifact; failed shards reuse their producer's artifact.
+          echo "name=test-gx-images-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Upload shared Test GX images
+        if: steps.changes.outputs.relevant == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.bundle.outputs.name }}
+          path: ${{ runner.temp }}/test-gx-images.tar.zst
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+  # Keep the matrix jobs present even on docs-only PRs.
+  run:
+    name: scenarios (${{ matrix.files }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        files: [bms-watchdog.yml, charging.yml, charging-force.yml, charging-forecast.yml, charging-support.yml, charging-guards.yml, grid-edges.yml, grid-reaction.yml, grid-stale-inputs.yml, grid-tariff.yml, defrost-outdoor.yml, dhw-defrost.yml, dhw-protection.yml, dhw-schedule.yml, heat-pump-deploy.yml, heat-pump-er03.yml, heat-pump-idle.yml, heating-curve-follow.yml, heating-curve-monitor.yml, heating-review.yml, heating-warmup.yml, heating-band.yml, heating-kick.yml, heating-defrost.yml, trivial.yml]
+    permissions:
+      contents: read
+    steps:
+      - name: Report docs-only skip
+        if: needs.build.outputs.relevant == 'false'
+        run: echo "No Test GX relevant paths changed; skipping this file." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.build.outputs.relevant == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: needs.build.outputs.relevant == 'true'
+        with:
+          node-version: 22
+      - name: Download shared Test GX images
+        if: needs.build.outputs.relevant == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.image-artifact }}
+          path: ${{ runner.temp }}
+      - name: Load shared Test GX images
+        if: needs.build.outputs.relevant == 'true'
+        run: |
+          docker load --input "$RUNNER_TEMP/test-gx-images.tar.zst"
+          docker image inspect mqtt:latest "test-gx-nodered:$TEST_GX_TAG" > /dev/null
+      - name: Start Test GX stack
+        if: needs.build.outputs.relevant == 'true'
+        id: stack
         run: |
           ssh-keygen -q -t ed25519 -N '' -C test-gx -f "$RUNNER_TEMP/test-gx-key"
           cp "$RUNNER_TEMP/test-gx-key.pub" tools/test-gx/test_key.pub
-          docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" up -d --build
+          docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" up -d --no-build
       - name: Wait for emulator and Node-RED
-        if: steps.changes.outputs.relevant == 'true'
+        if: needs.build.outputs.relevant == 'true'
         run: |
           node <<'NODE'
           const urls = ['http://127.0.0.1:8081/state', 'http://127.0.0.1:1881/flows'];
@@ -173,12 +242,12 @@ jobs:
           });
           NODE
       - name: Run all scenarios
-        if: steps.changes.outputs.relevant == 'true'
+        if: needs.build.outputs.relevant == 'true'
         env:
           FILES: ${{ matrix.files }}
         run: node tools/test-gx/run-scenarios.js --file "$FILES" --junit test-gx-artifacts/junit.xml
       - name: Summarize JUnit results
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && needs.build.outputs.relevant == 'true'
         env:
           FILES: ${{ matrix.files }}
         run: |
@@ -219,7 +288,7 @@ jobs:
               raise SystemExit(1)
           PY
       - name: Collect Test GX diagnostics
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && (steps.stack.outcome == 'success' || steps.stack.outcome == 'failure')
         run: |
           mkdir -p test-gx-artifacts
           failed=0
@@ -241,20 +310,20 @@ jobs:
           fi
           exit "$failed"
       - name: Upload Test GX diagnostics
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && (steps.stack.outcome == 'success' || steps.stack.outcome == 'failure')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: test-gx-logs-${{ strategy.job-index }}
+          name: test-gx-logs-${{ github.run_attempt }}-${{ strategy.job-index }}
           path: test-gx-artifacts/
           retention-days: 14
           if-no-files-found: error
       - name: Tear down Test GX stack
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && (steps.stack.outcome == 'success' || steps.stack.outcome == 'failure')
         run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" down -v
 
   scenarios:
     if: always()
-    needs: run
+    needs: [build, run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -269,7 +338,9 @@ jobs:
           printf '## Test GX\n\nRepository version: **%s**\n' "$version" >> "$GITHUB_STEP_SUMMARY"
       - name: All scenario files passed
         env:
+          BUILD_RESULT: ${{ needs.build.result }}
           RESULT: ${{ needs.run.result }}
         run: |
           echo "scenario jobs: $RESULT"
+          [[ "$BUILD_RESULT" == success ]] || { echo "::error::Test GX image job: $BUILD_RESULT"; exit 1; }
           [[ "$RESULT" == success ]] || { echo "::error::Test GX scenario jobs: $RESULT"; exit 1; }

@@ -1,5 +1,5 @@
 {
-  "i": 7,
+  "i": 8,
   "changes": [
     {
       "i": 1,
@@ -42,6 +42,12 @@
       "date": "2026-11-22",
       "pr": 132,
       "what": "Characterize device status before its source split"
+    },
+    {
+      "i": 8,
+      "date": "2026-11-22",
+      "pr": 134,
+      "what": "Share Test GX images across scenario jobs"
     }
   ]
 }
