@@ -1,0 +1,97 @@
+- name: Normal DHW demand waits for the interval and starts once it expires
+  faketime: '@2026-11-16 20:00:00 x20'
+  # Last cycle ended at 19:25 Oslo time, so the one-hour interval expires at 20:25.
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off"},"heatCurve":{"p23":38,"p24":4},"dhwLastEnd":1794853500000,"dhw":{"gapRamp":false,"afterDefrost":false,"minGapH":0,"minIntervalH":1}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":46,"tuya.pump.dps.102":51,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":25,"tuya.pump.dps.115":0,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 16m
+      fromDeploy: true
+      settle: 1m
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"HEATING"},{"path":"why","contains":"(min 1 h"}]
+    - when: 30m
+      fromDeploy: true
+      settle: 2m
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"pump","dps":"134","value":12},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"},{"path":"shower.active","equals":false}]
+
+- name: Shower prep responds to a tank drop inside the ordinary cycle interval
+  faketime: '@2026-11-16 20:00:00 x18'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off"},"heatCurve":{"p23":38,"p24":4},"dhwLastEnd":1794853500000,"dhw":{"gapRamp":false,"afterDefrost":false,"minGapH":0,"minIntervalH":3,"showerForce":true}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":31,"tuya.pump.dps.102":36,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":49,"tuya.pump.dps.115":0,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 20m
+      settle: 50s
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"HEATING"},{"path":"shower.active","equals":false}]
+    - when: 21m
+      settle: 200s
+      inputs: {"tuya.pump.dps.108":46.5}
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"pump","dps":"134","value":12},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"},{"path":"shower.manual.running","equals":false},{"path":"shower.reason","contains":"tank fell at least 2"}]
+    - when: 25m
+      settle: 150s
+      heating: {"action":"dhwShowerForce","on":false}
+      expect:
+        writes: [{"device":"valve","dps":"1","value":false},{"device":"pump","dps":"2","value":"mute"},{"device":"pump","dps":"134","value":4},{"device":"pump","dps":"133","value":38}]
+        view: [{"path":"state","equals":"HEATING"},{"path":"shower.active","equals":false}]
+
+- name: Force boiler run waits for valid data and the operator can stop it
+  faketime: '@2026-11-16 20:00:00 x18'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off"},"heatCurve":{"p23":38,"p24":4},"dhwLastEnd":1794853500000,"dhw":{"gapRamp":false,"afterDefrost":false,"minGapH":0,"minIntervalH":3}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":31,"tuya.pump.dps.102":36,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":46.5,"tuya.pump.dps.115":0,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 16m
+      settle: 85s
+      fail: {"tuya.pump":"invalid"}
+      heating: {"action":"dhwForceRun","on":true}
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"HEATING"},{"path":"shower.manual.queued","equals":true},{"path":"why","contains":"shower start needs valid cycle measurements"}]
+    - when: 18m
+      settle: 205s
+      fail: {"tuya.pump":"ok"}
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"pump","dps":"134","value":12},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"},{"path":"shower.manual.running","equals":true},{"path":"shower.manual.queued","equals":false}]
+    - when: 22m
+      settle: 155s
+      heating: {"action":"dhwForceRun","on":false}
+      expect:
+        writes: [{"device":"valve","dps":"1","value":false},{"device":"pump","dps":"2","value":"mute"},{"device":"pump","dps":"134","value":4},{"device":"pump","dps":"133","value":38}]
+        view: [{"path":"state","equals":"HEATING"},{"path":"shower.manual.running","equals":false}]
+        log: [{"contains":"forced shower cycle stopped by operator","count":1}]
+
+- name: A forced DHW cycle stops safely when Tuya drops offline mid-cycle
+  faketime: '@2026-11-16 20:00:00 x18'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off"},"heatCurve":{"p23":38,"p24":4},"dhwLastEnd":1794853500000,"dhw":{"gapRamp":false,"afterDefrost":false,"minGapH":0,"minIntervalH":3}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":31,"tuya.pump.dps.102":36,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":46.5,"tuya.pump.dps.115":0,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 16m
+      settle: 205s
+      heating: {"action":"dhwForceRun","on":true}
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"pump","dps":"134","value":12},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"},{"path":"shower.manual.running","equals":true}]
+    - when: 20m
+      settle: 2m
+      fail: {"tuya.pump":"offline"}
+      expect:
+        writes: []
+        view: [{"path":"shower.state","equals":"stopping"},{"path":"waitNote","contains":"device not connected"}]
+        log: [{"contains":"forced cycle safety stop pending","count":1}]
+    - when: 23m
+      settle: 180s
+      fail: {"tuya.pump":"ok"}
+      expect:
+        writes: [{"device":"valve","dps":"1","value":false},{"device":"pump","dps":"2","value":"mute"},{"device":"pump","dps":"134","value":4},{"device":"pump","dps":"133","value":38}]
+        view: [{"path":"state","equals":"HEATING"},{"path":"shower.manual.running","equals":false}]
+        log: [{"contains":"forced cycle lost valid cycle measurements or device availability","count":1}]

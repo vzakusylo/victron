@@ -76,6 +76,25 @@ test('scenario settings reject unsupported fields and rule modes', () => {
     assert.throws(() => validateScenario({ ...scenario, settings: { master: true, modes: {}, heatCurve: { p23: 41, p24: 4 } } }), /valid p23 and p24/);
 });
 
+test('DHW scenario controls accept only boolean dashboard actions and finite cooldown seeds', () => {
+    const scenario = {
+        name: 'DHW controls',
+        faketime: '@2026-11-16 20:00:00 x18',
+        settings: { master: true, modes: { dhw: 'live' }, dhwLastEnd: 1794853500000 }
+    };
+    const withAction = (action, settings = scenario.settings) => ({
+        ...scenario, settings, steps: [{ when: '16m', heating: action, expect: { writes: [] } }]
+    });
+    for (const action of ['dhwForceRun', 'dhwShowerForce']) {
+        assert.doesNotThrow(() => validateScenario(withAction({ action, on: true })));
+        assert.doesNotThrow(() => validateScenario(withAction({ action, on: false })));
+        assert.throws(() => validateScenario(withAction({ action, on: 'true' })), /supported heating UI action/);
+        assert.throws(() => validateScenario(withAction({ action, on: true, extra: true })), /supported heating UI action/);
+    }
+    assert.throws(() => validateScenario(withAction({ action: 'dhwForceRun', on: true },
+        { ...scenario.settings, dhwLastEnd: Infinity })), /known rule modes/);
+});
+
 test('write assertions compare write count, order and requested fields', () => {
     const actual = [{ device: 'pump', operation: 'SET', dps: '133', value: 38, applied: true, ts: 1 }];
     assert.doesNotThrow(() => assertWrites(actual, [{ device: 'pump', dps: '133', value: 38 }], 'curve', 1));
