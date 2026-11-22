@@ -291,6 +291,7 @@ function model() {
     const dev = (role) => { const d = st[role] || {}; return { state: d.state || 'UNKNOWN', age: d.lastData ? Math.round((now - d.lastData) / 1000) : null }; };
     const f = context.get('flag') || flag;
     const sq = context.get('seqs') || {};
+    const shadow = flow.get(HP_SHADOW_KEY) || {};
     return {
         updated: new Date(now).toISOString(),
         updatedMs: now,
@@ -309,7 +310,8 @@ function model() {
         }),
         dhw: dhwModel(),
         queue: (context.get('queue') || []).length,
-        shadowDisagreements: (flow.get(HP_SHADOW_KEY) || {}).disagreements || 0,
+        shadowDisagreements: shadow.disagreements || 0,
+        shadowSameWriterSupersessions: shadow.sameWriterSupersessions || 0,
         log: context.get('log') || []
     };
 }

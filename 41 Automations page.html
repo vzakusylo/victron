@@ -79,7 +79,7 @@
     </span>
     <button ng-if="msg.payload.flag.on" ng-click="hpaFlagReset()">reset flag</button>
     <span class="small" ng-if="msg.payload.queue">write queue: {{msg.payload.queue}}</span>
-    <span class="small" ng-if="msg.payload.shadowDisagreements !== undefined" title="Diagnostic only: writes are not blocked by shadow arbitration.">shadow disagreements: {{msg.payload.shadowDisagreements}}</span>
+    <span class="small" title="Diagnostic only: writes are not blocked by shadow arbitration.">shadow disagreements: {{msg.payload.shadowDisagreements}} · same-writer supersessions: {{msg.payload.shadowSameWriterSupersessions}}</span>
   </div>
 
   <div ng-repeat="g in hpaGroups()">

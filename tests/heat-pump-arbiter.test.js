@@ -121,4 +121,7 @@ test('a later intent from the same writer is counted separately from ownership d
     assert.equal(shadow.sameWriterSupersessions, 1);
     assert.equal(shadow.disagreements || 0, 0);
     assert.ok(!first.logs.some(line => line.startsWith('HP shadow')));
+    const model = f.tick(t + 4000, { 133: 40, 134: 9 }).result[0].payload;
+    assert.equal(model.shadowDisagreements, 0);
+    assert.equal(model.shadowSameWriterSupersessions, 1);
 });
