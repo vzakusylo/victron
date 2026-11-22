@@ -43,6 +43,26 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
   terminal and reads its screen; status is inferred (a prompt can report "stalled" for a few seconds after a restart
   although the text arrived).
 
+
+### 2a. Conflict check before every new task (and before pushing)
+Before starting a new task (a worker, a session or my own PR) and again before pushing, check it against **all work
+in progress**: open PRs (`gh pr list --state open` + `gh pr view <N> --json files`), every Herdr worker's branch and
+brief (`herdr agent list`, `git -C <worktree> diff --name-only origin/master...`), queued briefs and BACKLOG
+"in progress" rows.
+1. **Files:** list the files the new task will touch; no overlap with any in-progress task. Generated files count
+   through their sources (`flows.json` ← every `NN` / `lib/` source).
+2. **Areas:** no two tasks change the same node, lib area, scenario file, workflow or deploy tool, even in different
+   files (e.g. grid: `01`, `63`, `lib/grid`, `grid-*.yml`).
+3. **Shared counters / lists** (`d#`, `i#` in `tools/infra-version.json`, `BACKLOG.md`, `docs/agent-process-log.md`):
+   allowed in parallel, but the later PR must `git merge origin/master` and re-run `sync` / the `i#` bump before it
+   merges; say so in the brief.
+4. **Dependencies:** the task must not need an unmerged result (e.g. G2 after G1) and must not change something
+   another task relies on (deploy tool, test harness, required check names).
+5. **Live GX:** at most one task that deploys or needs a manual apply in flight at a time.
+If any check fails: queue the task after the conflicting one (write the brief, send "Queued: after #N …"), or narrow
+its scope; never start it in parallel. State the result in one line when starting: "Conflict check: none (files …)"
+or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whose files overlap an open PR waits.
+
 ## 3. Owner's rules (standing)
 
 1. **English everywhere**: chat, code, comments, docs, commits, PRs, reviews.

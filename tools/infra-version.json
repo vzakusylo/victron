@@ -1,5 +1,5 @@
 {
-  "i": 5,
+  "i": 6,
   "changes": [
     {
       "i": 1,
@@ -30,6 +30,12 @@
       "date": "2026-11-22",
       "pr": 136,
       "what": "Test the fixed grid-control cadence and tighter CT reaction bound"
+    },
+    {
+      "i": 6,
+      "date": "2026-11-22",
+      "pr": 133,
+      "what": "Conflict-check rule for new tasks and pushes"
     }
   ]
 }
