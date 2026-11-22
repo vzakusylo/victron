@@ -595,7 +595,7 @@ only when the image job and every file job passed. The `test-gx-logs-<attempt>-<
 The run's critical path includes the shared image job and the slowest file. Charging scenarios retain their real-time pacing
 and run in five matrix files; `--suite charging` selects all five locally.
 
-### T1b timing baseline
+### T1b timings
 
 The three latest green `master` runs sampled before the change were
 [45021212964](https://github.com/vzakusylo/victron/actions/runs/45021212964),
@@ -606,6 +606,30 @@ Their wall times (run creation to completion, including queues) were 15:05, 16:4
 its scenario step took 10:24, 10:27 and 10:23. Source preparation and Venus build took
 2:46, 2:35 and 2:45, with another 31, 37 and 31 seconds in Compose startup,
 which included the Node-RED build.
+
+The first [PR run](https://github.com/vzakusylo/victron/actions/runs/45026403526) built and
+uploaded both images in one 3:32 job (cold Venus cache; 385 MB artifact). It was superseded
+when the branch merged the new `master`, so it has no comparable completion time. It had
+already exceeded the baseline wall time by then, with the build queued for 4:30 and
+`heat-pump-er03.yml` queued for another 14:11 after the image job. That queue time is not
+scenario execution time.
+
+Completed shards from that run, in seconds. Before is the median of the three green master
+runs. Setup includes Venus source/build and Compose startup before; image download/load
+and Compose startup after. Job time excludes runner queues.
+
+| File | Setup before / after | Scenarios before / after | Job before / after |
+|---|---:|---:|---:|
+| `bms-watchdog.yml` | 195 / 31 | 45 / 48 | 269 / 107 |
+| `charging-force.yml` | 173 / 37 | 425 / 425 | 640 / 483 |
+| `charging-forecast.yml` | 170 / 31 | 233 / 234 | 434 / 284 |
+| `charging-guards.yml` | 209 / 44 | 500 / 499 | 741 / 566 |
+| `defrost-outdoor.yml` | 170 / 40 | 69 / 65 | 269 / 125 |
+| `dhw-schedule.yml` | 204 / 44 | 448 / 446 | 685 / 510 |
+| `grid-reaction.yml` | 177 / 32 | 257 / 258 | 467 / 310 |
+| `grid-tariff.yml` | 170 / 43 | 125 / 123 | 321 / 188 |
+| `heat-pump-deploy.yml` | 171 / 44 | 370 / 367 | 570 / 432 |
+| `heating-kick.yml` | 200 / 53 | 115 / 116 | 346 / 191 |
 
 ## Fixture isolation and verification
 
