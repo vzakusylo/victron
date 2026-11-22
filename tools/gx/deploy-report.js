@@ -44,6 +44,24 @@ function plannedAdditions(runFolder, commit, root = path.join(__dirname, '..', '
     });
 }
 
+function plannedRemovals(runFolder, commit, root = path.join(__dirname, '..', '..')) {
+    const file = path.join(runFolder, 'plan.json');
+    if (!fs.existsSync(file)) return [];
+    const plan = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (!plan.remove?.length) return [];
+    const base = plan.removalBase?.sha;
+    if (!/^[0-9a-f]{40}$/.test(base || '') || plan.sha !== commit || !Array.isArray(plan.remove)) throw new Error('Invalid removal plan for deployment report.');
+    const git = (...args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: 1 << 27 });
+    git('merge-base', '--is-ancestor', base, commit);
+    const old = new Map(JSON.parse(git('show', base + ':flows.json')).map(node => [node.id, node]));
+    const target = new Set(JSON.parse(git('show', commit + ':flows.json')).map(node => node.id));
+    return plan.remove.map(id => {
+        if (!old.has(id) || target.has(id)) throw new Error('Planned removal is not in the reporting Git diff.');
+        const { type, name = '' } = old.get(id);
+        return { id, type, name };
+    });
+}
+
 function repositoryChanges(previous, commit, root = path.join(__dirname, '..', '..')) {
     if (!/^[0-9a-f]{40}$/.test(commit || '')) throw new Error('Expected a full deployment commit SHA.');
     const groups = new Map();
@@ -113,10 +131,15 @@ function formatReport(report) {
         lines.push('', `Planned node additions (${report.additions.length}; from the target commit):`);
         for (const node of report.additions) lines.push('- ' + escape(JSON.stringify(node)));
     }
+    if (report.removals?.length) {
+        const verified = report.mode === 'apply' && report.outcome === 'success' && report.after;
+        lines.push('', `${verified ? 'Removed nodes' : 'Planned node removals'} (${report.removals.length}; from the recorded Git commit):`);
+        for (const node of report.removals) lines.push('- ' + escape(JSON.stringify(node)));
+    }
     return lines.join('\n') + '\n';
 }
 
-module.exports = { publicSummary, repositoryChanges, formatReport, plannedAdditions };
+module.exports = { publicSummary, repositoryChanges, formatReport, plannedAdditions, plannedRemovals };
 
 if (require.main === module) {
     const [runFolder, output] = process.argv.slice(2);
@@ -132,6 +155,7 @@ if (require.main === module) {
     report.changes = repositoryChanges(report.previous, report.commit);
     report.repositoryVersion = versions();
     report.additions = plannedAdditions(runFolder, report.commit);
+    report.removals = plannedRemovals(runFolder, report.commit);
     fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
     process.stdout.write(formatReport(report));
 }

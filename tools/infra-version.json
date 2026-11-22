@@ -1,5 +1,5 @@
 {
-  "i": 8,
+  "i": 9,
   "changes": [
     {
       "i": 1,
@@ -48,6 +48,12 @@
       "date": "2026-11-22",
       "pr": 134,
       "what": "Share Test GX images across scenario jobs"
+    },
+    {
+      "i": 9,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Add manual Git-verified GX node removals"
     }
   ]
 }

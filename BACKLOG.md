@@ -167,6 +167,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+In progress (`deploy-removed-nodes`): add a manual allowlist for verified GX node removals after G2.
+
 #134 T1b (d#213 unchanged · i#8): share the Test GX images across shards. Typical shard setup fell from ~170–200 s to 31–53 s. The extra build job adds 3:32 cold (0:58 warm) to the critical path; the cold path is estimated within a minute of baseline, not demonstrably faster. The full warm PR run was green in 52:18 including queues vs. 15:04–18:13 before, while summed runner time fell from 203:00 median to 135:16 despite one extra job. See [CI timings](docs/test-gx.md#t1b-timings).
 
 #132 NR9 (node 29 only, d#213 · i#7): split device status into sampler, parser, and view includes (523 → 116 lines), with two characterization tests and no runtime changes.

@@ -25,6 +25,10 @@ on:
         description: "Pass -AllowNewNodes for reviewed additions. Review a dry run of the same commit before apply."
         type: boolean
         default: false
+      allow_removed_nodes:
+        description: "Exact comma-separated Git-verified node IDs to remove. Empty stops all removals."
+        type: string
+        default: ""
   # A green Test GX push to master can deploy the newest eligible green commit.
   workflow_run:
     workflows: ["Test GX scenarios"]
@@ -87,6 +91,7 @@ jobs:
       VERSION_TYPE: ${{ github.event_name == 'workflow_run' && 'test' || inputs.version }}
       ALLOW_LIVE_ONLY_LINES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_live_only_lines }}
       ALLOW_NEW_NODES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_new_nodes }}
+      ALLOW_REMOVED_NODES: ${{ inputs.allow_removed_nodes }}
     steps:
       - uses: actions/checkout@v7
         if: env.AUTO == 'true'
@@ -198,6 +203,7 @@ jobs:
           if ($env:AUTO -ne 'true' -and $env:ALLOW_LIVE_ONLY_LINES -eq 'true') { $arguments += '-AllowLiveOnlyLines' }
           else { $arguments += '-AllowReplaceDeployedLines' }
           if ($env:ALLOW_NEW_NODES -eq 'true') { $arguments += '-AllowNewNodes' }
+          if ($env:AUTO -ne 'true' -and $env:ALLOW_REMOVED_NODES) { $arguments += @('-AllowRemovedNodes', $env:ALLOW_REMOVED_NODES) }
           & pwsh @arguments
           exit $LASTEXITCODE
 

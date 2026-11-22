@@ -46,6 +46,8 @@ function snapshot(flows, rev, options) {
         if (raw) entry.restJson = stable(rest);
         if (options && options.topology) {
             entry.topology = Object.fromEntries(TOPOLOGY_FIELDS.filter((key) => Object.hasOwn(node, key)).map((key) => [key, node[key]]));
+            const { x, y, ...definition } = node;
+            entry.definition = crypto.createHash('sha256').update(stable(definition)).digest('hex');
         }
         if (node.type === 'tab') { entry.label = node.label; entry.info = node.info || ''; }
         if (node.type === 'ui_base') entry.site = node.site && node.site.name;

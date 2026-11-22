@@ -115,4 +115,77 @@ function additionPlan(live, repo, allowNewNodes) {
     return { add: additions.map((node) => node.id), wire, ...(groups.size ? { groups: [...groups] } : {}) };
 }
 
-module.exports = { additionPlan, describe };
+function recordedCommit(info = '') {
+    const records = [...info.matchAll(/<!-- victron-deployment-source -->\s*([\s\S]*?)\s*<!-- \/victron-deployment-source -->/g)];
+    if (records.length !== 1 || (info.match(/<!-- \/?victron-deployment-source -->/g) || []).length !== 2) {
+        fail('The GX deployment record is missing or ambiguous.');
+    }
+    const record = JSON.parse(records[0][1]);
+    if (!/^[a-f0-9]{40}$/.test(record?.dashboard || '') || record.dashboard !== record.automations) {
+        fail('An identical Git deployment SHA for dashboard and automations is required for removals.');
+    }
+    return record.dashboard;
+}
+
+function removalPlan(live, target, allowed, baseline = []) {
+    const byId = nodes => new Map(nodes.map(node => [node.id, node]));
+    const original = byId(live), source = byId(target), previous = byId(baseline);
+    if (original.size !== live.length || source.size !== target.length || previous.size !== baseline.length) fail('Duplicate node IDs.');
+    const remove = live.filter(node => !source.has(node.id)).map(node => node.id);
+    const removed = new Set(remove), approved = new Set(allowed);
+    if (approved.size !== allowed.length || allowed.some(id => !/^[a-zA-Z0-9_.-]+$/.test(id))) fail('Invalid or duplicate removal IDs.');
+    const unexpected = remove.filter(id => !approved.has(id));
+    if (unexpected.length) fail('Removing GX nodes is not supported without listing every removal: ' + unexpected.join(', ') + '.');
+    const unused = allowed.filter(id => !removed.has(id));
+    if (unused.length) fail('Listed IDs would not be removed: ' + unused.join(', ') + '.');
+    if (!removed.size) return { remove, reconnect: {} };
+
+    for (const id of remove) {
+        const node = original.get(id), known = previous.get(id);
+        if (!known || !node.definition || node.definition !== known.definition) fail(id + ': GX node does not match the recorded commit.');
+        if (original.get(node.topology.z)?.type !== 'tab' || !TYPES.has(node.type)) {
+            fail(id + ': removing tabs, groups or configuration nodes requires a manual deploy.');
+        }
+    }
+
+    const reconnect = Object.create(null);
+    for (const node of target) {
+        const current = original.get(node.id);
+        const from = current?.topology;
+        const to = node.topology;
+        if (Object.values(to).some(value => Array.isArray(value) && value.flat().some(id => removed.has(id)))) {
+            fail(node.id + ': target still references a removed node.');
+        }
+        if (!from) continue;
+        const fields = Object.create(null);
+        for (const key of ['wires', 'links', 'nodes']) {
+            if (!from[key]?.flat().some(id => removed.has(id))) continue;
+            const old = from[key], next = to[key] || [];
+            if (node.type !== current.type || from.z !== to.z || !equal(old, previous.get(node.id)?.topology[key])) {
+                fail(node.id + '.' + key + ': GX connections do not match the recorded commit.');
+            }
+            if (key === 'wires') {
+                // Rerouting is limited to outputs that lose an approved destination.
+                const valid = Array.isArray(to.wires) && from.outputs === to.outputs && old.length === next.length &&
+                    next.every(out => Array.isArray(out) && new Set(out).size === out.length &&
+                        out.every(id => source.get(id)?.topology.z === to.z && !['tab', 'group'].includes(source.get(id)?.type))) &&
+                    old.every((out, i) => out.some(id => removed.has(id))
+                        ? equal(out.filter(id => !removed.has(id)), next[i].filter(id => out.includes(id)))
+                        : equal(out, next[i].filter(id => original.has(id))));
+                if (!valid) fail(node.id + ': unsafe wiring change alongside removal.');
+            } else if (!equal(old.filter(id => !removed.has(id)), next.filter(id => original.has(id)))) {
+                fail(node.id + '.' + key + ': unsafe connection change alongside removal.');
+            }
+            fields[key] = key === 'wires' ? next.map(out => out.filter(id => original.has(id))) : old.filter(id => !removed.has(id));
+        }
+        if (Object.keys(fields).length) reconnect[node.id] = fields;
+    }
+    return { remove, reconnect };
+}
+
+function cleanTopology(nodes, { remove, reconnect }) {
+    const removed = new Set(remove);
+    return nodes.filter(node => !removed.has(node.id)).map(node => Object.hasOwn(reconnect, node.id) ? { ...node, ...reconnect[node.id] } : node);
+}
+
+module.exports = { additionPlan, describe, recordedCommit, removalPlan, cleanTopology };

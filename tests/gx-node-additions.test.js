@@ -2,6 +2,59 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { additionPlan } = require('../tools/gx/node-additions');
+const { recordedCommit, removalPlan, cleanTopology } = require('../tools/gx/node-additions');
+const { snapshot } = require('../tools/gx/live-snapshot');
+
+function removalFixture() {
+    const old = [
+        { id: 'tab', type: 'tab' },
+        { id: 'sender', type: 'inject', z: 'tab', g: 'layout', wires: [['gone', 'keep'], ['keep']] },
+        { id: 'layout', type: 'group', z: 'tab', nodes: ['sender', 'gone', 'keep'] },
+        { id: 'gone', type: 'delay', z: 'tab', g: 'layout', timeout: '500', wires: [['keep']] },
+        { id: 'keep', type: 'function', g: 'layout', z: 'tab', wires: [] },
+        { id: 'replacement', type: 'function', z: 'tab', wires: [] }
+    ];
+    const live = structuredClone(old), target = structuredClone(old).filter(node => node.id !== 'gone');
+    target.find(node => node.id === 'sender').wires[0] = ['replacement', 'keep'];
+    target.find(node => node.id === 'layout').nodes.splice(1, 1);
+    const nodes = flow => snapshot(flow, null, { topology: true }).nodes;
+    const plan = (ids, baseline = old) => removalPlan(nodes(live), nodes(target), ids, nodes(baseline));
+    return { old, live, target, plan };
+}
+
+test('the exact recorded removal list reroutes verified connections and cleans group membership', () => {
+    const { live, target, plan } = removalFixture();
+    assert.deepEqual(cleanTopology(live, plan(['gone'])), target);
+    assert.ok(live.some(node => node.id === 'gone'), 'planning does not mutate live');
+});
+
+test('unlisted, extra, duplicate, or live-only node removals stop', () => {
+    const { old, plan, live } = removalFixture();
+    assert.throws(() => plan([]), /without listing every removal: gone/);
+    assert.throws(() => plan(['gone', 'keep']), /Listed IDs would not be removed: keep/);
+    assert.throws(() => plan(['gone', 'gone']), /Invalid or duplicate/);
+    assert.throws(() => plan(['gone'], old.filter(node => node.id !== 'gone')), /does not match the recorded commit/);
+    live.find(node => node.id === 'gone').timeout = '1000';
+    assert.throws(() => plan(['gone']), /does not match the recorded commit/);
+});
+
+test('removal will not overwrite local connections or rewire an unrelated surviving output', () => {
+    const { live, target, plan } = removalFixture();
+    const sender = live.find(node => node.id === 'sender');
+    sender.wires[0].push('replacement');
+    assert.throws(() => plan(['gone']), /GX connections do not match/);
+    sender.wires[0].pop();
+    target.find(node => node.id === 'sender').wires[1] = ['replacement'];
+    assert.throws(() => plan(['gone']), /unsafe wiring/);
+});
+
+test('removals require one unambiguous common Git deployment record', () => {
+    const sha = 'a'.repeat(40);
+    const stamp = automations => `<!-- victron-deployment-source -->\n${JSON.stringify({ dashboard: sha, automations })}\n<!-- /victron-deployment-source -->`;
+    assert.equal(recordedCommit(stamp(sha)), sha);
+    assert.throws(() => recordedCommit(stamp('b'.repeat(40))), /identical Git deployment SHA/);
+    assert.throws(() => recordedCommit(stamp(sha).repeat(2)), /ambiguous/);
+});
 
 function fixture() {
     const node = (id, type, extra = {}) => ({ id, type, z: 'tab', ...extra });
