@@ -22,6 +22,7 @@ Claude (in a separate chat) plans and reviews; you implement. The owner relays m
 - Work only on the branch named in the instructions. Never push to `master`; everything goes through a PR, including docs and these rules.
 - **One open PR at a time.** Create each branch from a fresh `master` and keep it to its own files.
   - Don't open your PR while another PR is open: build and test locally, then wait until Claude releases it.
+  - The next task waits in its branch (local commits only, no PR); after the active PR merges it is rebased on the latest origin/master and only then opened.
   - Right before opening it: `git fetch origin; git rebase origin/master`, run `sync` again (`d#`), bump `i#` once on top of master, run check and all tests.
   - Push with `--force-with-lease` if the branch was pushed before, then open the PR with auto-merge.
   - After the PR is open, merge `origin/master` in (no further rebase) if `master` moves. Merges use merge commits.

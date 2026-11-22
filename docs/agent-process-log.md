@@ -4,6 +4,7 @@ One line per process event: agents started / stopped, rules changed, incidents, 
 Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-work-log.md`.
 
 | Date (UTC) | Event | Change / outcome |
+| 2026-11-22 | NR3 local Test GX startup used the default Compose project: `up.ps1` does not use `TEST_GX_COMPOSE_PROJECT` and ran its volume-removing startup | Updated the Test GX skill to use explicit `docker compose -p` with a unique project on shared hosts, and never remove volumes |
 |---|---|---|
 | 2026-11-22 | Owner rule: one open PR at a time; rebase the branch on the latest `origin/master` right before opening its PR (re-sync d#, one i# bump on top), merge commits for merging | `CLAUDE.md`, `docs/claude-operating-guide.md` §2a and §4, `docs/agent-workflow.md`, `.github/copilot-instructions.md`; open PRs left unchanged |
 | 2026-11-22 | Rule: every new task starts from the latest master (`git fetch origin` + new branch from `origin/master`), also in reused worker worktrees; briefs say it as step 1 | `docs/claude-operating-guide.md` §2a, `docs/agent-workflow.md` |

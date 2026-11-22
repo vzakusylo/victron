@@ -26,9 +26,9 @@ function fixedDate(nowMs) {
     };
 }
 
-function loadNode(file, sourceText, flow = store()) {
+function loadNode(file, sourceText, flow = store(), modules = {}) {
     const source = sourceText === undefined ? readSource(file) : sourceText;
-    const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', source);
+    const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', 'clearTimeout', ...Object.keys(modules), source);
     const context = store();
 
     // opts.now: Date or ms (default: real time). Returns what the node returned.
@@ -43,7 +43,7 @@ function loadNode(file, sourceText, flow = store()) {
             log: (t) => { call.logs.push(String(t)); }
         };
         const timer = (cb, ms) => { call.timers.push({ cb, ms }); return call.timers.length; };
-        call.result = fn(msg, node, context, flow, store(), store(), fixedDate(now), Buffer, timer);
+        call.result = fn(msg, node, context, flow, store(), store(opts?.env), fixedDate(now), Buffer, timer, () => {}, ...Object.values(modules));
         return call;
     }
 

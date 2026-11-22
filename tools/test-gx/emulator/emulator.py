@@ -28,10 +28,11 @@ from forecast_fixture import forecast_fixture
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 import dbus  # noqa: E402
-from dbus.mainloop.glib import DBusGMainLoop  # noqa: E402
+from dbus.mainloop.glib import DBusGMainLoop, threads_init  # noqa: E402
 from gi.repository import GLib  # noqa: E402
 from vedbus import VeDbusService  # noqa: E402
 
+threads_init()
 DBusGMainLoop(set_as_default=True)
 
 DEFAULTS = dict(pv_w=0.0, load_w=800.0, soc=60.0, cap_ah=280.0, bms_max_charge_a=100.0, bms_max_discharge_a=200.0,
@@ -39,6 +40,8 @@ DEFAULTS = dict(pv_w=0.0, load_w=800.0, soc=60.0, cap_ah=280.0, bms_max_charge_a
 FORCEABLE = ('grid_w', 'batt_v', 'batt_a', 'consumed_ah')
 SERVICES = ('system', 'vebus', 'battery')
 BMS_DEFAULTS = dict(present=False, connected=False, active=False, instance=-1, passthru=False)
+BMS_SERVICE = 'com.victronenergy.battery.ttyTEST'
+BMS_INSTANCE = '/Settings/SystemSetup/BmsInstance'
 
 lock = threading.Lock()
 state = dict(DEFAULTS)
@@ -51,6 +54,8 @@ ready = False         # API answers 200 only after all services are registered a
 computed = dict(grid_w=0.0, batt_w=0.0, batt_a=0.0, batt_v=51.2, consumed_ah=0.0)
 services = {}
 buses = {}
+bms_settings_bus = None
+serial_visible = False
 mqtt_client = None
 
 
@@ -83,11 +88,13 @@ def build(name):
     bus.set_exit_on_disconnect(False)   # closing the connection on purpose must not terminate the process
     info = dict(system=('com.victronenergy.system', 0, 'Venus emulator'),
                 vebus=('com.victronenergy.vebus.emulator', 276, 'MultiPlus-II 48/5000 (emulated)'),
-                battery=('com.victronenergy.battery.emulator', 289, 'SmartShunt (emulated)'))[name]
+                battery=('com.victronenergy.battery.emulator', 289, 'SmartShunt (emulated)'),
+                serial=(BMS_SERVICE, 290, 'SerialBattery (emulated)'))[name]
     svc = VeDbusService(info[0], bus=bus, register=False)
     svc.add_mandatory_paths('test-gx-emulator', '1.0', 'emulated', info[1], 0, info[2], 0x0510, '1', 1)
     # fake identity for the Devices page; never a real serial number
-    svc.add_path('/CustomName', {'system': 'Test GX', 'vebus': 'MultiPlus (emu)', 'battery': 'SmartShunt (emu)'}[name])
+    svc.add_path('/CustomName', {'system': 'Test GX', 'vebus': 'MultiPlus (emu)', 'battery': 'SmartShunt (emu)',
+                                'serial': 'SerialBattery (emu)'}[name])
     svc.add_path('/Serial', 'HQEMU0001')
 
     def writer(path, value):
@@ -98,12 +105,15 @@ def build(name):
                   '/Dc/Battery/Voltage', '/Dc/Battery/Current', '/Dc/Battery/Power'):
             svc.add_path(p, 0.0)
         svc.add_path('/Notifications/Inject', '', writeable=True, onchangecallback=writer)
+        svc.add_path('/ActiveBmsService', None)
     elif name == 'vebus':
         svc.add_path('/Ac/In/1/CurrentLimit', 25.0, writeable=True, onchangecallback=writer)
         for p, v in (('/State', 3), ('/Mode', 3), ('/Soc', 60.0), ('/Ac/ActiveIn/Connected', 1),
                      ('/Ac/ActiveIn/L1/P', 0.0), ('/Ac/Out/L1/P', 0.0), ('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/VebusError', 0)):
             svc.add_path(p, v)
-    else:
+        svc.add_path('/Alarms/BmsConnectionLost', 0)
+        svc.add_path('/Alarms/LowBattery', 0)
+    elif name == 'battery':
         for p, v in (('/Dc/0/Voltage', 51.2), ('/Dc/0/Current', 0.0), ('/Dc/0/Power', 0.0), ('/ConsumedAmphours', 0.0),
                      ('/Soc', 60.0), ('/Info/MaxChargeCurrent', 100.0), ('/Info/MaxDischargeCurrent', 200.0), ('/Dc/0/Temperature', 20.0)):
             svc.add_path(p, v)
@@ -125,6 +135,26 @@ def settings_value(path, fallback, strict=False):
         if strict:
             raise
         return fallback
+
+
+def set_bms_instance(value):
+    obj = bms_settings_bus.get_object('com.victronenergy.settings', BMS_INSTANCE)
+    if obj.SetValue(dbus.Int32(value), dbus_interface='com.victronenergy.BusItem') != 0:
+        raise RuntimeError('localsettings rejected synthetic BMS instance')
+
+
+def publish_serial():
+    global serial_visible
+    if bms['present']:
+        if 'serial' not in services:
+            build('serial')
+        elif not serial_visible:
+            buses['serial'].request_name(BMS_SERVICE)
+        serial_visible = True
+        services['serial']['/Connected'] = int(bms['connected'])
+    elif serial_visible:
+        buses['serial'].release_name(BMS_SERVICE)
+        serial_visible = False
 
 
 def vebus_limit_a():
@@ -209,12 +239,18 @@ def publish(name):
         update('/Dc/Battery/Voltage', round(c['batt_v'], 2))
         update('/Dc/Battery/Current', round(c['batt_a'], 2))
         update('/Dc/Battery/Power', round(c['batt_w'], 1))
+        update('/ActiveBmsService', BMS_SERVICE if bms['active'] else None)
     elif name == 'vebus':
         update('/Soc', round(s['soc'], 1))
         update('/Ac/ActiveIn/L1/P', round(c['grid_w'], 1))
         update('/Ac/Out/L1/P', round(s['load_w'], 1))
         update('/Dc/0/Voltage', round(c['batt_v'], 2))
         update('/Dc/0/Current', round(c['batt_a'], 2))
+        if bms['passthru']:
+            update('/State', 8)
+        elif svc['/State'] == 8:
+            update('/State', 3)
+        update('/Alarms/BmsConnectionLost', int(bms['passthru']))
     else:
         update('/Dc/0/Voltage', round(c['batt_v'], 2))
         update('/Dc/0/Current', round(c['batt_a'], 2))
@@ -240,6 +276,7 @@ def tick():
                 elif name not in services:
                     build(name)
                 publish(name)
+            publish_serial()
             tuya.tick(dt)
     except Exception as error:
         print('tick failed:', repr(error), flush=True)
@@ -282,6 +319,8 @@ def ready_by_timeout():
 
 
 def on_settings_change(changes, path=None):
+    if str(path) == BMS_INSTANCE:
+        return  # the fixture repair endpoint records the write; scenario setup is not a flow write
     # PropertiesChanged of a settings item: the flow wrote it
     global startup_write_pending, signal_seen
     if startup_write_pending and str(path) == MAX_CHARGE:
@@ -386,6 +425,8 @@ class Api(BaseHTTPRequestHandler):
                         field = body['path'][4:]
                         if field not in BMS_DEFAULTS or type(body['value']) is not type(BMS_DEFAULTS[field]):
                             raise ValueError('invalid BMS fixture input')
+                        if field == 'instance':
+                            set_bms_instance(body['value'])
                         bms[field] = body['value']
                     else:
                         apply_set(body['path'], body['value'])
@@ -393,6 +434,7 @@ class Api(BaseHTTPRequestHandler):
                     instance = body.get('instance')
                     if type(instance) is not int:
                         raise ValueError('BmsInstance must be an integer')
+                    set_bms_instance(instance)
                     bms['instance'] = instance
                     writes.append(dict(ts=time.time(), service='settings', path='/Settings/SystemSetup/BmsInstance',
                                        value=instance))
@@ -422,6 +464,7 @@ class Api(BaseHTTPRequestHandler):
                     forced.clear()
                     stale_until.clear()
                     failed.clear()
+                    set_bms_instance(BMS_DEFAULTS['instance'])
                     bms.update(BMS_DEFAULTS)
                     writes.clear()
                     tuya.reset()
@@ -440,7 +483,7 @@ class Api(BaseHTTPRequestHandler):
 
 def main():
     import paho.mqtt.client as mqtt
-    global mqtt_client
+    global mqtt_client, bms_settings_bus
     mqtt_client = mqtt.Client()
     connected = threading.Event()
 
@@ -486,6 +529,11 @@ def main():
     if not connected.wait(10):
         raise RuntimeError('Tuya MQTT connection/subscription did not become ready')
     sysbus = dbus.SystemBus()
+    settings = sysbus.get_object('com.victronenergy.settings', '/Settings')
+    settings.AddSetting('SystemSetup', 'BmsInstance', -1, 'i', -1, 65535,
+                        dbus_interface='com.victronenergy.Settings')
+    bms_settings_bus = dbus.SystemBus(private=True)
+    set_bms_instance(BMS_DEFAULTS['instance'])
     sysbus.add_signal_receiver(on_settings_change, signal_name='PropertiesChanged', dbus_interface='com.victronenergy.BusItem',
                                bus_name='com.victronenergy.settings', path_keyword='path')
     global startup_write_pending

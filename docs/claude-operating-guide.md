@@ -52,6 +52,7 @@ A reused worker worktree also switches to a fresh branch from `origin/master`; n
 
 **One open PR at a time; rebase right before opening it** (owner rule, 2026-11-22).
 - Don't open a new PR (mine or a worker's) while the previous PR is unmerged.
+- The next task waits in its branch (local commits only, no PR); after the active PR merges it is rebased on the latest origin/master and only then opened.
 - Workers may build in parallel locally but hold their PR. Claude releases the next one when
   `gh pr list --state open` is empty.
 - Right before opening:

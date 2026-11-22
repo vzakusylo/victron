@@ -7,6 +7,8 @@ description: Run Test GX scenarios locally in Docker (Venus simulator + Node-RED
 
 Fake data only: never pass a real backup unless the owner asks (`-Backup` needs a sanitized directory).
 
+On a shared Docker host, do not use `up.ps1` or `-Down`: the script deletes the selected project's volume. Build the synthetic fixture with `node tools/test-gx/build-fixture.js`, then use `docker compose -p <unique-project> -f tools/test-gx/docker-compose.yml -f tools/test-gx/docker-compose.fixture.yml up -d --build` with a unique `TEST_GX_TAG` and `TEST_GX_SIM=emu`. Check that the fixed localhost ports are free first. Set `TEST_GX_COMPOSE_PROJECT` and `TEST_GX_COMPOSE_OVERRIDE` for the scenario runner. Stop the same named project with `docker compose … down` without `-v`.
+
 1. **Docker up:** `docker version` must answer. Start the stack from the repo root:
    `.\tools\test-gx\up.ps1 -Sim emu` (builds the image the first time, ~5 min). Ready when
    `http://127.0.0.1:8081/state` and `http://127.0.0.1:1881/flows` answer.

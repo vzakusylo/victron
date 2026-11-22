@@ -8,7 +8,7 @@
 // - Keeps DVCC "Controlling BMS" pointed at the SerialBattery. After a reboot it was found empty
 //   (com.victronenergy.system /ActiveBmsService = []), so the MultiPlus raised "BMS connection lost"
 //   + "Low battery" and stayed in Passthru until the BMS was selected again by hand.
-// How it works (every 30 s, via the dbus CLI in the exec node, works as user `nodered`):
+// How it works (every 30 s, read directly from D-Bus and disk):
 // - reads /ActiveBmsService (system), /Settings/SystemSetup/BmsInstance (settings), the SerialBattery
 //   /Connected, and the VE.Bus /State + BMS-lost / low-battery alarms
 // - while a BMS is active, the current BmsInstance value is remembered in
@@ -22,7 +22,7 @@
 // - inject tick (any topic) -> start a check
 // - topic `bms-watchdog-exec` (exec stdout) -> evaluate
 // Outputs (2):
-// - output 1 -> exec "Run BMS watchdog" (`sh -c <payload>`)
+// - output 1 -> exec "Run BMS watchdog" only to save a changed setting or perform a repair
 // - output 2 -> "Format GX notification" (msg.notification = { title, message, type })
 // Flow context:
 // - `bmsWatchdogState` (also shown on the Device page)
@@ -45,19 +45,50 @@ function shellQuote(text) {
     return "'" + String(text).replace(/'/g, "'\\''") + "'";
 }
 
-const READ_SCRIPT = [
-    'F="' + GOOD_FILE + '"',
-    'g() { dbus -y "$1" "$2" GetValue 2>/dev/null | sed "s/^value = //"; }',
-    'B=$(dbus -y 2>/dev/null | grep -m 1 "^com.victronenergy.battery.tty")',
-    'V=$(dbus -y 2>/dev/null | grep -m 1 "^com.victronenergy.vebus")',
-    'echo "@@ACTIVE $(g com.victronenergy.system /ActiveBmsService)"',
-    'echo "@@SETTING $(g com.victronenergy.settings /Settings/SystemSetup/BmsInstance)"',
-    'echo "@@BATT $B"',
-    '[ -n "$B" ] && echo "@@CONNECTED $(g "$B" /Connected)"',
-    '[ -n "$V" ] && { echo "@@VEBUS $V"; echo "@@VSTATE $(g "$V" /State)"; echo "@@BMSLOST $(g "$V" /Alarms/BmsConnectionLost)"; echo "@@LOWBATT $(g "$V" /Alarms/LowBattery)"; }',
-    'echo "@@GOOD $(head -n 1 "$F" 2>/dev/null)"',
-    'true'
-];
+async function readInputs() {
+    const address = env.get('DBUS_SYSTEM_BUS_ADDRESS');
+    const bus = address?.startsWith('tcp:')
+        ? dbus.createClient({ busAddress: address, authMethods: ['ANONYMOUS'] }) : dbus.systemBus();
+    const connection = bus.connection;
+    let timer;
+    const disconnected = new Promise((_, reject) => {
+        connection.on('error', reject);
+        connection.on('end', () => reject(new Error('D-Bus disconnected')));
+        timer = setTimeout(() => reject(new Error('BMS watchdog D-Bus read timed out')), 5000);
+    });
+    const read = (destination, path) => new Promise(resolve => {
+        if (!destination) return resolve(undefined);
+        bus.invoke({ destination, path, interface: 'com.victronenergy.BusItem', member: 'GetValue' },
+            (error, value) => resolve(error ? undefined : value?.[1]?.[0]));
+    });
+    const text = value => Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+    try {
+        return await Promise.race([disconnected, (async () => {
+            const names = await new Promise((resolve, reject) =>
+                bus.listNames((error, result) => error ? reject(error) : resolve(result)));
+            const BATT = names.find(name => name.startsWith('com.victronenergy.battery.tty')) || '';
+            const VEBUS = names.find(name => name.startsWith('com.victronenergy.vebus')) || '';
+            const [active, setting, connected, vstate, bmslost, lowbatt, good] = await Promise.all([
+                read('com.victronenergy.system', '/ActiveBmsService'),
+                read('com.victronenergy.settings', '/Settings/SystemSetup/BmsInstance'),
+                read(BATT, '/Connected'), read(VEBUS, '/State'),
+                read(VEBUS, '/Alarms/BmsConnectionLost'), read(VEBUS, '/Alarms/LowBattery'),
+                fs.promises.readFile(GOOD_FILE, 'utf8').catch(error => {
+                    if (error.code !== 'ENOENT') node.warn(`Could not read remembered BMS: ${error.message}`);
+                    return '';
+                })
+            ]);
+            // A failed system or settings read must not be interpreted as a lost BMS.
+            if (active === undefined || setting === undefined) throw new Error('D-Bus did not return BMS status/settings');
+            return { ACTIVE: text(active), SETTING: text(setting), BATT, VEBUS, CONNECTED: text(connected),
+                VSTATE: VEBUS ? text(vstate) : undefined, BMSLOST: text(bmslost), LOWBATT: text(lowbatt),
+                GOOD: good.split(/\r?\n/, 1)[0].trim() };
+        })()]);
+    } finally {
+        clearTimeout(timer);
+        connection.stream.destroy();
+    }
+}
 
 function buildSaveGoodScript(value) {
     return 'mkdir -p "' + GOOD_FILE.replace(/\/[^/]+$/, '') + '" && printf "%s\\n" ' + shellQuote(value) + ' > "' + GOOD_FILE + '" && echo "@@SAVED"';
@@ -118,12 +149,21 @@ if (msg.topic !== 'bms-watchdog-exec') {
     }
     state.busySince = nowTs;
     flow.set(STATE_KEY, state);
-    return [{ topic: 'bms-watchdog-exec', bmsWatchdogStep: 'read', payload: shellQuote(READ_SCRIPT.join('\n')) }, null];
+    return readInputs().then(values => evaluate('read', values, Date.now()), error => {
+        const latest = flow.get(STATE_KEY);
+        latest.busySince = 0;
+        flow.set(STATE_KEY, latest);
+        node.warn(error.message);
+        node.status({ fill: 'red', shape: 'ring', text: 'BMS watchdog read failed' });
+        return null;
+    });
 }
 
+return evaluate(msg.bmsWatchdogStep || 'read', parse(msg.payload), nowTs);
+
+function evaluate(step, values, nowTs) {
+state = flow.get(STATE_KEY) || state;
 state.busySince = 0;
-const step = msg.bmsWatchdogStep || 'read';
-const values = parse(msg.payload);
 
 // Results of a follow-up write: only record them, the next periodic read evaluates again.
 if (step === 'save-good') {
@@ -227,3 +267,4 @@ node.status({
     text: timeLabel(nowTs) + ' ' + state.statusText
 });
 return outputs;
+}

@@ -7,7 +7,7 @@
 // Purpose:
 // - Two Tuya Wi-Fi temperature sensors on battery are not reachable locally (they sleep and
 //   only report to the cloud): "Accumulator tank temp" and "Exchange plate". Their values are
-//   read from the Tuya Cloud OpenAPI by `tools/tuya-cloud-status.js` (exec node) every 2 min
+//   read from the Tuya Cloud OpenAPI by `tools/tuya-cloud-status.js` (exec node) every 15 min when enabled
 //   and passed to "Heat pump state" (34) as two more devices, roles `acc` and `plate`, so the
 //   Heat Pump page, the 24 h chart, the recorder (36) and the day chart (38) get them.
 // Input:
