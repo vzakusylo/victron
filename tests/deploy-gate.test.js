@@ -91,6 +91,29 @@ const root = path.join(__dirname, '..', '.github', 'workflows');
 const deploy = fs.readFileSync(path.join(root, 'deploy-gx-code.yml'), 'utf8').replace(/\r\n/g, '\n');
 const testGx = fs.readFileSync(path.join(root, 'test-gx.yml'), 'utf8');
 
+test('deploy workflow: a sparse checkout never shares the full checkout path in the same job', () => {
+  const { parseYaml } = require('../tools/test-gx/run-scenarios.js');
+  for (const [name, job] of [...deploy.matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|(?![\s\S]))/gm)]
+    .map(([, name, job]) => [name, job]).filter(([, job]) => /^    steps:$/m.test(job))) {
+    const steps = job.split(/^    steps:$/m)[1].split(/(?=^      - )/m);
+    const checkouts = steps.filter(step => /^      - uses: actions\/checkout@/.test(step))
+      .map(step => parseYaml(step.trimEnd().replace(/^      /gm, ''))[0].with || {});
+    const full = checkouts.filter(options => !options['sparse-checkout']);
+    for (const sparse of checkouts.filter(options => options['sparse-checkout'])) {
+      const location = options => path.posix.resolve('/', options.path || '.');
+      assert.ok(full.every(options => location(options) !== location(sparse)), `${name}: sparse and full checkouts share a path`);
+    }
+    if (name === 'deploy') {
+      const pinned = full.find(options => options.ref === '${{ needs.gate.outputs.sha }}');
+      assert.ok(pinned && !pinned.path, 'the pinned full checkout must provide the deploy scripts at the workspace root');
+      const recheck = steps.find(step => /^        id: recheck$/m.test(step));
+      const [gate] = checkouts.filter(options => options['sparse-checkout']);
+      assert.ok(gate?.path && recheck?.includes(`        working-directory: ${gate.path}\n`),
+        'the recheck must run its Git and Node commands in the isolated checkout');
+    }
+  }
+});
+
 test('deploy workflow: auto path requests verified replacement, not the manual override', () => {
   assert.match(deploy, /environment: \$\{\{ github\.event_name == 'workflow_run' && 'victron-gx-auto' \|\| 'victron-gx' \}\}/);
   assert.match(deploy, /MODE: \$\{\{ github\.event_name == 'workflow_run' && 'apply' \|\| inputs\.mode \}\}/);
