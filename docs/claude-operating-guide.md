@@ -94,7 +94,8 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
    Analysis / design documents (e.g. `docs/node-red-refactoring-plan.md`) are allowed when the owner asks; their tasks
    still get a `BACKLOG.md` row when they start.
 4. **Branches and PRs**: each change on its own branch from fresh `origin/master`, PR into `master`, then
-   `gh pr merge <N> --auto --merge`. PRs merge with a merge commit. A branch is rebased on `origin/master` right
+   `gh pr merge <N> --auto --merge` only after review feedback is addressed and every thread is resolved.
+   PRs merge with a merge commit. A branch is rebased on `origin/master` right
    before its PR opens (§2a); after that, merge `origin/master` in if master moved. Only one PR is open at a time
    (§2a). `master` is protected: required checks `check`, `tests`,
    `secret-files`, `review` (Claude review with a verdict gate), `scenarios` (Test GX).
@@ -131,7 +132,7 @@ relay, a repeated question, a review finding that a rule would have prevented):
 1. Fix the immediate problem.
 2. In the same session, update the rule where it belongs: `CLAUDE.md` (short), this guide (full),
    `docs/agent-workflow.md` (Claude ↔ Copilot loop), `.github/copilot-instructions.md` (Copilot side), a skill script,
-   or Claude's memory; as a small docs PR with auto-merge, after the owner's go for the push.
+   or Claude's memory; use a small docs PR after the owner's go for the push and enable auto-merge after review.
 3. Add one line to `docs/agent-process-log.md` (date, what happened, what changed).
 4. Remove rules that turned out wrong instead of stacking exceptions.
 
