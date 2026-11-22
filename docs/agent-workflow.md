@@ -121,7 +121,13 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
   (also in a reused worker worktree); never on a stale `master` or the previous task's branch. Briefs say it as step 1.
 - **Conflict check** before every new task and every push: no file / area overlap with open PRs, Herdr worker branches, queued briefs and BACKLOG "in progress"; shared counters (`d#`, `i#`, BACKLOG) only with a merge of master + re-bump; else queue it. Details: `docs/claude-operating-guide.md` §2a.
 
-1. Several PRs may be open at once. Each branch starts from a fresh `master`, touches only its own files, and merges `origin/master` in before its PR is merged if `master` moved.
+1. **One open PR at a time.** Branches may be built in parallel, but a PR opens only when no other PR is open. Right before opening it:
+   - rebase on the latest `origin/master`;
+   - run `sync` again (`d#`) and bump `i#` once on top;
+   - run `check` and all tests;
+   - push, with `--force-with-lease` if the branch was pushed before.
+
+   Details: `docs/claude-operating-guide.md` §2a.
 2. Merge with a merge commit; delete the branch on GitHub and locally afterwards.
 3. Everything goes through a PR, including docs and agent rules. Nothing is pushed directly to `master`.
 4. Medium or higher in changed code is fixed on the same branch. Low and Nit may move to the next branch or to Known limitations.

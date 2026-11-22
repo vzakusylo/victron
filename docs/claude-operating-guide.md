@@ -50,6 +50,18 @@ and a new branch from it: `git switch -c <branch> origin/master` (or `herdr-task
 A reused worker worktree also switches to a fresh branch from `origin/master`; never start a task on a stale local
 `master` or on the previous task's branch. Every brief and every `send` of a new task says this as its first step.
 
+**One open PR at a time; rebase right before opening it** (owner rule, 2026-11-22).
+- Don't open a new PR (mine or a worker's) while the previous PR is unmerged.
+- Workers may build in parallel locally but hold their PR. Claude releases the next one when
+  `gh pr list --state open` is empty.
+- Right before opening:
+  1. `git fetch origin; git rebase origin/master`.
+  2. Run `sync` again (`d#`) and bump `i#` once on top of master.
+  3. Run `check` and all tests.
+  4. Push, with `--force-with-lease` if the branch was pushed before.
+  5. Open the PR with auto-merge.
+- PRs that are already open are not changed.
+
 Before starting a new task (a worker, a session or my own PR) and again before pushing, check it against **all work
 in progress**: open PRs (`gh pr list --state open` + `gh pr view <N> --json files`), every Herdr worker's branch and
 brief (`herdr agent list`, `git -C <worktree> diff --name-only origin/master...`), queued briefs and BACKLOG
@@ -77,8 +89,9 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
    Analysis / design documents (e.g. `docs/node-red-refactoring-plan.md`) are allowed when the owner asks; their tasks
    still get a `BACKLOG.md` row when they start.
 4. **Branches and PRs**: each change on its own branch from fresh `origin/master`, PR into `master`, then
-   `gh pr merge <N> --auto --merge`. Merge commits only, no rebase, no force-push; merge `origin/master` into a branch
-   when master moved. Several PRs may be open at once. `master` is protected: required checks `check`, `tests`,
+   `gh pr merge <N> --auto --merge`. PRs merge with a merge commit. A branch is rebased on `origin/master` right
+   before its PR opens (§2a); after that, merge `origin/master` in if master moved. Only one PR is open at a time
+   (§2a). `master` is protected: required checks `check`, `tests`,
    `secret-files`, `review` (Claude review with a verdict gate), `scenarios` (Test GX).
 5. **Commits and pushes by Claude only when the owner asks in that session** (owner's global rule); no
    `Co-Authored-By: Claude` trailer. The permission system enforces this: a refused push is a question for the owner.

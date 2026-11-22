@@ -61,7 +61,9 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
    through `tests/harness.js` with ticks. A test must fail without the change.
 3. **Branches and PRs:** every change on its own branch from a fresh `origin/master`, in its own worktree, PR into
    `master`, `gh pr merge <N> --auto --merge`. `master` requires `check`, `tests`, `secret-files`, `review`,
-   `scenarios`. Never push to `master` directly; merge commits, no rebase or force-push.
+   `scenarios`. Never push to `master` directly; merge commits. **One open PR at a time:**
+   rebase the branch on `origin/master` right before opening its PR (force-with-lease only for that); see the
+   operating guide §2a.
 4. **Tasks live only in `BACKLOG.md`:** add the task before the branch, set "in progress" with branch / PR, move to Done
    with PR and `d#` in the same PR as the work.
 5. **Deploys:** a green Test GX run on a master push deploys that commit to the live GX automatically
