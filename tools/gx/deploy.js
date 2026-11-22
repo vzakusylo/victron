@@ -72,7 +72,7 @@ function readPlan(file) {
     if (!hex(plan.flowsSha256, 64) || !hex(plan.stampSha256, 64)) fail('plan file hashes are missing');
     if (typeof plan.expectRev !== 'string' || !plan.expectRev) fail('plan.expectRev is missing');
     if (!plan.patch || typeof plan.patch !== 'object' || Array.isArray(plan.patch)) fail('plan.patch must be an object');
-    for (const key of ['add', 'wire']) {
+    for (const key of ['add', 'wire', 'groups']) {
         if (plan[key] === undefined) plan[key] = [];
         if (!Array.isArray(plan[key]) || plan[key].some((id) => typeof id !== 'string')) fail('plan.' + key + ' must list node IDs');
     }
@@ -125,8 +125,8 @@ function readPlan(file) {
         if (!(number(liveTab.label) <= number(repoTab.label))) fail('Live ' + liveTab.label + ' is newer than the commit ' + repoTab.label + '.');
 
         const nodes = additionPlan(original.flows, repoFlows, plan.add.length > 0);
-        for (const key of ['add', 'wire']) {
-            if (stable(plan[key]) !== stable(nodes[key])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
+        for (const key of ['add', 'wire', 'groups']) {
+            if (stable(plan[key]) !== stable(nodes[key] || [])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
         }
         const wireIds = new Set(nodes.wire);
         const ids = [...new Set([...Object.keys(plan.patch), ...wireIds])];
@@ -163,6 +163,14 @@ function readPlan(file) {
             const node = repoById.get(id);
             payload.flows.push(Object.assign({}, node));
             console.log('node to add     : ' + JSON.stringify(describe(node)));
+        }
+        const groupMembers = new Map();
+        for (const id of nodes.groups || []) {
+            const group = liveById.get(id);
+            const members = [...group.nodes, ...nodes.add.filter((addedId) => repoById.get(addedId).g === id && !group.nodes.includes(addedId))];
+            group.nodes = members;
+            groupMembers.set(id, members);
+            console.log('group patch     : ' + id);
         }
         const oldLabel = liveTab.label;
         liveTab.label = repoTab.label;
@@ -236,6 +244,9 @@ function readPlan(file) {
         const verifyFailed = (item) => fail('VERIFY FAILED: ' + item + '. The flow was posted and the tool files replaced; roll back both from ' + backup);
         for (const id of nodes.add) {
             if (stable(afterById.get(id)) !== stable(repoById.get(id))) verifyFailed(id);
+        }
+        for (const [id, members] of groupMembers) {
+            if (stable(afterById.get(id)?.nodes) !== stable(members)) verifyFailed(id + '.nodes');
         }
         for (const id of ids) {
             const got = afterById.get(id), want = repoById.get(id);

@@ -241,6 +241,7 @@ function main() {
             ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
         for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
         for (const id of nodes.wire) console.log('wire patch      : ' + id);
+        for (const id of nodes.groups || []) console.log('group patch     : ' + id);
     }
 }
 

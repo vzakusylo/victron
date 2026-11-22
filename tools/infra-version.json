@@ -22,8 +22,8 @@
     {
       "i": 4,
       "date": "2026-11-22",
-      "pr": null,
-      "what": "Share Test GX images across scenario jobs"
+      "pr": 131,
+      "what": "Validate and exercise the split grid controller in Test GX"
     }
   ]
 }
