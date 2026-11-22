@@ -107,3 +107,18 @@ test('DHW claim supersedes an already sent and queued heating curve command with
     assert.equal(call.logs.filter(line => line.startsWith('HP shadow verify')).length, 1, 'repeats are rate limited');
     assert.equal(f.heat.flow.get('hpWriterShadow').disagreements, 3, 'suppressed lines still count');
 });
+
+test('a later intent from the same writer is counted separately from ownership disagreements', () => {
+    const f = fixture();
+    const t = NOW + 20 * MIN;
+    const first = f.warm(t);
+    assert.deepEqual(setters(first), [set(134, 9)]);
+    step(first, 1500);
+    f.heat.run({ topic: 'ui', payload: { action: 'heatWarm', on: false } }, { now: t + 2000 });
+    f.tick(t + 3000, { 133: 40, 134: 9 });
+    step(first, 15000);
+    const shadow = f.heat.flow.get('hpWriterShadow');
+    assert.equal(shadow.sameWriterSupersessions, 1);
+    assert.equal(shadow.disagreements || 0, 0);
+    assert.ok(!first.logs.some(line => line.startsWith('HP shadow')));
+});
