@@ -176,6 +176,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#123 TH3 (d#208): stuck-supply Smart kicks are heating-only; pending and active DHW suppress kicks, and a running kick returns to Silent when DHW takes over.
+
 #118 P-D1 (d#207 unchanged): automatic replacement of GX-only code lines requires an exact match to the recorded Git deployment; fake-GX tests cover matching, hand-edited, and missing records.
 
 #117 NR1 (d#207 unchanged): read-only GX performance sampler with fake-SSH tests and an empty baseline table in the refactoring plan. The owner will collect the live measurements. Baseline (22 Nov, d#207): CPU 20.5 %, RSS 352 / 364 MiB, >= 584 spawns/h, admin TTFB p50 187 / p95 381 ms (plan section 5).
