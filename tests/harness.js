@@ -51,4 +51,18 @@ function loadNode(file, sourceText) {
     return { run, context, flow };
 }
 
-module.exports = { loadNode, readSource, ROOT };
+function loadGrid() {
+    const control = loadNode('01 Battery + Grid Controller.js');
+    const bookkeeping = loadNode('63 Grid bookkeeping.js');
+    return {
+        control, bookkeeping, context: control.context, flow: control.flow,
+        run(msg, opts) {
+            const call = control.run(msg, opts);
+            const accounting = bookkeeping.run(structuredClone(call.result[7]), opts);
+            const result = call.result[0] ? [...call.result.slice(0, 3), ...accounting.result] : null;
+            return { ...call, result, status: accounting.status };
+        }
+    };
+}
+
+module.exports = { loadNode, loadGrid, readSource, ROOT };

@@ -4,14 +4,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { loadNode, readSource, ROOT } = require('./harness');
+const { loadGrid, loadNode, readSource, ROOT } = require('./harness');
 
 const CONTROLLER = '01 Battery + Grid Controller.js';
 const at = (month, day, hour, minute = 0, second = 0) => new Date(2026, month - 1, day, hour, minute, second).getTime();
 
 // A controller that already has its sensor readings; returns { node, step(msg, time) }.
 function controller({ voltage = 53, consumedAh = 0, grid = 1000, acLoad = 1000, pv = 0, start = at(11, 12, 13, 0), hv, overrides } = {}) {
-    const node = loadNode(CONTROLLER);
+    const node = loadGrid();
     if (hv) node.flow.set('highVoltageSettings', hv);
     if (overrides) node.flow.set('controllerConstantsOverrides', overrides);
     let t = start;
@@ -33,7 +33,7 @@ const outputs = (call) => ({
 const validHv = (extra) => Object.assign({ enabled: true, start: 55.2, release: 55.0, full: 55.4 }, extra);
 
 test('waits for battery voltage and consumed Ah before it sends anything', () => {
-    const node = loadNode(CONTROLLER);
+    const node = loadGrid();
     assert.equal(node.run({ topic: 'grid-power', payload: 500 }, { now: at(11, 12, 13) }).result, null);
     const call = node.run({ topic: 'battery-voltage', payload: 53 }, { now: at(11, 12, 13, 0, 1) });
     assert.equal(call.result, null);
