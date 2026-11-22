@@ -6,7 +6,7 @@
 
 const TARIFF_HISTORY_TOPIC = "tariff-history";
 const TARIFF_HISTORY_RETRY_MS = 60000;
-const SENSOR_TOPICS = ["battery-voltage", "battery-consumed-ah", "grid-power", "ac-load-power", "dc-power", "pv-charger-power"];
+const QUIET_TOPICS = ["grid-control-tick", "grid-power"];
 const TRACE_MIN_INTERVAL_MS = 5000;
 const ENERGY_LOG_DIR = "/data/home/nodered/grid-control-logs";
 
@@ -14,7 +14,7 @@ if (!msg.tick) { node.error("Grid bookkeeping requires a controller tick", msg);
 const { nowTs, C, waiting, decision, legacy, sendGridCurrentLimit, highVoltageSettings,
     previousWindow, previousGridSetpoint, batteryVoltage, consumedAhDeficit, manualDischargeStopVoltage,
     storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
-    hasDcPowerReading, storedPvChargerPowerW, solarGenerationW } = msg.tick;
+    hasDcPowerReading, storedPvChargerPowerW, solarGenerationW, accountingPower } = msg.tick;
 const now = new Date(nowTs);
 const hour = now.getHours();
 for (const [key, value] of Object.entries(legacy || {})) {
@@ -38,9 +38,9 @@ const prevHourSolarWh = Number(solarBudget.usedWh) || 0;
 // Minutes of the closed hour that were actually integrated (60 = full hour, less after a restart).
 const prevHourCoverageMin = Math.round(clamp(((Number(hourBudget.lastTs) || 0) - (Number(hourBudget.startTs) || 0)) / 60000, 0, 60));
 const prevHourPeakW = hourPeak.hourKey === prevHourKey ? Math.round(Number(hourPeak.peakW) || 0) : 0;
-hourBudget = advanceHourBudget(hourBudget, now, storedGridPowerW);
-acLoadBudget = advanceHourBudget(acLoadBudget, now, storedAcLoadPowerW);
-solarBudget = advanceHourBudget(solarBudget, now, solarGenerationW);
+hourBudget = advanceHourBudget(hourBudget, now, accountingPower.gridW);
+acLoadBudget = advanceHourBudget(acLoadBudget, now, accountingPower.acW);
+solarBudget = advanceHourBudget(solarBudget, now, accountingPower.solarW);
 const hourRolledOver = Boolean(prevHourKey) && prevHourKey !== hourBudget.hourKey;
 
 // ==========================
@@ -315,7 +315,7 @@ if (finalGridSetpoint !== previousGridSetpoint) {
 // The trace only feeds dashboards / debug: throttled for sensor updates, immediate for the rest.
 const lastTraceTs = Number(context.get("lastTraceTs")) || 0;
 const sendTrace = hourRolledOver
-    || !SENSOR_TOPICS.includes(msg.topic)
+    || !QUIET_TOPICS.includes(msg.topic)
     || nowTs - lastTraceTs >= TRACE_MIN_INTERVAL_MS
     || nowTs < lastTraceTs;
 let traceMsg = null;
