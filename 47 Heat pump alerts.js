@@ -52,6 +52,7 @@
 const MAIL_FILE = '/tmp/hp-alert-mail.json';
 const GATHER_MS = 2 * 60 * 1000;
 const MIN_GAP_MS = 15 * 60 * 1000;
+const MODE_REMINDER_MS = 6 * 60 * 60 * 1000;
 const DEVICE_DOWN_MS = 10 * 60 * 1000;
 const MAX_LINES = 50;
 const WATCH = { hp: 'heat pump', valve: 'boiler valve relay', bypass: 'bypass relay' };
@@ -68,6 +69,7 @@ const now = Date.now();
 const st = context.get('st') || { pending: [], firstAt: 0, lastMailAt: 0, lastResult: null, down: {}, sentCount: 0 };
 st.bat = st.bat || {};
 st.sens = st.sens || {};
+st.modeIncidents = st.modeIncidents || {};
 st.started = st.started || now;
 const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 const dayTime = (t) => { const d = new Date(t); return d.getDate() + '.' + (d.getMonth() + 1) + ' ' + hhmm(t); };
@@ -135,15 +137,53 @@ function checkSensors() {
     }
 }
 
-function add(text, t) {
+function add(text, t, modeKey) {
     const line = String(text).slice(0, 300);
-    const same = st.pending.find((p) => p.text === line);
+    const same = st.pending.find((p) => p.text === line && p.modeKey === modeKey);
     if (same) { same.n++; same.last = t || now; }
-    else if (st.pending.length < MAX_LINES) st.pending.push({ t: t || now, text: line, n: 1, last: t || now });
+    else if (st.pending.length < MAX_LINES) st.pending.push({ t: t || now, text: line, n: 1, last: t || now, modeKey });
     if (!st.firstAt) st.firstAt = now;
 }
 
+function modeMatched(check) {
+    const dev = (flow.get('heatPump') || {})[check.device];
+    return dev?.dpObservedAt?.[check.dp] > check.sentAt && String(dev.dps?.[check.dp]) === check.wanted;
+}
+
+function clearModeIncident(key) {
+    delete st.modeIncidents[key];
+    st.pending = st.pending.filter(line => line.modeKey !== key);
+    if (!st.pending.length) st.firstAt = 0;
+}
+
+function modeAlert(event) {
+    const check = event.modeCheck;
+    const key = JSON.stringify([check.device, check.dp, check.wanted]);
+    if (check.outcome === 'superseded') return;
+    if (check.outcome === 'confirmed' || modeMatched(check)) { clearModeIncident(key); return; }
+    if (check.outcome !== 'fresh mismatch' && check.outcome !== 'no fresh DP 2') return;
+    let incident = st.modeIncidents[key];
+    if (!incident) {
+        incident = st.modeIncidents[key] = { check, count: 0, mailedAt: 0, reminded: false };
+    }
+    incident.count++;
+    incident.text = (event.cloud ? event.cloud + ': ' : '') + event.text;
+    incident.last = event.t || now;
+    if (!incident.mailedAt && !st.pending.some(line => line.modeKey === key)) add(incident.text, event.t, key);
+}
+
+function checkModeIncidents() {
+    for (const [key, incident] of Object.entries(st.modeIncidents)) {
+        if (modeMatched(incident.check)) { clearModeIncident(key); continue; }
+        if (incident.mailedAt && !incident.reminded && now - incident.mailedAt >= MODE_REMINDER_MS &&
+            !st.pending.some(line => line.modeKey === key)) {
+            add('Reminder: ' + incident.text + ' (' + incident.count + ' failures, last ' + dayTime(incident.last) + ')', now, key);
+        }
+    }
+}
+
 function isAlert(e) {
+    if (e.verificationSuperseded) return false;
     const tx = String(e.text || '');
     if (e.kind === 'fail' || e.kind === 'error') return true;
     if (e.rule === 'dhw' && (e.kind === 'warn' || (e.kind === 'stop' && !/controller Off|local control OFF/.test(tx)))) return true;
@@ -208,6 +248,7 @@ function devicesReport() {
 }
 
 let send = null;
+checkModeIncidents();
 
 if (msg.topic === 'result') {
     let r = null; try { r = JSON.parse(String(msg.payload || '').trim().split('\n').pop()); } catch (e) { r = { ok: false, error: 'no answer from send-mail.js' }; }
@@ -218,7 +259,8 @@ if (msg.topic === 'result') {
 } else if (msg.topic === 'test') {
     send = mailMsg('Heat pump: test alert mail', ['Test mail from the Cerbo GX at ' + new Date(now).toString() + '.', 'If you read this, e-mail alerts work.']);
 } else if (msg.event && typeof msg.event === 'object') {
-    if (isAlert(msg.event)) add((msg.event.cloud ? msg.event.cloud + ': ' : '') + msg.event.text, msg.event.t);
+    if (msg.event.modeCheck) modeAlert(msg.event);
+    else if (isAlert(msg.event)) add((msg.event.cloud ? msg.event.cloud + ': ' : '') + msg.event.text, msg.event.t);
 } else if (msg.payload && Array.isArray(msg.payload.devices)) {
     for (const d of msg.payload.devices) {
         if (!WATCH[d.role]) continue;
@@ -239,7 +281,17 @@ if (msg.topic === 'tick') checkSensors();
 
 // digest
 if (!send && st.pending.length && now - st.firstAt >= GATHER_MS && now - st.lastMailAt >= MIN_GAP_MS) {
-    const lines = st.pending.map((p) => hhmm(p.t) + '  ' + p.text + (p.n > 1 ? '  (×' + p.n + ', last ' + hhmm(p.last) + ')' : ''));
+    const lines = st.pending.map((p) => {
+        const incident = st.modeIncidents[p.modeKey];
+        let text = p.text;
+        if (incident) {
+            if (incident.mailedAt) {
+                text = 'Reminder: ' + incident.text + ' (' + incident.count + ' failures, last ' + dayTime(incident.last) + ')';
+                incident.reminded = true;
+            } else incident.mailedAt = now;
+        }
+        return hhmm(p.t) + '  ' + text + (p.n > 1 ? '  (×' + p.n + ', last ' + hhmm(p.last) + ')' : '');
+    });
     const subject = 'Heat pump alert: ' + st.pending[0].text.slice(0, 80) + (st.pending.length > 1 ? ' (+' + (st.pending.length - 1) + ' more)' : '');
     send = mailMsg(subject, lines);
     st.pending = []; st.firstAt = 0;

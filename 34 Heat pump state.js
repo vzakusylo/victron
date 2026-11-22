@@ -122,7 +122,11 @@ if (typeof p.state === 'string' && !p.data) {
     // in SECONDS: using it made hp / valve / bypass look stale (d#135 bug, fixed in d#138).
     const at = CLOUD_ROLES.includes(role) && Number.isFinite(p.data.t) && p.data.t > 1e12 && p.data.t <= now ? p.data.t : now;
     if (CLOUD_ROLES.includes(role) && dev.lastData && at < dev.lastData && dev.state === 'CONNECTED') return null;
-    Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
+    const observed = dev.dpObservedAt || (dev.dpObservedAt = {});
+    Object.keys(dps).forEach((k) => {
+        dev.dps[k] = dps[k];
+        observed[k] = at;
+    });
     dev.lastData = at;
     dev.state = 'CONNECTED';
     if (CLOUD_ROLES.includes(role)) {
