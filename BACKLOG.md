@@ -52,7 +52,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 | ID | Phase | Task | State |
 |---|---|---|---|
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
-| NR9 | B perf | Split remaining heavy nodes into `lib/` without runtime changes: `26` backup, `34` heat pump state | open |
+| NR9 | B perf | Split `34` heat pump state into `lib/` without runtime changes | open |
 | P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 | P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
@@ -166,6 +166,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#138 NR9 (node 26 only, d#214 · i#9): split the backup dashboard into mail scheduling, archive scripts, mail scripts, and view includes (775 → 341 lines); two characterization tests preserve current behavior.
 
 #134 T1b (d#213 unchanged · i#8): share the Test GX images across shards. Typical shard setup fell from ~170–200 s to 31–53 s. The extra build job adds 3:32 cold (0:58 warm) to the critical path; the cold path is estimated within a minute of baseline, not demonstrably faster. The full warm PR run was green in 52:18 including queues vs. 15:04–18:13 before, while summed runner time fell from 203:00 median to 135:16 despite one extra job. See [CI timings](docs/test-gx.md#t1b-timings).
 
