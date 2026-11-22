@@ -175,7 +175,7 @@ The deploy window check still requires every guarded input: the four heat-pump m
 - **Palette not on npm.** `@victronenergy/node-red-contrib-victron@1.6.31` is not published; explicit-backup `up.ps1` falls back to `~1.6` and warns. The synthetic manifest pins `1.6.65`; provenance remains `1.6.31` in `versions.json`. GX 1.6.31 / test 1.6.65 (1.6.31 not on npm): this is a deliberate test-install difference, not version parity.
 - **venus-docker.** Clone with `core.autocrlf=false` (CRLF breaks the `#!` scripts). The HTML5-app stage fails upstream and is removed by `up.ps1`, so the Venus app on `:8080` does not work. D-Bus over TCP is on port 3000; the palette reads it from `NODE_RED_DBUS_ADDRESS=venus:3000`.
 - **Device instances.** The flow expects `com.victronenergy.battery/289` and `vebus/276`. With `-Sim emu` the emulator publishes its own services with exactly these instances; the stock simulator uses others, which gives `DBUS ERROR UnknownObject`, "not found in cache" and `Set error status`. Never change the instance in the flow: the test would no longer match the real GX.
-- **sshd as root.** The Alpine image needs `apk add --upgrade openssh openssh-server bash curl`, an unlocked root account and a key without passphrase. The host key changes with every image, so `~/.ssh/known_hosts_test_gx` is separate and deleted by the refresh script.
+- **sshd as root.** The Alpine image needs `apk add --upgrade openssh openssh-server bash curl`, an unlocked root account and a key without passphrase. Each new container generates its own SSH host key at startup, so `~/.ssh/known_hosts_test_gx` is separate and deleted by the refresh script.
 - **One `UnknownObject` at start is expected.** The victron palette reads `/DeviceInstance` on `com.victronenergy.settings` during service discovery and localsettings has no such path (found with `dbus-monitor`). The start-log check accepts one such line per start (the log keeps all starts), only right after "Polling is disabled", skipping blank lines and the specific successful `mqtt://mosquitto:1883` connection message that can interleave the D-Bus log. Other intervening lines and any other `UnknownObject` are reported as unknown errors.
 - **Emulated identity paths.** Every fake service has `/CustomName`, `/Serial` (`HQEMU0001`) and `/FirmwareVersion` (`0x0510`); vebus has `/VebusError`, battery has `/Dc/0/Temperature`. They feed the Devices page (`dv-exec-01`), so the inventory gives no WARN.
 - **Python D-Bus in the Node-RED image.** The Devices page reads Victron devices with `python3` + `dbus` (`dv-exec-01`). The image installs `py3-dbus` and sets `DBUS_SYSTEM_BUS_ADDRESS=tcp:host=venus,port=3000`; without them the page shows "python dbus module: No module named 'dbus'" instead of the Victron devices. Dashboard tab numbers in the URL (`/ui/#!/<n>`) do not match the `ui_tab` order in `/flows`: Devices is `#!/13`.
@@ -580,15 +580,32 @@ push runs always run the full suite. A scenario that exceeds its time limit
 earlier red run 44573678310 was on an older `master` commit (`9fc2f5d`) and failed the Tuya
 proxy function-hash check; current `master` no longer reproduces it.
 
-Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. One job per
-scenario file runs in parallel (`scenarios (<file>)`, 45-minute limit each), on its own VM with its own stack:
-`run-scenarios.js --file <file>` (comma list allowed). Each builds the repository-only synthetic fixture, runs
-that file's scenarios and summarizes their JUnit results with the real minutes per scenario. Expected failures
-are skipped; an unexpected pass fails the job. The required check is the final `scenarios` job: it passes only
-when every file job passed. The `test-gx-logs-<n>` artifacts retain JUnit, Compose and Node-RED logs, and the
+Run **Actions > Test GX scenarios > Run workflow** with `workflow_dispatch`. One job generates and validates the
+repository-only synthetic fixture, builds its Node-RED image, and builds or restores the pinned Venus simulator.
+Only Venus is cached across runs, by runner OS/architecture, upstream revision and the workflow hash (which
+covers the Dockerfile patch and build arguments). Both images are shared via a run-local artifact; there is no
+registry. Use **Re-run all jobs** if the image artifact has expired (seven days).
+
+One job per scenario file runs in parallel (`scenarios (<file>)`, 45-minute limit each), on its own VM with its
+own stack. Each loads the shared images without rebuilding, generates its own test SSH client key, runs
+`run-scenarios.js --file <file>` (comma list allowed), and summarizes JUnit results with real minutes per scenario.
+Expected failures are skipped; an unexpected pass fails the job. The final required `scenarios` check passes
+only when the image job and every file job passed. The `test-gx-logs-<attempt>-<n>` artifacts retain JUnit, Compose and Node-RED logs, and the
 `/writes` dump for 14 days. A new scenario file must be added to the `files` matrix (a unit test checks it).
-The whole run takes as long as the slowest file. Charging scenarios retain their real-time pacing
+The run's critical path includes the shared image job and the slowest file. Charging scenarios retain their real-time pacing
 and run in five matrix files; `--suite charging` selects all five locally.
+
+### T1b timing baseline
+
+The three latest green `master` runs sampled before the change were
+[45021212964](https://github.com/vzakusylo/victron/actions/runs/45021212964),
+[45018834992](https://github.com/vzakusylo/victron/actions/runs/45018834992), and
+[45016546847](https://github.com/vzakusylo/victron/actions/runs/45016546847).
+Their wall times (run creation to completion, including queues) were 15:05, 16:42 and 18:13.
+`heat-pump-er03.yml` was the slowest job in all three (14:20, 14:09 and 14:15);
+its scenario step took 10:24, 10:27 and 10:23. Source preparation and Venus build took
+2:46, 2:35 and 2:45, with another 31, 37 and 31 seconds in Compose startup,
+which included the Node-RED build.
 
 ## Fixture isolation and verification
 

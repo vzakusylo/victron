@@ -142,7 +142,8 @@ test('test-gx workflow: one parallel job per scenario file, final scenarios job 
   assert.match(testGx, /run-scenarios\.js --file "\$FILES"/);
   const final = testGx.split(/^  scenarios:/m)[1];
   assert.match(final, /if: always\(\)/);
-  assert.match(final, /needs: run/);
+  assert.match(final, /needs: \[build, run\]/);
+  assert.match(final, /\[\[ "\$BUILD_RESULT" == success \]\]/);
   assert.match(final, /\[\[ "\$RESULT" == success \]\]/);
 });
 
@@ -151,5 +152,17 @@ test('test-gx workflow: only PRs can skip scenarios based on changed paths', () 
   assert.match(detect, /relevant=true\s+(?:#[^\n]*\n\s*)?if \[\[ "\$EVENT" == "pull_request" &&/);
   assert.match(detect, /if \[\[ "\$EVENT" == "pull_request" &&[\s\S]+?git diff --name-only "\$BASE_SHA" HEAD[\s\S]+?relevant=false\s+fi\s+fi/);
   assert.doesNotMatch(detect, /github\.event\.before/);
-  assert.match(testGx, /name: Run all scenarios\s+if: steps\.changes\.outputs\.relevant == 'true'/);
+  assert.match(testGx, /name: Run all scenarios\s+if: needs\.build\.outputs\.relevant == 'true'/);
+});
+
+test('test-gx workflow: matrix uses the build job artifact without rebuilding images', () => {
+  const [, build, run] = testGx.split(/^  (?:build|run|scenarios):\r?$/m);
+  assert.match(build, /docker compose .+ build nodered/);
+  assert.match(build, /docker save mqtt:latest "test-gx-nodered:\$TEST_GX_TAG"/);
+  assert.match(build, /image-artifact: \$\{\{ steps\.bundle\.outputs\.name \}\}/);
+  assert.match(build, /uses: actions\/upload-artifact@[a-f0-9]+\s+[^\n]+\s+with:\s+name: \$\{\{ steps\.bundle\.outputs\.name \}\}/);
+  assert.match(run, /name: scenarios \(\$\{\{ matrix\.files \}\}\)\s+needs: build/);
+  assert.match(run, /uses: actions\/download-artifact@[a-f0-9]+\s+[^\n]+\s+with:\s+name: \$\{\{ needs\.build\.outputs\.image-artifact \}\}/);
+  assert.match(run, /docker load --input "\$RUNNER_TEMP\/test-gx-images\.tar\.zst"[\s\S]+docker compose .+ up -d --no-build/);
+  assert.doesNotMatch(run, /docker build|compose .+ build nodered|up .+ --build/);
 });
