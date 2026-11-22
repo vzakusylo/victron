@@ -99,4 +99,25 @@ if (process.argv.includes('--update-reference')) {
         const day = snapshot(run('2026-11-16T06:45:00'));
         assert.deepEqual(day.day, { gridWh: 6960, peakWh: 3000, peakHour: '2026-11-16 06' });
     });
+
+    test('grid tariff: midnight resets the day, retains this month’s peaks, and raises the tier', () => {
+        const node = controller();
+        const run = (at, topic = 'tariff-test-tick', payload) => node.run({ topic, payload }, { now: at }).result;
+        const start = '2026-11-16T23:00:00';
+        run(start, 'battery-voltage', 53);
+        run(start, 'battery-consumed-ah', -40);
+        run(start, 'grid-power', 5000);
+        run(start, 'tariff-history', [
+            '2026-11-13 17,1800,1800,0',
+            '2026-11-14 17,1900,1900,0',
+            '2026-11-15 17,2000,2000,0'
+        ].join('\n'));
+        assert.equal(snapshot(run(start)).month.tier, 1);
+        run('2026-11-16T23:59:24');
+
+        const after = snapshot(run('2026-11-17T00:00:00'));
+        assert.equal(after.hour.usedWh, 0);
+        assert.deepEqual(after.day, { gridWh: 0, peakWh: 0, peakHour: '2026-11-17 00' });
+        assert.deepEqual(after.month, { topPeaksWh: [3465, 2000, 1900], averageW: 2455, tier: 2 });
+    });
 }
