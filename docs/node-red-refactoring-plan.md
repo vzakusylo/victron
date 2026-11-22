@@ -158,9 +158,8 @@ Depends on G0.
 ## 3. Refactoring plan (one PR each, in this order: NR1, G0 (tests first), G1–G6, then NR3–NR7)
 
 ### NR1. Measure first (no behaviour change)
-- Add a tiny "profiler" in the test fixture **and** a GX script (`scripts/gx-cpu.ps1` / `tools/gx/cpu.js`): Node-RED
-  process CPU % and RSS over 10 min (`top -b -n …` / `/proc/<pid>/stat`), number of `node` / `sh` children spawned per
-  hour (`/proc` sampling), event-loop lag (a 1 s inject that logs `Date.now()` drift).
+- Use `tools/gx/perf-baseline.js` for Node-RED CPU, RSS, observed child process spawns, and a read-only admin latency
+  proxy for event-loop lag. Its tests use fake SSH; no profiler is installed in the flow.
 - Record the baseline in this file (section 5). Every later PR reports before/after with the same script.
 
 ### NR2. Controller input path (F1, F2, F9) — biggest win (done as part of G2)
@@ -250,6 +249,25 @@ cadence ~2 s; no "not applied" alarms; grid import follows the setpoint; NR1 CPU
 
 ## 5. Measurements (fill in)
 
-| When | d# | Node-RED CPU % (10-min avg) | RSS MB | spawns / h | event-loop lag p95 | Notes |
-|---|---|---|---|---|---|---|
-| baseline | 205 | | | | | NR1 |
+The owner runs this from the repository root with the usual GX SSH account and a verified host key in OpenSSH
+`known_hosts`. Set `GX_SSH_HOST` to the private `user@host` and `GX_SSH_KEY_PATH` to the local private key file path.
+The GX needs `node`, `getconf` and read access to `/proc` and its loopback Node-RED admin API.
+
+```powershell
+node .\tools\gx\perf-baseline.js --minutes 15 > gx-perf-baseline.json
+```
+
+Default: 15 minutes, sampled every 10 seconds. JSON goes to stdout and the Markdown table to stderr. Keep the
+raw report local. The script installs nothing and fails if Node-RED restarts or the admin probe fails.
+
+CPU is the change in Node-RED user + system ticks over actual elapsed time (100% means one full core);
+RSS is the sample mean and max in MiB. The spawn estimate counts distinct sampled descendants by PID and
+start time, excluding those already present at the first sample. Children that both start and exit between
+samples (or reparent before the next sample) are missed, so the hourly rate is a lower bound, not an exec count.
+The lag proxy is loopback admin `GET /flows` time to response headers (nearest-rank p50/p95), measured on the GX
+without SSH latency. It includes HTTP handling, flow serialization and OS scheduling, and does not directly
+measure Node.js event-loop delay. Compare like-for-like workloads; record dashboard viewers and load in Notes.
+
+| When | d# | CPU % | RSS mean / max MiB | Observed spawns/h | Admin TTFB p50 / p95 ms | Notes |
+|---|---|---:|---:|---:|---:|---|
+| Baseline | | | | | | |
