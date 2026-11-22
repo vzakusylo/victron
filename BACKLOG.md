@@ -53,7 +53,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 |---|---|---|---|
 | TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
 | TGX3 | A3 boiler | DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline (Test GX plan 3) | open, raised |
-| TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | open |
+| TB1 | A3 boiler | DHW compressor protection (F40-07): cold limit Silent, supply cap, Hz / current steps | in progress: `testgx-dhw-protection` |
 | TB2 | A3 boiler | DHW with defrost: defrost during a cycle, DHW after defrost, minimum gap | open |
 | TGX7 | A3 boiler | Tuya cloud / local stub (Test GX plan 7) | open |
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
