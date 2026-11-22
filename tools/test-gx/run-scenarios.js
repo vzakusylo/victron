@@ -227,8 +227,9 @@ function validateScenario(scenario, source = 'scenario') {
     }
     if (scenario.settings) {
         const allowed = ['dhw', 'heat', 'df_exchange_off', 'df_exchange_on', 'hp_er03_restart'];
-        if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve', 'heat', 'dhw', 'dhwLastDone'].includes(key)) ||
+        if (Object.keys(scenario.settings).some(key => !['master', 'modes', 'heatCurve', 'heat', 'dhw', 'dhwLastDone', 'dhwLastEnd'].includes(key)) ||
             scenario.settings.dhwLastDone !== undefined && !Number.isFinite(scenario.settings.dhwLastDone) ||
+            scenario.settings.dhwLastEnd !== undefined && !Number.isFinite(scenario.settings.dhwLastEnd) ||
             ['heat', 'dhw'].some(key => scenario.settings[key] !== undefined && (!scenario.settings[key] ||
                 typeof scenario.settings[key] !== 'object' || Array.isArray(scenario.settings[key]))) ||
             typeof scenario.settings.master !== 'boolean' || !scenario.settings.modes ||
@@ -259,7 +260,9 @@ function validateScenario(scenario, source = 'scenario') {
                 action.action === 'mode' && action.id === 'heat' && ['off', 'dry', 'live'].includes(action.mode) &&
                     Object.keys(action).length === 3 ||
                 action.action === 'heatSet' && typeof action.cfg?.band === 'boolean' &&
-                    Object.keys(action.cfg).length === 1 && Object.keys(action).length === 2);
+                    Object.keys(action.cfg).length === 1 && Object.keys(action).length === 2 ||
+                ['dhwForceRun', 'dhwShowerForce'].includes(action.action) && typeof action.on === 'boolean' &&
+                    Object.keys(action).length === 2);
             if (!scenario.settings || !valid) {
                 throw new Error(`${source} step ${index + 1} heating requires settings and a supported heating UI action`);
             }
@@ -579,12 +582,13 @@ function createAdmin(baseUrl = DEFAULT_ADMIN, fetchImpl = globalThis.fetch,
                 if (!node) throw new Error('Node-RED did not deploy the scenario settings inject node');
                 await wait(6000);
                 const actions = [
-                    ...(settings.heatCurve || settings.heat || settings.dhw || settings.dhwLastDone ? [{ topic: 'load', payload: {
+                    ...(settings.heatCurve || settings.heat || settings.dhw || settings.dhwLastDone || settings.dhwLastEnd ? [{ topic: 'load', payload: {
                         master: false,
                         ...(settings.heatCurve ? { heatCurve: settings.heatCurve } : {}),
                         ...(settings.heat ? { heat: settings.heat } : {}),
                         ...(settings.dhw ? { dhw: settings.dhw } : {}),
-                        ...(settings.dhwLastDone ? { dhwLastDone: settings.dhwLastDone } : {})
+                        ...(settings.dhwLastDone ? { dhwLastDone: settings.dhwLastDone } : {}),
+                        ...(settings.dhwLastEnd ? { dhwLastEnd: settings.dhwLastEnd } : {})
                     } }] : []),
                     { topic: 'ui', payload: { action: 'master', on: false } },
                     { topic: 'ui', payload: { action: 'modeAll', mode: 'off' } },
