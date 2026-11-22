@@ -1,0 +1,61 @@
+- name: Defrost pauses an active DHW cycle and recovery resumes the same cycle
+  faketime: '@2026-11-16 20:00:00 x18'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"gapRamp":false,"defrostEndPct":0,"minIntervalH":0,"minGapH":1,"afterDefrost":false}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":31,"tuya.pump.dps.102":36,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":55,"tuya.pump.dps.115":0,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 16m
+      settle: 210s
+      inputs: {"tuya.pump.dps.108":25}
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"pump","dps":"134","value":12},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"}]
+    - when: 20m
+      settle: 70s
+      inputs: {"tuya.pump.dps.115":69,"tuya.pump.dps.116":0}
+      expect:
+        writes: [{"device":"valve","dps":"1","value":false},{"device":"bypass","dps":"1","value":true}]
+        view: [{"path":"state","equals":"DEFROST_DHW"}]
+    - when: 22m
+      settle: 35s
+      inputs: {"tuya.pump.dps.115":0,"tuya.pump.dps.116":596}
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"DEFROST_DHW"}]
+    - when: 23m
+      settle: 175s
+      expect:
+        writes: [{"device":"pump","dps":"133","value":0},{"device":"valve","dps":"1","value":true},{"device":"bypass","dps":"1","value":false},{"device":"pump","dps":"133","value":25}]
+        view: [{"path":"state","equals":"DHW"}]
+    - when: 27m
+      settle: 85s
+      inputs: {"tuya.pump.dps.108":55}
+      expect:
+        writes: [{"device":"valve","dps":"1","value":false},{"device":"pump","dps":"134","value":4},{"device":"pump","dps":"133","value":38}]
+        view: [{"path":"state","equals":"HEATING"}]
+    - when: 29m
+      settle: 180s
+      inputs: {"tuya.pump.dps.108":25}
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"HEATING"},{"path":"why","contains":"gap 1 h"}]
+
+- name: Disabling DHW after defrost keeps a marginal tank deficit in heating mode
+  faketime: '@2026-11-16 20:00:00 x30'
+  settings: {"master":true,"modes":{"dhw":"live","heat":"off","df_exchange_off":"off","df_exchange_on":"off","hp_er03_restart":"off"},"heatCurve":{"p23":38,"p24":4},"dhw":{"startAfterDefrost":false,"afterDefrost":false,"minIntervalH":0}}
+  initial:
+    inputs: {"tuya.pump.dps.2":"mute","tuya.pump.dps.101":31,"tuya.pump.dps.102":36,"tuya.pump.dps.103":-2,"tuya.pump.dps.108":46.5,"tuya.pump.dps.115":69,"tuya.pump.dps.116":596,"tuya.pump.dps.132":"1","tuya.pump.dps.133":38,"tuya.pump.dps.134":4}
+  steps:
+    - when: 17m
+      inputs: {"tuya.pump.dps.116":0}
+      settle: 120s
+      expect: {"writes":[]}
+    - when: 20m
+      inputs: {"tuya.pump.dps.116":596}
+      settle: 600s
+      expect: {"writes":[]}
+    - when: 35m
+      settle: 600s
+      expect:
+        writes: []
+        view: [{"path":"state","equals":"HEATING"}]
