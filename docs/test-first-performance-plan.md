@@ -48,6 +48,7 @@ Tasks are tracked in `BACKLOG.md` (section 3, "Priority plan: test first, then s
 |---|---|---|
 | NR1 | Measure on the GX: Node-RED CPU %, RSS, process spawns / h, event-loop lag (baseline) | — |
 | G1–G6 | Grid controller: pure control loop + bookkeeping, 2 s cadence + immediate run on a grid step, read-back feedback, isolation + heartbeat, dashboard block (design: `docs/node-red-refactoring-plan.md`) | A1, NR1 |
+| G2-SAFE | Safe mode on stale inputs: **blocked (22 Nov)** until a real per-input freshness signal is designed (input nodes re-emit cached values every 5 s without a source time); part of the G2 design, before G2 code | G2 design |
 | NR3 | Process spawns: BMS watchdog `sh` every 30 s, cloud `node` every 2 min, page refreshes only with a viewer | A1 (TGX6) |
 | NR4 | Heat pump state and the 65 KB page: one run per event, at most every 5 s, page only on change and with a viewer | A2, A3 |
 | NR5 | Automations tick: one context write per tick, no large `JSON.stringify` per tick | A2, A3 |
@@ -60,8 +61,9 @@ Tasks are tracked in `BACKLOG.md` (section 3, "Priority plan: test first, then s
 | ID | Task |
 |---|---|
 | P-D1 | Automatic deploy cannot pass `allow_live_only_lines`, so every PR that rewrites lines stops it and needs a manual apply. Allow it automatically when the GX equals the commit it was last deployed from (no hand edits possible), with a test |
-| P-R1 | After-the-fact review of #103 (merged before review): no weakened expectations, tick gate only in the fixture, before / after times |
 | P-A1 | Owner approval page on the GX: expiring per-action approvals (one action, scope, expiry, audit log + mail), default off, read-only for Claude / CI, never shell or key access. Design + threat model first; until it exists, NR1 runs by the owner (command in `docs/node-red-refactoring-plan.md` NR1) |
+| P-R1 | Done 22 Nov: #103 OK with Low findings → T-R1a (heat-pump-deploy 14m step settle), T-R1b (tick gate liveness), T-R1c (`deployElapsed` own key) |
+| P-H1 | Herdr scheduled task fails at start (0xC000013A); until fixed Herdr runs in a Claude Code terminal tab |
 
 ## Order
 
