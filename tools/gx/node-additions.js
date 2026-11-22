@@ -56,6 +56,7 @@ function additionPlan(live, repo, allowNewNodes) {
     const added = byId(additions);
     const final = new Map([...original, ...added]);
     const routes = live.filter((node) => node.type === 'http in');
+    const groups = new Set();
     for (const node of additions) {
         if (original.get(node.z)?.type !== 'tab') fail(node.id + ': the tab must already exist on the GX.');
         if (Object.hasOwn(node, 'credentials')) fail(node.id + ': credentials require a manual deploy.');
@@ -71,8 +72,14 @@ function additionPlan(live, repo, allowNewNodes) {
         if (!TYPES.has(node.type)) fail(node.id + ': cannot add node type ' + node.type + ' (config or unsupported node).');
         if (node.type.startsWith('ui_') && original.get(node.group)?.type !== 'ui_group') fail(node.id + ': the ui_group must already exist on the GX.');
         if (node.g) {
-            const group = final.get(node.g);
-            if (group?.type !== 'group' || group.z !== node.z || !group.nodes?.includes(node.id)) fail(node.id + ': invalid layout group membership.');
+            const group = source.get(node.g);
+            const liveGroup = original.get(node.g);
+            if (group?.type !== 'group' || group.z !== node.z || !Array.isArray(group.nodes) ||
+                group.nodes.filter((id) => id === node.id).length !== 1 ||
+                (liveGroup && (liveGroup.type !== 'group' || liveGroup.z !== node.z || !Array.isArray(liveGroup.nodes)))) {
+                fail(node.id + ': invalid layout group membership.');
+            }
+            if (liveGroup && !liveGroup.nodes.includes(node.id)) groups.add(node.g);
         }
         for (const id of wireLists(node).flat()) {
             if (!final.has(id)) fail(node.id + ': wire to missing node ' + id + '.');
@@ -105,7 +112,7 @@ function additionPlan(live, repo, allowNewNodes) {
         }
         wire.push(node.id);
     }
-    return { add: additions.map((node) => node.id), wire };
+    return { add: additions.map((node) => node.id), wire, ...(groups.size ? { groups: [...groups] } : {}) };
 }
 
 module.exports = { additionPlan, describe };

@@ -20,6 +20,9 @@ const hour = now.getHours();
 for (const [key, value] of Object.entries(legacy || {})) {
     if (context.get(key) === undefined) context.set(key, value);
 }
+const acknowledgeSeed = () => {
+    if (legacy && flow.get("gridBookkeepingSeeded") !== true) flow.set("gridBookkeepingSeeded", true);
+};
 let hourBudget = context.get("hourBudget") || emptyBudget();
 let acLoadBudget = context.get("acLoadBudget") || emptyBudget();
 let solarBudget = context.get("solarBudget") || emptyBudget();
@@ -154,6 +157,7 @@ context.set("solarBudget", solarBudget);
 
 if (waiting) {
     node.status({ fill: "grey", shape: "ring", text: waiting });
+    acknowledgeSeed();
     return null;
 }
 const {
@@ -405,4 +409,5 @@ if (sendTrace) {
     };
 }
 
+acknowledgeSeed();
 return [notifyMsg, hourlyLogMsg, traceMsg, tariffHistoryRequestMsg];

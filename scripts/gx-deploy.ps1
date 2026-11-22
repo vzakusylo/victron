@@ -179,7 +179,7 @@ if ($plan.replacedFrom -match '^[0-9a-f]{40}$') {
 }
 if ($plan.add.Count -ne $summary.onlyRepo.Count) { Stop-Run 'new node count in the plan does not match the comparison.' }
 Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
-$planOutput | Where-Object { $_ -match '^(node to add|wire patch)' } | ForEach-Object { Write-Host $_ }
+$planOutput | Where-Object { $_ -match '^(node to add|wire patch|group patch)' } | ForEach-Object { Write-Host $_ }
 
 Step '5/8 window'
 $deadline = (Get-Date).AddMinutes($WaitWindowMin)

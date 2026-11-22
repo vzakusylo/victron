@@ -158,14 +158,17 @@ if (!waiting) {
     context.set("gridSetpoint", decision.finalGridSetpoint);
     context.set("manualDischarge", decision.manualDischarge);
     context.set("exportGuard", decision.exportGuard);
+    node.status({ fill: "green", shape: "dot", text:
+        `${decision.windowName} ${decision.finalGridSetpoint} W · ${decision.finalChargeCurrent} A DVCC · ${decision.gridCurrentLimitA} A AC` });
+} else {
+    node.status({ fill: "grey", shape: "ring", text: waiting });
 }
 
-// Read legacy node-private accounting once on upgrade; downstream owns subsequent updates.
+// Retry until bookkeeping acknowledges the handoff.
 let legacy;
-if (!context.get("gridBookkeepingSeedSent")) {
+if (flow.get("gridBookkeepingSeeded") !== true) {
     legacy = Object.fromEntries(["hourBudget", "acLoadBudget", "solarBudget", "hourPeak", "tariffDay", "tariffMonth", "tariffHistoryState", "lastTraceTs"]
         .map(key => [key, context.get(key)]).filter(([, value]) => value !== undefined));
-    context.set("gridBookkeepingSeedSent", true);
 }
 
 return [

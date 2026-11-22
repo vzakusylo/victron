@@ -57,11 +57,41 @@ test('legacy budgets and tariff context survive the split, including the first r
 test('control still emits all actuator messages without running Grid bookkeeping', () => {
     const { control } = loadGrid();
     const now = new Date('2026-11-12T23:00:00+01:00');
-    control.run({ topic: 'battery-voltage', payload: 53 }, { now });
+    const waiting = control.run({ topic: 'battery-voltage', payload: 53 }, { now });
+    assert.match(waiting.status.text, /WAITING FOR BMS/);
     const { result } = control.run({ topic: 'battery-consumed-ah', payload: -200 }, { now });
     assert.deepEqual(result.slice(0, 3).map(m => m.topic), ['charge-current-limit', 'grid-setpoint', 'ac-input-current-limit']);
     assert.deepEqual(result.slice(3, 7), [null, null, null, null]);
     assert.ok(result[7].tick.decision);
+    assert.match(control.run({ topic: 'battery-consumed-ah', payload: -200 }, { now }).status.text,
+        /NIGHT 6440 W .*25 A DVCC .*31 A AC/);
+});
+
+test('a failed first bookkeeping tick retries the legacy seed without overwriting stored state', () => {
+    const { control, bookkeeping, flow } = loadGrid();
+    const now = new Date('2026-11-12T23:15:00+01:00');
+    const hourKey = '2026-11-12 23';
+    const budget = { hourKey, usedWh: 240, lastTs: +now, startTs: +now - 900000, fullHourCoverage: true };
+    const month = { monthKey: '2026-11', dayPeaks: { '2026-11-11': 1700 } };
+    control.context.set('hourBudget', budget);
+    control.context.set('tariffMonth', month);
+    const tick = () => structuredClone(control.run({ topic: 'grid-power', payload: 0 }, { now }).result[7]);
+    const set = bookkeeping.context.set;
+    bookkeeping.context.set = (key, value) => {
+        if (key === 'tariffMonth') throw new Error('injected bookkeeping error');
+        set(key, value);
+    };
+    assert.throws(() => bookkeeping.run(tick()), /injected bookkeeping error/);
+    assert.equal(flow.get('gridBookkeepingSeeded'), undefined);
+    bookkeeping.context.set = set;
+    bookkeeping.context.set('hourBudget', { ...budget, usedWh: 250 });
+    const retry = tick();
+    assert.deepEqual(retry.tick.legacy.tariffMonth, month);
+    bookkeeping.run(retry);
+    assert.deepEqual(bookkeeping.context.get('tariffMonth'), month);
+    assert.equal(bookkeeping.context.get('hourBudget').usedWh, 250);
+    assert.equal(flow.get('gridBookkeepingSeeded'), true);
+    assert.equal(tick().tick.legacy, undefined);
 });
 
 test('the split is an additive deployment, preserving old wires and consumer destinations', () => {
@@ -73,9 +103,13 @@ test('the split is an additive deployment, preserving old wires and consumer des
         ['69795160ade5462a', '3e942ddd06fba83c'], ['5545bd538ffe3183', '6b9848413d671fe5', 'e55aa7c921171c88'],
         ['7a3e91c45d2b8f06']
     ] };
-    const before = flows.filter(n => n.id !== book.id).map(n => n.id === old.id ? old : n);
+    const group = flows.find(n => n.id === source.g);
+    const before = flows.filter(n => n.id !== book.id).map(n => n.id === old.id ? old
+        : n.id === group.id ? { ...n, nodes: n.nodes.filter(id => id !== book.id) } : n);
     assert.deepEqual(source.wires.slice(0, 7), old.wires);
     assert.deepEqual(source.wires[7], [book.id]);
     assert.deepEqual(book.wires, old.wires.slice(3));
-    assert.deepEqual(additionPlan(before, flows, true), { add: [book.id], wire: [source.id] });
+    assert.equal(book.g, source.g);
+    assert.ok(group.nodes.includes(book.id));
+    assert.deepEqual(additionPlan(before, flows, true), { add: [book.id], wire: [source.id], groups: [group.id] });
 });
