@@ -51,7 +51,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 
 | ID | Phase | Task | State |
 |---|---|---|---|
-| TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
 | TGX7-CLOUD-LATE | A3 boiler | Ignore delayed cloud replies while cloud polling is disabled; preserve the local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-AGE | A3 boiler | Track temperature freshness separately from battery-only wakes | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-NULL | A3 boiler | Ignore JSON `null` lines without discarding the following local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
@@ -175,6 +174,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#125 TGX5-DST-FOLD (d#209): separate the two Oslo October 02:00 budgets and preserve both CSV rows and local tariff peaks. Unit and synthetic Test GX coverage also verifies the March gap.
 
 #123 TH3 (d#208): stuck-supply Smart kicks are heating-only; pending and active DHW suppress kicks, and a running kick returns to Silent when DHW takes over.
 

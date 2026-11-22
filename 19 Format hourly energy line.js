@@ -8,7 +8,7 @@
 // - Formats a completed hourly energy record as one CSV row of the monthly energy file and
 //   builds the shell command that appends it (the header is written when the file is new).
 // Input:
-// - msg.payload : { hourKey: 'YYYY-MM-DD HH', gridWh, acWh, solarWh,
+// - msg.payload : { hourKey: 'YYYY-MM-DD HH' (with ±HHMM on the repeated hour), gridWh, acWh, solarWh,
 //                   billWh, peakW, setpointW, season: 'S' | 'W', coverageMin }
 // Output (1):
 // - output 1 -> exec "Append energy CSV" (`sh -c <payload>`), msg.filename = the CSV path
@@ -26,7 +26,7 @@
 // 3. Switched from the daily `energy-YYYY-MM-DD.log` text file to the monthly CSV with tariff columns.
 //    Legacy daily files are kept untouched and are still read by the dashboard and the controller.
 // ==========================
-if (!msg.payload || !msg.payload.hourKey) return null;
+if (!msg.payload || !/^\d{4}-\d{2}-\d{2} \d{2}(?:[+-]\d{4})?$/.test(msg.payload.hourKey)) return null;
 
 const LOG_DIR = '/data/home/nodered/grid-control-logs';
 const HEADER = 'hour,grid_wh,ac_wh,sol_wh,bill_wh,peak_w,setpoint_w,season,min';
@@ -34,7 +34,7 @@ const p = msg.payload;
 const int = value => Math.round(Number(value) || 0);
 const season = p.season === 'W' || p.season === 'S' ? p.season : '';
 const row = [
-    String(p.hourKey).substring(0, 13),
+    p.hourKey,
     int(p.gridWh),
     int(p.acWh),
     int(p.solarWh),

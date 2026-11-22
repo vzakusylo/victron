@@ -52,7 +52,7 @@ function dayKeyFromDate(date) {
 }
 
 function hourLabelFromKey(hourKey) {
-    return hourKey.substring(11, 13) + ':00';
+    return hourKey.slice(11, 13) + ':00' + (hourKey.length > 13 ? ' ' + hourKey.slice(13) : '');
 }
 
 function average(values) {
@@ -310,7 +310,7 @@ function buildTariffView(tariff) {
     }
 
     const headroomWh = Number(tariff.todayPeakHeadroomWh) || 0;
-    const peakHour = String(tariff.todayPeakHourKey || '').substring(11, 13);
+    const peakHour = String(tariff.todayPeakHourKey || '');
 
     return {
         season: tariff.season,
@@ -322,7 +322,7 @@ function buildTariffView(tariff) {
         todayRemainingKWh: kwText(tariff.todayRemainingWh),
         hourRemainingWh: Math.round(Number(tariff.hourRemainingWh) || 0),
         todayPeakKW: kwText(tariff.todayPeakBillableWh),
-        todayPeakHour: peakHour ? peakHour + ':00' : '—',
+        todayPeakHour: peakHour ? hourLabelFromKey(peakHour) : '—',
         todayPeakHeadroomKW: (headroomWh / 1000).toFixed(2),
         todayPeakOk: headroomWh >= 0,
         monthKey: tariff.monthKey,
