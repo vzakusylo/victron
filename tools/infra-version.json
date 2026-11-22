@@ -1,5 +1,5 @@
 {
-  "i": 17,
+  "i": 18,
   "changes": [
     {
       "i": 1,
@@ -102,6 +102,12 @@
       "date": "2026-11-22",
       "pr": null,
       "what": "Test fresh heat-pump mode confirmation and incident alerts"
+    },
+    {
+      "i": 18,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "One open PR at a time; rebase on master before opening a PR"
     }
   ]
 }
