@@ -1,5 +1,5 @@
 {
-  "i": 5,
+  "i": 7,
   "changes": [
     {
       "i": 1,
@@ -28,8 +28,20 @@
     {
       "i": 5,
       "date": "2026-11-22",
-      "pr": 134,
-      "what": "Share Test GX images across scenario jobs"
+      "pr": 136,
+      "what": "Test the fixed grid-control cadence and tighter CT reaction bound"
+    },
+    {
+      "i": 6,
+      "date": "2026-11-22",
+      "pr": 133,
+      "what": "Conflict-check rule for new tasks and pushes"
+    },
+    {
+      "i": 7,
+      "date": "2026-11-22",
+      "pr": 132,
+      "what": "Characterize device status before its source split"
     }
   ]
 }

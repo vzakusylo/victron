@@ -117,6 +117,8 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
 
 ## Standing rules
 
+- **Conflict check** before every new task and every push: no file / area overlap with open PRs, Herdr worker branches, queued briefs and BACKLOG "in progress"; shared counters (`d#`, `i#`, BACKLOG) only with a merge of master + re-bump; else queue it. Details: `docs/claude-operating-guide.md` §2a.
+
 1. Several PRs may be open at once. Each branch starts from a fresh `master`, touches only its own files, and merges `origin/master` in before its PR is merged if `master` moved.
 2. Merge with a merge commit; delete the branch on GitHub and locally afterwards.
 3. Everything goes through a PR, including docs and agent rules. Nothing is pushed directly to `master`.

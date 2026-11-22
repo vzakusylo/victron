@@ -50,16 +50,23 @@ function loadNode(file, sourceText, flow = store()) {
     return { run, context, flow };
 }
 
-function loadGrid() {
+function loadGrid({ captureTrace = false } = {}) {
     const control = loadNode('01 Battery + Grid Controller.js');
     const bookkeeping = loadNode('63 Grid bookkeeping.js', undefined, control.flow);
+    const cadence = { topic: 'grid-control-tick' };
+    function runRaw(msg, opts) {
+        const call = control.run(msg, opts);
+        if (!call.result) return call;
+        if (captureTrace) bookkeeping.context.set('lastTraceTs', 0);
+        const accounting = bookkeeping.run(structuredClone(call.result[7]), opts);
+        const result = call.result[0] ? [...call.result.slice(0, 3), ...accounting.result] : null;
+        return { ...call, result, status: accounting.status };
+    }
     return {
-        control, bookkeeping, context: control.context, flow: control.flow,
+        control, bookkeeping, context: control.context, flow: control.flow, runRaw,
         run(msg, opts) {
-            const call = control.run(msg, opts);
-            const accounting = bookkeeping.run(structuredClone(call.result[7]), opts);
-            const result = call.result[0] ? [...call.result.slice(0, 3), ...accounting.result] : null;
-            return { ...call, result, status: accounting.status };
+            const call = runRaw(msg, opts);
+            return call.result || call.status ? call : runRaw(cadence, opts);
         }
     };
 }
