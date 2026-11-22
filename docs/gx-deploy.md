@@ -341,6 +341,20 @@ Automatic runs use the environment **`victron-gx-auto`**; manual runs keep `vict
 
 After every successful **apply** (manual or automatic) the deploy job sends one mail through the GX's own mail path: it builds the message with [`tools/gx/deploy-mail.js`](../tools/gx/deploy-mail.js) and pipes it over the existing SSH connection into `node /data/home/nodered/tools/send-mail.js` (recipient and SMTP settings come from `email.json` on the GX; nothing is stored in the repository or CI).
 
+### Camera alert mail: restricted SSH key
+
+The GX code deploy keeps `tools/camera-mail-gate.js` executable (0755) alongside `tools/send-mail.js`. After the tool is deployed, the owner adds the dedicated camera public key to the GX SSH account's `authorized_keys` (replace the placeholder with the key's public blob):
+
+```text
+restrict,command="/data/home/nodered/tools/camera-mail-gate.js" ssh-ed25519 <public-key-blob> camera-ai@omarchy
+```
+
+Use an SSH server that supports the `restrict` key option, and do not accept client-controlled executable paths or Node startup variables such as `NODE_OPTIONS`. Keep the tool directory and its parents writable only by trusted GX accounts. Do not copy a deployment key to the camera host or authorize the camera key elsewhere without the restriction. To revoke access, remove that exact line and close any existing connections using the key. A compromised key can still send mail to the configured mailbox; it cannot select the recipient or execute a command through the gate.
+
+- **Check:** `ssh -T -i ~/.ssh/id_ed25519_camera_mail -o IdentitiesOnly=yes -o BatchMode=yes <gx-user>@<gx-host> check`. Exact `check` tests SMTP login without sending or reading stdin. Any other remote command is ignored and follows the send protocol.
+- **Send:** use one SSH call with no remote command, no PTY, and host key verification. Write exactly one UTF-8 JSON object on stdin and close stdin (EOF within 45 seconds). Its total size, including Base64 and trailing whitespace, must be at most 10 MiB (10,485,760 bytes). Required fields: `subject` (nonblank; at most 200 Unicode code points; no controls or line separators) and `text` (string, may be empty). Optional `jpg_b64` is a JPEG encoded as canonical standard Base64 with padding when required, without whitespace or a data URL. Omit the field for text-only mail; unknown fields, including `to`, are rejected.
+- **Result:** stdout is one JSON line: `{"ok":true}`, `{"ok":true,"check":true}` for check, or `{"ok":false,"error":"..."}`. Exit codes: `0` success, `1` sender/internal failure, `2` invalid or timed-out input. Parse stdout even for nonzero exits; SSH transport failures may return `255` without a JSON line. A transport timeout does not prove that no mail was sent.
+
 Subject: `GX deployed d#205 (523ba74)`. Body (plain text): previous and new `d#` with short commits, the trigger (manual dispatch by `<actor>` or automatic after a Test GX run, with its link), whether `allow_live_only_lines` was used, the changed files grouped as flow sources / lib / pages / tools (other files only counted), the commits between the previous and the new GX commit (`git log --no-merges`, at most 40, then `+N more`), and the Test GX and deploy run links. The previous commit is the one recorded on the GX tab; if it is not recorded the mail says so and omits files and commits. No hosts, IPs or addresses are included.
 
 Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem never fails the deploy: the step logs `::warning::deploy mail: failed (<reason>)` and writes the same line to the job summary; success logs `deploy mail: sent`.

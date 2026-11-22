@@ -52,7 +52,7 @@ if ($GxHost -notmatch '^[A-Za-z0-9_.-]+@[A-Za-z0-9._-]+$') { throw 'GxHost must 
 # The secret loader (victron-secrets.js, reload-victron-secrets.js) belongs to the secret workflow, not here.
 $gxTools = @(
     'tools/gx/live-snapshot.js', 'tools/gx/deploy.js', 'tools/gx/node-additions.js', 'tools/gx/verify.js', 'tools/gx/monitor.js', 'tools/gx/window.js',
-    'tools/send-mail.js', 'tools/tuya-cloud-sensors.js', 'tools/tuya-cloud-status.js', 'tools/tuya-devices-setup.js',
+    'tools/send-mail.js', 'tools/camera-mail-gate.js', 'tools/tuya-cloud-sensors.js', 'tools/tuya-cloud-status.js', 'tools/tuya-devices-setup.js',
     'tools/tuya-local-poll.js', 'tools/tuya-local-sensors.js'
 )
 $ssh = @('-i', $SshKey, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15')

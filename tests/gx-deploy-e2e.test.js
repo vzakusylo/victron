@@ -368,7 +368,10 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.ok(!snap.stdout.includes('VICTRON_TEST_ID') && !JSON.stringify(decoded).includes('VICTRON_TEST_ID'), 'no Tuya settings leave the GX');
 
     // ---- steps 3 and 4: compare and plan -------------------------------------------------------------------
-    const tools = 'tools/tuya-local-sensors.js,tools/gx/verify.js,tools/send-mail.js';
+    const gateTool = 'tools/camera-mail-gate.js';
+    // The deploy fixture serves committed bytes; exercise the new tool after the first commit.
+    const committedGate = execFileSync('git', ['-C', ROOT, 'ls-tree', 'HEAD', '--', gateTool], { encoding: 'utf8' });
+    const tools = 'tools/tuya-local-sensors.js,tools/gx/verify.js,tools/send-mail.js' + (committedGate ? `,${gateTool}` : '');
     const compareArgs = [file('live.b64'), '--commit', sha, '--plan', file('plan.json'), '--summary', file('summary.json'), '--tools', tools];
     const refused = await run(GX('compare.js'), compareArgs);
     assert.equal(refused.code, 1);
@@ -485,6 +488,12 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.ok(fs.readFileSync(toolFile).equals(gitShow('tools/tuya-local-sensors.js')), 'the tool file is the one of the commit');
     assert.ok(fs.readFileSync(path.join(home, 'tools', 'gx', 'verify.js')).equals(gitShow('tools/gx/verify.js')));
     assert.ok(fs.readFileSync(path.join(home, 'tools', 'send-mail.js')).equals(gitShow('tools/send-mail.js')), 'a tool missing on the GX is added');
+    if (committedGate) {
+        const gate = path.join(home, gateTool);
+        assert.ok(fs.readFileSync(gate).equals(gitShow(gateTool)));
+        assert.match(committedGate, /^100755 /);
+        if (process.platform !== 'win32') assert.equal(fs.statSync(gate).mode & 0o777, 0o755);
+    }
     assert.deepEqual(leftovers(), []);
 
     // ---- step 8: verify, monitor, and the proof: the live code equals the commit ---------------------------
