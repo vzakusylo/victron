@@ -59,8 +59,13 @@ A reused worker worktree also switches to a fresh branch from `origin/master`; n
   2. Run `sync` again (`d#`) and bump `i#` once on top of master.
   3. Run `check` and all tests.
   4. Push, with `--force-with-lease` if the branch was pushed before.
-  5. Open the PR with auto-merge.
+  5. Open the PR; enable auto-merge after review feedback is addressed and all threads are resolved.
 - PRs that are already open are not changed.
+
+**Every comment on a PR is fixed before it merges:** Claude review findings of every severity,
+Copilot reviewer comments, and owner comments. Give each fix its own commit, reply on the thread
+with that commit, and resolve it. If a comment is wrong, reply with the reason and ask Claude;
+never silently resolve it. Keep auto-merge paused while any review thread remains unresolved.
 
 Before starting a new task (a worker, a session or my own PR) and again before pushing, check it against **all work
 in progress**: open PRs (`gh pr list --state open` + `gh pr view <N> --json files`), every Herdr worker's branch and
@@ -110,7 +115,7 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
 9. **Live GX, secrets, real backups**: no access without an explicit owner request in that session; read-only access
    when the task says so. Real backups and keys never enter the repo or the Docker image.
 10. **Reviews**: first line the verdict (safe to merge / needs changes / nothing to check); what was checked
-    (CI, review verdict, tests, diff); findings by severity (Medium+ fixed before merge, Low / Nit may be deferred);
+    (CI, review verdict, tests, diff); findings by severity (all fixed before merge);
     numbered steps with done criteria; last line `Branch:`. Review comments for Copilot are posted on the PR
     (`gh pr comment`), then the worker is told to read them.
 11. **Grid control first**: the energy controller (grid setpoint, DVCC, VE.Bus limit, HV protection, export guard,

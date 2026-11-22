@@ -91,11 +91,8 @@ What I checked myself:
 - Claude review: <verdict>
 - commits / files: <what was verified>
 
-Fix before merge (Medium and above):
+Fix before merge (all severities):
 1. <finding> -> <fix>. Done when: <test / output>
-
-Can defer (Low / Nit):
-1. <finding> -> <target branch or Known limitations>
 
 Process issues:
 - <rule broken, what to do>
@@ -130,7 +127,10 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
    Details: `docs/claude-operating-guide.md` §2a.
 2. Merge with a merge commit; delete the branch on GitHub and locally afterwards.
 3. Everything goes through a PR, including docs and agent rules. Nothing is pushed directly to `master`.
-4. Medium or higher in changed code is fixed on the same branch. Low and Nit may move to the next branch or to Known limitations.
+4. **Fix every PR comment before merge:** Claude findings of every severity, Copilot reviewer comments,
+   and owner comments. Give each fix its own commit, reply on the thread with the commit, and resolve it.
+   If a comment is wrong, reply with the reason and ask Claude; never silently resolve it.
+   Keep auto-merge paused while any review thread remains unresolved.
 5. Production `flows.json` and `NN *.js` are not changed in Test GX work. A bug found by a scenario is marked `expected_fail`; its fix gets its own PR.
 6. Real backups, substitution maps and keys stay outside the repository and the Docker image.
 7. Live-GX access, pushing to master, deleting remote branches and removing Docker data volumes need an explicit owner request (see the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually)). Local Test GX calls (`/set`, `/fail`, `/reset`) and everything else in a task run without asking.
