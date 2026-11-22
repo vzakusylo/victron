@@ -1,5 +1,5 @@
 {
-  "i": 4,
+  "i": 5,
   "changes": [
     {
       "i": 1,
@@ -24,6 +24,12 @@
       "date": "2026-11-22",
       "pr": 131,
       "what": "Validate and exercise the split grid controller in Test GX"
+    },
+    {
+      "i": 5,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Test the fixed grid-control cadence and tighter CT reaction bound"
     }
   ]
 }

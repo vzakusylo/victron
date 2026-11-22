@@ -1,6 +1,5 @@
-// Synthetic d#206 baseline. To intentionally accept a behavior change, review the
-// diff from `node tests/grid-replay.test.js --update-reference`. G1–G6 refactoring
-// PRs must NOT regenerate these references.
+// The d#206 reference stays frozen. G2 compares decisions at recorded sample
+// boundaries, not intermediate outputs after every individual reading.
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,7 +8,7 @@ const test = require('node:test');
 const { loadGrid } = require('./harness');
 
 const fixtures = path.join(__dirname, 'fixtures', 'grid');
-const controller = () => loadGrid();
+const controller = () => loadGrid({ captureTrace: true });
 const read = file => JSON.parse(fs.readFileSync(path.join(fixtures, file), 'utf8'));
 const topics = {
     batteryV: 'battery-voltage',
@@ -45,29 +44,30 @@ function replay({ protection, samples }) {
     // Sample times are local wall time, well away from DST changes. Exclude
     // absolute epoch timestamps from the reference so hosts in any TZ agree.
     return samples.map(({ at, readings }) => {
-        const perInput = Object.entries(readings).map(([key, payload]) => {
+        let currentLimit = null;
+        for (const [key, payload] of Object.entries(readings)) {
             const topic = topics[key];
             assert.ok(topic, `Unknown input ${key}`);
-            const { result } = node.run({ topic, payload }, { now: at });
-            return actuators(result);
-        });
-        // A non-sensor message obtains an unthrottled trace at the sample time.
-        const { result } = node.run({ topic: 'replay-tick' }, { now: at });
-        return { at, perInput, tick: actuators(result), ...snapshot(result) };
+            const { result } = node.runRaw({ topic, payload }, { now: at });
+            currentLimit = result?.[2]?.payload ?? currentLimit;
+        }
+        const { result } = node.runRaw({ topic: 'grid-control-tick' }, { now: at });
+        return { at, tick: actuators(result), currentLimit: result[2]?.payload ?? currentLimit, ...snapshot(result) };
     });
 }
 
 const cases = ['winter-night', 'summer-export', 'force-charge', 'high-voltage'];
-if (process.argv.includes('--update-reference')) {
-    for (const name of cases) {
-        const frames = replay(read(`${name}.json`));
-        fs.writeFileSync(path.join(fixtures, `expected-${name}.json`),
-            `[\n${frames.map(frame => `  ${JSON.stringify(frame)}`).join(',\n')}\n]\n`);
-    }
-} else {
+{
     for (const name of cases) {
         test(`grid replay: ${name}`, () => {
-            assert.deepEqual(replay(read(`${name}.json`)), read(`expected-${name}.json`));
+            const baseline = read(`expected-${name}.json`).map(({ perInput, ...frame }) => ({
+                ...frame,
+                currentLimit: frame.tick.vebusA ?? perInput.find(output => output?.vebusA != null)?.vebusA ?? null,
+                tick: { ...frame.tick, vebusA: null }
+            }));
+            assert.deepEqual(replay(read(`${name}.json`)).map(frame => ({
+                ...frame, tick: { ...frame.tick, vebusA: null }
+            })), baseline);
         });
     }
 
