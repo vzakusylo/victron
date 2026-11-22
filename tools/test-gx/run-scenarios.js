@@ -18,6 +18,8 @@ const DEFAULT_ADMIN = process.env.TEST_GX_ADMIN || 'http://127.0.0.1:1881';
 const AUTOMATIONS_NODE = 'hpa-fn-01';
 const AUTOMATIONS_FLOW = '995ac4ed6222a706';
 const BMS_VIEW = 'bmsWatchdogState';
+const GRID_NODE = 'e4766632305fb432';
+const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth'];
 
 class ScenarioTimeoutError extends Error {}
 
@@ -264,8 +266,8 @@ function validateScenario(scenario, source = 'scenario') {
         }
         parseDuration(step.settle === undefined ? '12s' : step.settle, `${source} step ${index + 1} settle`);
         if (!step.expect || typeof step.expect !== 'object' || Array.isArray(step.expect) ||
-            (step.expect.writes === undefined ? !step.expect.outputs?.length : !Array.isArray(step.expect.writes))) {
-            throw new Error(`${source} step ${index + 1} requires an expect.writes sequence or nonempty expect.outputs`);
+            (step.expect.writes === undefined ? !step.expect.outputs?.length && !step.expect.grid?.length : !Array.isArray(step.expect.writes))) {
+            throw new Error(`${source} step ${index + 1} requires an expect.writes sequence or nonempty expect.outputs or expect.grid`);
         }
         if (step.expect.outputs !== undefined && (!Array.isArray(step.expect.outputs) ||
             step.expect.outputs.some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
@@ -281,10 +283,11 @@ function validateScenario(scenario, source = 'scenario') {
                 item.count !== undefined && !(Number.isInteger(item.count) && item.count >= 0)))) {
             throw new Error(`${source} step ${index + 1} expect.log must contain contains and an optional count`);
         }
-        for (const key of ['view', 'bms']) if (step.expect[key] !== undefined && (!Array.isArray(step.expect[key]) ||
+        for (const key of ['view', 'bms', 'grid']) if (step.expect[key] !== undefined && (!Array.isArray(step.expect[key]) ||
             step.expect[key].some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
                 Object.keys(item).some(key => !['path', 'equals', 'contains'].includes(key)) ||
                 typeof item.path !== 'string' || !item.path ||
+                key === 'grid' && (!scenario.controller || !GRID_VIEWS.includes(item.path.split('.')[0])) ||
                 Object.hasOwn(item, 'equals') === Object.hasOwn(item, 'contains') ||
                 Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
             throw new Error(`${source} step ${index + 1} expect.${key} must contain path and exactly one of equals or contains`);
@@ -768,6 +771,11 @@ async function runScenario(scenario, options = {}) {
             }
             if (step.expect.bms) {
                 assertView(await admin.readContext('flow', AUTOMATIONS_FLOW, BMS_VIEW), step.expect.bms, scenario.name, index + 1);
+            }
+            if (step.expect.grid) {
+                const keys = [...new Set(step.expect.grid.map(item => item.path.split('.')[0]))];
+                const values = await Promise.all(keys.map(key => admin.readContext('node', GRID_NODE, key)));
+                assertView(Object.fromEntries(keys.map((key, i) => [key, values[i]])), step.expect.grid, scenario.name, index + 1);
             }
         }
     } catch (error) {

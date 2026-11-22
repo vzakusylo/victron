@@ -10,7 +10,8 @@ const {
 const { preserveController, CONTEXT_KEYS, contextBridgeSource } = require('../tools/test-gx/scenario-controller');
 const { loadNode } = require('./harness');
 
-for (const scenario of loadScenarios().filter(item => item.controller)) {
+// Grid-context-only scenarios are verified against the deployed controller in Test GX.
+for (const scenario of loadScenarios().filter(item => item.controller && item.steps.some(step => step.expect.outputs || step.expect.writes))) {
     test(`controller fixture: ${scenario.name}`, () => {
         const controller = loadNode('01 Battery + Grid Controller.js');
         const protection = loadNode('06 Apply HV settings.js');
