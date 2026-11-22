@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-22 | Herdr server found not running; "Herdr server" scheduled task fails at start (0xC000013A) | Claude starts `herdr` in a Terminal-panel tab (`run_in_terminal`) and watches it with `read_terminal`; all six workers came back idle. Scheduled task still to fix. |
 | 2026-11-21 | d#206 deploy dry run stopped on six new UTCP nodes | D1 adds a manual opt-in; automatic deploy still stops. Review caught a missing helper in committed-script extraction; the PowerShell runner test now covers extraction and upload. |
 | 2026-11-21 | Claude operating guide written from Claude's memory notes; session-start checklist (incl. `herdr status`) and self-improvement rule | `docs/claude-operating-guide.md`, `CLAUDE.md` |
 | 2026-11-21 | Herdr worker `w-testgx-faketime-2` blocked ~6 min on a Copilot permission prompt (`git fetch`) | `herdr-task.ps1` starts workers with `--allow-all`; worker restarted in its pane with `--resume`, progress kept (#102) |

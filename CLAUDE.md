@@ -8,7 +8,7 @@ tools, tests and docs. `camera-ai/` is a separate project with its own README an
 
 1. `git fetch origin`; master tip and `d#` (`node tools/flows.js version`); what the GX runs (last Deploy GX code run).
 2. Open PRs and checks: `gh pr list --state open`, `gh pr checks <N>`.
-3. **Herdr**: `herdr status` → `running`, else start `herdr` in its own terminal tab (never restart a running server
+3. **Herdr**: `herdr status` → `running`, else start `herdr` in its own terminal tab via `run_in_terminal` so Claude can `read_terminal` it (never restart a running server
    without the owner). `herdr agent list`, then `read` every worker.
 4. `BACKLOG.md`: in progress / next. Then tell the owner in a few lines what is running.
 
