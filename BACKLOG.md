@@ -31,7 +31,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
 | #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
-| — | `camera-mail-gate` | Deploy a restricted GX SSH mail command with bounded JSON input | In progress; the production client is maintained in the separate `camera-ai` repository. |
 
 ## 2. Deploy
 
@@ -167,6 +166,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#142 (d#214 unchanged · i#13): deploy the restricted GX SSH mail gate with bounded stdin JSON and a documented camera client protocol. The separate `camera-ai` repository owns the production client.
 
 #141 P-D1 follow-up (d#214 unchanged, i#12): verified replacement ignores trailing-only differences, matching deploy readback. Run 45053215705 read the same d#210 revision already verified with no substantive code drift.
 

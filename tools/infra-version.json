@@ -1,5 +1,5 @@
 {
-  "i": 12,
+  "i": 13,
   "changes": [
     {
       "i": 1,
@@ -72,6 +72,12 @@
       "date": "2026-11-22",
       "pr": 141,
       "what": "Ignore trailing whitespace in verified GX code replacement"
+    },
+    {
+      "i": 13,
+      "date": "2026-11-22",
+      "pr": 142,
+      "what": "Restricted GX SSH mail gate for camera alerts"
     }
   ]
 }
