@@ -167,7 +167,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-In progress (`deploy-fix-verified-replacement`): P-D1 rejected the unchanged d#210 revision because its already-verified snapshot had trailing whitespace.
+#141 P-D1 follow-up (d#214 unchanged, i#12): verified replacement ignores trailing-only differences, matching deploy readback. Run 45053215705 read the same d#210 revision already verified with no substantive code drift.
 
 #139 (d#214 unchanged · i#10): manual allowlist for Git-verified GX node removals after G2.
 

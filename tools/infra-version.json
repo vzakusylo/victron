@@ -70,7 +70,7 @@
     {
       "i": 12,
       "date": "2026-11-22",
-      "pr": null,
+      "pr": 141,
       "what": "Ignore trailing whitespace in verified GX code replacement"
     }
   ]
