@@ -30,6 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
+| — | `gx-camera-key` | Restricted camera SSH key administration | In progress; offline checks only. |
 | #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
 
 ## 2. Deploy

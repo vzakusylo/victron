@@ -1,5 +1,5 @@
 {
-  "i": 13,
+  "i": 14,
   "changes": [
     {
       "i": 1,
@@ -78,6 +78,12 @@
       "date": "2026-11-22",
       "pr": 142,
       "what": "Restricted GX SSH mail gate for camera alerts"
+    },
+    {
+      "i": 14,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Manage the restricted GX camera mail key"
     }
   ]
 }
