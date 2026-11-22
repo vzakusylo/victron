@@ -89,7 +89,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
-| NR1 | Measure Node-RED on the GX: CPU %, RSS, process spawns / h, event-loop lag (script + baseline table in the plan, section 5) | — | open | No behaviour change. |
 | G0 | Test GX gate before grid refactoring: existing 33 charging scenarios green twice on master; replay test `tests/grid-replay.test.js` from synthetic inputs; new `grid-reaction.yml`, `grid-stale-inputs.yml` describing today's behaviour | NR1 | in progress: grid-testgx-a1 / #106 | Wait for two consecutive green charging runs on master. Coverage map: plan section 3a G0. |
 | G1 | Split `01` into a pure control loop (`lib/grid/control.js`) and a separate "Grid bookkeeping" node (budgets, peaks, tariff, logs, CSV, status) | G0 | open | Pure move, proven by the replay test; d# bump. |
 | G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | open | Replaces NR2. Expected −90 % controller runs, −10 s control latency. |
@@ -171,6 +170,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#117 NR1 (d#207 unchanged): read-only GX performance sampler with fake-SSH tests and an empty baseline table in the refactoring plan. The owner will collect the live measurements.
 
 #116 Grid reaction timing (d#207 unchanged): `grid-reaction.yml` uses a documented 30 s ESS write ceiling and a 35 s real observation window; both scenarios passed on three consecutive local runs.
 
