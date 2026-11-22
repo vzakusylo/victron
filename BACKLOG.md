@@ -52,7 +52,9 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Phase | Task | State |
 |---|---|---|---|
 | TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
-| TGX7 | A3 boiler | Tuya cloud / local stub (Test GX plan 7) | in progress: `testgx-tuya-stub` |
+| TGX7-CLOUD-LATE | A3 boiler | Ignore delayed cloud replies while cloud polling is disabled; preserve the local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
+| TGX7-LOCAL-AGE | A3 boiler | Track temperature freshness separately from battery-only wakes | open; reproduced by `test-gx-tuya-sensors.test.js` |
+| TGX7-LOCAL-NULL | A3 boiler | Ignore JSON `null` lines without discarding the following local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
@@ -145,7 +147,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Done: #114 |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |
-| 7 | Tuya cloud / local API stub where the logic reads it | Pending |
+| 7 | Tuya cloud / local API stub where the logic reads it | Done: #115 |
 | — | Compare the Test GX with the live GX over SSH | Pending (needs GX access) |
 
 ### T1. Speed up Test GX (merges 8p)
@@ -169,6 +171,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#115 TGX7 (d#207 unchanged): `tests/test-gx-tuya-sensors.test.js` feeds synthetic exec responses through nodes 44/46 and the heat-pump state node. Three checks passed in-process; three expected failures are tracked above as TGX7-CLOUD-LATE, TGX7-LOCAL-AGE, and TGX7-LOCAL-NULL. No Tuya network or credentials used.
 
 #114 TGX3 (d#207 unchanged): `dhw-schedule.yml` covers cycle interval expiry, shower prep and opt-out, manual force start/stop, invalid inputs, and a safety stop after Tuya reconnects. Four local scenarios passed in 453.9 s total, no expected failures.
 
