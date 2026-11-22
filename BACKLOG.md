@@ -30,7 +30,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| — | `gx-camera-key` | Restricted camera SSH key administration | In progress; offline checks only. |
 | #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
 
 ## 2. Deploy
@@ -167,6 +166,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#143 (d#214 unchanged · i#14): add owner tooling and documentation for checking, installing, testing, rotating, and revoking the restricted camera SSH public key. Checked offline; no live key changes.
 
 #142 (d#214 unchanged · i#13): deploy the restricted GX SSH mail gate with bounded stdin JSON and a documented camera client protocol. The separate `camera-ai` repository owns the production client.
 
