@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-22 | Owner decision: infrastructure version `i#` for non-production functionality, next to the production `d#` | task I1, next in the plan and BACKLOG |
 | 2026-11-22 | G2-SAFE deferred (decision): the grid worker found no source timestamps on the Victron inputs (cached values re-emitted every 5 s), so stale vs healthy-constant cannot be detected safely | Claude chose: no change to `01` now; G2-SAFE blocked in BACKLOG until a freshness design inside G2; expected_fails stay. Worker moved to the DST fold fix. |
 | 2026-11-22 | P-R1 review of #103 done (Sonnet subagent): OK with Low findings | follow-ups T-R1a..c in BACKLOG |
 | 2026-11-22 | Herdr server found not running; "Herdr server" scheduled task fails at start (0xC000013A) | Claude starts `herdr` in a Terminal-panel tab (`run_in_terminal`) and watches it with `read_terminal`; all six workers came back idle. Scheduled task still to fix. |
