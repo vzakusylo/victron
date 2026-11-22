@@ -16,13 +16,15 @@ param(
     [int]$TimeoutMs = 3000
 )
 
-$Hosts = @($Hosts | Where-Object { $_ })
+$Hosts = @($Hosts | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if (-not $Hosts.Count) { Write-Error 'Give -Hosts user@host[,user@host] or set GX_SSH_HOST.'; exit 1 }
 
 $working = $null
 foreach ($target in $Hosts) {
     $user, $addr = if ($target -match '@') { $target -split '@', 2 } else { 'root', $target }
-    $ping = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds ([Math]::Max(1, [int]($TimeoutMs / 1000))) -Quiet -ErrorAction SilentlyContinue
+    # .NET Ping works the same in Windows PowerShell 5.1 and PowerShell 7 (Test-Connection parameters differ).
+    $ping = $false
+    try { $ping = ([System.Net.NetworkInformation.Ping]::new().Send($addr, $TimeoutMs).Status -eq 'Success') } catch { }
 
     $tcp = $false
     $client = [System.Net.Sockets.TcpClient]::new()
