@@ -18,6 +18,7 @@ RUN apk add --no-cache --virtual .faketime-build-deps build-base git \
 ARG PALETTE=""
 COPY --from=backup nodered/ /data/home/nodered/
 RUN mkdir -p /data/home/nodered/tools /data/home/nodered/grid-control-config /data/home/nodered/grid-control-logs \
+ && if [ -f /data/home/nodered/tools/test-gx-bin/dbus ]; then chmod +x /data/home/nodered/tools/test-gx-bin/dbus; fi \
  && cd /data/home/nodered/.node-red \
  && if [ -f ../package.json ]; then cp ../package.json package.json; fi \
  && npm install --no-audit --no-fund --no-package-lock ${PALETTE}

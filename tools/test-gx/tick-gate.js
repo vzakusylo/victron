@@ -1,6 +1,6 @@
 'use strict';
 
-const GATED_INJECTS = ['hp-poll-inject-01', 'hp-log-inject-01', 'hpa-tick-01', 'cres-inject-01', 'hpal-tick-01'];
+const GATED_INJECTS = ['hp-poll-inject-01', 'hp-log-inject-01', 'hpa-tick-01', 'cres-inject-01', 'hpal-tick-01', 'bmswd-inject-01'];
 const FAST_REPEAT_S = 0.1;
 const GATE_SUFFIX = '-tick-gate';
 
@@ -32,7 +32,8 @@ function gateTickInjects(flows) {
             x: (node.x || 0) + 160, y: node.y || 0, wires: node.wires
         };
         // Node-RED waits real seconds for the first injection; give Tuya polling a head start.
-        const onceDelay = Math.min(Number(node.onceDelay), node.id === 'hp-poll-inject-01' ? 5 : 10);
+        const onceDelay = Math.min(Number(node.onceDelay), node.id === 'bmswd-inject-01' ? 1 :
+            node.id === 'hp-poll-inject-01' ? 5 : 10);
         return [{ ...node, repeat: String(FAST_REPEAT_S), onceDelay, wires: [[gate.id]] }, gate];
     });
 }

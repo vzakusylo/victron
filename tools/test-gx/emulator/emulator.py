@@ -38,9 +38,11 @@ DEFAULTS = dict(pv_w=0.0, load_w=800.0, soc=60.0, cap_ah=280.0, bms_max_charge_a
                 grid_max_w=20000.0, time_scale=1.0)
 FORCEABLE = ('grid_w', 'batt_v', 'batt_a', 'consumed_ah')
 SERVICES = ('system', 'vebus', 'battery')
+BMS_DEFAULTS = dict(present=False, connected=False, active=False, instance=-1, passthru=False)
 
 lock = threading.Lock()
 state = dict(DEFAULTS)
+bms = dict(BMS_DEFAULTS)
 forced = {}
 stale_until = {}      # service or service.property -> unix time
 failed = {}           # service -> 'invalid' | 'offline'
@@ -343,7 +345,7 @@ class Api(BaseHTTPRequestHandler):
                 return self._send(200, dict(inputs=state, computed=computed, forced=forced, failed=failed, now=now,
                                             stale={k: round(v - now) for k, v in stale_until.items() if v > now},
                                             outputs=actuator_outputs(),
-                                            tuya=tuya.snapshot(),
+                                            tuya=tuya.snapshot(), bms=bms,
                                             vebus_current_limit_a=vebus_limit_a() if 'vebus' in services else None))
             if url.path == '/writes':
                 since = float(parse_qs(url.query).get('since', ['0'])[0])
@@ -380,8 +382,20 @@ class Api(BaseHTTPRequestHandler):
                         if len(parts) != 4 or parts[2] != 'dps':
                             raise ValueError('use tuya.<device>.dps.<number>')
                         tuya.set(parts[1], parts[3], body['value'])
+                    elif body['path'].startswith('bms.'):
+                        field = body['path'][4:]
+                        if field not in BMS_DEFAULTS or type(body['value']) is not type(BMS_DEFAULTS[field]):
+                            raise ValueError('invalid BMS fixture input')
+                        bms[field] = body['value']
                     else:
                         apply_set(body['path'], body['value'])
+                elif self.path == '/bms-repair':
+                    instance = body.get('instance')
+                    if type(instance) is not int:
+                        raise ValueError('BmsInstance must be an integer')
+                    bms['instance'] = instance
+                    writes.append(dict(ts=time.time(), service='settings', path='/Settings/SystemSetup/BmsInstance',
+                                       value=instance))
                 elif self.path == '/stale':
                     if body['path'].startswith('tuya.'):
                         tuya.stale(body['path'][5:], body.get('seconds'))
@@ -408,6 +422,7 @@ class Api(BaseHTTPRequestHandler):
                     forced.clear()
                     stale_until.clear()
                     failed.clear()
+                    bms.update(BMS_DEFAULTS)
                     writes.clear()
                     tuya.reset()
                 else:

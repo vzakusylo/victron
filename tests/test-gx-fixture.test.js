@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildFixture, fixtureFiles, FIXTURE: COMMITTED_FIXTURE, FAKE_PASSWORD_HASH, TOOLS } = require('../tools/test-gx/build-fixture');
+const { buildFixture, fixtureFiles, FIXTURE: COMMITTED_FIXTURE, FAKE_PASSWORD_HASH, TOOLS, FIXTURE_TOOLS } = require('../tools/test-gx/build-fixture');
 const { verify } = require('../tools/test-gx/fixture/check');
 const { assertFunctionHashes } = require('../tools/test-gx/scenario-state');
 const { loadNode } = require('./harness');
@@ -78,7 +78,8 @@ function provenance(value, cache) {
     if (!cache.has(value)) {
         const result = spawnSync('git', [
             'grep', '-l', '-F', '-e', value, 'HEAD', '--',
-            'flows.json', 'tools/test-gx/transform-tuya.js', ...TOOLS.map(name => 'tools/' + name)
+            'flows.json', 'tools/test-gx/transform-tuya.js', ...TOOLS.map(name => 'tools/' + name),
+            ...Object.values(FIXTURE_TOOLS).map(name => 'tools/test-gx/fixture/' + name)
         ], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
         if (result.error) throw result.error;
         if (result.status !== 0 && result.status !== 1) throw new Error(result.stderr || 'git grep failed');
@@ -97,7 +98,12 @@ test('fixture regenerates committed defaults and builds byte-identical derived s
     assert.deepEqual(nonDerived(readTree(COMMITTED_FIXTURE)), nonDerived(first));
     for (const [name, content] of first) {
         if (name.startsWith('nodered/tools/')) {
-            assert.deepEqual(content, fs.readFileSync(path.join(ROOT, name.slice('nodered/'.length))), name);
+            const tool = name.slice('nodered/tools/'.length);
+            const stub = FIXTURE_TOOLS[tool];
+            const expected = stub
+                ? Buffer.from(fs.readFileSync(path.join(ROOT, 'tools/test-gx/fixture', stub), 'utf8').replace(/\r\n/g, '\n'))
+                : fs.readFileSync(path.join(ROOT, 'tools', tool));
+            assert.deepEqual(content, expected, name);
         }
     }
 });
@@ -129,7 +135,7 @@ test('fixture matches only the approved node transformations', () => {
     const generated = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'nodered', '.node-red', 'flows.json'), 'utf8'));
     const summary = verify(source, generated);
     assert.equal(summary.proxies, 4);
-    assert.equal(summary.added, 12 + 5); // Tuya transport nodes and five tick gates.
+    assert.equal(summary.added, 12 + 6); // Tuya transport nodes and six tick gates.
     const gateId = 'hpa-tick-01-tick-gate';
     const gate = generated.find(node => node.id === gateId);
     assert.throws(() => verify([...source, gate], generated), /Production flows must not contain/);

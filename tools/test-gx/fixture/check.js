@@ -37,6 +37,9 @@ function verify(repo, actual) {
         throw new Error('Expected exactly one credential-free, non-TLS MQTT broker');
     }
     Object.assign(brokers[0], { broker: 'mosquitto', port: '1883' });
+    const bmsExec = source.find(node => node.id === 'bmswd-exec-01');
+    if (bmsExec?.command !== 'sh -c' || bmsExec.addpay !== 'payload') throw new Error('BMS watchdog exec contract changed');
+    bmsExec.command = 'PATH=/data/home/nodered/tools/test-gx-bin:$PATH sh -c';
     for (const node of source) {
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }

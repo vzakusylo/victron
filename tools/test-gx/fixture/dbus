@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node /data/home/nodered/tools/test-gx-bms-dbus.js "$@"
