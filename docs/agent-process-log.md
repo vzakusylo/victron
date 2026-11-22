@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-22 | Rule: conflict check of every new task and push against all work in progress (open PRs, Herdr workers, queued briefs, BACKLOG) | `docs/claude-operating-guide.md` §2a, `docs/agent-workflow.md`; three workers in parallel (G1 / NR9 / T1b) checked by it |
 | 2026-11-22 | Owner decision: infrastructure version `i#` for non-production functionality, next to the production `d#` | task I1, next in the plan and BACKLOG |
 | 2026-11-22 | G2-SAFE deferred (decision): the grid worker found no source timestamps on the Victron inputs (cached values re-emitted every 5 s), so stale vs healthy-constant cannot be detected safely | Claude chose: no change to `01` now; G2-SAFE blocked in BACKLOG until a freshness design inside G2; expected_fails stay. Worker moved to the DST fold fix. |
 | 2026-11-22 | P-R1 review of #103 done (Sonnet subagent): OK with Low findings | follow-ups T-R1a..c in BACKLOG |
