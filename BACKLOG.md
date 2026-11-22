@@ -165,6 +165,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#148 HP-M2 stage 1 (d#217 · i#19): observe ownership and log disagreements for DP 2, the P22–P24 group and DP 121 without changing SETs. Stages 2 (mode) and 3 (curve and slider) remain open.
+
 #146 HP-M1 (d#216 · i#17): confirm heat pump mode from fresh DP 2 observations, pause non-safety retries after three failures, and send one incident alert plus a six-hour reminder if unresolved. Includes the HP-P1 replay; superseded checks do not count as failures, and DHW and protection writes are never backed off.
 
 #145 (d#215 unchanged, i#16): isolate the automatic deploy recheck checkout so the pinned checkout includes `scripts/gx-deploy.ps1`.

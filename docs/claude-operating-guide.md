@@ -30,7 +30,7 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 |---|---|
 | Owner | Sets priorities, approves GX deploys in GitHub Actions, approves anything destructive or outward-facing |
 | Claude (one chat) | Plans, writes briefs, reviews PRs and reports, keeps `BACKLOG.md` and these docs current; implements itself only when the owner asks ("claude implement…", "claude only now") |
-| Copilot (Herdr workers) | Implements on its own branch / worktree, tests, commits, pushes, opens the PR, sets auto-merge, reports |
+| Copilot (Herdr workers) | Implements on its own branch / worktree, tests, commits, pushes, opens the PR, enables auto-merge after all review threads are resolved, reports |
 
 - **Copilot model**: exactly `gpt-6.2-sol` (`gpt-sol-6.2` is rejected and silently falls back to a default).
 - **Transport**: every new Copilot task is a Herdr worker started by `herdr-task.ps1 new <branch> -Base origin/master`
@@ -59,8 +59,13 @@ A reused worker worktree also switches to a fresh branch from `origin/master`; n
   2. Run `sync` again (`d#`) and bump `i#` once on top of master.
   3. Run `check` and all tests.
   4. Push, with `--force-with-lease` if the branch was pushed before.
-  5. Open the PR with auto-merge.
+  5. Open the PR; enable auto-merge after review feedback is addressed and all threads are resolved.
 - PRs that are already open are not changed.
+
+**Every comment on a PR is fixed before it merges:** Claude review findings of every severity,
+Copilot reviewer comments, and owner comments. Give each fix its own commit, reply on the thread
+with that commit, and resolve it. If a comment is wrong, reply with the reason and ask Claude;
+never silently resolve it. Keep auto-merge paused while any review thread remains unresolved.
 
 Before starting a new task (a worker, a session or my own PR) and again before pushing, check it against **all work
 in progress**: open PRs (`gh pr list --state open` + `gh pr view <N> --json files`), every Herdr worker's branch and
@@ -89,7 +94,8 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
    Analysis / design documents (e.g. `docs/node-red-refactoring-plan.md`) are allowed when the owner asks; their tasks
    still get a `BACKLOG.md` row when they start.
 4. **Branches and PRs**: each change on its own branch from fresh `origin/master`, PR into `master`, then
-   `gh pr merge <N> --auto --merge`. PRs merge with a merge commit. A branch is rebased on `origin/master` right
+   `gh pr merge <N> --auto --merge` only after review feedback is addressed and every thread is resolved.
+   PRs merge with a merge commit. A branch is rebased on `origin/master` right
    before its PR opens (§2a); after that, merge `origin/master` in if master moved. Only one PR is open at a time
    (§2a). `master` is protected: required checks `check`, `tests`,
    `secret-files`, `review` (Claude review with a verdict gate), `scenarios` (Test GX).
@@ -110,7 +116,7 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
 9. **Live GX, secrets, real backups**: no access without an explicit owner request in that session; read-only access
    when the task says so. Real backups and keys never enter the repo or the Docker image.
 10. **Reviews**: first line the verdict (safe to merge / needs changes / nothing to check); what was checked
-    (CI, review verdict, tests, diff); findings by severity (Medium+ fixed before merge, Low / Nit may be deferred);
+    (CI, review verdict, tests, diff); findings by severity (all fixed before merge);
     numbered steps with done criteria; last line `Branch:`. Review comments for Copilot are posted on the PR
     (`gh pr comment`), then the worker is told to read them.
 11. **Grid control first**: the energy controller (grid setpoint, DVCC, VE.Bus limit, HV protection, export guard,
@@ -126,7 +132,7 @@ relay, a repeated question, a review finding that a rule would have prevented):
 1. Fix the immediate problem.
 2. In the same session, update the rule where it belongs: `CLAUDE.md` (short), this guide (full),
    `docs/agent-workflow.md` (Claude ↔ Copilot loop), `.github/copilot-instructions.md` (Copilot side), a skill script,
-   or Claude's memory; as a small docs PR with auto-merge, after the owner's go for the push.
+   or Claude's memory; use a small docs PR after the owner's go for the push and enable auto-merge after review.
 3. Add one line to `docs/agent-process-log.md` (date, what happened, what changed).
 4. Remove rules that turned out wrong instead of stacking exceptions.
 
