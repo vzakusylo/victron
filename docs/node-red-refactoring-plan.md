@@ -270,4 +270,4 @@ measure Node.js event-loop delay. Compare like-for-like workloads; record dashbo
 
 | When | d# | CPU % | RSS mean / max MiB | Observed spawns/h | Admin TTFB p50 / p95 ms | Notes |
 |---|---|---:|---:|---:|---:|---|
-| Baseline | | | | | | |
+| Baseline 2026-11-22 09:18–09:33 | d#207 | 20.54 | 352.44 / 363.52 | 583.98 (lower bound) | 186.78 / 380.92 | Owner run, 15 min / 10 s, Sunday morning load, no deploy during the run; no dashboard viewer known. Spawns ~584/h vs the ~210/h estimate (NR3 target < 30). |
