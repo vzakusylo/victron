@@ -86,7 +86,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
-| G2 | Grid inputs and cadence: inputs only store values with age; loop every 2 s + immediate run on a grid step > 1 kW; remove the 5 fixed 10 s delays and "Tag" change nodes; safe mode on a stale critical input | G1 | open | Replaces NR2. Expected −90 % controller runs, −10 s control latency. |
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
 | G4 | Isolation and heartbeat: no exec / file I/O in the grid path; event-loop lag p95 < 100 ms; alarm if the loop is silent 10 s | G3 | open | With `grid-isolation.yml`, `grid-heartbeat.yml`. |
@@ -108,6 +107,8 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
 | H6 | Heating curve chart: low and high band lines | Point − `bandDown` and point + `bandUp` along the curve. |
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
+| HP-M1 | **Mode confirm + one mail per episode (next for the heat pump).** Repeated mails "mode Silent — NOT confirmed, device reports smart" (22 Nov): node 40 verifies DP 2 against the cached value 15 s after send, no per-DP freshness, no superseded check, no repeat cap; node 47 has no per-incident suppression. Fix: per-DP observation time in 34, send id / generation in 40, outcomes confirmed / no fresh DP 2 / fresh mismatch / superseded; back off after 3 misses for non-safety intents; node 47: one mail per incident (device, DP, value), reminder with count after 6 h, clear on fresh match. Tests incl. the repro in `.investigation-mode-mail.md` (minutes 9 / 19 writes, 12 / 27 mails) | Investigation 22 Nov (worker report). Do not back off DHW / protection writes. Depends: —; state: open. |
+| HP-M2 | **Single writer with leases for HP mode + curve** (after HP-M1). One dispatcher for every DP 2 / P22–P24 / DP 121 SET (node 40 queue AND the node 37 slider); priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline; versioned owner + bounded lease per resource, generation checks at dequeue and verify, P22–P24 as one group; warm-up / band / boost composed into one heating curve request. Staged: shadow mode logging disagreements first, then mode, then curve + slider | Fixes the reproduced slider vs warm-up mixed curve (40/9) and stale queued writes after DHW takes over. Depends: HP-M1; state: open. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
 | H10 | History by day: week navigation, at most 14 day chips | `39 Heat pump history page.html` / `38`. |
 ## 4. Review follow-ups (deferred Low / Nit)
@@ -166,6 +167,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#136 G2 (d#212 · i#5): one 2 s decision tick plus immediate CT steps over 1 kW; removed the fixed input delays, kept the output rate limits, and tightened the synthetic write ceiling to 16 s. Owner manual topology apply required. [Candidate freshness signals](docs/grid-g2-design.md) await read-only verification; G2-SAFE remains blocked.
 
 #131 G1 (d#211 · i#4): pure grid decisions in `lib/grid/control.js`, with budgets, tariffs, logs and status in `63 Grid bookkeeping.js`. Frozen replays pass unchanged. Owner manual dry-run and apply with `allow_new_nodes=true` required.
 
