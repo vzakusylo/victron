@@ -52,6 +52,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Phase | Task | State |
 |---|---|---|---|
 | TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
+| TH3 | Heating | Suppress stuck-supply Smart kicks during DHW and its cooldown | in progress: `fix-th3-kick-dhw` |
 | TGX7-CLOUD-LATE | A3 boiler | Ignore delayed cloud replies while cloud polling is disabled; preserve the local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-AGE | A3 boiler | Track temperature freshness separately from battery-only wakes | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-NULL | A3 boiler | Ignore JSON `null` lines without discarding the following local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |

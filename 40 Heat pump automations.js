@@ -125,6 +125,7 @@
 //    no new DHW start until 'Allow DHW again' on the Heat Pump page (ui action dhwResume); the d#144 retries are removed.
 // 26. d#175: stuck supply kick (kickTick): supply flat (≤ 0.5 °C) for kickMin below its point − 1 in Silent with the
 //    compressor running → Smart for kickSec, then Silent; heating (heating controller) and DHW cycles (DHW controller).
+//    TH3: kicks are now heating-only; a pending or active DHW cycle ends a kick and clears its samples.
 // 27. d#176 (owner): min interval 1 h; in the defrost season (a defrost < 3 h ago) a DHW cycle starts only within
 //    afterDefrostWinMin (30) after the supply recovered from a defrost, so the cycle runs between two defrosts; in the
 //    cold the heating-first check (heating lags its curve → no DHW) stays.
