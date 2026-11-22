@@ -103,9 +103,15 @@ function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
             : { kind: 'manual', actor: env.ACTOR },
         testRunUrl: env.TEST_RUN_URL || '',
         deployRunUrl: env.DEPLOY_RUN_URL || '',
-        allowLiveOnlyLines: env.ALLOW_LIVE_ONLY_LINES === 'true',
+        allowLiveOnlyLines: env.ALLOW_LIVE_ONLY_LINES === 'true' ||
+            (env.TRIGGER_EVENT === 'workflow_run' && SHA.test(planReplacedFrom(runFolder) || '')),
         additions: plannedAdditions(runFolder, newCommit, root)
     };
+}
+
+function planReplacedFrom(runFolder) {
+    const file = path.join(runFolder, 'plan.json');
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).replacedFrom : null;
 }
 
 module.exports = { buildMail, collect, groupFiles, scrub, MAX_COMMITS };

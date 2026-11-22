@@ -63,10 +63,13 @@ const root = path.join(__dirname, '..', '.github', 'workflows');
 const deploy = fs.readFileSync(path.join(root, 'deploy-gx-code.yml'), 'utf8').replace(/\r\n/g, '\n');
 const testGx = fs.readFileSync(path.join(root, 'test-gx.yml'), 'utf8');
 
-test('deploy workflow: auto path is victron-gx-auto, apply, no live-only lines', () => {
+test('deploy workflow: auto path requests verified replacement, not the manual override', () => {
   assert.match(deploy, /environment: \$\{\{ github\.event_name == 'workflow_run' && 'victron-gx-auto' \|\| 'victron-gx' \}\}/);
   assert.match(deploy, /MODE: \$\{\{ github\.event_name == 'workflow_run' && 'apply' \|\| inputs\.mode \}\}/);
   assert.match(deploy, /ALLOW_LIVE_ONLY_LINES: \$\{\{ github\.event_name == 'workflow_run' && 'false' \|\| inputs\.allow_live_only_lines \}\}/);
+  assert.match(deploy, /if \(\$env:AUTO -eq 'true'\) \{ \$arguments \+= '-AllowReplaceDeployedLines' \}\n\s+elseif \(\$env:ALLOW_LIVE_ONLY_LINES -eq 'true'\) \{ \$arguments \+= '-AllowLiveOnlyLines' \}/);
+  const script = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'gx-deploy.ps1'), 'utf8');
+  assert.match(script, /if \(\$AllowReplaceDeployedLines\) \{ \$planFlags \+= '--allow-replace-deployed-lines' \}/);
   assert.match(deploy, /node tools\/gx\/deploy-gate\.js/);
 });
 

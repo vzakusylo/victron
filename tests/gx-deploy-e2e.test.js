@@ -19,9 +19,9 @@ const GX = (name) => path.join(ROOT, 'tools', 'gx', name);
 const TAB_STAMP = /<!-- victron-deployment-source -->\s*([\s\S]*?)\s*<!-- \/victron-deployment-source -->/;
 
 function gitShow(file) { return execFileSync('git', ['-C', ROOT, 'show', 'HEAD:' + file], { maxBuffer: 1 << 27 }); }
-function run(file, args, env) {
+function run(file, args, env, cwd = ROOT) {
     return new Promise((resolve) => {
-        execFile(process.execPath, [file].concat(args || []), { cwd: ROOT, env: Object.assign({}, process.env, env), maxBuffer: 1 << 27 },
+        execFile(process.execPath, [file].concat(args || []), { cwd, env: Object.assign({}, process.env, env), maxBuffer: 1 << 27 },
             (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout, stderr }));
     });
 }
@@ -68,6 +68,75 @@ test('fake GX preserves UTF-8 JSON when a character is split across HTTP chunks'
 let available = true;
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', 'HEAD^{commit}'], { stdio: 'ignore' }); execFileSync('curl', ['--version'], { stdio: 'ignore' }); }
 catch { available = false; }
+
+test('automatic code replacement plans against a fake GX only when it matches the recorded Git deployment',
+    { skip: !available && 'needs git and curl', timeout: 30000 }, async t => {
+        const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-replacement-test-'));
+        t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
+        const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+        git('init', '-q');
+        git('config', 'user.name', 'GX test');
+        git('config', 'user.email', 'gx-test@example.invalid');
+        git('config', 'commit.gpgsign', 'false');
+        const flows = [{ id: 'tab', type: 'tab', label: 'd#1 GX' },
+            { id: 'fn', z: 'tab', type: 'function', func: 'msg.payload = 1;\nreturn msg;' }];
+        const putFlows = () => fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
+        fs.mkdirSync(path.join(cwd, 'tools'));
+        fs.writeFileSync(path.join(cwd, 'tools', 'deploy-version.js'), '');
+        putFlows();
+        git('add', 'flows.json', 'tools');
+        git('commit', '-qm', 'previous deployment');
+        const previous = git('rev-parse', 'HEAD');
+        const live = structuredClone(flows);
+        flows[1].func = 'msg.payload = 2;\nreturn msg;';
+        putFlows();
+        git('commit', '-qam', 'replacement');
+        const target = git('rev-parse', 'HEAD');
+        const stamp = (sha = previous) => '<!-- victron-deployment-source -->\n' +
+            JSON.stringify({ dashboard: sha, automations: sha }) + '\n<!-- /victron-deployment-source -->';
+        live[0].info = stamp();
+        const api = await listen((req, res) => {
+            assert.equal(req.method, 'GET');
+            assert.equal(req.url, '/flows');
+            res.end(JSON.stringify({ rev: 'fake-rev', flows: live }));
+        });
+        t.after(() => api.close());
+        const env = { VICTRON_API_PORT: api.address().port };
+        const baseline = path.join(cwd, 'live.b64');
+        const plan = path.join(cwd, 'plan.json');
+        const makePlan = async () => {
+            fs.rmSync(plan, { force: true });
+            const snap = await run(GX('live-snapshot.js'), [], env);
+            assert.equal(snap.code, 0, snap.stderr);
+            fs.writeFileSync(baseline, snap.stdout);
+            return run(GX('compare.js'), [baseline, '--commit', target, '--plan', plan,
+                '--allow-replace-deployed-lines'], env, cwd);
+        };
+        const ok = await makePlan();
+        assert.equal(ok.code, 0, ok.stderr);
+        const result = JSON.parse(fs.readFileSync(plan, 'utf8'));
+        assert.deepEqual([result.replacedFrom, result.expectRev, result.patch], [previous, 'fake-rev', { fn: ['func'] }]);
+        const mail = await run(GX('deploy-mail.js'), [cwd], { DEPLOY_SHA: target, TRIGGER_EVENT: 'workflow_run',
+            ALLOW_LIVE_ONLY_LINES: 'false' }, cwd);
+        assert.equal(mail.code, 0, mail.stderr);
+        assert.match(JSON.parse(mail.stdout).text, /allow_live_only_lines: USED/);
+        live[1].func += '\n// hand edit';
+        const changed = await makePlan();
+        assert.equal(changed.code, 1);
+        assert.match(changed.stderr, /differ from the recorded deployment/);
+        assert.equal(fs.existsSync(plan), false);
+        live[1].func = 'msg.payload = 1;\nreturn msg;';
+        delete live[0].info;
+        const unrecorded = await makePlan();
+        assert.equal(unrecorded.code, 1);
+        assert.match(unrecorded.stderr, /deployment record is missing/);
+        assert.equal(fs.existsSync(plan), false);
+        live[0].info = stamp('0'.repeat(40));
+        const unknown = await makePlan();
+        assert.equal(unknown.code, 1);
+        assert.match(unknown.stderr, /not a readable ancestor/);
+        assert.equal(fs.existsSync(plan), false);
+    });
 
 test('GX deploy end to end: every step of the runbook against a fake GX', { skip: !available && 'needs git and curl', timeout: 120000 }, async (t) => {
     const sha = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD']).toString().trim();

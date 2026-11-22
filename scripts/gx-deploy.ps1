@@ -6,6 +6,7 @@
 #   ... -Commit <sha>               another commit than origin/master (it must be pushed)
 #   ... -WaitWindowMin 30           with -Apply: wait up to 30 min for a moment without DHW cycle / defrost
 #   ... -AllowLiveOnlyLines         deploy although the GX has code lines that the commit does not have
+#   ... -AllowReplaceDeployedLines  allow GX-only replacements only when live code matches its recorded deployment
 #   ... -AllowNewNodes              plan and deploy reviewed additions from the commit (review the dry run first)
 #   ... -UseWorkTreeScripts         development only: run the scripts of the work tree (the deployed files still come from the commit)
 #   ... -Steps                      only print the steps
@@ -22,6 +23,7 @@ param(
     [switch]$Apply,
     [int]$WaitWindowMin = 0,
     [switch]$AllowLiveOnlyLines,
+    [switch]$AllowReplaceDeployedLines,
     [switch]$AllowNewNodes,
     [switch]$UseWorkTreeScripts,
     [string]$RunDirectory,
@@ -131,7 +133,7 @@ if ($summary.onlyLive.Count) {
 if ($summary.onlyRepo.Count -and -not $AllowNewNodes) {
     Stop-Run 'nodes were added. Review the commit, then dry run with -AllowNewNodes. See docs/gx-deploy.md.'
 }
-if ($summary.liveOnlyLines.Count -and -not $AllowLiveOnlyLines) {
+if ($summary.liveOnlyLines.Count -and -not ($AllowLiveOnlyLines -or $AllowReplaceDeployedLines)) {
     Stop-Run ("the GX has code lines the commit does not have: $($summary.liveOnlyLines -join ', '). Look at them (compare.js --show <id>), " +
         'copy wanted lines into the numbered source, or pass -AllowLiveOnlyLines when the commit is meant to remove them.')
 }
@@ -139,6 +141,7 @@ if ($summary.liveOnlyLines.Count -and -not $AllowLiveOnlyLines) {
 Step '4/8 plan'
 $planFlags = @()
 if ($AllowNewNodes) { $planFlags += '--allow-new-nodes' }
+if ($AllowReplaceDeployedLines) { $planFlags += '--allow-replace-deployed-lines' }
 $planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') @planFlags 2>&1
 $planCode = $LASTEXITCODE
 Save 'plan-output.txt' ($planOutput -join "`n")
