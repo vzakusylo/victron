@@ -601,35 +601,57 @@ The three latest green `master` runs sampled before the change were
 [45021212964](https://github.com/vzakusylo/victron/actions/runs/45021212964),
 [45018834992](https://github.com/vzakusylo/victron/actions/runs/45018834992), and
 [45016546847](https://github.com/vzakusylo/victron/actions/runs/45016546847).
-Their wall times (run creation to completion, including queues) were 15:05, 16:42 and 18:13.
+Their wall times (run creation to final `scenarios` job completion, including queues) were 15:04, 16:41 and 18:13.
 `heat-pump-er03.yml` was the slowest job in all three (14:20, 14:09 and 14:15);
 its scenario step took 10:24, 10:27 and 10:23. Source preparation and Venus build took
 2:46, 2:35 and 2:45, with another 31, 37 and 31 seconds in Compose startup,
 which included the Node-RED build.
 
-The first [PR run](https://github.com/vzakusylo/victron/actions/runs/45026403526) built and
-uploaded both images in one 3:32 job (cold Venus cache; 385 MB artifact). It was superseded
-when the branch merged the new `master`, so it has no comparable completion time. It had
-already exceeded the baseline wall time by then, with the build queued for 4:30 and
-`heat-pump-er03.yml` queued for another 14:11 after the image job. That queue time is not
-scenario execution time.
+The [full green PR run](https://github.com/vzakusylo/victron/actions/runs/45028954000) took
+**52:18** end to end. It was slower than the baseline: the build waited 9:25 for a runner,
+and `heat-pump-er03.yml` waited another 30:29 after the build finished. The shared build
+job itself took 0:58 with a warm Venus cache. The [superseded cold-cache run](https://github.com/vzakusylo/victron/actions/runs/45026403526)
+measured a 3:32 build job and a 385 MB artifact, but did not finish.
 
-Completed shards from that run, in seconds. Before is the median of the three green master
-runs. Setup includes Venus source/build and Compose startup before; image download/load
-and Compose startup after. Job time excludes runner queues.
+Typical shard setup fell from roughly 170–200 s to 31–53 s across the two PR samples.
+The extra build job is on the critical path. Excluding queues, the baseline median
+slowest shard plus final gate was 14:20; the warm run's build plus slowest shard plus
+gate was 12:22. Substituting the measured 3:32 cold build gives an estimated 14:56:
+within about a minute of baseline, but not a speed-up. This is not a measured wall-time
+gain. The workflow adds one runner job, but summed job time including that job fell
+from a baseline median of 203:00 to 135:16 in the full warm run.
+
+All shards in seconds. Before is the median of the three green master runs; after is
+the full green PR run. Setup includes Venus source/build and Compose startup before;
+image download/load and Compose startup after. Job time excludes runner queues.
 
 | File | Setup before / after | Scenarios before / after | Job before / after |
 |---|---:|---:|---:|
-| `bms-watchdog.yml` | 195 / 31 | 45 / 48 | 269 / 107 |
-| `charging-force.yml` | 173 / 37 | 425 / 425 | 640 / 483 |
-| `charging-forecast.yml` | 170 / 31 | 233 / 234 | 434 / 284 |
-| `charging-guards.yml` | 209 / 44 | 500 / 499 | 741 / 566 |
-| `defrost-outdoor.yml` | 170 / 40 | 69 / 65 | 269 / 125 |
-| `dhw-schedule.yml` | 204 / 44 | 448 / 446 | 685 / 510 |
-| `grid-reaction.yml` | 177 / 32 | 257 / 258 | 467 / 310 |
-| `grid-tariff.yml` | 170 / 43 | 125 / 123 | 321 / 188 |
-| `heat-pump-deploy.yml` | 171 / 44 | 370 / 367 | 570 / 432 |
-| `heating-kick.yml` | 200 / 53 | 115 / 116 | 346 / 191 |
+| `bms-watchdog.yml` | 195 / 36 | 45 / 44 | 269 / 109 |
+| `charging.yml` | 208 / 40 | 331 / 331 | 574 / 392 |
+| `charging-force.yml` | 173 / 32 | 425 / 428 | 640 / 478 |
+| `charging-forecast.yml` | 170 / 31 | 233 / 235 | 434 / 285 |
+| `charging-guards.yml` | 209 / 33 | 500 / 501 | 741 / 553 |
+| `charging-support.yml` | 186 / 40 | 446 / 446 | 664 / 507 |
+| `defrost-outdoor.yml` | 170 / 39 | 69 / 65 | 269 / 125 |
+| `dhw-defrost.yml` | 217 / 32 | 248 / 249 | 500 / 300 |
+| `dhw-protection.yml` | 193 / 38 | 158 / 155 | 386 / 213 |
+| `dhw-schedule.yml` | 204 / 40 | 448 / 446 | 685 / 509 |
+| `grid-edges.yml` | 192 / 31 | 429 / 427 | 655 / 484 |
+| `grid-reaction.yml` | 177 / 37 | 257 / 257 | 467 / 317 |
+| `grid-stale-inputs.yml` | 183 / 33 | 345 / 342 | 568 / 395 |
+| `grid-tariff.yml` | 170 / 39 | 125 / 125 | 321 / 184 |
+| `heat-pump-deploy.yml` | 171 / 37 | 370 / 366 | 570 / 424 |
+| `heat-pump-er03.yml` | 196 / 32 | 624 / 623 | 855 / 677 |
+| `heat-pump-idle.yml` | 175 / 32 | 82 / 81 | 294 / 135 |
+| `heating-band.yml` | 179 / 39 | 86 / 81 | 299 / 140 |
+| `heating-curve-follow.yml` | 180 / 31 | 367 / 365 | 583 / 417 |
+| `heating-curve-monitor.yml` | 199 / 38 | 200 / 202 | 433 / 264 |
+| `heating-defrost.yml` | 196 / 35 | 121 / 121 | 350 / 179 |
+| `heating-kick.yml` | 200 / 32 | 115 / 120 | 346 / 174 |
+| `heating-review.yml` | 200 / 33 | 397 / 397 | 636 / 451 |
+| `heating-warmup.yml` | 162 / 43 | 213 / 218 | 413 / 283 |
+| `trivial.yml` | 179 / 32 | 7 / 3 | 219 / 56 |
 
 ## Fixture isolation and verification
 

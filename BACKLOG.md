@@ -166,7 +166,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#134 T1b (d#211 unchanged · i#5): build the synthetic Node-RED image once per Test GX run, cache Venus, and give every scenario shard the same images. See [CI timings](docs/test-gx.md#t1b-timings).
+#134 T1b (d#211 unchanged · i#5): share the Test GX images across shards. Typical shard setup fell from ~170–200 s to 31–53 s. The extra build job adds 3:32 cold (0:58 warm) to the critical path; the cold path is estimated within a minute of baseline, not demonstrably faster. The full warm PR run was green in 52:18 including queues vs. 15:04–18:13 before, while summed runner time fell from 203:00 median to 135:16 despite one extra job. See [CI timings](docs/test-gx.md#t1b-timings).
 
 #131 G1 (d#211 · i#4): pure grid decisions in `lib/grid/control.js`, with budgets, tariffs, logs and status in `63 Grid bookkeeping.js`. Frozen replays pass unchanged. Owner manual dry-run and apply with `allow_new_nodes=true` required.
 
