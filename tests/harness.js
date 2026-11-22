@@ -26,11 +26,10 @@ function fixedDate(nowMs) {
     };
 }
 
-function loadNode(file, sourceText) {
+function loadNode(file, sourceText, flow = store()) {
     const source = sourceText === undefined ? readSource(file) : sourceText;
     const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', source);
     const context = store();
-    const flow = store();
 
     // opts.now: Date or ms (default: real time). Returns what the node returned.
     function run(msg, opts) {
@@ -51,4 +50,18 @@ function loadNode(file, sourceText) {
     return { run, context, flow };
 }
 
-module.exports = { loadNode, readSource, ROOT };
+function loadGrid() {
+    const control = loadNode('01 Battery + Grid Controller.js');
+    const bookkeeping = loadNode('63 Grid bookkeeping.js', undefined, control.flow);
+    return {
+        control, bookkeeping, context: control.context, flow: control.flow,
+        run(msg, opts) {
+            const call = control.run(msg, opts);
+            const accounting = bookkeeping.run(structuredClone(call.result[7]), opts);
+            const result = call.result[0] ? [...call.result.slice(0, 3), ...accounting.result] : null;
+            return { ...call, result, status: accounting.status };
+        }
+    };
+}
+
+module.exports = { loadNode, loadGrid, readSource, ROOT };

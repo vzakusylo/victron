@@ -8,12 +8,12 @@ const {
     assertChangedWrites, assertOutputs, ScenarioAssertionError, createAdmin, faketimeRate, loadScenarios, parseDuration, runScenario
 } = require('../tools/test-gx/run-scenarios');
 const { preserveController, CONTEXT_KEYS, contextBridgeSource } = require('../tools/test-gx/scenario-controller');
-const { loadNode } = require('./harness');
+const { loadNode, loadGrid } = require('./harness');
 
 // Grid-context-only scenarios are verified against the deployed controller in Test GX.
 for (const scenario of loadScenarios().filter(item => item.controller && item.steps.some(step => step.expect.outputs || step.expect.writes))) {
     test(`controller fixture: ${scenario.name}`, () => {
-        const controller = loadNode('01 Battery + Grid Controller.js');
+        const controller = loadGrid();
         const protection = loadNode('06 Apply HV settings.js');
         const start = new Date(scenario.faketime.slice(1, 20).replace(' ', 'T')).getTime();
         let inputs = { batt_v: 50, consumed_ah: -112, grid_w: 1000, load_w: 800, pv_w: 0,

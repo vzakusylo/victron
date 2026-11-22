@@ -219,6 +219,9 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     tuya.deviceId = '${VICTRON_TEST_ID}';
     const added = repoById.get('utcp-http-get-01');
     live.splice(live.indexOf(liveNode(added.id)), 1);
+    const liveGroup = liveNode(added.g);
+    liveGroup.nodes = liveGroup.nodes.filter((id) => id !== added.id).reverse();
+    liveGroup.x += 10;
     const original = JSON.stringify(live);
 
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-e2e-'));
@@ -306,6 +309,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const plan = JSON.parse(fs.readFileSync(file('plan.json'), 'utf8'));
     assert.deepEqual(plan.add, [added.id]);
     assert.deepEqual(plan.wire, []);
+    assert.deepEqual(plan.groups, [added.g]);
     assert.deepEqual(Object.keys(plan.patch).sort(), ['hp-cmd-fn-01', 'hp-page-template-01', 'hpls-fn-01']);
     assert.deepEqual([plan.sha, plan.expectRev], [sha, 'rev-1']);
     assert.equal(plan.tools['tools/tuya-local-sensors.js'], crypto.createHash('sha256').update(gitShow('tools/tuya-local-sensors.js')).digest('hex'));
@@ -377,6 +381,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.deepEqual(state.posts[1], { type: 'nodes', rev: 'rev-1' }, 'one POST, deploy type nodes, with the revision of the snapshot');
     const after = new Map(state.flows.map((node) => [node.id, node]));
     assert.deepEqual(after.get(added.id), added);
+    assert.deepEqual(after.get(added.g), { ...liveGroup, nodes: [...liveGroup.nodes, added.id] });
     assert.equal(state.flows.length, repoFlows.length);
     for (const id of behind) assert.equal(after.get(id).func, repoById.get(id).func, id);
     assert.equal(after.get(page).format, repoById.get(page).format);
@@ -392,7 +397,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const before = new Map(JSON.parse(original).map((node) => [node.id, node]));
     const changedTypes = new Set(state.flows.filter((node) => JSON.stringify(node) !== JSON.stringify(before.get(node.id)))
         .filter((node) => !behind.includes(node.id) && node.id !== page && node.id !== added.id).map((node) => node.type));
-    assert.deepEqual([...changedTypes].sort(), ['tab', 'ui_base', 'ui_tab']);
+    assert.deepEqual([...changedTypes].sort(), ['group', 'tab', 'ui_base', 'ui_tab']);
 
     const [backup] = backups();
     assert.match(backup, new RegExp('^backup-\\d{8}T\\d{6}-pre-d' + number + '$'));
