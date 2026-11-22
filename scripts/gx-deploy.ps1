@@ -8,6 +8,7 @@
 #   ... -AllowLiveOnlyLines         deploy although the GX has code lines that the commit does not have
 #   ... -AllowReplaceDeployedLines  allow GX-only replacements only when live code matches its recorded deployment
 #   ... -AllowNewNodes              plan and deploy reviewed additions from the commit (review the dry run first)
+#   ... -AllowRemovedNodes 'a,b'    remove exactly these Git-verified nodes (review the dry run first)
 #   ... -UseWorkTreeScripts         development only: run the scripts of the work tree (the deployed files still come from the commit)
 #   ... -Steps                      only print the steps
 #
@@ -25,6 +26,7 @@ param(
     [switch]$AllowLiveOnlyLines,
     [switch]$AllowReplaceDeployedLines,
     [switch]$AllowNewNodes,
+    [string]$AllowRemovedNodes,
     [switch]$UseWorkTreeScripts,
     [string]$RunDirectory,
     [switch]$Steps
@@ -124,7 +126,7 @@ foreach ($file in $scripts) {
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"
 
 Step '2/8 snapshot of the live flow'
-$live = Invoke-OnGx 'tools\gx\live-snapshot.js' ($AllowNewNodes ? '--topology' : '')
+$live = Invoke-OnGx 'tools\gx\live-snapshot.js' (($AllowNewNodes -or $AllowRemovedNodes) ? '--topology' : '')
 if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
 Save 'live-before.b64' $live.Text
 
@@ -136,8 +138,8 @@ $report | Select-Object -First 3 | ForEach-Object { Write-Host $_ }
 $summary = Get-Content -Raw (Join-Path $run 'summary-before.json') | ConvertFrom-Json
 Write-Host ("code differs: $($summary.code.Count), trailing only: $($summary.trailing.Count), config: $($summary.config.Count), only on the GX: $($summary.onlyLive.Count), only in the commit: $($summary.onlyRepo.Count)")
 $summary.code | ForEach-Object { Write-Host "  $_" }
-if ($summary.onlyLive.Count) {
-    Stop-Run 'GX nodes would be removed; a plan cannot remove nodes. See compare-before.txt and docs/gx-deploy.md.' `
+if ($summary.onlyLive.Count -and -not $AllowRemovedNodes) {
+    Stop-Run 'GX nodes would be removed; list every reviewed ID with -AllowRemovedNodes. See compare-before.txt and docs/gx-deploy.md.' `
         'The target would remove GX nodes.' 'Reconcile the node removals in Git, then rerun the dry run.'
 }
 if ($summary.onlyRepo.Count -and -not $AllowNewNodes) {
@@ -153,6 +155,7 @@ if ($summary.liveOnlyLines.Count -and -not ($AllowLiveOnlyLines -or $AllowReplac
 Step '4/8 plan'
 $planFlags = @()
 if ($AllowNewNodes) { $planFlags += '--allow-new-nodes' }
+if ($AllowRemovedNodes) { $planFlags += @('--allow-removed-nodes', $AllowRemovedNodes) }
 if ($AllowReplaceDeployedLines) { $planFlags += '--allow-replace-deployed-lines' }
 $planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') @planFlags 2>&1
 $planCode = $LASTEXITCODE
@@ -178,8 +181,9 @@ if ($plan.replacedFrom -match '^[0-9a-f]{40}$') {
     }
 }
 if ($plan.add.Count -ne $summary.onlyRepo.Count) { Stop-Run 'new node count in the plan does not match the comparison.' }
-Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
-$planOutput | Where-Object { $_ -match '^(node to add|wire patch|group patch)' } | ForEach-Object { Write-Host $_ }
+if ($plan.remove.Count -ne $summary.onlyLive.Count -or ($AllowRemovedNodes -and -not $plan.remove.Count)) { Stop-Run 'removal plan does not match the comparison and opt-in.' }
+Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $($plan.remove.Count) removal(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
+$planOutput | Where-Object { $_ -match '^(node to add|node to remove|wire patch|removal wiring|group patch)' } | ForEach-Object { Write-Host $_ }
 
 Step '5/8 window'
 $deadline = (Get-Date).AddMinutes($WaitWindowMin)
@@ -198,6 +202,7 @@ $remote = (& ssh @ssh $GxHost 'umask 077; mktemp -d /tmp/gx-deploy.XXXXXX').Trim
 if ($remote -notmatch '^/tmp/gx-deploy\.[A-Za-z0-9]+$') { Stop-Run 'unexpected remote temp folder.' }
 try {
     $upload = @((Join-Path $run 'plan.json'), (Join-Path $run 'tools\gx\deploy.js'))
+    if ($plan.remove.Count) { $upload += (Join-Path $run 'tools\gx\live-snapshot.js') }
     if ($scripts -contains $helper) { $upload += (Join-Path $run $helper) }
     & scp @ssh @upload "${GxHost}:$remote/" | Out-Null
     if ($LASTEXITCODE -ne 0) { Stop-Run 'the plan could not be copied to the GX.' }
@@ -209,7 +214,7 @@ try {
 
     $toolsToReplace = @($dry | Where-Object { $_ -match '^tool to replace' }).Count
     $deployed = $summary.live.source -and $summary.live.source.dashboard -eq $sha -and $summary.live.source.automations -eq $sha
-    if ($summary.code.Count -eq 0 -and $plan.add.Count -eq 0 -and $toolsToReplace -eq 0 -and $deployed) {
+    if ($summary.code.Count -eq 0 -and $plan.add.Count -eq 0 -and $plan.remove.Count -eq 0 -and $toolsToReplace -eq 0 -and $deployed) {
         Write-Host ''; Write-Host "NOTHING TO DO: the GX already runs $($sha.Substring(0, 12))." -ForegroundColor Green
         Write-Host "run folder: $run"; exit 0
     }
@@ -226,7 +231,7 @@ try {
     $out | Where-Object { $_ -match '^(backup|tool replaced|tool restored|DEPLOYED|ABORT|TOOL NOT RESTORED|Flow state)' } | ForEach-Object { Write-Host $_ }
     if ($code -ne 0) { Stop-Run 'the deploy failed (ABORT line above). Read deploy.txt; the backup folder is named there.' }
 }
-finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/node-additions.js; rmdir $remote" 2>$null | Out-Null }
+finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/node-additions.js $remote/live-snapshot.js; rmdir $remote" 2>$null | Out-Null }
 
 Step '8/8 verify'
 Start-Sleep -Seconds 20

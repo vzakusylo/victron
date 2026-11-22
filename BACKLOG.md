@@ -167,6 +167,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#139 (d#214 unchanged · i#10): manual allowlist for Git-verified GX node removals after G2.
+
 #138 NR9 (node 26 only, d#214 · i#9): split the backup dashboard into mail scheduling, archive scripts, mail scripts, and view includes (775 → 341 lines); two characterization tests preserve current behavior.
 
 #134 T1b (d#213 unchanged · i#8): share the Test GX images across shards. Typical shard setup fell from ~170–200 s to 31–53 s. The extra build job adds 3:32 cold (0:58 warm) to the critical path; the cold path is estimated within a minute of baseline, not demonstrably faster. The full warm PR run was green in 52:18 including queues vs. 15:04–18:13 before, while summed runner time fell from 203:00 median to 135:16 despite one extra job. See [CI timings](docs/test-gx.md#t1b-timings).

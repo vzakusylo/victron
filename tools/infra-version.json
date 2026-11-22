@@ -1,5 +1,5 @@
 {
-  "i": 9,
+  "i": 10,
   "changes": [
     {
       "i": 1,
@@ -54,6 +54,12 @@
       "date": "2026-11-22",
       "pr": 138,
       "what": "Characterize backup dashboard outputs before its source split"
+    },
+    {
+      "i": 10,
+      "date": "2026-11-22",
+      "pr": 139,
+      "what": "Add manual Git-verified GX node removals"
     }
   ]
 }

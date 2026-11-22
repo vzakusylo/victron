@@ -25,7 +25,7 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
-const { additionPlan, describe } = require('./node-additions.js');
+const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
 // Overridden only by the end-to-end test (tests/gx-deploy-e2e.test.js): a local admin API and file server.
@@ -72,10 +72,11 @@ function readPlan(file) {
     if (!hex(plan.flowsSha256, 64) || !hex(plan.stampSha256, 64)) fail('plan file hashes are missing');
     if (typeof plan.expectRev !== 'string' || !plan.expectRev) fail('plan.expectRev is missing');
     if (!plan.patch || typeof plan.patch !== 'object' || Array.isArray(plan.patch)) fail('plan.patch must be an object');
-    for (const key of ['add', 'wire', 'groups']) {
+    for (const key of ['add', 'wire', 'groups', 'remove']) {
         if (plan[key] === undefined) plan[key] = [];
         if (!Array.isArray(plan[key]) || plan[key].some((id) => typeof id !== 'string')) fail('plan.' + key + ' must list node IDs');
     }
+    if (plan.remove.length && (!hex(plan.removalBase?.sha, 40) || !hex(plan.removalBase?.flowsSha256, 64))) fail('Removal baseline SHA and hash are required.');
     if (!Array.isArray(plan.scopes) || !plan.scopes.length || plan.scopes.some((scope) => !SCOPES.includes(scope))) fail('plan.scopes must list dashboard and/or automations');
     plan.tools = plan.tools || {};
     for (const [tool, hash] of Object.entries(plan.tools)) {
@@ -90,9 +91,9 @@ function readPlan(file) {
     // Root-only directory on the data partition: files are renamed into place from here.
     const stage = fs.mkdtempSync(path.join(HOME, '.gx-deploy-stage.'));
     try {
-        const download = (file, want) => {
-            const url = RAW_BASE + '/' + plan.repo + '/' + plan.sha + '/' + file;
-            const out = path.join(stage, file.replace(/\//g, '__'));
+        const download = (file, want, sha = plan.sha) => {
+            const url = RAW_BASE + '/' + plan.repo + '/' + sha + '/' + file;
+            const out = path.join(stage, sha + '__' + file.replace(/\//g, '__'));
             try { execFileSync('curl', ['-fsSL', '--max-time', '120', '-o', out, url], { stdio: 'ignore' }); }
             catch { execFileSync('wget', ['-q', '-T', '120', '-O', out, url], { stdio: 'ignore' }); }
             if (sha256(fs.readFileSync(out)) !== want) fail('Downloaded ' + file + ' does not match the plan (is the commit pushed?).');
@@ -124,7 +125,21 @@ function readPlan(file) {
         const number = (label) => Number((/d#(\d+)/.exec(label) || [])[1]);
         if (!(number(liveTab.label) <= number(repoTab.label))) fail('Live ' + liveTab.label + ' is newer than the commit ' + repoTab.label + '.');
 
-        const nodes = additionPlan(original.flows, repoFlows, plan.add.length > 0);
+        let removals = { remove: [], reconnect: {} };
+        if (plan.remove.length) {
+            const { snapshot } = require('./live-snapshot.js');
+            const base = plan.removalBase;
+            if (recordedCommit(liveTab.info) !== base.sha) fail('Live deployment record does not match the removal baseline.');
+            const previous = JSON.parse(fs.readFileSync(download('flows.json', base.flowsSha256, base.sha), 'utf8'));
+            const topology = flows => snapshot(flows, null, { topology: true }).nodes;
+            removals = removalPlan(topology(original.flows), topology(repoFlows), plan.remove, topology(previous));
+            payload.flows = cleanTopology(payload.flows, removals);
+            liveById.clear();
+            for (const node of payload.flows) liveById.set(node.id, node);
+            for (const id of removals.remove) console.log('node to remove  : ' + id);
+            for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));
+        }
+        const nodes = additionPlan(payload.flows, repoFlows, plan.add.length > 0);
         for (const key of ['add', 'wire', 'groups']) {
             if (stable(plan[key]) !== stable(nodes[key] || [])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
         }
@@ -176,7 +191,7 @@ function readPlan(file) {
         liveTab.label = repoTab.label;
         const commits = Object.fromEntries(plan.scopes.map((scope) => [scope, plan.sha]));
         const stamped = stampDeployment(payload, commits, original);
-        if (stamped.flows.length !== original.flows.length + nodes.add.length) fail('Unexpected node count.');
+        if (stamped.flows.length !== original.flows.length + nodes.add.length - removals.remove.length) fail('Unexpected node count.');
 
         const before = new Map(original.flows.map((node) => [node.id, node]));
         const touched = stamped.flows.filter((node) => stable(node) !== stable(before.get(node.id)));
@@ -242,6 +257,11 @@ function readPlan(file) {
         afterById = new Map(after.flows.map((node) => [node.id, node]));
         // The POST was accepted, so the new flow runs with the new tools: keep both and report.
         const verifyFailed = (item) => fail('VERIFY FAILED: ' + item + '. The flow was posted and the tool files replaced; roll back both from ' + backup);
+        for (const id of removals.remove) if (afterById.has(id)) verifyFailed(id + ' not removed');
+        const deployedById = new Map(stamped.flows.map(node => [node.id, node]));
+        for (const [id, fields] of Object.entries(removals.reconnect)) {
+            for (const key of Object.keys(fields)) if (stable(afterById.get(id)?.[key]) !== stable(deployedById.get(id)[key])) verifyFailed(id + '.' + key);
+        }
         for (const id of nodes.add) {
             if (stable(afterById.get(id)) !== stable(repoById.get(id))) verifyFailed(id);
         }

@@ -283,7 +283,21 @@ only in the repository (0)
 | `code differs` | A function, template or exec command is different. `+N` repository lines the GX lacks, `-N` GX lines the repository lacks | This is the deploy. `live = <commit>` (with `--history`) names the commit the GX code equals: the GX is simply behind. `no commit` with `-N` means **code that exists only on the GX**: save it first |
 | `trailing whitespace only` | The editor added an empty line at the end | Nothing. Not in the plan |
 | `config differs` | Wires, outputs or settings differ | The four `tuya-smart-device` nodes are always here (file-secret references on the GX, template in the repository). Anything else: a structural change, deploy that node by hand |
-| `only on the GX` / `only in the repository` | A node would be removed / added | Removals always stop. Reviewed additions require the opt-in below |
+| `only on the GX` / `only in the repository` | A node would be removed / added | Each requires a separate manual opt-in below |
+
+### Reviewed node removals
+
+In **Actions → Deploy GX code**, set `allow_removed_nodes` to the exact comma-separated list of reviewed node IDs. Empty input blocks removals; automatic runs never pass this input. The runner rejects missing, extra or duplicate IDs. Each listed node must match its definition (apart from editor coordinates) in the recorded Git deployment, which must be a readable ancestor of the target. It must also be absent from the target. Tabs, editor groups and configuration nodes are not removable through this path.
+
+For example, the G2 (#136) transition from d#210 to d#213 needs this exact list:
+
+```text
+9217554766842bb8,7ec26167c492e338,8db34d06b6591d5e,3e6dccae307e4561,1d4e50f4d614e8a5,fd95dc1c428330fb,b2064b2168543e59,e84b0d054ca0f956,efb076ae80adc1c5,87b4ad2bc3ec6903,ec0378c28791feff,4ae3639bc75d0d14,dc3b8e51a09c72d4,dc9d4c2e7a1b83f6,pv-charger-tag-01
+```
+
+Set `allow_new_nodes=true` as well for this transition. Review `node to remove` and `removal wiring` in the dry run before applying the same SHA and inputs. The runner checks affected connections against the recorded commit, preserves unrelated connections, and takes the replacement wires from the target. It backs up flows and credentials, then verifies the removals and changed connections after posting. The public report lists only Git-sourced metadata, never unverified live node details.
+
+For PowerShell use `-AllowRemovedNodes 'id-one,id-two'`. With the low-level runner use a `--topology` snapshot, pass `--allow-removed-nodes id-one,id-two` to `compare.js`, and copy `live-snapshot.js` alongside `deploy.js` on the GX.
 
 ### Reviewed new nodes
 
@@ -291,7 +305,7 @@ Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a 
 
 - New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. Existing wiring may only gain connections to the new nodes, including a new function output if needed; other settings and existing code must still pass the normal checks.
 - Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
-- HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Removing nodes is never part of this plan.
+- HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Additions do not authorize any removals.
 - Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.
 
 Offline regression: after building the synthetic Test GX image, run `node tools/test-gx/check-deploy-additions.js`. It uses a network-isolated Node-RED container to test the six UTCP additions from `523ba74` (d#205) to `084387f` (d#206).

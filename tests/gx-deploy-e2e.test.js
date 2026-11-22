@@ -69,6 +69,82 @@ let available = true;
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', 'HEAD^{commit}'], { stdio: 'ignore' }); execFileSync('curl', ['--version'], { stdio: 'ignore' }); }
 catch { available = false; }
 
+test('a removal plan rechecks the verified baseline on the GX before applying and cleans up wires',
+    { skip: !available && 'needs git and curl', timeout: 60000 }, async t => {
+        const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-removal-test-'));
+        t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
+        const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+        git('init', '-q');
+        git('config', 'user.name', 'GX test');
+        git('config', 'user.email', 'gx-test@example.invalid');
+        git('config', 'commit.gpgsign', 'false');
+        const stamp = gitShow('tools/deploy-version.js');
+        fs.mkdirSync(path.join(cwd, 'tools'));
+        fs.writeFileSync(path.join(cwd, 'tools', 'deploy-version.js'), stamp);
+        const old = [{ id: 'tab', type: 'tab', label: 'd#1 GX' },
+            { id: 'input', type: 'inject', z: 'tab', wires: [['gone']] },
+            { id: 'gone', type: 'delay', z: 'tab', wires: [[]] },
+            { id: 'ui', type: 'ui_base', site: { name: 'Test' } },
+            { id: 'page', type: 'ui_tab', name: 'Test' }];
+        const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, ...old.slice(3)];
+        const commit = (flows, label) => {
+            fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
+            git('add', '--all');
+            git('commit', '-qm', label);
+            return git('rev-parse', 'HEAD');
+        };
+        const base = commit(old, 'previous deployment');
+        const target = commit(next, 'removal');
+        let live = require('../tools/deploy-version.js').stampDeployment({ rev: 'r1', flows: old }, { dashboard: base, automations: base });
+        const api = await listen((req, res) => {
+            if (req.method === 'GET') return res.end(JSON.stringify(live));
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+                assert.equal(req.headers['node-red-deployment-type'], 'nodes');
+                live = { ...JSON.parse(body), rev: 'r2' };
+                res.end(JSON.stringify({ rev: live.rev }));
+            });
+        });
+        const raw = await listen((req, res) => {
+            const file = req.url.split('/').slice(3).join('/');
+            if (file === `${base}/flows.json`) return res.end(JSON.stringify(old));
+            if (file === `${target}/flows.json`) return res.end(JSON.stringify(next));
+            if (file === `${target}/tools/deploy-version.js`) return res.end(stamp);
+            res.writeHead(404).end();
+        });
+        t.after(() => { api.close(); raw.close(); });
+        const env = { VICTRON_API_PORT: api.address().port, VICTRON_HOME: cwd, VICTRON_RAW_BASE: `http://127.0.0.1:${raw.address().port}` };
+        const nr = path.join(cwd, '.node-red');
+        fs.mkdirSync(nr);
+        fs.writeFileSync(path.join(nr, 'flows.json'), JSON.stringify(old));
+        fs.writeFileSync(path.join(nr, 'flows_cred.json'), '{}');
+        const snap = await run(GX('live-snapshot.js'), ['--topology'], env);
+        assert.equal(snap.code, 0, snap.stderr);
+        const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
+        fs.writeFileSync(input, snap.stdout);
+        const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan, '--allow-removed-nodes', 'gone'], env, cwd);
+        assert.equal(result.code, 0, result.stderr);
+        const report = require('../tools/gx/deploy-report.js');
+        const removals = report.plannedRemovals(cwd, target, cwd);
+        assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }]);
+        assert.match(report.formatReport({ mode: 'dry-run', commit: target, changes: [], removals }), /Planned node removals \(1/);
+        const deploy = DRY => run(GX('deploy.js'), [plan], { ...env, DRY });
+        const dry = await deploy('1');
+        assert.equal(dry.code, 0, dry.stderr);
+        assert.match(dry.stdout, /node to remove\s+: gone/);
+        live.flows[2].name = 'edited since snapshot';
+        const rejected = await deploy('0');
+        assert.match(rejected.stderr, /does not match the recorded commit/);
+        assert.equal(live.rev, 'r1');
+        delete live.flows[2].name;
+        const applied = await deploy('0');
+        assert.equal(applied.code, 0, applied.stderr);
+        assert.equal(live.rev, 'r2');
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page']);
+        assert.deepEqual(live.flows[1].wires, [[]]);
+    });
+
 test('verified dry-run code replacement plans against a fake GX only when it matches the recorded Git deployment',
     { skip: !available && 'needs git and curl', timeout: 60000 }, async t => {
         const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-replacement-test-'));

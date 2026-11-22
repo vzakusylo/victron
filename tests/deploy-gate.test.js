@@ -113,6 +113,12 @@ test('deploy workflow: reviewed additions are manual and default to off', () => 
   assert.match(deploy, /if \(\$env:ALLOW_NEW_NODES -eq 'true'\) \{ \$arguments \+= '-AllowNewNodes' \}/);
 });
 
+test('deploy workflow: reviewed removals are a dispatch-only allowlist', () => {
+  assert.match(deploy, /^      allow_removed_nodes:\n        description: [^\n]+\n        type: string\n        default: ""$/m);
+  assert.match(deploy, /ALLOW_REMOVED_NODES: \$\{\{ inputs\.allow_removed_nodes \}\}/);
+  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_REMOVED_NODES\) \{ \$arguments \+= @\('-AllowRemovedNodes', \$env:ALLOW_REMOVED_NODES\) \}/);
+});
+
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {
   const step = deploy.split('- name: Send deploy mail')[1].split('\n      - name:')[0];
   assert.ok(deploy.indexOf('- name: Deploy from master') < deploy.indexOf('- name: Send deploy mail'));
