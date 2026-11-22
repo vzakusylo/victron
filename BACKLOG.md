@@ -51,9 +51,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 
 | ID | Phase | Task | State |
 |---|---|---|---|
-| TGX7-CLOUD-LATE | A3 boiler | Ignore delayed cloud replies while cloud polling is disabled; preserve the local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
-| TGX7-LOCAL-AGE | A3 boiler | Track temperature freshness separately from battery-only wakes | open; reproduced by `test-gx-tuya-sensors.test.js` |
-| TGX7-LOCAL-NULL | A3 boiler | Ignore JSON `null` lines without discarding the following local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
@@ -174,6 +171,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#126 TGX7-CLOUD-LATE / TGX7-LOCAL-AGE / TGX7-LOCAL-NULL (d#210): disabled cloud ignores late replies, battery-only wakes no longer refresh temperature, and JSON `null` lines no longer discard subsequent readings. All three expected failures are now passing regression tests.
 
 #125 TGX5-DST-FOLD (d#209): separate the two Oslo October 02:00 budgets and preserve both CSV rows and local tariff peaks. Unit and synthetic Test GX coverage also verifies the March gap.
 
