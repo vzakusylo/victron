@@ -4,7 +4,7 @@
     {
       "i": 1,
       "date": "2026-11-22",
-      "pr": null,
+      "pr": 128,
       "what": "Introduce i# validation and version reporting"
     }
   ]
