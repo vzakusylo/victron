@@ -6,7 +6,7 @@ tools, tests and docs. `camera-ai/` is a separate project with its own README an
 
 ## Start of every session (before any work)
 
-1. `git fetch origin`; master tip and `d#` (`node tools/flows.js version`); what the GX runs (last Deploy GX code run).
+1. `git fetch origin`; master tip and `d#` / `i#` (`node tools/flows.js version`); what the GX runs (last Deploy GX code run).
 2. Open PRs and checks: `gh pr list --state open`, `gh pr checks <N>`.
 3. **Herdr**: `herdr status` → `running`, else start `herdr` in its own terminal tab via `run_in_terminal` so Claude can `read_terminal` it (never restart a running server
    without the owner). `herdr agent list`, then `read` every worker.
@@ -44,6 +44,9 @@ A lib edit is a change of that node: `sync` bumps `d#` and it deploys like any f
 ```powershell
 node tools/flows.js sync          # after editing NN sources: rebuild flows.json, bump d# once
 node tools/flows.js check         # sources and flows.json in sync (CI runs this)
+node tools/flows.js version       # d#N · i#M
+node tools/infra-version.js bump "Short description"  # once per infrastructure branch; optional PR number after description
+node tools/infra-version.js check # compare against the merge base with origin/master
 node --test "tests/*.test.js"     # all unit tests
 node --test tests/heat-curve-follow.test.js   # one file
 .\tools\test-gx\up.ps1 -Sim emu   # local Test GX stack (Docker); .\up.ps1 -Down to stop
@@ -70,6 +73,11 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
    its own PR. New scenario file → add it to the `files` matrix in `test-gx.yml` (a unit test checks this).
 8. English in code, docs, commits and PRs.
 9. Owner's own rules (in the owner's global CLAUDE.md) win: e.g. commits / pushes only when asked in that session.
+10. **Every infrastructure change bumps `i#` once per PR:** `tools/`, `scripts/`, `.github/workflows/`, `tests/`,
+    `.claude/skills/`, `CLAUDE.md`, `docs/claude-operating-guide.md`, `docs/agent-workflow.md` and
+    `.github/copilot-instructions.md`. Production-only and other docs-only changes (including `BACKLOG.md`) do not
+    bump `i#`. `sync` still changes only `d#`. If a concurrent bump lands, merge master, keep its ledger history,
+    and regenerate your single bump.
 
 ## Agents
 

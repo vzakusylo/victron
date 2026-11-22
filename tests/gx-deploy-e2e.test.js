@@ -119,6 +119,7 @@ test('automatic code replacement plans against a fake GX only when it matches th
         const mail = await run(GX('deploy-mail.js'), [cwd], { DEPLOY_SHA: target, TRIGGER_EVENT: 'workflow_run',
             ALLOW_LIVE_ONLY_LINES: 'false' }, cwd);
         assert.equal(mail.code, 0, mail.stderr);
+        assert.match(JSON.parse(mail.stdout).subject, /d#\d+ · i#\d+/);
         assert.match(JSON.parse(mail.stdout).text, /allow_live_only_lines: USED/);
         live[1].func += '\n// hand edit';
         const changed = await makePlan();

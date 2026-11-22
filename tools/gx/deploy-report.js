@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { versions } = require('../infra-version.js');
 
 // Only counts, validated commit IDs and addition metadata from Git may leave the private run folder.
 function publicSummary(before, after, { commit, mode, outcome, version }) {
@@ -83,6 +84,7 @@ function formatReport(report) {
         '### GX deployment',
         '',
         `Version label: **${report.version}** (report only)`,
+        ...(report.repositoryVersion ? [`Repository version: **${report.repositoryVersion.d} · ${report.repositoryVersion.i}**`] : []),
         `Mode: **${report.mode}**; outcome: **${report.outcome}**`,
         `Target commit: \`${report.commit}\``,
         '',
@@ -128,6 +130,7 @@ if (require.main === module) {
         version: process.env.VERSION_TYPE
     });
     report.changes = repositoryChanges(report.previous, report.commit);
+    report.repositoryVersion = versions();
     report.additions = plannedAdditions(runFolder, report.commit);
     fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
     process.stdout.write(formatReport(report));

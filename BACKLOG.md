@@ -47,7 +47,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 Priority: **grid control → heating → boiler**. A module is covered by green Test GX scenarios on master before it is
 split or tuned; then safe splits and performance work, measured on the GX. Order: A1 → A2 → A3 → NR1 → G1…G6 →
-NR3 / NR4 / NR5 / NR8 / NR9 → T1b. **Next: I1** (infrastructure version `i#`), then the open fix tasks (P-D1, P-R1 done; P-A1, P-H1, T-R1a..c any time). The NR / G rows are in the next table.
+NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and T-R1a..c can run any time. The NR / G rows are in the next table.
 
 | ID | Phase | Task | State |
 |---|---|---|---|
@@ -57,7 +57,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. **Next: I1** (infrastructure version `i#`),
 | P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 | P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
-| I1 | process | **Next.** Infrastructure version `i#` next to the production `d#`: one counter for non-production functionality (Test GX, `tools/`, `scripts/`, `.github/workflows/`, `tests/`, skills, agent docs). Stored in one file (e.g. `INFRA_VERSION` / `tools/infra-version.json`) with a short change log; `node tools/flows.js check` (or its own check) fails when infra files change without an `i#` bump, `sync`-like command bumps it once per PR; `d#` stays only for `flows.json` / `NN` / `lib/`. Shown in PR titles / reports, the Test GX summary and the deploy mail (`d#207 · i#1`). Docs: CLAUDE.md, operating guide, copilot-instructions | open |
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
@@ -170,7 +169,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#129 T-R1a..c (d#210 unchanged): observe the deploy quiet period for 40 fake seconds at 14 minutes, require all six fixture gates to forward ticks, and use a dedicated fixture deploy timestamp.
+#129 T-R1a..c (d#210 unchanged · i#2): observe the deploy quiet period for 40 fake seconds at 14 minutes, require all six fixture gates to forward ticks, and use a dedicated fixture deploy timestamp.
+
+#128 I1 (`d#210` unchanged · `i#1`): infrastructure changes require one separate version bump, checked in CI and shown alongside the production version in the CLI, Test GX summary, and deploy mail and report.
 
 #126 TGX7-CLOUD-LATE / TGX7-LOCAL-AGE / TGX7-LOCAL-NULL (d#210): disabled cloud ignores late replies, battery-only wakes no longer refresh temperature, and JSON `null` lines no longer discard subsequent readings. All three expected failures are now passing regression tests.
 

@@ -234,6 +234,11 @@ test('deployment changelog and workflow command use recorded Git commits and rep
     const script = path.join(root,'tools','gx','deploy-report.js');
     fs.mkdirSync(path.dirname(script),{recursive:true});
     fs.copyFileSync(path.join(ROOT,'tools','gx','deploy-report.js'),script);
+    fs.copyFileSync(path.join(ROOT,'tools','infra-version.js'),path.join(root,'tools','infra-version.js'));
+    fs.writeFileSync(path.join(root,'flows.json'),JSON.stringify([{ type: 'tab', label: 'd#210 fixture' }]));
+    fs.writeFileSync(path.join(root,'tools','infra-version.json'),JSON.stringify({
+        i: 1, changes: [{ i: 1, date: '2026-11-22', pr: null, what: 'Fixture version' }]
+    }));
     const runFolder = path.join(root,'private-run');
     fs.mkdirSync(runFolder);
     const privateValue = 'PRIVATE-CLI-LIVE-CODE';
@@ -249,6 +254,7 @@ test('deployment changelog and workflow command use recorded Git commits and rep
         assert.equal(cli.status,0,cli.stderr);
         const artifact = JSON.parse(fs.readFileSync(output,'utf8'));
         assert.deepEqual([artifact.commit,artifact.mode,artifact.outcome,artifact.version],[third,mode,outcome,version]);
+        assert.deepEqual(artifact.repositoryVersion, { d: 'd#210', i: 'i#1' });
         assert.deepEqual(artifact.changes[0].commits.map(commit=>commit.sha),[second,third]);
         assert.deepEqual(artifact.changes[1].commits.map(commit=>commit.sha),[third]);
         assert.deepEqual(artifact.changes[0].files,[{status:'M',path:'test.js'}]);
@@ -256,6 +262,7 @@ test('deployment changelog and workflow command use recorded Git commits and rep
         assert.equal(artifact.after,null);
         assert.match(cli.stdout,/Fix dashboard &lt;script&gt;/);
         assert.ok(cli.stdout.includes(`Version label: **${version}**`));
+        assert.match(cli.stdout, /d#210 · i#1/);
         assert.ok(!cli.stdout.includes(privateValue) && !JSON.stringify(artifact).includes(privateValue));
     }
     const invalidOutput = path.join(root,'invalid.json');

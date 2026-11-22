@@ -6,7 +6,7 @@
 //   node tools/flows.js sync --no-bump  sync without touching the tab version
 //   node tools/flows.js bump            bump d#<n> (after a manual edit of flows.json)
 //   node tools/flows.js check           verify sync, syntax, wiring, secrets (exit 1 on a problem)
-//   node tools/flows.js version         print the tab label
+//   node tools/flows.js version         print both repository versions
 //
 // Source -> node mapping (no table to maintain):
 //   "NN Name.js"       -> function node "Name", property `func`
@@ -190,7 +190,11 @@ switch (command) {
 case 'sync': cmdSync(args); break;
 case 'bump': cmdBump(); break;
 case 'check': cmdCheck(); break;
-case 'version': console.log(versionTab(readFlows().flows).label); break;
+case 'version': {
+    const { d, i } = require('./infra-version').versions(ROOT);
+    console.log(`${d} · ${i}`);
+    break;
+}
 default:
     console.error('usage: node tools/flows.js sync [NN ...] [--no-bump] | bump | check | version');
     process.exit(2);
