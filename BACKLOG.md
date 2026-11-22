@@ -52,7 +52,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 | ID | Phase | Task | State |
 |---|---|---|---|
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
-| NR9 | B perf | Split `34` heat pump state into `lib/` without runtime changes | in progress: `nr9-split-heavy-nodes-34` |
 | P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 | P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
@@ -166,6 +165,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#144 NR9 (node 34, d#215 · i#15): split heat pump state into device decoding, heating curve, dashboard model, and DHW view includes (594 → 150 lines). Two characterization tests preserve current outputs and state. NR9 is complete.
 
 #143 (d#214 unchanged · i#14): add owner tooling and documentation for checking, installing, testing, rotating, and revoking the restricted camera SSH public key. Checked offline; no live key changes.
 
