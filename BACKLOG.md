@@ -52,7 +52,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Phase | Task | State |
 |---|---|---|---|
 | TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
-| TGX7 | A3 boiler | Tuya cloud / local stub (Test GX plan 7) | open |
+| TGX7 | A3 boiler | Tuya cloud / local stub (Test GX plan 7) | in progress: `testgx-tuya-stub` |
 | NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
 | NR9 | B perf | Split next heavy nodes into `lib/` (no runtime change): `26` backup 775 lines, `34` heat pump state 586, `29` device status 523 | open |
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
