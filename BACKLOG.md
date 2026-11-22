@@ -52,7 +52,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | ID | Phase | Task | State |
 |---|---|---|---|
 | TGX5-DST-FOLD | A1 grid | Give both occurrences of local 02:00 a distinct hourly budget at the October DST transition | open; reproduced by `grid-edges.yml` |
-| Grid reaction timing | A1 grid | Stabilize the real-time ESS write assertions in `grid-reaction.yml` | in progress: `fix-grid-reaction-timing` |
 | TGX7-CLOUD-LATE | A3 boiler | Ignore delayed cloud replies while cloud polling is disabled; preserve the local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-AGE | A3 boiler | Track temperature freshness separately from battery-only wakes | open; reproduced by `test-gx-tuya-sensors.test.js` |
 | TGX7-LOCAL-NULL | A3 boiler | Ignore JSON `null` lines without discarding the following local reading | open; reproduced by `test-gx-tuya-sensors.test.js` |
@@ -172,6 +171,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#116 Grid reaction timing (d#207 unchanged): `grid-reaction.yml` uses a documented 30 s ESS write ceiling and a 35 s real observation window; both scenarios passed on three consecutive local runs.
 
 #115 TGX7 (d#207 unchanged): `tests/test-gx-tuya-sensors.test.js` feeds synthetic exec responses through nodes 44/46 and the heat-pump state node. Three checks passed in-process; three expected failures are tracked above as TGX7-CLOUD-LATE, TGX7-LOCAL-AGE, and TGX7-LOCAL-NULL. No Tuya network or credentials used.
 
