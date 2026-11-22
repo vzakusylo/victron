@@ -1,5 +1,5 @@
 {
-  "i": 4,
+  "i": 5,
   "changes": [
     {
       "i": 1,
@@ -21,6 +21,12 @@
     },
     {
       "i": 4,
+      "date": "2026-11-22",
+      "pr": 131,
+      "what": "Validate and exercise the split grid controller in Test GX"
+    },
+    {
+      "i": 5,
       "date": "2026-11-22",
       "pr": 132,
       "what": "Characterize device status before its source split"
