@@ -173,7 +173,7 @@ scenarios to the CI job.
 
 #118 P-D1 (d#207 unchanged): automatic replacement of GX-only code lines requires an exact match to the recorded Git deployment; fake-GX tests cover matching, hand-edited, and missing records.
 
-#117 NR1 (d#207 unchanged): read-only GX performance sampler with fake-SSH tests and an empty baseline table in the refactoring plan. The owner will collect the live measurements.
+#117 NR1 (d#207 unchanged): read-only GX performance sampler with fake-SSH tests and an empty baseline table in the refactoring plan. The owner will collect the live measurements. Baseline (22 Nov, d#207): CPU 20.5 %, RSS 352 / 364 MiB, >= 584 spawns/h, admin TTFB p50 187 / p95 381 ms (plan section 5).
 
 #116 Grid reaction timing (d#207 unchanged): `grid-reaction.yml` uses a documented 30 s ESS write ceiling and a 35 s real observation window; both scenarios passed on three consecutive local runs.
 
