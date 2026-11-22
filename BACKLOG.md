@@ -172,6 +172,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#116 Grid reaction timing (d#207 unchanged): `grid-reaction.yml` uses a documented 30 s ESS write ceiling and a 35 s real observation window; both scenarios passed on three consecutive local runs.
+
 #115 TGX7 (d#207 unchanged): `tests/test-gx-tuya-sensors.test.js` feeds synthetic exec responses through nodes 44/46 and the heat-pump state node. Three checks passed in-process; three expected failures are tracked above as TGX7-CLOUD-LATE, TGX7-LOCAL-AGE, and TGX7-LOCAL-NULL. No Tuya network or credentials used.
 
 #114 TGX3 (d#207 unchanged): `dhw-schedule.yml` covers cycle interval expiry, shower prep and opt-out, manual force start/stop, invalid inputs, and a safety stop after Tuya reconnects. Four local scenarios passed in 453.9 s total, no expected failures.

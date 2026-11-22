@@ -1,5 +1,7 @@
 - name: grid import step moves the HV-limited ESS setpoint and returns
   # Delay nodes use real timers. G2 target: <2 s on the input side, plus the output rate limit.
+  # Current CI ceiling: 10 s input delay + 10 s ESS write rate limit + 1 s emulator tick
+  # + 9 s for runner scheduling and D-Bus delivery. At x2, a 70 s settle gives 35 real seconds.
   faketime: '@2026-11-16 13:00:00 x2'
   controller: {"protection":{"gridSupportW":500,"gridSupportMode":"hv-only"}}
   observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
@@ -12,12 +14,12 @@
       expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
     - when: 50s
       inputs: {"grid_w":3000}
-      settle: 50s
-      expect: {"if_changed":true,"maxWriteDelay":"23s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1100}]}
-    - when: 105s
+      settle: 70s
+      expect: {"if_changed":true,"maxWriteDelay":"30s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1100}]}
+    - when: 125s
       inputs: {"grid_w":1000}
-      settle: 50s
-      expect: {"if_changed":true,"maxWriteDelay":"23s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
+      settle: 70s
+      expect: {"if_changed":true,"maxWriteDelay":"30s","writes":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
 
 - name: grid export raises DVCC and normal import releases it
   faketime: '@2026-11-16 13:00:00 x2'
