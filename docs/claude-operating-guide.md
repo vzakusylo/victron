@@ -30,7 +30,7 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 |---|---|
 | Owner | Sets priorities, approves GX deploys in GitHub Actions, approves anything destructive or outward-facing |
 | Claude (one chat) | Plans, writes briefs, reviews PRs and reports, keeps `BACKLOG.md` and these docs current; implements itself only when the owner asks ("claude implement…", "claude only now") |
-| Copilot (Herdr workers) | Implements on its own branch / worktree, tests, commits, pushes, opens the PR, sets auto-merge, reports |
+| Copilot (Herdr workers) | Implements on its own branch / worktree, tests, commits, pushes, opens the PR, enables auto-merge after all review threads are resolved, reports |
 
 - **Copilot model**: exactly `gpt-6.2-sol` (`gpt-sol-6.2` is rejected and silently falls back to a default).
 - **Transport**: every new Copilot task is a Herdr worker started by `herdr-task.ps1 new <branch> -Base origin/master`

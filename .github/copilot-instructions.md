@@ -4,7 +4,7 @@ At the start of a new large or cross-cutting task in this repository, tell the u
 
 # Access
 
-- Do not ask the owner for permission before tool calls, repository inspection, local commands, Docker, the local Test GX, Playwright/Edge on the local dashboard, GitHub reads, pushing your branch, opening a PR or enabling auto-merge. The owner pre-approves these when starting Copilot CLI; just do the task.
+- Do not ask the owner for permission before tool calls, repository inspection, local commands, Docker, the local Test GX, Playwright/Edge on the local dashboard, GitHub reads, pushing your branch, opening a PR or enabling auto-merge after the review gate below. The owner pre-approves these when starting Copilot CLI; just do the task.
 - Still never, without an explicit owner request in the task text: push to `master`, access or deploy to the live GX, read the real GX backup or secrets, remove a Docker data volume, delete a remote branch.
 - Real backups, substitution maps and keys stay outside the repository and the Docker image.
 
