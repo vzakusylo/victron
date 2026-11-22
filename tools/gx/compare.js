@@ -193,9 +193,9 @@ function main() {
                 }
             });
         } catch (error) {
-            throw new Error('Automatic replacement of GX-only code lines refused: ' + error.message);
+            throw new Error('Verified replacement of GX-only code lines refused: ' + error.message);
         }
-        console.log('GX-only lines match the recorded deployment ' + replacedFrom.slice(0, 12) + '; replacement allowed.');
+        console.log('GX-only code: replaced lines of ' + replacedFrom + '; replacement allowed.');
     }
 
     // Machine-readable result for scripts/gx-deploy.ps1: what a runner needs to decide, nothing else.

@@ -59,8 +59,17 @@ $run = $RunDirectory ? [IO.Path]::GetFullPath($RunDirectory) :
 New-Item -ItemType Directory $run | Out-Null
 $changed = $false
 
-function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
-function Stop-Run([string]$Text) { Write-Host "STOPPED: $Text" -ForegroundColor Yellow; Write-Host "run folder: $run"; exit ($changed ? 2 : 1) }
+function Step([string]$Text) { $script:stage = $Text; Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
+function Stop-Run([string]$Text, [string]$PublicReason = "A dry-run check failed at '$stage'.",
+    [string]$Next = 'Open the Deploy from master step, fix the STOPPED or ABORT cause, then rerun in dry-run mode.') {
+    Write-Host "STOPPED: $Text" -ForegroundColor Yellow
+    Write-Host "run folder: $run"
+    if (-not $Apply -and $env:GITHUB_STEP_SUMMARY) {
+        # Do not publish raw SSH output, live code, or node IDs.
+        Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "### GX dry run stopped`n`n$PublicReason`n`nNext: $Next`n"
+    }
+    exit ($changed ? 2 : 1)
+}
 function Invoke-Git { $out = & git -C $root @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed." }; return $out }
 function Save-GitBlob([string]$CommitSha, [string]$Path, [string]$Destination) {
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -128,14 +137,17 @@ $summary = Get-Content -Raw (Join-Path $run 'summary-before.json') | ConvertFrom
 Write-Host ("code differs: $($summary.code.Count), trailing only: $($summary.trailing.Count), config: $($summary.config.Count), only on the GX: $($summary.onlyLive.Count), only in the commit: $($summary.onlyRepo.Count)")
 $summary.code | ForEach-Object { Write-Host "  $_" }
 if ($summary.onlyLive.Count) {
-    Stop-Run 'GX nodes would be removed; a plan cannot remove nodes. See compare-before.txt and docs/gx-deploy.md.'
+    Stop-Run 'GX nodes would be removed; a plan cannot remove nodes. See compare-before.txt and docs/gx-deploy.md.' `
+        'The target would remove GX nodes.' 'Reconcile the node removals in Git, then rerun the dry run.'
 }
 if ($summary.onlyRepo.Count -and -not $AllowNewNodes) {
-    Stop-Run 'nodes were added. Review the commit, then dry run with -AllowNewNodes. See docs/gx-deploy.md.'
+    Stop-Run 'nodes were added. Review the commit, then dry run with -AllowNewNodes. See docs/gx-deploy.md.' `
+        'The target adds nodes without the manual opt-in.' 'Review the additions, then rerun dry-run with allow_new_nodes enabled if intended.'
 }
 if ($summary.liveOnlyLines.Count -and -not ($AllowLiveOnlyLines -or $AllowReplaceDeployedLines)) {
     Stop-Run ("the GX has code lines the commit does not have: $($summary.liveOnlyLines -join ', '). Look at them (compare.js --show <id>), " +
-        'copy wanted lines into the numbered source, or pass -AllowLiveOnlyLines when the commit is meant to remove them.')
+        'copy wanted lines into the numbered source, or pass -AllowLiveOnlyLines when the commit is meant to remove them.') `
+        'The target would remove unverified GX-only code lines.' 'Review the GX-only lines; preserve wanted edits in Git or rerun dry-run with allow_live_only_lines enabled only if their removal is intended.'
 }
 
 Step '4/8 plan'
@@ -145,8 +157,26 @@ if ($AllowReplaceDeployedLines) { $planFlags += '--allow-replace-deployed-lines'
 $planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') @planFlags 2>&1
 $planCode = $LASTEXITCODE
 Save 'plan-output.txt' ($planOutput -join "`n")
-if ($planCode -ne 0) { Stop-Run "the plan could not be written: $($planOutput | Select-Object -Last 1)" }
+if ($planCode -ne 0) {
+    if ($AllowReplaceDeployedLines -and $summary.liveOnlyLines.Count -and
+        ($planOutput -join "`n") -match 'replacement of GX-only code lines refused:') {
+        $reason = 'The GX-only code lines could not be verified against the recorded deployment.'
+        $detail = ($planOutput | Select-String 'replacement of GX-only code lines refused:' | Select-Object -First 1).Line
+        if ($detail -match 'refused: (the live nodes or code differ from the recorded deployment [0-9a-f]{12}|the deployment record is missing or ambiguous|an identical Git deployment SHA for dashboard and automations is not recorded|the recorded deployment is not a readable ancestor of the target commit)') {
+            $reason += " Reason: $($Matches[1])."
+        }
+        Stop-Run "the plan could not be written: $detail" $reason `
+            'Read the verification reason in Deploy from master and review the GX-only lines. Preserve wanted edits in Git, or rerun dry-run with allow_live_only_lines enabled only if removal is intended.'
+    }
+    Stop-Run "the plan could not be written: $($planOutput | Select-Object -Last 1)"
+}
 $plan = Get-Content -Raw (Join-Path $run 'plan.json') | ConvertFrom-Json
+if ($plan.replacedFrom -match '^[0-9a-f]{40}$') {
+    Write-Host "GX-only code is replaced lines of $($plan.replacedFrom), verified against the deployment record."
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "GX-only code: replaced lines of $($plan.replacedFrom), verified against the deployment record.`n"
+    }
+}
 if ($plan.add.Count -ne $summary.onlyRepo.Count) { Stop-Run 'new node count in the plan does not match the comparison.' }
 Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
 $planOutput | Where-Object { $_ -match '^(node to add|wire patch)' } | ForEach-Object { Write-Host $_ }

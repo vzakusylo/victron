@@ -1,5 +1,5 @@
 {
-  "i": 2,
+  "i": 3,
   "changes": [
     {
       "i": 1,
@@ -12,6 +12,12 @@
       "date": "2026-11-22",
       "pr": 129,
       "what": "Verify Test GX deploy quiet windows and tick liveness"
+    },
+    {
+      "i": 3,
+      "date": "2026-11-22",
+      "pr": null,
+      "what": "Verify prior GX deployments and select the newest eligible green master commit"
     }
   ]
 }

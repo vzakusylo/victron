@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { decide, main } = require('../tools/gx/deploy-gate.js');
+const { execFileSync } = require('node:child_process');
+const { decide, eligibleHistory, main } = require('../tools/gx/deploy-gate.js');
 
 const SHA = 'a'.repeat(40);
 const ok = {
@@ -13,7 +14,35 @@ const ok = {
 };
 
 test('deploys a green push to master that is still the tip', () => {
-  assert.deepEqual(decide(ok), { deploy: true, reason: '' });
+  assert.deepEqual(decide(ok), { deploy: true, reason: '', sha: SHA });
+});
+
+test('selects the newest green master ancestor, but never crosses an untested flow change', t => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-gate-history-'));
+  t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
+  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  git('init', '-q');
+  const commit = (file, contents) => {
+    fs.writeFileSync(path.join(cwd, file), contents);
+    git('add', file);
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', contents);
+    return git('rev-parse', 'HEAD');
+  };
+  const older = commit('flows.json', '[{"label":"d#1 GX"}]');
+  const newestGreen = commit('docs.txt', 'first doc');
+  const tip = commit('docs.txt', 'second doc');
+  const lookup = {
+    isAncestor: () => true,
+    eligibleHistory: sha => eligibleHistory(sha, git),
+    greenShas: () => [older, 'f'.repeat(40), newestGreen],
+  };
+  assert.equal(decide({ ...ok, headSha: older, masterSha: tip }, lookup).sha, newestGreen);
+  assert.match(decide({ ...ok, headSha: older, masterSha: tip, pinnedSha: older }, lookup).reason, /selected green commit changed/);
+  const pending = commit('flows.json', '[{"label":"d#2 GX"}]');
+  assert.match(decide({ ...ok, headSha: older, masterSha: pending }, lookup).reason, /latest production flow change/);
+  assert.match(decide({ ...ok, headSha: older, masterSha: pending }, {
+    ...lookup, isAncestor: () => false
+  }).reason, /no longer an ancestor/);
 });
 
 for (const [name, patch, reason] of [
@@ -26,7 +55,6 @@ for (const [name, patch, reason] of [
   ['malformed sha', { headSha: 'abc', masterSha: 'abc' }, /Invalid head SHA/],
   ['uppercase sha', { headSha: 'A'.repeat(40) }, /Invalid head SHA/],
   ['unreadable master', { masterSha: '' }, /current master SHA/],
-  ['master moved', { masterSha: 'b'.repeat(40) }, /master moved on to b{40}/],
 ]) {
   test(`skips: ${name}`, () => {
     const result = decide({ ...ok, ...patch });
@@ -47,10 +75,10 @@ test('CLI writes outputs, a warning and a job summary when skipping', () => {
   let logged = '';
   console.log = (line) => { logged += line; };
   try {
-    assert.equal(main(env), 0);
-    assert.match(logged, /^::warning::Automatic GX deploy skipped: master moved on/);
+    assert.equal(main(env, { isAncestor: () => false }), 0);
+    assert.match(logged, /^::warning::Automatic GX deploy skipped: .*no longer an ancestor/);
     assert.equal(fs.readFileSync(output, 'utf8'), 'run=false\n');
-    assert.match(fs.readFileSync(summary, 'utf8'), /master moved on/);
+    assert.match(fs.readFileSync(summary, 'utf8'), /no longer an ancestor/);
     main({ ...env, MASTER_SHA: SHA });
     assert.match(fs.readFileSync(output, 'utf8'), new RegExp(`run=true\\nsha=${SHA}\\n$`));
   } finally {
@@ -67,7 +95,7 @@ test('deploy workflow: auto path requests verified replacement, not the manual o
   assert.match(deploy, /environment: \$\{\{ github\.event_name == 'workflow_run' && 'victron-gx-auto' \|\| 'victron-gx' \}\}/);
   assert.match(deploy, /MODE: \$\{\{ github\.event_name == 'workflow_run' && 'apply' \|\| inputs\.mode \}\}/);
   assert.match(deploy, /ALLOW_LIVE_ONLY_LINES: \$\{\{ github\.event_name == 'workflow_run' && 'false' \|\| inputs\.allow_live_only_lines \}\}/);
-  assert.match(deploy, /if \(\$env:AUTO -eq 'true'\) \{ \$arguments \+= '-AllowReplaceDeployedLines' \}\n\s+elseif \(\$env:ALLOW_LIVE_ONLY_LINES -eq 'true'\) \{ \$arguments \+= '-AllowLiveOnlyLines' \}/);
+  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_LIVE_ONLY_LINES -eq 'true'\) \{ \$arguments \+= '-AllowLiveOnlyLines' \}\n\s+else \{ \$arguments \+= '-AllowReplaceDeployedLines' \}/);
   const script = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'gx-deploy.ps1'), 'utf8');
   assert.match(script, /if \(\$AllowReplaceDeployedLines\) \{ \$planFlags \+= '--allow-replace-deployed-lines' \}/);
   assert.match(deploy, /node tools\/gx\/deploy-gate\.js/);
