@@ -61,8 +61,9 @@ Tasks are tracked in `BACKLOG.md` (section 3, "Priority plan: test first, then s
 |---|---|
 | P-D1 | Automatic deploy cannot pass `allow_live_only_lines`, so every PR that rewrites lines stops it and needs a manual apply. Allow it automatically when the GX equals the commit it was last deployed from (no hand edits possible), with a test |
 | P-R1 | After-the-fact review of #103 (merged before review): no weakened expectations, tick gate only in the fixture, before / after times |
+| P-A1 | Owner approval page on the GX: expiring per-action approvals (one action, scope, expiry, audit log + mail), default off, read-only for Claude / CI, never shell or key access. Design + threat model first; until it exists, NR1 runs by the owner (command in `docs/node-red-refactoring-plan.md` NR1) |
 
 ## Order
 
 A1 → A2 → A3 (TH5 as its own bug-fix PR) → NR1 → G1 … G6 → NR3 / NR4 / NR5 / NR8 / NR9 → T1b.
-P-D1 and P-R1 can run at any time. One PR per task, Herdr worker per PR (`gpt-6.2-sol`, `--allow-all`), auto-merge.
+P-D1, P-R1 and P-A1 can run at any time. One PR per task, Herdr worker per PR (`gpt-6.2-sol`, `--allow-all`), auto-merge.

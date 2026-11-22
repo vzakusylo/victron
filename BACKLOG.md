@@ -60,6 +60,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b (P-D1, P-R1 any time). The NR / G rows are i
 | T1b | B perf | Test GX speed, rest: Docker image cache; check per-file times after #103 | open |
 | P-D1 | process | Auto-deploy may use `allow_live_only_lines` when the GX equals its last deployed commit (no hand edits); with a test | open |
 | P-R1 | process | After-the-fact review of #103 (merged before review) | open |
+| P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
