@@ -96,6 +96,7 @@ jobs:
       - uses: actions/checkout@v7
         if: env.AUTO == 'true'
         with:
+          path: .gate
           fetch-depth: 0
           sparse-checkout: tools/gx/deploy-gate.js
           sparse-checkout-cone-mode: false
@@ -103,6 +104,7 @@ jobs:
       - name: Recheck the selected green commit
         if: env.AUTO == 'true'
         id: recheck
+        working-directory: .gate
         env:
           GH_TOKEN: ${{ github.token }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
