@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadNode } = require('./harness');
+const { loadNode, readSource } = require('./harness');
 
 const NOW = Date.parse('2026-11-16T19:00:00Z');
 const DAY = 24 * 3600000;
@@ -10,9 +10,12 @@ const DAY = 24 * 3600000;
 const ACC = 'bfe0dd97b76a98f454a8bt';
 const PLATE = 'bfe949ce996182ffb9b1zl';
 
-function fixture() {
+function fixture({ cloudEnabled = false } = {}) {
     const state = loadNode('34 Heat pump state.js');
-    const cloud = loadNode('44 Heat pump cloud sensors.js');
+    const cloudFile = '44 Heat pump cloud sensors.js';
+    const cloud = loadNode(cloudFile, cloudEnabled
+        ? readSource(cloudFile).replace('const CLOUD_ENABLED = false;', 'const CLOUD_ENABLED = true;')
+        : undefined);
     const local = loadNode('46 Heat pump local sensors.js');
     function feed(bridge, topic, payload, now = NOW) {
         bridge.flow.set('heatPump', state.flow.get('heatPump'));
@@ -24,6 +27,7 @@ function fixture() {
         cloud: (payload, now) => feed(cloud, 'cloud', payload, now),
         pollCloud: now => feed(cloud, 'poll', undefined, now),
         local: (payload, now) => feed(local, 'local', payload, now),
+        seedCloud: (role, temp) => state.run({ topic: role, payload: { data: { dps: { temp } }, source: 'cloud' } }, { now: NOW }),
         state: role => state.flow.get('heatPump')?.[role],
         summary: () => state.flow.get('heatPumpModel').summary,
         refreshView: now => state.run({ topic: 'hp', payload: { state: 'DISCONNECTED' } }, { now })
@@ -36,20 +40,24 @@ function reading(id, t, fields = {}) {
 
 test('disabled cloud polling drops cached cloud readings but leaves local readings alone', () => {
     const gx = fixture();
-    gx.cloud(JSON.stringify({ ok: true, devices: { [ACC]: { temp: 24 } } }));
+    gx.seedCloud('acc', 24);
     gx.local(reading(PLATE, NOW, { temp: 33 }));
     assert.equal(gx.summary().accTemp, 24);
     assert.deepEqual(gx.pollCloud(NOW + 1000), [[{ topic: 'acc', payload: { state: 'DISCONNECTED' } }], null]);
     assert.equal(gx.summary().accTemp, null);
     assert.equal(gx.summary().plateTemp, 33);
     assert.equal(gx.pollCloud(NOW + 2000), null, 'no repeat disconnect or exec request');
+    gx.local(reading(ACC, NOW + 3000, { bat: 90 }), NOW + 3000);
+    assert.equal(gx.summary().accTemp, null, 'a local battery report must not expose the dropped cloud temperature');
 });
 
 test('cloud failure and missing devices leave the corresponding temperatures unavailable', () => {
     for (const payload of ['', '{"ok":', '{"ok":false,"error":"synthetic timeout"}',
         '{"ok":true,"devices":{}}']) {
-        const gx = fixture();
+        const gx = fixture({ cloudEnabled: true });
         gx.cloud(JSON.stringify({ ok: true, devices: { [ACC]: { temp: 24 }, [PLATE]: { temp: 33 } } }));
+        assert.equal(gx.summary().accTemp, 24);
+        assert.equal(gx.summary().plateTemp, 33);
         const [, exec] = gx.cloud(payload, NOW + 1000);
         assert.equal(exec, null);
         const status = payload.includes('"ok":true') ? 'DISCONNECTED' : 'ERROR';
@@ -76,17 +84,18 @@ test('local stdout chunks keep partial readings, reject stale replies, and expir
     assert.equal(gx.summary().accTemp, null);
 });
 
-test('expected_fail TGX7-CLOUD-LATE: cloud off should not accept a late reply', t => {
+test('TGX7-CLOUD-LATE: cloud off drops late replies without overwriting local readings', () => {
     const gx = fixture();
     gx.local(reading(ACC, NOW, { temp: 24 }));
     assert.equal(gx.pollCloud(NOW + 1000), null);
     gx.cloud(JSON.stringify({ ok: true, t: NOW - 2 * DAY, devices: { [ACC]: { temp: 8 } } }), NOW + 2000);
-    assert.throws(() => assert.equal(gx.summary().accTemp, 24),
-        { code: 'ERR_ASSERTION', actual: 8, expected: 24 }, 'unexpected pass: remove expected_fail TGX7-CLOUD-LATE');
-    t.skip('expected_fail: delayed cloud stdout overwrites a local temperature even though polling is disabled');
+    assert.equal(gx.summary().accTemp, 24);
+    assert.equal(gx.state('acc').source, 'local');
+    assert.equal(gx.cloud('{"ok":false,"error":"synthetic timeout"}', NOW + 3000), null);
+    assert.equal(gx.state('acc').state, 'CONNECTED');
 });
 
-test('expected_fail TGX7-LOCAL-AGE: a battery-only wake must not refresh an expired temperature', t => {
+test('TGX7-LOCAL-AGE: a battery-only wake does not refresh an expired temperature', () => {
     const gx = fixture();
     gx.local(reading(ACC, NOW, { temp: 24, bat: 91 }));
     const later = NOW + DAY + 1000;
@@ -94,17 +103,16 @@ test('expected_fail TGX7-LOCAL-AGE: a battery-only wake must not refresh an expi
     assert.equal(gx.summary().accTemp, null);
     gx.local(reading(ACC, later, { bat: 88 }), later);
     assert.equal(gx.state('acc').dps.bat, 88);
-    assert.throws(() => assert.equal(gx.summary().accTemp, null),
-        { code: 'ERR_ASSERTION', actual: 24, expected: null }, 'unexpected pass: remove expected_fail TGX7-LOCAL-AGE');
-    t.skip('expected_fail: a battery-only wake makes the last temperature look current again');
+    assert.equal(gx.state('acc').lastData, later);
+    assert.equal(gx.summary().accTemp, null);
+    gx.local(reading(ACC, later + 1000, { temp: 0 }), later + 1000);
+    assert.equal(gx.summary().accTemp, 0);
+    assert.equal(gx.state('acc').dps.bat, 88);
 });
 
-test('expected_fail TGX7-LOCAL-NULL: a null line must not prevent the next reading in a chunk', t => {
+test('TGX7-LOCAL-NULL: a null line does not prevent the next reading in a chunk', () => {
     const gx = fixture();
     gx.local(reading(ACC, NOW, { temp: 24 }));
-    assert.throws(() => gx.local('null\n' + reading(ACC, NOW + 1000, { temp: 25 }), NOW + 1000),
-        { name: 'TypeError', message: /Cannot read properties of null.*kind/ },
-        'unexpected pass: remove expected_fail TGX7-LOCAL-NULL');
-    assert.equal(gx.summary().accTemp, 24);
-    t.skip('expected_fail: a valid JSON null line throws and drops the subsequent reading');
+    gx.local('null\n' + reading(ACC, NOW + 1000, { temp: 25 }), NOW + 1000);
+    assert.equal(gx.summary().accTemp, 25);
 });

@@ -31,6 +31,7 @@
 //    offline in the Tuya cloud since 2026-11-10 12:11 UTC, but the cloud kept returning its last
 //    value (25.5 °C), which looked like a fresh reading. A cloud value still in "Heat pump state"
 //    is dropped once (DISCONNECTED).
+// 4. d#209: drop late stdout too while cloud is off (TGX7-CLOUD-LATE).
 // ==========================
 
 const SENSORS = [
@@ -44,7 +45,8 @@ const CLOUD_FALLBACK_H = 24;
 // DISCONNECTED in "Heat pump state"), so the pages show the sensor as offline until it is read
 // locally again. Set it to true to bring the cloud fallback back.
 const CLOUD_ENABLED = false;
-if (msg.topic === 'poll' && !CLOUD_ENABLED) {
+if (!CLOUD_ENABLED) {
+    if (msg.topic !== 'poll') return null;
     const st = flow.get('heatPump') || {};
     const drop = SENSORS.filter((s) => st[s.role] && st[s.role].source === 'cloud' && st[s.role].state === 'CONNECTED');
     node.status({ fill: 'grey', shape: 'dot', text: 'cloud off: local network only' + (drop.length ? ' (dropped ' + drop.map((s) => s.role).join(', ') + ')' : '') });

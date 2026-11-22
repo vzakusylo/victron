@@ -71,6 +71,7 @@
 // 13. d#195: curveChart.outdoor = the pump's own outdoor value (flow.dhwView.pumpOut from 40, derived from the reported
 //    set point), fallback the 10-min sensor average / DP 103; outdoorSource 'pump' | 'sensor', outdoorText for the page,
 //    sensor = DP 103 (shown as "outdoor sensor").
+// 14. d#209: battery sensor temperature expires independently of other readings (TGX7-LOCAL-AGE).
 // ==========================
 
 const ROLES = ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate'];
@@ -355,7 +356,7 @@ function buildModel(st, now) {
     const connected = (role) => st[role].state === 'CONNECTED' && st[role].lastData && now - st[role].lastData <= STALE_MS;
     const cloudTemp = (role) => {
         const c = st[role];
-        return c && c.state === 'CONNECTED' && c.lastData && now - c.lastData <= CLOUD_STALE_MS ? num(c.dps.temp) : null;
+        return c && c.state === 'CONNECTED' && c.lastTempAt && now - c.lastTempAt <= CLOUD_STALE_MS ? num(c.dps.temp) : null;
     };
 
     return {
@@ -568,7 +569,14 @@ if (typeof p.state === 'string' && !p.data) {
     Object.keys(dps).forEach((k) => { dev.dps[k] = dps[k]; });
     dev.lastData = at;
     dev.state = 'CONNECTED';
-    if (CLOUD_ROLES.includes(role)) dev.source = p.source || 'cloud';
+    if (CLOUD_ROLES.includes(role)) {
+        const source = p.source || 'cloud';
+        // A partial wake cannot make a reading from the previous source current.
+        if (dev.source !== source || Object.hasOwn(dps, 'temp')) {
+            dev.lastTempAt = dps.temp != null && num(dps.temp) !== null ? at : 0;
+        }
+        dev.source = source;
+    }
     if (role === 'meter') dev.reading = meterReading(dev);
 } else {
     return null;
