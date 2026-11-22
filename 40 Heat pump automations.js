@@ -315,6 +315,8 @@ function model() {
 function send(out, m) {
     const arr = [null, null, null, null, null, null]; arr[out] = m; node.send(arr);
 }
+// #include lib/heat-pump/mode-confirm.js
+
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
 // against the value the device reports (ok / fail in the log, like the Smart Life log).
 function pump() {
@@ -334,12 +336,14 @@ function pump() {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (forced cycle cancelled)' });
     } else if (!item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
-    } else if ((context.get('settings') || {}).master) {
+    } else if ((context.get('settings') || {}).master && !modeBlocked(item)) {
+        const verifyMode = isModeWrite(item) ? startModeVerification(item) : null;
         send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
         node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
-        setTimeout(() => {
+        setTimeout(verifyMode || (() => {
             if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
                 logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+                    verificationSuperseded: true,
                     text: item.text + ' — verification superseded by forced-cycle stop' });
                 return;
             }
@@ -348,8 +352,8 @@ function pump() {
             const good = String(v) === String(item.set);
             logEvent({ kind: good ? 'ok' : 'fail', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
                 text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v) });
-        }, VERIFY_MS);
-    } else {
+        }), VERIFY_MS);
+    } else if (!(context.get('settings') || {}).master) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
     setTimeout(() => { context.set('pumping', false); pump(); }, WRITE_GAP_MS);
@@ -400,6 +404,7 @@ function runStep(rule, token) {
     setTimeout(() => runStep(rule, token), next);
 }
 function stopLive(reason) {
+    cancelModeRule();
     const all = context.get('seqs') || {};
     for (const id of Object.keys(all)) if (all[id].live) {
         const r = ruleById(id);
@@ -426,6 +431,7 @@ const FAULT_TEXT = { Er03: 'water flow failure' };
 
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
+    const previousModes = [HEAT_ID, DHW_ID, ...RULES.map(r => r.id)].map(id => [id, modeOf(id)]);
     try {
         const s = JSON.parse(String(msg.payload || '{}'));
         const curve = s.heatCurve;
@@ -446,6 +452,8 @@ if (msg.topic === 'load') {
         for (const r of RULES) if (s.modes && MODES.includes(s.modes[r.id])) settings.modes[r.id] = s.modes[r.id];
         for (const id of [DHW_ID, HEAT_ID]) if (s.modes && MODES.includes(s.modes[id])) settings.modes[id] = s.modes[id];
         persist();
+        if (!settings.master) cancelModeRule();
+        else for (const [id, previous] of previousModes) if (modeOf(id) !== previous) cancelModeRule(id);
         context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'setting', text: 'settings loaded: local control ' + (settings.master ? 'ON' : 'OFF') });
         if (curve != null && !validCurve) {
@@ -456,6 +464,7 @@ if (msg.topic === 'load') {
     } catch (e) {
         settings = { master: false, modes: {} };
         persist();
+        cancelModeRule();
         // an unreadable file is replaced by the next change made on the dashboard (the defaults are what runs now)
         context.set('settingsLoaded', true); context.set('saveHeldNoted', false);
         logEvent({ kind: 'warn', text: 'settings file unreadable, local control OFF: ' + e.message });
@@ -547,6 +556,7 @@ if (msg.topic === 'ui') {
     }
     if (p.action === 'mode' && p.id === DHW_ID) {
         if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad DHW mode ' + JSON.stringify(p)); return null; }
+        if (modeOf(DHW_ID) !== p.mode) cancelModeRule(DHW_ID);
         settings.modes[DHW_ID] = p.mode;
         persist();
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'controller set to ' + MODE_LABEL[p.mode]
@@ -556,6 +566,7 @@ if (msg.topic === 'ui') {
     }
     if (p.action === 'mode' && p.id === HEAT_ID) {
         if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad heating mode ' + JSON.stringify(p)); return null; }
+        if (modeOf(HEAT_ID) !== p.mode) cancelModeRule(HEAT_ID);
         settings.modes[HEAT_ID] = p.mode;
         const h = heatState(); h.lastStep = 0; h.samples = []; context.set('heat', h);
         persist();
@@ -592,6 +603,7 @@ if (msg.topic === 'ui') {
     if (p.action === 'mode') {
         const r = ruleById(p.id);
         if (!r || !MODES.includes(p.mode)) { node.warn('Heat pump automations: bad mode request ' + JSON.stringify(p)); return null; }
+        if (modeOf(r.id) !== p.mode) cancelModeRule(r.id);
         settings.modes[r.id] = p.mode;
         persist();
         logEvent({ kind: 'setting', rule: r.id, cloud: r.cloud, text: 'rule set to ' + MODE_LABEL[p.mode] });
@@ -599,7 +611,10 @@ if (msg.topic === 'ui') {
     }
     if (p.action === 'modeAll') {
         if (!MODES.includes(p.mode)) { node.warn('Heat pump automations: bad modeAll request ' + JSON.stringify(p)); return null; }
-        for (const r of RULES) settings.modes[r.id] = p.mode;
+        for (const r of RULES) {
+            if (modeOf(r.id) !== p.mode) cancelModeRule(r.id);
+            settings.modes[r.id] = p.mode;
+        }
         persist();
         logEvent({ kind: 'setting', text: 'all ' + RULES.length + ' rules: ' + MODE_LABEL[p.mode] });
         return [{ payload: model() }, null, saveMsg(), null, null, null];
