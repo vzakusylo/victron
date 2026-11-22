@@ -397,7 +397,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const before = new Map(JSON.parse(original).map((node) => [node.id, node]));
     const changedTypes = new Set(state.flows.filter((node) => JSON.stringify(node) !== JSON.stringify(before.get(node.id)))
         .filter((node) => !behind.includes(node.id) && node.id !== page && node.id !== added.id).map((node) => node.type));
-    assert.deepEqual([...changedTypes].sort(), ['tab', 'ui_base', 'ui_tab']);
+    assert.deepEqual([...changedTypes].sort(), ['group', 'tab', 'ui_base', 'ui_tab']);
 
     const [backup] = backups();
     assert.match(backup, new RegExp('^backup-\\d{8}T\\d{6}-pre-d' + number + '$'));
