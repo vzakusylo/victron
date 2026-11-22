@@ -45,6 +45,11 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 
 
 ### 2a. Conflict check before every new task (and before pushing)
+**Start from the latest master, always.** Every new task (worker, session or my own PR) begins with `git fetch origin`
+and a new branch from it: `git switch -c <branch> origin/master` (or `herdr-task.ps1 new <branch> -Base origin/master`).
+A reused worker worktree also switches to a fresh branch from `origin/master`; never start a task on a stale local
+`master` or on the previous task's branch. Every brief and every `send` of a new task says this as its first step.
+
 Before starting a new task (a worker, a session or my own PR) and again before pushing, check it against **all work
 in progress**: open PRs (`gh pr list --state open` + `gh pr view <N> --json files`), every Herdr worker's branch and
 brief (`herdr agent list`, `git -C <worktree> diff --name-only origin/master...`), queued briefs and BACKLOG
