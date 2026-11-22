@@ -94,7 +94,7 @@
     {
       "i": 16,
       "date": "2026-11-22",
-      "pr": null,
+      "pr": 145,
       "what": "Isolate the automatic GX deploy gate checkout"
     }
   ]
