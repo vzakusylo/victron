@@ -26,6 +26,7 @@ const {
     validateScenario
 } = require('../tools/test-gx/run-scenarios.js');
 const { loadNode } = require('./harness');
+const { GATED_INJECTS, GATE_SUFFIX, TICK_COUNT_KEY } = require('../tools/test-gx/tick-gate');
 const isolatedOptions = options => ({ ...options, admin: { verifyDeployed: async () => {}, ...options?.admin } });
 const runScenario = (scenario, options) => runWithAdmin(scenario, isolatedOptions(options));
 const runScenarios = (scenarios, options) => runAllWithAdmin(scenarios, isolatedOptions(options));
@@ -188,6 +189,7 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
     assert.equal(quiet.steps[1].when, '380s');
     assert.equal(quiet.steps[1].settle, '400s');
     assert.deepEqual(quiet.steps[1].expect.writes, []);
+    assert.deepEqual(quiet.steps[1].expect.ticks, GATED_INJECTS);
     assert.deepEqual(
         { ...quiet.initial.inputs, ...quiet.steps[1].inputs },
         { ...after.initial.inputs, ...after.steps.at(-1).inputs }
@@ -199,6 +201,9 @@ test('quiet-period scenarios use the same demand and settings on both sides of t
         'tuya.pump.dps.116': 0
     });
     assert.deepEqual(after.steps[0].expect.writes, quiet.steps[0].expect.writes);
+    assert.equal(after.steps[1].fromDeploy, true);
+    assert.equal(after.steps[1].settle, '40s');
+    assert.deepEqual(after.steps[1].expect.ticks, ['hpa-tick-01']);
     assert.equal(after.steps.at(-1).fromDeploy, true);
     assert.ok(after.steps.at(-1).expect.writes.some(w => w.device === 'pump' && w.dps === '133' && w.value === 0));
 });
@@ -207,12 +212,36 @@ test('deploy-relative steps read elapsed fake time from Node-RED, not the host',
     const deployed = Date.UTC(2026, 10, 16, 19);
     const fakeNow = deployed + 240_000;
     const admin = createAdmin('http://127.0.0.1:1881', async url => {
-        assert.equal(url.pathname, '/context/node/hpa-fn-01/lastDefrost');
+        assert.equal(url.pathname, '/context/node/hpa-tick-01-tick-gate/testGxDeployedAt');
         return new Response(JSON.stringify({ msg: String(deployed) }), {
             headers: { date: new Date(fakeNow).toUTCString() }
         });
     });
     assert.equal(await admin.deployElapsed(), 240_000);
+    const missing = createAdmin('http://127.0.0.1:1881', async () => new Response('{}'));
+    await assert.rejects(missing.deployElapsed(), /Missing.*testGxDeployedAt/);
+});
+
+test('a quiet step fails when its gate forwards no new tick, even with expected_fail', async () => {
+    const scenario = {
+        ...trivialScenario(),
+        steps: [{ when: '0s', settle: '40s', expect: { writes: [], ticks: ['hpa-tick-01'] } }]
+    };
+    const options = {
+        waitReady: false, setFaketime: async () => {}, wait: async () => {},
+        api: { post: async () => {}, getWrites: async () => [] },
+        admin: {
+            readContext: async (scope, id, key) => {
+                assert.deepEqual([scope, id, key], ['node', 'hpa-tick-01' + GATE_SUFFIX, TICK_COUNT_KEY]);
+                return 7;
+            }
+        }
+    };
+    const [result] = await runScenarios([{ ...scenario, expected_fail: 'example production failure' }], options);
+    assert.equal(result.status, 'fail');
+    assert.match(result.message, /hpa-tick-01 did not forward a tick/);
+    let count = 7;
+    await runScenario(scenario, { ...options, admin: { readContext: async () => count++ } });
 });
 
 test('a trivial scenario passes, calls the emulator API and produces JUnit XML', async () => {
