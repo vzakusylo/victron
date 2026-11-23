@@ -34,6 +34,7 @@ This page is the single description of the Claude / Copilot loop. It does not re
 
 | Document | What it owns |
 |---|---|
+| [Herdr workflow guide](herdr-workflow.md) | How to organize any project over Herdr |
 | [`BACKLOG.md`](../BACKLOG.md) | **All tasks, plans, test plans, open PRs, deploy state and progress** (the one task file) |
 | [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) | Copilot's kickoff rule, Test GX access-scope checklist, short version of the rules below and the report template |
 | [Test GX handoff](test-gx-handoff-2026-11-16.md) | §3 permission register (approved scopes), §11 isolated PR review procedure, §13 next-agent checklist |

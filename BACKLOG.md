@@ -35,6 +35,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | Item | State |
 |---|---|
+| D-R4 Preserve repository group order on additions | Open: apply new members at their repository positions without dropping live-only members; D-R3 changes only removals. |
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
 | Next | Automatic: every green Test GX on a master push deploys it. |
@@ -156,6 +157,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#159 D-R3 Group order in deploy removals (`deploy-group-order`, d#224 unchanged · i#30): accept order-only drift and restore repository order for survivors. The full d#217 to d#224 offline replay still stops at the independent `dv-aq-fn-01` output-count change.
 
 #158 NR5 (`nr5-tick-context`, d#224 · i#29): steady automations ticks went from 15 context writes / 8 JSON serializations to 1 / 0. Test GX uses memory context (no disk flush); live store and its interval were not checked. Settings and logs still write on events, not every tick.
 

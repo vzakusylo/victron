@@ -301,6 +301,8 @@ For example, the G2 (#136) transition from d#210 to d#213 needs this exact list:
 
 Set `allow_new_nodes=true` as well for this transition. Review `node to remove` and `removal wiring` in the dry run before applying the same SHA and inputs. The runner checks affected connections against the recorded commit, preserves unrelated connections, and takes the replacement wires from the target. It backs up flows and credentials, then verifies the removals and changed connections after posting. The public report lists only Git-sourced metadata, never unverified live node details.
 
+Affected layout groups are compared as sets without duplicates: order differences are normal after additions, and removals restore target order for surviving members.
+
 For PowerShell use `-AllowRemovedNodes 'id-one,id-two'`. With the low-level runner use a `--topology` snapshot, pass `--allow-removed-nodes id-one,id-two` to `compare.js`, and copy `live-snapshot.js` alongside `deploy.js` on the GX.
 
 ### Reviewed new nodes

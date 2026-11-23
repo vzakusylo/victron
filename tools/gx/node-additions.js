@@ -163,9 +163,35 @@ function removalPlan(live, target, allowed, baseline = []) {
         if (!from) continue;
         const fields = Object.create(null);
         for (const key of ['wires', 'links', 'nodes']) {
-            if (!from[key]?.flat().some(id => removed.has(id))) continue;
+            const recorded = previous.get(node.id)?.topology[key];
+            const groupMembers = key === 'nodes' && current.type === 'group';
+            const recordedRemoval = groupMembers && Array.isArray(recorded) && recorded.some(id => removed.has(id));
+            if (!recordedRemoval && !from[key]?.flat().some(id => removed.has(id))) continue;
             const old = from[key], next = to[key] || [];
-            if (node.type !== current.type || from.z !== to.z || !equal(old, previous.get(node.id)?.topology[key])) {
+            if (groupMembers) {
+                const field = node.id + '.nodes';
+                if (node.type !== current.type || from.z !== to.z || ![old, recorded, next].every(Array.isArray)) {
+                    fail(field + ': invalid group topology alongside removal.');
+                }
+                const [gx, commit, targetSet] = [old, recorded, next].map(list => new Set(list));
+                if (gx.size !== old.length || commit.size !== recorded.length || targetSet.size !== next.length) {
+                    fail(field + ': duplicate group members alongside removal.');
+                }
+                const onlyGX = old.filter(id => !commit.has(id));
+                const onlyCommit = recorded.filter(id => !gx.has(id));
+                if (onlyGX.length || onlyCommit.length) {
+                    fail(field + ': GX differs from the recorded commit: only on GX [' + onlyGX.join(', ') +
+                        '], only in commit [' + onlyCommit.join(', ') + ']');
+                }
+                const surviving = new Set(old.filter(id => !removed.has(id)));
+                const existing = next.filter(id => original.has(id));
+                if (surviving.size !== existing.length || existing.some(id => !surviving.has(id))) {
+                    fail(field + ': unsafe member change alongside removal.');
+                }
+                fields[key] = existing;
+                continue;
+            }
+            if (node.type !== current.type || from.z !== to.z || !equal(old, recorded)) {
                 fail(node.id + '.' + key + ': GX connections do not match the recorded commit.');
             }
             if (key === 'wires') {
