@@ -195,11 +195,33 @@ function removalPlan(live, target, allowed, baseline = []) {
                 fail(node.id + '.' + key + ': GX connections do not match the recorded commit.');
             }
             if (key === 'wires') {
+                if (from.outputs !== to.outputs || old.length !== next.length) {
+                    if (to.outputs > from.outputs || next.length > old.length) {
+                        fail(node.id + ': output count cannot increase alongside removal.');
+                    }
+                    if (from.outputs !== previous.get(node.id)?.topology.outputs) {
+                        fail(node.id + ': GX output count does not match the recorded commit.');
+                    }
+                    if (!Array.isArray(to.wires) || from.outputs !== old.length || to.outputs !== next.length ||
+                        next.length >= old.length) {
+                        fail(node.id + ': inconsistent output counts alongside removal.');
+                    }
+                    for (let i = next.length; i < old.length; i++) {
+                        if (!Array.isArray(old[i]) || !old[i].length) {
+                            fail(node.id + ': output ' + i + ' dropped but it has no approved removal destinations.');
+                        }
+                        const kept = old[i].filter(id => !removed.has(id));
+                        if (kept.length) {
+                            fail(node.id + ': output ' + i + ' dropped but it still wires to kept node(s) [' + kept.join(', ') + '].');
+                        }
+                    }
+                    fields.outputs = to.outputs;
+                }
                 // Rerouting is limited to outputs that lose an approved destination.
-                const valid = Array.isArray(to.wires) && from.outputs === to.outputs && old.length === next.length &&
+                const valid = Array.isArray(to.wires) &&
                     next.every(out => Array.isArray(out) && new Set(out).size === out.length &&
                         out.every(id => source.get(id)?.topology.z === to.z && !['tab', 'group'].includes(source.get(id)?.type))) &&
-                    old.every((out, i) => out.some(id => removed.has(id))
+                    old.slice(0, next.length).every((out, i) => out.some(id => removed.has(id))
                         ? equal(out.filter(id => !removed.has(id)), next[i].filter(id => out.includes(id)))
                         : equal(out, next[i].filter(id => original.has(id))));
                 if (!valid) fail(node.id + ': unsafe wiring change alongside removal.');

@@ -303,6 +303,8 @@ Set `allow_new_nodes=true` as well for this transition. Review `node to remove` 
 
 Affected layout groups are compared as sets without duplicates: order differences are normal after additions, and removals restore target order for surviving members.
 
+Trailing outputs may be dropped if each had at least one destination and every destination is an approved removal; surviving outputs keep their positions and wiring checks.
+
 For PowerShell use `-AllowRemovedNodes 'id-one,id-two'`. With the low-level runner use a `--topology` snapshot, pass `--allow-removed-nodes id-one,id-two` to `compare.js`, and copy `live-snapshot.js` alongside `deploy.js` on the GX.
 
 ### Reviewed new nodes
