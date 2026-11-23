@@ -468,6 +468,7 @@ the runner observes emulator writes, not the deploy CLI's WAIT verdict.
 
 ## Known limitations
 
+- If Venus exits with `gaierror` on `mosquitto`, this can be a start-up DNS race; the emulator now retries for up to 60 s (`EMU_MQTT_CONNECT_TIMEOUT`).
 - Palette versions: GX 1.6.31 / test 1.6.65 (1.6.31 not on npm). The synthetic fixture explicitly pins the published patch; it also explicitly pins `tuyapi@7.7.1`, required by `tools/tuya-local-sensors.js`, instead of relying on the Tuya palette's transitive dependency. A behavior difference attributable to this patch is a limitation to report, not a reason to alter production code.
 - The emulator API cannot remove an individual DPS or accept JavaScript `NaN`; `/set` validates values and `/fail invalid` publishes invalid sentinels. Missing/stale/NaN behavior is covered against the actual function source, not through YAML/API.
 - Historical faketime can be ahead of or behind the emulator's real MQTT timestamps, so `/stale` is not reliable for a live freshness-threshold assertion. The YAML guard scenario uses `/fail offline`; stale-age behavior remains covered by the function-node tests.

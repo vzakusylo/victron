@@ -30,7 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
+| #152 | `testgx-emu-mqtt-retry` | Test GX emulator MQTT startup retry (TGX-R1) | Review and Test GX checks. |
 
 ## 2. Deploy
 
@@ -161,6 +161,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#152 TGX-R1 (d#220 · i#23): emulator MQTT connect retry (CI flake run 45119354024). Retry transient startup failures within a configurable 60 s budget, wait 30 s for subscription readiness, and print the Venus log tail if Compose cannot start the stack.
 
 #151 G3 (d#220 · i#22): verify ESS, DVCC and VE.Bus writes over D-Bus; retry once through the existing Victron writers and rate limits, then report a rate-limited alarm through the Automation log and existing alert digest. Test GX covers the ignored VE.Bus write and the unchanged G2 reaction ceiling. Deploy node 01's code, Function imports and alert wiring together; not a code-only deploy.
 
