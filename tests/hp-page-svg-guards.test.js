@@ -11,7 +11,7 @@ const ATTRS = ['cx', 'cy', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'd', 'points', 'wid
 // Paths that can never be null/undefined once the element renders (regex on the dotted path -> reason).
 const ALLOW = [
     [/^[tepr]\.(x|y|w)$/, 'ng-repeat items built with numeric coordinates by the producer (ticks, events, motion points)'],
-    [/^msg\.payload\.(curveChart|dhwChart)\.svg\.(left|right|top|bottom|line|startLine|supplyLine)$/, 'chart geometry/polyline strings are always built together with svg'],
+    [/^hpStatic\.(curveChart|dhwChart)\.svg\.(left|right|top|bottom|line|startLine|supplyLine)$/, 'static geometry is built as a unit; chart wrappers require the static part'],
     [/^msg\.payload\.(curveChart|dhwChart)\.svg\.now\.x$/, 'now.x is numeric whenever the "now" object exists (parent ng-if on now)'],
     [/^h\.day\.chart\.(left|right|t1|b2|evTop|evH)$/, 'static chart geometry set with chart'],
     [/^h\.day\.chart\.plan\.(x0|xNow)$/, 'plan x values come from clamped numeric sOf()/xs()'],

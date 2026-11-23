@@ -175,7 +175,7 @@
         <span class="lbl" ng-if="!msg.payload.controls.bypass">relay not connected</span>
         <span class="lbl">A Tuya cloud scene that also switches the bypass may switch it back.</span>
       </div>
-      <div ng-if="msg.payload.curveChart" class="hpw-curve">
+      <div ng-if="msg.payload.curveChart && hpStatic.curveChart" class="hpw-curve">
         <h4>Heating curve (P22 {{msg.payload.curveChart.enabled === null ? '?' : (msg.payload.curveChart.enabled ? 'ON' : 'OFF')}} · P23 {{msg.payload.curveChart.p23}} °C · P24 {{msg.payload.curveChart.p24}})</h4>
         <div class="hpw-note" ng-if="msg.payload.curveChart.boilerActive">DHW cycle: the pump runs on the boiler / stop curve now (P23 {{msg.payload.curveChart.pumpP23}} / P24 {{msg.payload.curveChart.pumpP24}}). This chart shows the stored heating curve; it is written back at the end of the cycle.</div>
         <div class="hpw-sub">Heating set point = {{msg.payload.curveChart.formula}}, limited to 20–60 °C.
@@ -301,7 +301,7 @@
         <span class="lbl" ng-if="msg.payload.dhwChart.cold">cold (≤ {{msg.payload.dhwChart.cfg.coldLimit}} °C): Silent only, supply ≤ {{msg.payload.dhwChart.cfg.coldCap}} °C, max {{msg.payload.dhwChart.cfg.maxMinCold}} min, ordinary interval {{msg.payload.dhwChart.cfg.coldIntervalH}} h</span>
         <span class="lbl" style="flex-basis:100%">{{msg.payload.dhwChart.why}}</span>
       </div>
-      <div ng-if="msg.payload.dhwChart" class="hpw-curve">
+      <div ng-if="msg.payload.dhwChart && hpStatic.dhwChart" class="hpw-curve">
         <div class="hpw-ctl" ng-if="msg.payload.dhwChart.shower">
           <span class="big">Shower / hot-water preparation</span>
           <button ng-class="{on: msg.payload.dhwChart.shower.enabled}" ng-disabled="hp.showerSent !== null || (msg.payload.dhwChart.shower.state === 'stopping' && !msg.payload.dhwChart.shower.enabled)"
