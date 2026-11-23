@@ -116,6 +116,8 @@ test('log and view assertions count new log events and read dotted view paths', 
     assert.doesNotThrow(() => assertView(view, [{ path: 'status.text', contains: 'NOT following' }, { path: 'heat.offCurve.today', equals: 1 }], 'view', 1));
     assert.throws(() => assertView(view, [{ path: 'heat.offCurve.today', equals: 0 }], 'view', 1), /view heat\.offCurve\.today expected 0, received 1/);
     assert.throws(() => assertView(view, [{ path: 'heat.nothing.here', equals: true }], 'view', 1), /received undefined/);
+    assert.doesNotThrow(() => assertView(view, [{ path: 'heat.offCurve.today', greaterThan: 0 }], 'view', 1));
+    assert.throws(() => assertView(view, [{ path: 'heat.offCurve.today', greaterThan: 1 }], 'view', 1), /a number above 1, received 1/);
 });
 
 test('log and view expectations are validated', () => {

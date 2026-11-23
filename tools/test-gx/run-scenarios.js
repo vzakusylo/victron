@@ -296,11 +296,12 @@ function validateScenario(scenario, source = 'scenario') {
         for (const key of ['view', 'bms', 'grid']) if (step.expect[key] !== undefined && (!Array.isArray(step.expect[key]) ||
             step.expect[key].some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
                 Object.keys(item).some(field => !['path', 'equals', 'contains'].includes(field) &&
-                    !(key === 'grid' && field === 'lessThan')) ||
+                    !(key === 'grid' && ['lessThan', 'greaterThan'].includes(field))) ||
                 typeof item.path !== 'string' || !item.path ||
                 key === 'grid' && (!scenario.controller || !GRID_VIEWS.includes(item.path.split('.')[0])) ||
-                ['equals', 'contains', 'lessThan'].filter(field => Object.hasOwn(item, field)).length !== 1 ||
+                ['equals', 'contains', 'lessThan', 'greaterThan'].filter(field => Object.hasOwn(item, field)).length !== 1 ||
                 Object.hasOwn(item, 'lessThan') && !Number.isFinite(item.lessThan) ||
+                Object.hasOwn(item, 'greaterThan') && !Number.isFinite(item.greaterThan) ||
                 Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
             throw new Error(`${source} step ${index + 1} expect.${key} must contain path and exactly one comparison`);
         }
@@ -447,10 +448,12 @@ function assertView(view, expected, scenarioName, stepIndex) {
         const got = wanted.path.split('.').reduce((value, key) => value === null || value === undefined ? undefined : value[key], view);
         const ok = Object.hasOwn(wanted, 'equals') ? isEqual(got, wanted.equals)
             : Object.hasOwn(wanted, 'lessThan') ? Number.isFinite(got) && got < wanted.lessThan
+            : Object.hasOwn(wanted, 'greaterThan') ? Number.isFinite(got) && got > wanted.greaterThan
             : typeof got === 'string' && got.includes(wanted.contains);
         if (!ok) {
             const expectation = Object.hasOwn(wanted, 'equals') ? formatValue(wanted.equals)
                 : Object.hasOwn(wanted, 'lessThan') ? `a number below ${wanted.lessThan}`
+                : Object.hasOwn(wanted, 'greaterThan') ? `a number above ${wanted.greaterThan}`
                 : `text containing ${formatValue(wanted.contains)}`;
             throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: view ${wanted.path} expected ${expectation}, received ${formatValue(got)}`);
         }
