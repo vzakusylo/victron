@@ -187,7 +187,7 @@ node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
 - `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
 - `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
 - `--allow-new-nodes`: include reviewed additions in the plan. Take the snapshot with `node - --topology` first; keep that snapshot private. With the PowerShell runner, `-AllowNewNodes` handles both steps.
-- `--allow-new-wires id-one,id-two`: list reviewed source nodes for append-only connections to existing or approved new nodes on the same tab. In a manual workflow run use `allow_new_wires` (`-AllowNewWires` in PowerShell); automatic runs ignore it. Review each added connection in the dry-run log before applying the same commit.
+- `--allow-new-wires id-one,id-two`: list reviewed source nodes for append-only connections to existing or approved new nodes on the same tab. For a listed source, every new connection must follow the existing connections on its output, even when it points to a new node. In a manual workflow run use `allow_new_wires` (`-AllowNewWires` in PowerShell); automatic runs ignore it. Review each added connection in the dry-run log before applying the same commit.
 
 The plan is a small JSON file: commit, expected live revision, file hashes, `{ node id: [fields] }`, added node IDs, wiring patch IDs and tool hashes. Read it.
 
