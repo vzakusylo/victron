@@ -130,6 +130,23 @@ test('log and view expectations are validated', () => {
     assert.throws(() => validateScenario(step({ view: [{ path: 'a', equals: 1, contains: 'x' }] })), /expect\.view/);
 });
 
+test('greaterThan is a finite, standalone grid comparison', () => {
+    const scenario = expect => ({
+        name: 'grid range', faketime: '@2026-10-25 02:00:00',
+        controller: { protection: {} },
+        observe: [{ service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint' }],
+        steps: [{ when: '0s', expect: { writes: [], ...expect } }]
+    });
+    const lower = { path: 'tariffDay.gridWh', greaterThan: 5 };
+    assert.doesNotThrow(() => validateScenario(scenario({ grid: [lower] })));
+    for (const key of ['view', 'bms']) {
+        assert.throws(() => validateScenario(scenario({ [key]: [lower] })), new RegExp(`expect\\.${key}`));
+    }
+    for (const item of [{ ...lower, greaterThan: '5' }, { ...lower, greaterThan: Infinity }, { ...lower, lessThan: 10 }]) {
+        assert.throws(() => validateScenario(scenario({ grid: [item] })), /expect\.grid/);
+    }
+});
+
 test('a step reads only the log events that appeared since the previous step', async () => {
     const logs = [[{ t: 1, text: 'old' }], [{ t: 2, text: 'warning' }, { t: 1, text: 'old' }], [{ t: 2, text: 'warning' }, { t: 1, text: 'old' }]];
     const reads = [];
