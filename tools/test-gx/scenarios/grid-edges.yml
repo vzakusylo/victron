@@ -13,37 +13,53 @@
       inputs: {"grid_w":1100}
       expect:
         grid: [{"path":"hourBudget.hourKey","equals":"2027-01-01 00"},{"path":"tariffDay.dayKey","equals":"2027-01-01"},{"path":"tariffDay.gridWh","equals":0},{"path":"tariffDay.peakBillableWh","equals":0},{"path":"tariffMonth.monthKey","equals":"2027-01"},{"path":"tariffMonth.dayPeaks","equals":{}}]
+    - when: 240s
+      settle: 45s
+      expect:
+        grid: [{"path":"hourBudget.hourKey","equals":"2027-01-01 00"},{"path":"tariffDay.dayKey","equals":"2027-01-01"},{"path":"tariffDay.gridWh","equals":0},{"path":"tariffMonth.monthKey","equals":"2027-01"},{"path":"tariffMonth.dayPeaks","equals":{}}]
 
 - name: Europe Oslo spring transition skips the nonexistent hour
-  faketime: '@2026-03-29 01:57:30 x3'
+  faketime: '@2027-03-28 01:56:30 x3'
   controller: {"protection":{}}
-  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"},{"service":"vebus","path":"/Ac/In/1/CurrentLimit"}]
   initial: {"inputs":{"batt_v":53,"consumed_ah":0,"grid_w":1000,"load_w":1000,"pv_w":0}}
   steps:
     - when: 0s
-      settle: 75s
+      settle: 100s
       expect:
-        grid: [{"path":"hourBudget.hourKey","equals":"2026-03-29 01"}]
-    - when: 165s
-      settle: 60s
-      inputs: {"grid_w":1100}
+        outputs: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":6440},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2027-03-28 01"},{"path":"tariffDay.dayKey","equals":"2027-03-28"},{"path":"tariffMonth.monthKey","equals":"2027-03"}]
+    - when: 210s
+      settle: 110s
       expect:
-        grid: [{"path":"hourBudget.hourKey","equals":"2026-03-29 03"},{"path":"tariffDay.peakHourKey","equals":"2026-03-29 01"}]
+        writes: []
+        outputs: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":6440},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2027-03-28 03"},{"path":"tariffDay.dayKey","equals":"2027-03-28"},{"path":"tariffDay.peakHourKey","equals":"2027-03-28 01"},{"path":"tariffDay.gridWh","greaterThan":0},{"path":"tariffDay.gridWh","lessThan":70},{"path":"tariffMonth.monthKey","equals":"2027-03"}]
 
 - name: Europe Oslo autumn transition starts a distinct second 02 hour
   faketime: '@2026-10-25 01:57:30 x40'
   controller: {"protection":{}}
-  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+  observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"},{"service":"vebus","path":"/Ac/In/1/CurrentLimit"}]
   initial: {"inputs":{"batt_v":53,"consumed_ah":0,"grid_w":1000,"load_w":1000,"pv_w":0}}
   steps:
     - when: 500s
       settle: 250s
       expect:
-        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 02"}]
+        outputs: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":6440},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 02"},{"path":"tariffDay.dayKey","equals":"2026-10-25"},{"path":"tariffMonth.monthKey","equals":"2026-10"}]
     - when: 3780s
       settle: 250s
       expect:
-        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 02+0100"},{"path":"tariffDay.peakHourKey","equals":"2026-10-25 02"},{"path":"tariffMonth.monthKey","equals":"2026-10"}]
+        writes: []
+        outputs: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":6440},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 02+0100"},{"path":"tariffDay.dayKey","equals":"2026-10-25"},{"path":"tariffDay.peakHourKey","equals":"2026-10-25 02"},{"path":"tariffDay.gridWh","greaterThan":850},{"path":"tariffDay.gridWh","lessThan":1150},{"path":"tariffDay.peakBillableWh","greaterThan":590},{"path":"tariffDay.peakBillableWh","lessThan":750},{"path":"tariffMonth.monthKey","equals":"2026-10"}]
+    # At 1 kW, closing both real 02 hours adds about 2 kWh, not 1 or 3.
+    - when: 7380s
+      settle: 250s
+      expect:
+        writes: []
+        outputs: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":6440},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31}]
+        grid: [{"path":"hourBudget.hourKey","equals":"2026-10-25 03"},{"path":"tariffDay.dayKey","equals":"2026-10-25"},{"path":"tariffDay.gridWh","greaterThan":1850},{"path":"tariffDay.gridWh","lessThan":2150},{"path":"tariffMonth.monthKey","equals":"2026-10"}]
 
 - name: midnight does not make a stale export CT reading safe
   expected_fail: "G2 safe mode: midnight resets the budget but does not stop export charging from a cached negative CT reading"

@@ -158,6 +158,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#160 TGX5-DST (`grid-dst-scenarios`, d#224 unchanged · i#31): verified Oslo spring-forward and fall-back tariff accounting, stable night limits with no extra writes, and the midnight day/month reset. Local grid edges: three passes and the existing G2-SAFE expected failure.
+
 #159 D-R3 Group order in deploy removals (`deploy-group-order`, d#224 unchanged · i#30): accept order-only drift and restore repository order for survivors. The full d#217 to d#224 offline replay still stops at the independent `dv-aq-fn-01` output-count change.
 
 #158 NR5 (`nr5-tick-context`, d#224 · i#29): steady automations ticks went from 15 context writes / 8 JSON serializations to 1 / 0. Test GX uses memory context (no disk flush); live store and its interval were not checked. Settings and logs still write on events, not every tick.

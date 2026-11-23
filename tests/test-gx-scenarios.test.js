@@ -116,6 +116,8 @@ test('log and view assertions count new log events and read dotted view paths', 
     assert.doesNotThrow(() => assertView(view, [{ path: 'status.text', contains: 'NOT following' }, { path: 'heat.offCurve.today', equals: 1 }], 'view', 1));
     assert.throws(() => assertView(view, [{ path: 'heat.offCurve.today', equals: 0 }], 'view', 1), /view heat\.offCurve\.today expected 0, received 1/);
     assert.throws(() => assertView(view, [{ path: 'heat.nothing.here', equals: true }], 'view', 1), /received undefined/);
+    assert.doesNotThrow(() => assertView(view, [{ path: 'heat.offCurve.today', greaterThan: 0 }], 'view', 1));
+    assert.throws(() => assertView(view, [{ path: 'heat.offCurve.today', greaterThan: 1 }], 'view', 1), /a number above 1, received 1/);
 });
 
 test('log and view expectations are validated', () => {
@@ -126,6 +128,23 @@ test('log and view expectations are validated', () => {
     assert.throws(() => validateScenario(step({ log: [{ contains: 'a', count: -1 }] })), /expect\.log/);
     assert.throws(() => validateScenario(step({ view: [{ path: 'a' }] })), /expect\.view/);
     assert.throws(() => validateScenario(step({ view: [{ path: 'a', equals: 1, contains: 'x' }] })), /expect\.view/);
+});
+
+test('greaterThan is a finite, standalone grid comparison', () => {
+    const scenario = expect => ({
+        name: 'grid range', faketime: '@2026-10-25 02:00:00',
+        controller: { protection: {} },
+        observe: [{ service: 'settings', path: '/Settings/CGwacs/AcPowerSetPoint' }],
+        steps: [{ when: '0s', expect: { writes: [], ...expect } }]
+    });
+    const lower = { path: 'tariffDay.gridWh', greaterThan: 5 };
+    assert.doesNotThrow(() => validateScenario(scenario({ grid: [lower] })));
+    for (const key of ['view', 'bms']) {
+        assert.throws(() => validateScenario(scenario({ [key]: [lower] })), new RegExp(`expect\\.${key}`));
+    }
+    for (const item of [{ ...lower, greaterThan: '5' }, { ...lower, greaterThan: Infinity }, { ...lower, lessThan: 10 }]) {
+        assert.throws(() => validateScenario(scenario({ grid: [item] })), /expect\.grid/);
+    }
 });
 
 test('a step reads only the log events that appeared since the previous step', async () => {

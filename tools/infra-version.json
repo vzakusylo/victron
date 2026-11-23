@@ -1,5 +1,5 @@
 {
-  "i": 30,
+  "i": 31,
   "changes": [
     {
       "i": 1,
@@ -180,6 +180,12 @@
       "date": "2026-11-23",
       "pr": 159,
       "what": "Deploy: compare group members as a set; add generic Herdr workflow guide"
+    },
+    {
+      "i": 31,
+      "date": "2026-11-23",
+      "pr": 160,
+      "what": "Grid DST scenarios"
     }
   ]
 }
