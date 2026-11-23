@@ -35,7 +35,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | Item | State |
 |---|---|
-| D-R6 Reviewed rewires in deploy | In progress: `deploy-reviewed-wires` |
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
 | Next | Automatic: every green Test GX on a master push deploys it. |
@@ -156,6 +155,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#166 D-R6 Reviewed rewires in deploy (`deploy-reviewed-wires`, d#226 unchanged · i#36): apply explicitly reviewed target wiring only when live wiring matches the recorded Git baseline; the full offline replay writes a plan with six reviewed sources.
 
 #165 H16(1) (d#226 · i#35): back off routine near-target DHW Silent retries after three unconfirmed writes. Fresh DP 2 confirmation or a new decision cycle resets the retry streak; protection writes are unchanged.
 
