@@ -1,5 +1,5 @@
 {
-  "i": 32,
+  "i": 33,
   "changes": [
     {
       "i": 1,
@@ -192,6 +192,12 @@
       "date": "2026-11-23",
       "pr": 161,
       "what": "Deploy: allow dropping an output to a removed node"
+    },
+    {
+      "i": 33,
+      "date": "2026-11-23",
+      "pr": 163,
+      "what": "D-R5 group order on additions"
     }
   ]
 }

@@ -301,7 +301,7 @@ For example, the G2 (#136) transition from d#210 to d#213 needs this exact list:
 
 Set `allow_new_nodes=true` as well for this transition. Review `node to remove` and `removal wiring` in the dry run before applying the same SHA and inputs. The runner checks affected connections against the recorded commit, preserves unrelated connections, and takes the replacement wires from the target. It backs up flows and credentials, then verifies the removals and changed connections after posting. The public report lists only Git-sourced metadata, never unverified live node details.
 
-Affected layout groups are compared as sets without duplicates: order differences are normal after additions, and removals restore target order for surviving members.
+Affected layout groups are compared as sets without duplicates: historical additions may have left order differences, and removals restore target order for surviving members.
 
 Trailing outputs may be dropped if each had at least one destination and every destination is an approved removal; surviving outputs keep their positions and wiring checks.
 Function code changes for the new output count still go through the normal code comparison and deployment checks. Node settings changes (such as `switch` rules) are not authorized by the output-removal rule.
@@ -314,6 +314,7 @@ Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a 
 
 - New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. Existing wiring may only gain connections to the new nodes, including a new function output if needed; other settings and existing code must still pass the normal checks.
 - Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
+- When adding to an existing editor layout group, the deploy orders repository members as in the target while keeping live-only memberships. It does not move existing nodes into the group.
 - HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Additions do not authorize any removals.
 - Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.
 

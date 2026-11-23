@@ -468,7 +468,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.deepEqual(state.posts[1], { type: 'nodes', rev: 'rev-1' }, 'one POST, deploy type nodes, with the revision of the snapshot');
     const after = new Map(state.flows.map((node) => [node.id, node]));
     assert.deepEqual(after.get(added.id), added);
-    assert.deepEqual(after.get(added.g), { ...liveGroup, nodes: [...liveGroup.nodes, added.id] });
+    assert.deepEqual(after.get(added.g), { ...liveGroup, nodes: repoById.get(added.g).nodes });
     assert.equal(state.flows.length, repoFlows.length);
     for (const id of behind) assert.equal(after.get(id).func, repoById.get(id).func, id);
     assert.equal(after.get(page).format, repoById.get(page).format);

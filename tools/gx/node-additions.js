@@ -57,7 +57,7 @@ function additionPlan(live, repo, allowNewNodes) {
     const added = byId(additions);
     const final = new Map([...original, ...added]);
     const routes = live.filter((node) => node.type === 'http in');
-    const groups = new Set();
+    const groups = new Map();
     for (const node of additions) {
         if (original.get(node.z)?.type !== 'tab') fail(node.id + ': the tab must already exist on the GX.');
         if (Object.hasOwn(node, 'credentials')) fail(node.id + ': credentials require a manual deploy.');
@@ -80,7 +80,10 @@ function additionPlan(live, repo, allowNewNodes) {
                 (liveGroup && (liveGroup.type !== 'group' || liveGroup.z !== node.z || !Array.isArray(liveGroup.nodes)))) {
                 fail(node.id + ': invalid layout group membership.');
             }
-            if (liveGroup && !liveGroup.nodes.includes(node.id)) groups.add(node.g);
+            if (liveGroup && !liveGroup.nodes.includes(node.id)) {
+                if (!groups.has(node.g)) groups.set(node.g, new Set());
+                groups.get(node.g).add(node.id);
+            }
         }
         for (const id of wireLists(node).flat()) {
             if (!final.has(id)) fail(node.id + ': wire to missing node ' + id + '.');
@@ -113,7 +116,22 @@ function additionPlan(live, repo, allowNewNodes) {
         }
         wire.push(node.id);
     }
-    return { add: additions.map((node) => node.id), wire, ...(groups.size ? { groups: [...groups] } : {}) };
+    const groupMembers = new Map();
+    for (const [id, newMembers] of groups) {
+        const liveMembers = original.get(id).nodes;
+        const liveSet = new Set(liveMembers);
+        const repoMembers = source.get(id).nodes;
+        const repoSet = new Set(repoMembers);
+        if (liveSet.size !== liveMembers.length || repoSet.size !== repoMembers.length) {
+            fail(id + ': duplicate layout group members alongside addition.');
+        }
+        const ordered = repoMembers.filter(member => liveSet.has(member) || newMembers.has(member));
+        // Fill repository-member slots in target order, leaving live-only memberships in place.
+        let next = 0;
+        const members = liveMembers.map(member => repoSet.has(member) ? ordered[next++] : member);
+        groupMembers.set(id, members.concat(ordered.slice(next)));
+    }
+    return { add: additions.map((node) => node.id), wire, ...(groups.size ? { groups: [...groups.keys()], groupMembers } : {}) };
 }
 
 function recordedCommit(info = '') {
