@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-23 | Dry run 45221077361 reached an addition blocker after removals passed | Run the full offline `compare.js --plan` path with both opt-ins, not just an individual planner stage |
 | 2026-11-23 | Manual GX dry run 45184915777 rejected the air-quality function's trailing output removal | Allow dropping only trailing outputs wired exclusively to approved removals; keep the existing checks on surviving outputs |
 | 2026-11-23 | Manual GX dry run 45160118243 rejected group membership that differed only in order | Compare affected layout group members as sets and restore target order for surviving members; add and link the [generic Herdr workflow guide](herdr-workflow.md) |
 | 2026-11-23 | Added the Claude review token project skill | The owner can rotate the GitHub Actions secret from a private terminal without pasting the token into chat or a command line |

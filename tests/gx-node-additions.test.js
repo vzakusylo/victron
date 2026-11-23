@@ -184,6 +184,29 @@ function fixture() {
     return { live, repo, node };
 }
 
+test('dashboard-wide nodes can be added without a group, but still need an existing tab', () => {
+    const live = [{ id: 'tab', type: 'tab' }];
+    const additions = [
+        { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '' },
+        { id: 'toast', type: 'ui_toast', z: 'tab' },
+        { id: 'audio', type: 'ui_audio', z: 'tab' }
+    ];
+    assert.deepEqual(additionPlan(live, [...live, ...additions], true), {
+        add: ['viewers', 'toast', 'audio'], wire: []
+    });
+    assert.throws(() => additionPlan(live, [...live, { ...additions[0], z: 'missing' }], true), /tab must already exist/);
+});
+
+test('dashboard additions still validate explicit and required groups', () => {
+    const live = [{ id: 'tab', type: 'tab' }, { id: 'dashboard-group', type: 'ui_group' }];
+    const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: 'missing' };
+    assert.throws(() => additionPlan(live, [...live, viewers], true), {
+        message: 'viewers: ui_group missing does not exist on the GX.'
+    });
+    assert.deepEqual(additionPlan(live, [...live, { ...viewers, group: 'dashboard-group' }], true).add, ['viewers']);
+    assert.throws(() => additionPlan(live, [...live, { ...viewers, type: 'ui_text', group: '' }], true), /ui_group must already exist/);
+});
+
 test('new endpoints are opt-in and add the existing node’s connection in the same plan', () => {
     const { live, repo } = fixture();
     assert.throws(() => additionPlan(live, repo, false), /require --allow-new-nodes/);

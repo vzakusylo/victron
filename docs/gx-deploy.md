@@ -314,6 +314,7 @@ Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a 
 
 - New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. Existing wiring may only gain connections to the new nodes, including a new function output if needed; other settings and existing code must still pass the normal checks.
 - Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
+- `ui_ui_control`, `ui_toast` and `ui_audio` may be added without a `ui_group`; if they specify one, it must already exist on the GX.
 - When adding to an existing editor layout group, the deploy orders repository members as in the target while keeping live-only memberships. It does not move existing nodes into the group.
 - HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Additions do not authorize any removals.
 - Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.

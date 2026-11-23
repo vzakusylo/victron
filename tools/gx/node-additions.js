@@ -6,6 +6,7 @@ const TYPES = new Set([
     'ui_colour_picker', 'ui_form', 'ui_text', 'ui_gauge', 'ui_chart', 'ui_template', 'ui_audio', 'ui_toast', 'ui_ui_control'
 ]);
 const removable = type => TYPES.has(type) || /^victron-input-[a-z0-9-]+$/.test(type);
+const OPTIONAL_UI_GROUP = new Set(['ui_ui_control', 'ui_toast', 'ui_audio']);
 const GROUP_FIELDS = new Set(['id', 'type', 'z', 'name', 'style', 'nodes', 'x', 'y', 'w', 'h']);
 const fail = (message) => { throw new Error(message); };
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -71,7 +72,12 @@ function additionPlan(live, repo, allowNewNodes) {
             continue;
         }
         if (!TYPES.has(node.type)) fail(node.id + ': cannot add node type ' + node.type + ' (config or unsupported node).');
-        if (node.type.startsWith('ui_') && original.get(node.group)?.type !== 'ui_group') fail(node.id + ': the ui_group must already exist on the GX.');
+        if (node.type.startsWith('ui_') && original.get(node.group)?.type !== 'ui_group') {
+            if (!OPTIONAL_UI_GROUP.has(node.type)) fail(node.id + ': the ui_group must already exist on the GX.');
+            if (node.group !== undefined && node.group !== '') {
+                fail(node.id + ': ui_group ' + node.group + ' does not exist on the GX.');
+            }
+        }
         if (node.g) {
             const group = source.get(node.g);
             const liveGroup = original.get(node.g);
