@@ -187,6 +187,7 @@ node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
 - `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
 - `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
 - `--allow-new-nodes`: include reviewed additions in the plan. Take the snapshot with `node - --topology` first; keep that snapshot private. With the PowerShell runner, `-AllowNewNodes` handles both steps.
+- `--allow-new-wires id-one,id-two`: list reviewed source nodes for append-only connections to existing or approved new nodes on the same tab. For a listed source, every new connection must follow the existing connections on its output, even when it points to a new node. In a manual workflow run use `allow_new_wires` (`-AllowNewWires` in PowerShell); automatic runs ignore it. Review each added connection in the dry-run log before applying the same commit.
 
 The plan is a small JSON file: commit, expected live revision, file hashes, `{ node id: [fields] }`, added node IDs, wiring patch IDs and tool hashes. Read it.
 
@@ -312,8 +313,9 @@ For PowerShell use `-AllowRemovedNodes 'id-one,id-two'`. With the low-level runn
 
 Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a manual workflow run. Start with a dry run of the same commit, review every `node to add` entry (ID, type, name, URL, wires) and every `wire patch`, then repeat with apply and the same opt-ins. The new-node opt-in does not bypass the separate GX-only code-lines check.
 
-- New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. Existing wiring may only gain connections to the new nodes, including a new function output if needed; other settings and existing code must still pass the normal checks.
+- New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. By default, existing wiring may only gain connections to the new nodes, including a new function output if needed; `allow_new_wires` explicitly permits append-only additions to existing nodes from listed sources. Other settings and existing code must still pass the normal checks.
 - Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
+- `ui_ui_control`, `ui_toast` and `ui_audio` may be added without a `ui_group`; if they specify one, it must already exist on the GX.
 - When adding to an existing editor layout group, the deploy orders repository members as in the target while keeping live-only memberships. It does not move existing nodes into the group.
 - HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Additions do not authorize any removals.
 - Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.

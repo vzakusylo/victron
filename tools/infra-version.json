@@ -1,5 +1,5 @@
 {
-  "i": 33,
+  "i": 34,
   "changes": [
     {
       "i": 1,
@@ -198,6 +198,12 @@
       "date": "2026-11-23",
       "pr": 163,
       "what": "D-R5 group order on additions"
+    },
+    {
+      "i": 34,
+      "date": "2026-11-23",
+      "pr": 164,
+      "what": "Deploy: group-less dashboard nodes and reviewed new wires"
     }
   ]
 }

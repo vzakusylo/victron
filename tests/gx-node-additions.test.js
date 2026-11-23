@@ -184,6 +184,57 @@ function fixture() {
     return { live, repo, node };
 }
 
+test('reviewed wire sources can append connections and trailing outputs to existing nodes without additions', () => {
+    const tab = { id: 'tab', type: 'tab' };
+    const existing = ['a', 'b', 'c'].map(id => ({ id, type: 'debug', z: 'tab' }));
+    const sender = { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [['a', 'b'], []] };
+    const live = [tab, ...existing, sender];
+    const target = (wires, outputs = wires.length) => [tab, ...existing, { ...sender, wires, outputs }];
+    const wires = [['a', 'b', 'c'], [], ['c']];
+    assert.deepEqual(additionPlan(live, target(wires), false, ['sender']).wire, ['sender']);
+    assert.deepEqual(additionPlan(live, target(wires), false).wire, []);
+    for (const invalid of [[['a', 'c'], [], ['c']], [['b', 'a', 'c'], [], ['c']], [['a', 'b', 'c']]]) {
+        assert.throws(() => additionPlan(live, target(invalid), false, ['sender']), /append-only/);
+    }
+    assert.throws(() => additionPlan(live, target([['a', 'b', 'missing'], []]), false, ['sender']), /invalid wire target missing/);
+});
+
+test('adding a node does not implicitly opt its sources into new wires to existing nodes', () => {
+    const { live, repo, node } = fixture();
+    const sender = repo.find(node => node.id === 'existing');
+    live.push(node('other-target', 'file'));
+    repo.push(node('other-target', 'file'));
+    sender.wires[0].push('other-target');
+    assert.throws(() => additionPlan(live, repo, true), /list existing in allow_new_wires after reviewing the compare/);
+    assert.deepEqual(additionPlan(live, repo, true, ['existing']).newConnections, [
+        { id: 'existing', output: 0, dest: 'handler', name: '', added: true },
+        { id: 'existing', output: 0, dest: 'other-target', name: '', added: false }
+    ]);
+});
+
+test('dashboard-wide nodes can be added without a group, but still need an existing tab', () => {
+    const live = [{ id: 'tab', type: 'tab' }];
+    const additions = [
+        { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '' },
+        { id: 'toast', type: 'ui_toast', z: 'tab' },
+        { id: 'audio', type: 'ui_audio', z: 'tab' }
+    ];
+    assert.deepEqual(additionPlan(live, [...live, ...additions], true), {
+        add: ['viewers', 'toast', 'audio'], wire: []
+    });
+    assert.throws(() => additionPlan(live, [...live, { ...additions[0], z: 'missing' }], true), /tab must already exist/);
+});
+
+test('dashboard additions still validate explicit and required groups', () => {
+    const live = [{ id: 'tab', type: 'tab' }, { id: 'dashboard-group', type: 'ui_group' }];
+    const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: 'missing' };
+    assert.throws(() => additionPlan(live, [...live, viewers], true), {
+        message: 'viewers: ui_group missing does not exist on the GX.'
+    });
+    assert.deepEqual(additionPlan(live, [...live, { ...viewers, group: 'dashboard-group' }], true).add, ['viewers']);
+    assert.throws(() => additionPlan(live, [...live, { ...viewers, type: 'ui_text', group: '' }], true), /ui_group must already exist/);
+});
+
 test('new endpoints are opt-in and add the existing node’s connection in the same plan', () => {
     const { live, repo } = fixture();
     assert.throws(() => additionPlan(live, repo, false), /require --allow-new-nodes/);

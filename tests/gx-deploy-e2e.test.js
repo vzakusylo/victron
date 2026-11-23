@@ -69,7 +69,7 @@ let available = true;
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', 'HEAD^{commit}'], { stdio: 'ignore' }); execFileSync('curl', ['--version'], { stdio: 'ignore' }); }
 catch { available = false; }
 
-test('a removal plan rechecks the verified baseline on the GX before applying and cleans up wires',
+test('a combined plan rechecks verified removals and applies reviewed wires and a group-less widget',
     { skip: !available && 'needs git and curl', timeout: 60000 }, async t => {
         const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-removal-test-'));
         t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
@@ -89,9 +89,12 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
             { id: 'layout', type: 'group', z: 'tab', name: 'Control', style: { label: true },
                 nodes: ['battery', 'keep'], x: 10, y: 20, w: 200, h: 80 },
             { id: 'battery', type: 'victron-input-battery', z: 'tab', g: 'layout', wires: [['keep']] },
-            { id: 'keep', type: 'delay', z: 'tab', g: 'layout', wires: [[]] }];
+            { id: 'keep', type: 'delay', name: 'Keep', z: 'tab', g: 'layout', wires: [[]] },
+            { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [[], []] }];
+        const sender = { ...old[8], outputs: 3, wires: [['keep'], [], ['keep']] };
+        const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '', wires: [['keep']] };
         const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, old[3], old[4],
-            { ...old[5], nodes: ['keep'] }, old[7]];
+            { ...old[5], nodes: ['keep'] }, old[7], sender, viewers];
         const commit = (flows, label) => {
             fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
             git('add', '--all');
@@ -128,8 +131,11 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
         assert.equal(snap.code, 0, snap.stderr);
         const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
         fs.writeFileSync(input, snap.stdout);
-        const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan, '--allow-removed-nodes', 'gone,battery'], env, cwd);
+        const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan,
+            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender'], env, cwd);
         assert.equal(result.code, 0, result.stderr);
+        assert.match(result.stdout, /^added connection: sender\[0\] -> keep \("Keep", existing\)$/m);
+        assert.match(result.stdout, /^added connection: sender\[2\] -> keep \("Keep", existing\)$/m);
         const report = require('../tools/gx/deploy-report.js');
         const removals = report.plannedRemovals(cwd, target, cwd);
         assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }, { id: 'battery', type: 'victron-input-battery', name: '' }]);
@@ -147,9 +153,11 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
         const applied = await deploy('0');
         assert.equal(applied.code, 0, applied.stderr);
         assert.equal(live.rev, 'r2');
-        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep']);
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'viewers']);
         assert.deepEqual(live.flows[1].wires, [[]]);
         assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
+        assert.deepEqual(live.flows.find(node => node.id === 'sender'), sender);
+        assert.deepEqual(live.flows.find(node => node.id === 'viewers'), viewers);
     });
 
 test('verified dry-run code replacement plans against a fake GX only when it matches the recorded Git deployment',

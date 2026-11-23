@@ -156,6 +156,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#164 D-R5 Group-less dashboard nodes in deploy additions and reviewed new wires (`deploy-groupless-ui`, d#225 unchanged · i#34): allow group-less Dashboard-wide nodes and opt-in append-only wiring; the Git-only replay still stops at `hp-tuya-pump-01` because output 1 replaces `hp-topic-hp-01` with `hp-status-topic-hp-01`.
+
 #163 D-R5 Preserve repository group order on additions (`deploy-group-additions`, d#225 unchanged · i#33): order affected layout group members as in Git while preserving live-only memberships; removal behavior is unchanged.
 
 #162 G6 (`grid-g6-bookkeeping`, d#225 · i#32 unchanged): split grid input handling, D-Bus read-back, output publication and legacy bookkeeping handoff into node-local helpers without changing grid behavior.
