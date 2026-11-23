@@ -257,7 +257,8 @@ function main() {
             repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev,
             flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
-            patch: buildPatch(diff, args.includes('--include-trailing')), ...nodes, tools,
+            patch: buildPatch(diff, args.includes('--include-trailing')), add: nodes.add, wire: nodes.wire,
+            ...(nodes.groups ? { groups: nodes.groups } : {}), tools,
             ...(replacedFrom ? { replacedFrom } : {}),
             ...(removalBase ? { remove: removals.remove, removalBase } : {})
         };

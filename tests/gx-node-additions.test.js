@@ -228,6 +228,35 @@ test('removals and rewiring old destinations stop even when additions are enable
     assert.throws(() => additionPlan(live, repo, true), /may only add connections/);
 });
 
+test('adding to an existing group uses repository order rather than appending', () => {
+    const tab = { id: 'tab', type: 'tab' };
+    const member = id => ({ id, type: 'delay', z: 'tab', g: 'layout' });
+    const group = { id: 'layout', type: 'group', z: 'tab', nodes: ['a', 'b'] };
+    const live = [tab, group, member('a'), member('b')];
+    const repo = [tab, { ...group, nodes: ['a', 'new', 'b'] }, member('a'), member('b'), member('new')];
+    assert.deepEqual(additionPlan(live, repo, true).groupMembers?.get('layout'), ['a', 'new', 'b']);
+});
+
+test('adding to a drifted group keeps live-only memberships and does not move existing nodes into it', () => {
+    const tab = { id: 'tab', type: 'tab' };
+    const member = (id, g = 'layout') => ({ id, type: 'delay', z: 'tab', g });
+    const group = { id: 'layout', type: 'group', z: 'tab', nodes: ['b', 'local-1', 'a', 'local-2'] };
+    const live = [tab, group, member('a'), member('b'), member('local-1'), member('local-2'), member('outside', '')];
+    const repo = [tab, { ...group, nodes: ['a', 'new', 'outside', 'b'] },
+        member('a'), member('b'), member('local-1', ''), member('local-2', ''), member('outside'), member('new')];
+    const result = additionPlan(live, repo, true);
+    assert.deepEqual(result.groups, ['layout']);
+    assert.deepEqual(result.groupMembers?.get('layout'), ['a', 'local-1', 'new', 'local-2', 'b']);
+    assert.deepEqual(group.nodes, ['b', 'local-1', 'a', 'local-2']);
+
+    for (const duplicate of [live, repo]) {
+        const members = duplicate[1].nodes;
+        members.push('a');
+        assert.throws(() => additionPlan(live, repo, true), /duplicate layout group members alongside addition/);
+        members.pop();
+    }
+});
+
 test('layout group is allowed only with matching new members', () => {
     const { live, repo, node } = fixture();
     const group = node('layout', 'group', { nodes: ['handler'] });

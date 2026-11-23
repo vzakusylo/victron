@@ -182,12 +182,9 @@ function readPlan(file) {
             payload.flows.push(Object.assign({}, node));
             console.log('node to add     : ' + JSON.stringify(describe(node)));
         }
-        const groupMembers = new Map();
-        for (const id of nodes.groups || []) {
-            const group = liveById.get(id);
-            const members = [...group.nodes, ...nodes.add.filter((addedId) => repoById.get(addedId).g === id && !group.nodes.includes(addedId))];
-            group.nodes = members;
-            groupMembers.set(id, members);
+        const groupMembers = nodes.groupMembers || new Map();
+        for (const [id, members] of groupMembers) {
+            liveById.get(id).nodes = members;
             console.log('group patch     : ' + id);
         }
         const oldLabel = liveTab.label;
