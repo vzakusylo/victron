@@ -173,8 +173,8 @@ function removalPlan(live, target, allowed, baseline = []) {
                 if (node.type !== current.type || from.z !== to.z || ![old, recorded, next].every(Array.isArray)) {
                     fail(field + ': invalid group topology alongside removal.');
                 }
-                const [gx, commit, target] = [old, recorded, next].map(list => new Set(list));
-                if (gx.size !== old.length || commit.size !== recorded.length || target.size !== next.length) {
+                const [gx, commit, targetSet] = [old, recorded, next].map(list => new Set(list));
+                if (gx.size !== old.length || commit.size !== recorded.length || targetSet.size !== next.length) {
                     fail(field + ': duplicate group members alongside removal.');
                 }
                 const onlyGX = old.filter(id => !commit.has(id));
