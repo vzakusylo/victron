@@ -136,7 +136,7 @@
     {
       "i": 23,
       "date": "2026-11-23",
-      "pr": null,
+      "pr": 152,
       "what": "Test GX emulator: retry MQTT connect at start"
     }
   ]
