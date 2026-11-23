@@ -163,7 +163,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#150 NR6 (d#219 · i#21): removed the unwired `/Dc/0/Current` input and added a check against unwired inputs and injects. G2 already removed the duplicate 06:00 / 22:00 injects and Tag nodes; the wired cadence inject remains.
+#150 NR6 (d#219 · i#21): removed the unwired `/Dc/0/Current` input and added a check against unwired inputs and injects. G2 already removed the duplicate 06:00 / 22:00 injects and Tag nodes; the wired cadence inject remains. Test GX now verifies the synthetic SerialBattery has disappeared before clearing `BmsInstance`, avoiding a race reproduced on master where the watchdog reads a stale active service and remembers `-1`.
 
 #149 NR3 (d#218 · i#20): estimated scheduled exec starts/h (not descendant processes): BMS 120 → 0 steady-state, air history up to 30 → 0, cloud 0 → 0 disabled (30 → 4 if enabled), Devices 30 → 30, local listener ~6 → ~6, Payback 1 → 1. Up to ~187 → ~37 with cloud off, excluding event-driven jobs; the <30/h target is not met. Devices still polls for temperature history and daily mail. GX apply needs the Function imports (`fs`, `dbus-native-victron`), cloud inject change and air-history topology change together; do not code-only deploy.
 

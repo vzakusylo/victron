@@ -25,7 +25,6 @@ steps:
       bms.active: false
       bms.connected: false
       bms.present: false
-      bms.instance: -1
     expect:
       writes: []
       bms:
@@ -33,7 +32,22 @@ steps:
           equals: waiting
         - path: statusText
           contains: No SerialBattery service
+  # The active service is published on the emulator tick, but BmsInstance is
+  # set immediately. Confirm the watchdog sees the driver gone before clearing it.
   - when: 180s
+    settle: 45s
+    inputs:
+      bms.instance: -1
+    expect:
+      writes: []
+      bms:
+        - path: status
+          equals: waiting
+        - path: setting
+          equals: '-1'
+        - path: good
+          equals: '289'
+  - when: 240s
     settle: 90s
     inputs:
       bms.present: true
@@ -46,14 +60,14 @@ steps:
       bms:
         - path: lastRepairResult
           equals: written
-  - when: 280s
+  - when: 340s
     settle: 35s
     expect:
       writes: []
       bms:
         - path: status
           equals: alarm
-  - when: 330s
+  - when: 390s
     settle: 75s
     inputs:
       bms.active: true
