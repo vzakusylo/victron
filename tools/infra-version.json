@@ -1,5 +1,5 @@
 {
-  "i": 36,
+  "i": 37,
   "changes": [
     {
       "i": 1,
@@ -216,6 +216,12 @@
       "date": "2026-11-23",
       "pr": 166,
       "what": "Deploy: reviewed wiring changes"
+    },
+    {
+      "i": 37,
+      "date": "2026-11-23",
+      "pr": null,
+      "what": "Test shared room classification and dashboard device visibility"
     }
   ]
 }

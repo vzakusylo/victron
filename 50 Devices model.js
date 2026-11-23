@@ -52,6 +52,7 @@
 // ==========================
 
 const CFG_DIR = '/data/home/nodered/grid-control-config';
+const VISIBILITY_FILE = CFG_DIR + '/devices-page-settings.json';
 const TOOLS_DIR = '/data/home/nodered/tools';
 const POLL_STALE_MS = 6 * 60 * 1000;      // mains devices are polled every 2 min
 // Smart Life DP codes shown on the cards: label, and how to show the value (after the DP scale)
@@ -71,6 +72,7 @@ const SENSOR_STALE_H = 24;
 const SMOKE_STALE_H = 48;                  // smoke detectors (ywbj) report about once a day
 const LOW_BAT_PCT = 20;
 const MIN_READ_GAP_MS = 20000;
+const VISIBILITY_SAVE_TIMEOUT_MS = 35000; // longer than the read exec's 30 s timeout
 // Qingping Air Monitor (52): reports every 60 s (retained interval command on its down topic)
 const AIR = { mac: '582D34701F19', name: 'Air monitor', product: 'Qingping Air Monitor', ip: '192.168.1.58', broker: '192.168.1.94:1883' };
 const AIR_STALE_MS = 5 * 60 * 1000;
@@ -133,13 +135,21 @@ const PYTHON = [
 function shellQuote(script) { return "'" + String(script).replace(/'/g, "'\\''") + "'"; }
 
 function readCmd() {
+    // Use the predicate already exported by the installed history reader.
+    const roomFilter = 'const room = require(process.argv[1]).isRoomSensorKey;' +
+        'const text = require("fs").readFileSync(0, "utf8");' +
+        'const ids = JSON.parse(process.argv[2]).concat(Object.keys(JSON.parse(text || "{}") || {}));' +
+        'console.log(JSON.stringify(ids.filter(id => !room(id))));';
     return shellQuote([
+        'echo "@@VISIBILITY"; if [ -e ' + VISIBILITY_FILE + ' ]; then cat ' + VISIBILITY_FILE + ' 2>/dev/null; else echo \'{"hidden":[]}\'; fi; echo',
         // mains Smart Life devices: one local read each (keys stay in tuya-devices.json, never printed)
         'node ' + TOOLS_DIR + '/tuya-local-poll.js > /dev/null 2>&1',
         // battery sensors without a local beacon: Tuya cloud, at most every 30 min (the tool throttles itself)
         'node ' + TOOLS_DIR + '/tuya-cloud-sensors.js > /dev/null 2>&1',
         'echo "@@CLOUD"; cat ' + CFG_DIR + '/tuya-devices-cloud.json 2>/dev/null; echo',
-        'echo "@@META"; cat ' + CFG_DIR + '/tuya-devices-meta.json 2>/dev/null; echo',
+        'meta=$(cat ' + CFG_DIR + '/tuya-devices-meta.json 2>/dev/null)',
+        'printf "@@META\\n%s\\n@@ROOM_EXCLUSIONS\\n" "$meta"',
+        'printf "%s" "$meta" | node -e ' + shellQuote(roomFilter) + ' ' + TOOLS_DIR + '/sensor-history.js ' + shellQuote(JSON.stringify(ORDER)),
         'echo "@@POLL"; cat ' + CFG_DIR + '/tuya-devices-last.json 2>/dev/null; echo',
         'echo "@@LAST"; cat ' + CFG_DIR + '/tuya-local-sensors-last.json 2>/dev/null; echo',
         'PY=$(command -v python3 || command -v python)',
@@ -153,18 +163,43 @@ function readCmd() {
 
 function parse(text) {
     let dbusOut = null, mode = '';
-    const txt = { LAST: '', META: '', POLL: '', CLOUD: '' };
+    const txt = { LAST: '', META: '', POLL: '', CLOUD: '', VISIBILITY: '', ROOM_EXCLUSIONS: '' };
     for (const line of String(text || '').split(/\r?\n/)) {
         if (line.startsWith('@@DBUSJSON ')) {
             try { dbusOut = JSON.parse(line.slice(11)); } catch (e) { dbusOut = { error: 'bad D-Bus output' }; }
             mode = '';
             continue;
         }
-        if (/^@@(LAST|META|POLL|CLOUD)$/.test(line)) { mode = line.slice(2); continue; }
+        if (/^@@(LAST|META|POLL|CLOUD|VISIBILITY|ROOM_EXCLUSIONS)$/.test(line)) { mode = line.slice(2); continue; }
         if (mode) txt[mode] += line;
     }
     const json = (s) => { if (!s.trim()) return {}; try { return JSON.parse(s); } catch (e) { return {}; } };
-    return { last: json(txt.LAST), meta: json(txt.META), poll: json(txt.POLL), cloud: json(txt.CLOUD).devices || {}, dbus: dbusOut || { error: 'no D-Bus output' } };
+    return { last: json(txt.LAST), meta: json(txt.META), poll: json(txt.POLL), cloud: json(txt.CLOUD).devices || {},
+        visibility: json(txt.VISIBILITY)?.hidden, roomExclusions: json(txt.ROOM_EXCLUSIONS),
+        dbus: dbusOut || { error: 'no D-Bus output' } };
+}
+
+function validHidden(list) {
+    return Array.isArray(list) && list.every(entry => entry && typeof entry.id === 'string' && entry.id &&
+        typeof entry.name === 'string');
+}
+
+function withVisibility(model) {
+    const hidden = context.get('hiddenDevices');
+    return { ...model, hiddenDevices: hidden || [], visibilityReady: !!hidden && !context.get('visibilityReloadAfter'),
+        visibilityBusy: !!context.get('visibilityPending'), visibilityError: context.get('visibilityError') || '' };
+}
+
+function visibilityOnly(model) {
+    const { temperatureSensors, ...dashboard } = withVisibility(model);
+    return { topic: 'model', payload: dashboard };
+}
+
+function saveVisibility(hidden) {
+    const data = shellQuote(JSON.stringify({ hidden }));
+    return shellQuote('umask 077; tmp=$(mktemp ' + VISIBILITY_FILE + '.XXXXXX) || { echo failed; exit 0; }; ' +
+        'if printf \'%s\\n\' ' + data + ' > "$tmp" && mv -f "$tmp" ' + VISIBILITY_FILE +
+        '; then echo saved; else rm -f "$tmp"; echo failed; fi');
 }
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -361,8 +396,55 @@ function victronDevices(db) {
 }
 
 const now = Date.now();
+const pending = context.get('visibilityPending');
+if (msg.topic === 'visibilitySaved') {
+    if (!pending || msg.visibilityToken !== pending.token) return null;
+    context.set('visibilityPending', null);
+    if (String(msg.payload).trim() === 'saved') {
+        context.set('hiddenDevices', pending.hidden);
+        context.set('visibilityError', '');
+    } else {
+        context.set('visibilityError', 'Could not save device visibility.');
+        node.warn('Devices: could not save visibility settings');
+    }
+    return [visibilityOnly(context.get('model')), null];
+}
+if (pending && now >= pending.deadline) {
+    context.set('visibilityPending', null);
+    context.set('visibilityReloadAfter', now);
+    context.set('lastRead', now);
+    context.set('visibilityError', 'Save was not acknowledged. Reloading device visibility.');
+    node.warn('Devices: visibility save was not acknowledged');
+    return [visibilityOnly(context.get('model')), { topic: 'read', readAt: now, payload: readCmd() }];
+}
+if (msg.topic === 'ui' && ['hide', 'restore'].includes(msg.payload?.action)) {
+    const model = context.get('model'), hidden = context.get('hiddenDevices');
+    if (!model || !hidden || pending || context.get('visibilityReloadAfter')) return null;
+    const id = msg.payload.id;
+    const hide = msg.payload.action === 'hide';
+    const card = hide && model.devices.find(d => d.id === id);
+    const alreadyHidden = hidden.some(d => d.id === id);
+    if (hide ? !card || alreadyHidden : !alreadyHidden) return null;
+    const next = hide ? [...hidden, { id, name: card.name }] : hidden.filter(d => d.id !== id);
+    const token = (context.get('visibilityToken') || 0) + 1;
+    context.set('visibilityToken', token);
+    context.set('visibilityPending', { hidden: next, token, deadline: now + VISIBILITY_SAVE_TIMEOUT_MS });
+    context.set('visibilityError', '');
+    return [visibilityOnly(model), { topic: 'visibilitySaved', visibilityToken: token, payload: saveVisibility(next) }];
+}
 if (msg.topic === 'read') {
     const p = parse(msg.payload);
+    const reloadAfter = context.get('visibilityReloadAfter');
+    if (!context.get('hiddenDevices') || (reloadAfter && msg.readAt >= reloadAfter)) {
+        if (validHidden(p.visibility)) {
+            context.set('hiddenDevices', p.visibility.filter((entry, i, all) => all.findIndex(d => d.id === entry.id) === i));
+            context.set('visibilityReloadAfter', null);
+            context.set('visibilityError', '');
+        } else {
+            if (!context.get('visibilityError')) node.warn('Devices: could not load visibility settings');
+            context.set('visibilityError', 'Could not load device visibility settings.');
+        }
+    }
     const smart = smartLifeDevices(now, p.meta, p.poll, p.last, p.cloud);
     const devices = tuyaDevices(now, p.last).concat(smart, airDevices(now), victronDevices(p.dbus));
     // battery sensors for the low-battery / offline mails of "Heat pump alerts" (47)
@@ -379,10 +461,12 @@ if (msg.topic === 'read') {
     };
     // d#201: this list is only for room temperature sensors (Tuya local / Zigbee / cloud, air monitor); the heat pump,
     // tank, plate and Victron values stay on the Heat Pump page
-    const NON_ROOM_IDS = ['hp', 'acc', 'plate'];   // the same ids as in tools/sensor-history.js (isRoomSensorKey)
-    model.temperatureSensors = [];
-    for (const d of devices) {
-        if (NON_ROOM_IDS.includes(d.id) || d.group === 'victron') continue;
+    const roomPolicyReady = Array.isArray(p.roomExclusions) && p.roomExclusions.every(id => typeof id === 'string');
+    if (roomPolicyReady) model.temperatureSensors = [];
+    else if (!context.get('roomPolicyMissing')) node.warn('Devices: room sensor policy unavailable; leaving history catalog unchanged');
+    context.set('roomPolicyMissing', !roomPolicyReady);
+    for (const d of roomPolicyReady ? devices : []) {
+        if (p.roomExclusions.includes(d.id) || d.group === 'victron') continue;
         const temperatures = (d.values || []).filter((v) => /^-?\d+(?:\.\d+)?\s*°C$/.test(String(v.v)));
         const meta = p.meta[d.id];
         const known = meta && Object.values(meta.dps || {}).some((v) => ['temp_current', 'va_temperature', 'temp_value'].includes(v.code));
@@ -404,12 +488,12 @@ if (msg.topic === 'read') {
     }
     context.set('model', model);
     node.status({ fill: model.online === model.total ? 'green' : 'yellow', shape: 'dot', text: model.online + ' / ' + model.total + ' online' });
-    return [{ topic: 'model', payload: model }, null];
+    return [{ topic: 'model', payload: withVisibility(model) }, null];
 }
 
 // 'ui' / 'tick': show the cached model at once, then read again (not more often than MIN_READ_GAP_MS)
 const cached = context.get('model');
 const lastRead = context.get('lastRead') || 0;
-if (now - lastRead < MIN_READ_GAP_MS) return [cached ? { topic: 'model', payload: cached } : null, null];
+if (now - lastRead < MIN_READ_GAP_MS) return [cached ? visibilityOnly(cached) : null, null];
 context.set('lastRead', now);
-return [msg.topic === 'ui' && cached ? { topic: 'model', payload: cached } : null, { topic: 'read', payload: readCmd() }];
+return [msg.topic === 'ui' && cached ? visibilityOnly(cached) : null, { topic: 'read', readAt: now, payload: readCmd() }];

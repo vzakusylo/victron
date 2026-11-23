@@ -49,14 +49,26 @@
     <span class="small" ng-if="m.updated">updated {{m.updated | date:'HH:mm:ss'}}</span>
   </div>
   <div class="dv-note" ng-if="m.dbusError">D-Bus: {{m.dbusError}}</div>
+  <div class="dv-note" ng-if="m.visibilityError" role="status">{{m.visibilityError}}</div>
+
+  <div ng-if="m.hiddenDevices.length">
+    <h3>Hidden devices</h3>
+    <div ng-repeat="d in m.hiddenDevices track by d.id">
+      <button type="button" ng-click="dvSend('restore', d.id)" ng-disabled="!m.visibilityReady || m.visibilityBusy"
+              ng-attr-aria-label="Restore {{d.name}}" title="Restore device">+</button>
+      {{d.name}}
+    </div>
+  </div>
 
   <div ng-repeat="g in groups">
     <h3>{{g.title}}</h3>
     <div class="dv-grid">
-      <div class="dv-card" ng-repeat="d in (m.devices || []) | filter:{group: g.id} track by d.id" ng-class="d.online ? 'on' : 'off'">
+      <div class="dv-card" ng-repeat="d in (m.devices || []) | filter:{group: g.id} | filter:dvVisible track by d.id" ng-class="d.online ? 'on' : 'off'">
         <div class="dv-head">
           <span class="dv-name">{{d.name}}</span>
           <span class="dv-state" ng-class="d.online ? 'on' : 'off'">{{d.online ? 'online' : 'offline'}}</span>
+          <button type="button" ng-click="dvSend('hide', d.id)" ng-disabled="!m.visibilityReady || m.visibilityBusy"
+                  ng-attr-aria-label="Hide {{d.name}}" title="Hide device">×</button>
         </div>
         <div class="dv-meta">{{d.link}}<span ng-if="d.ip"> · {{d.ip}}</span><span ng-if="d.ver"> · v{{d.ver}}</span><span ng-if="d.instance !== undefined && d.instance !== null"> · instance {{d.instance}}</span></div>
         <div class="dv-meta" ng-if="d.product && d.product !== d.name">{{d.product}}<span ng-if="d.firmware"> · fw {{d.firmware}}</span></div>
@@ -88,7 +100,10 @@
         if (s < 172800) return Math.round(s / 3600) + ' h ago';
         return Math.round(s / 86400) + ' days ago';
     };
-    scope.dvSend = function(action) { scope.send({ topic: 'ui', payload: { action: action } }); };
+    scope.dvVisible = function(d) {
+        return !(scope.m.hiddenDevices || []).some(function(hidden) { return hidden.id === d.id; });
+    };
+    scope.dvSend = function(action, id) { scope.send({ topic: 'ui', payload: { action: action, id: id } }); };
     scope.dvInit = function() { scope.dvSend('open'); };
     scope.$watch('msg', function(msg) {
         if (msg && msg.topic === 'model' && msg.payload) scope.m = msg.payload;

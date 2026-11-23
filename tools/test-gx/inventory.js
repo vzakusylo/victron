@@ -84,9 +84,30 @@ const toolsUsed = (t) => [...t.matchAll(/\/([\w-]+)\.js\b/g)].map((m) => m[1]);
 // An exec node's real command is often built by the function node wired into it. Only the string literals of that function are scanned
 // (the shell command is a string), not its JS code: a `.find(` call must not make a network command look local.
 const STRING_LITERAL = /'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g;
+// Classify only the reviewed, offline history predicate call; leave any other inline Node command unclassified.
+const ROOM_FILTER_LITERALS = [
+  `'const room = require(process.argv[1]).isRoomSensorKey;'`,
+  `'const text = require("fs").readFileSync(0, "utf8");'`,
+  `'const ids = JSON.parse(process.argv[2]).concat(Object.keys(JSON.parse(text || "{}") || {}));'`,
+  `'console.log(JSON.stringify(ids.filter(id => !room(id))));'`,
+  String.raw`'printf "%s" "$meta" | node -e '`,
+  `'/sensor-history.js '`,
+];
 function execText(n) {
   const feeders = flows.filter((f) => (f.wires || []).some((w) => w.includes(n.id)));
-  const literals = feeders.flatMap((f) => withoutComments(f.func || '').match(STRING_LITERAL) || []);
+  const literals = feeders.flatMap((f) => {
+    const source = withoutComments(f.func || '');
+    const values = source.match(STRING_LITERAL) || [];
+    if (f.id !== 'dv-fn-01' || n.id !== 'dv-exec-01') return values;
+    const [predicate, input, ids, output, command, tool] = ROOM_FILTER_LITERALS;
+    const definition = `const roomFilter = ${predicate} +\n        ${input} +\n        ${ids} +\n        ${output};`;
+    const invocation = `${command} + shellQuote(roomFilter) + ' ' + TOOLS_DIR + ${tool} + shellQuote(JSON.stringify(ORDER)),`;
+    if (!source.includes(definition) || !source.includes(invocation)) return values;
+    // Replace just one occurrence; another inline invocation must still be flagged.
+    const index = values.indexOf(command);
+    if (index >= 0) values[index] = 'room history predicate';
+    return values;
+  });
   return [n.command || '', ...literals].join('\n');
 }
 
