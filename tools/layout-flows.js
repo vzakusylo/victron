@@ -22,7 +22,7 @@ const GROUPS = [
       members: ids(`9217554766842bb8 7ec26167c492e338 8db34d06b6591d5e 3e6dccae307e4561 66951950bfa6d862 b85e512d33d6a7cc 70b033ccd4654b3e
         902ee92400d4d4af 07c74490cafdc55a 1d4e50f4d614e8a5 0ee582b64b26e2e7 fd95dc1c428330fb b2064b2168543e59 e84b0d054ca0f956 efb076ae80adc1c5
         e4766632305fb432 5545bd538ffe3183 1b39f33beca11607 75f48e33343da04e 87b4ad2bc3ec6903 751d13b6d943e5e5 704426f76aa6aa4c c1803b5fed00bfc2
-        11e303e775ec959c ec0378c28791feff 4ae3639bc75d0d14 233d4e08d8a8fe38 f46ecea6668505f3 dc7f2a1c3e8b09c4 dc3b8e51a09c72d4 dc9d4c2e7a1b83f6
+        11e303e775ec959c ec0378c28791feff 4ae3639bc75d0d14 233d4e08d8a8fe38 dc7f2a1c3e8b09c4 dc3b8e51a09c72d4 dc9d4c2e7a1b83f6
         pv-charger-input-01 pv-charger-tag-01 4c8d2e6b19f7a530 7a3e91c45d2b8f06`) },
     { col: 0, id: 'lay-g-hourly', name: 'Energy pages: hourly log, daily summary, Energy / Energy Detail widgets', color: '#62a8d8',
       members: ids(`69795160ade5462a 3e942ddd06fba83c 6b9848413d671fe5 137dd306ca7275e6 c45dc5b7ad338001 66c0ba36be6d13e1 e290ee7bdb1e8b5f

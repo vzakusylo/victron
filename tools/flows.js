@@ -22,6 +22,14 @@ const { expand, includesOf } = require('./includes');
 const ROOT = path.resolve(__dirname, '..');
 const FLOWS = path.join(ROOT, 'flows.json');
 const SOURCE_RE = /^(\d\d) (.+?)(\.init\.js|\.js|\.html)$/;
+// Disabled inputs count too: enabling them would still leave them unwired.
+const INPUT_TYPE = /^(?:inject|.+ in|victron-input-.+)$/;
+const UNWIRED_INPUTS = new Map([
+    ['2f42837904c91d73', {
+        type: 'link in',
+        reason: 'Retain the unused branch of the exported Solar forecast subflow; NR6 does not change that subflow.'
+    }]
+]);
 
 function normalize(text) {
     return String(text).replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
@@ -162,6 +170,11 @@ function cmdCheck() {
     const sourced = new Set(listSources().filter((s) => s.type === 'function').map((s) => s.name));
     for (const n of flows) {
         if (n.z && !ids.has(n.z)) problems.push((n.name || n.id) + ': unknown tab / subflow ' + n.z);
+        const exception = UNWIRED_INPUTS.get(n.id);
+        if (INPUT_TYPE.test(n.type) && !n.wires?.some(out => out.length > 0) &&
+            !(exception?.type === n.type && exception.reason.trim())) {
+            problems.push(`${n.id} (${n.type}${n.name ? ': ' + n.name : ''}): unwired input; connect it, remove it, or document an exception.`);
+        }
         (n.wires || []).forEach((out) => out.forEach((id) => {
             if (!ids.has(id)) problems.push((n.name || n.id) + ': wire to missing node ' + id);
         }));
