@@ -27,6 +27,7 @@ def connect_mqtt(client, host, port, keepalive, deadline_s=60, *,
         remaining = deadline - clock()
         if remaining <= delay:
             print(failure, flush=True)
+            # Honor the configured deadline even when no further backoff fits.
             if remaining > 0:
                 sleep(remaining)
             break
