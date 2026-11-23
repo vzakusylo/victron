@@ -52,6 +52,7 @@
 
 const now = new Date();
 const nowTs = now.getTime();
+// The input stage may return early; otherwise it binds C, the stored readings, and manual-discharge state.
 // #include lib/grid/inputs.js
 
 // The VE.Bus limit is reasserted at each real hour boundary, independent of accounting.
