@@ -102,7 +102,8 @@ const CLOUD_STALE_MS = 24 * 3600 * 1000;
 
 // ---------------------------------------------------------------------------
 const now = Date.now();
-const role = msg.topic;
+const statusOnly = typeof msg.topic === 'string' && msg.topic.endsWith('-status');
+const role = statusOnly ? msg.topic.slice(0, -7) : msg.topic;
 if (!ROLES.includes(role)) {
     node.warn('Heat pump state: unknown msg.topic ' + role);
     return null;
@@ -116,7 +117,7 @@ const p = msg.payload || {};
 if (typeof p.state === 'string' && !p.data) {
     dev.state = p.state;
     dev.lastState = now;
-} else if (p.data && typeof p.data === 'object') {
+} else if (!statusOnly && p.data && typeof p.data === 'object') {
     const dps = p.data.dps || {};
     // reading time only for the battery sensors (46 / 44, ms). The Tuya nodes also send data.t,
     // in SECONDS: using it made hp / valve / bypass look stale (d#135 bug, fixed in d#138).
@@ -143,12 +144,20 @@ if (typeof p.state === 'string' && !p.data) {
 }
 
 flow.set('heatPump', st);
-const model = buildModel(st, now);
-flow.set('heatPumpModel', model);
-
-const statusText = model.summary.supply !== null
-    ? `out ${model.summary.supply}° tank ${model.summary.tank}° ${model.summary.compressorHz} Hz`
-    : `${role}: ${dev.state}`;
-node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
-
-return [{ payload: model }, null, null];
+// Control reads the raw state above immediately; only the derived model waits.
+const pending = context.get('modelPending');
+context.set('modelPending', role);
+if (pending) return null;
+setTimeout(() => {
+    const lastRole = context.get('modelPending');
+    context.set('modelPending', false);
+    const latest = flow.get('heatPump');
+    const model = buildModel(latest, Date.now());
+    flow.set('heatPumpModel', model);
+    const statusText = model.summary.supply !== null
+        ? `out ${model.summary.supply}° tank ${model.summary.tank}° ${model.summary.compressorHz} Hz`
+        : `${lastRole}: ${latest[lastRole].state}`;
+    node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
+    node.send([{ payload: model }, null, null]);
+}, 5000);
+return null;

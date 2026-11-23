@@ -3,7 +3,7 @@
 // disturbed. The 10-min average, the pump outdoor latch, the page and the history keep the value from before.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadNode } = require('./harness');
+const { loadNode, loadHeatPumpState } = require('./harness');
 
 const S = 1000, MIN = 60 * S;
 const NOW = new Date(2026, 10, 20, 7, 0).getTime();
@@ -58,7 +58,7 @@ test('defrost + slow recovery: the outdoor average and the pump latch stay at th
 });
 
 function page(dv, dps) {
-    const node = loadNode('34 Heat pump state.js');
+    const node = loadHeatPumpState();
     if (dv) node.flow.set('dhwView', Object.assign({ at: NOW }, dv));
     return node.run({ topic: 'hp', payload: { data: { dps } } }, { now: NOW }).result[0].payload.summary;
 }

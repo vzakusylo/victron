@@ -3,15 +3,29 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const FILES = ['35 Heat pump page.html', '39 Heat pump history page.html'];
 const ATTRS = ['cx', 'cy', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'd', 'points', 'width', 'height'];
 
+test('boiler curve edits preview against the static frame after a live update', () => {
+    const html = fs.readFileSync(path.join(ROOT, FILES[0]), 'utf8');
+    const scope = { $watch() {}, $on() {} };
+    vm.runInNewContext(html.match(/<script>([\s\S]+?)<\/script>/)[1], { scope: scope });
+    scope.msg = { payload: { dhwChart: { svg: { now: null } } } };
+    scope.hp.dhw = { curve: [[0, 50], [10, 40]], frostLimit: 0 };
+    assert.strictEqual(scope.hpDhwPreviewLine(), '');
+    scope.hpStatic = { dhwChart: { svg: {
+        outMin: 0, outMax: 1, yMin: 30, yMax: 60, left: 10, right: 100, top: 10, bottom: 100
+    } } };
+    assert.strictEqual(scope.hpDhwPreviewLine(), '10.0,40.0 100.0,43.0');
+});
+
 // Paths that can never be null/undefined once the element renders (regex on the dotted path -> reason).
 const ALLOW = [
     [/^[tepr]\.(x|y|w)$/, 'ng-repeat items built with numeric coordinates by the producer (ticks, events, motion points)'],
-    [/^msg\.payload\.(curveChart|dhwChart)\.svg\.(left|right|top|bottom|line|startLine|supplyLine)$/, 'chart geometry/polyline strings are always built together with svg'],
+    [/^hpStatic\.(curveChart|dhwChart)\.svg\.(left|right|top|bottom|line|startLine|supplyLine)$/, 'static geometry is built as a unit; chart wrappers require the static part'],
     [/^msg\.payload\.(curveChart|dhwChart)\.svg\.now\.x$/, 'now.x is numeric whenever the "now" object exists (parent ng-if on now)'],
     [/^h\.day\.chart\.(left|right|t1|b2|evTop|evH)$/, 'static chart geometry set with chart'],
     [/^h\.day\.chart\.plan\.(x0|xNow)$/, 'plan x values come from clamped numeric sOf()/xs()'],

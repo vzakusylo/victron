@@ -1,12 +1,12 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadNode } = require('./harness');
+const { loadHeatPumpState } = require('./harness');
 
 const NOW = Date.parse('2026-11-22T12:00:00Z');
 
 test('heat pump state merges partial DPs and publishes the model on the first output only', () => {
-    const gx = loadNode('34 Heat pump state.js');
+    const gx = loadHeatPumpState();
     gx.run({ topic: 'hp', payload: { data: { dps: {
         1: true, 2: 'mute', 5: 'heat', 15: 1, 101: 30, 102: 35, 108: 44, 112: 4, 115: 45, 116: 0, 999: 'extra'
     } } } }, { now: NOW });
@@ -27,7 +27,7 @@ test('heat pump state merges partial DPs and publishes the model on the first ou
 });
 
 test('heat pump meter readings age out without erasing the retained meter state', () => {
-    const gx = loadNode('34 Heat pump state.js');
+    const gx = loadHeatPumpState();
     const packet = Buffer.alloc(8);
     packet.writeUInt16BE(2305, 0);
     packet.writeUIntBE(1975, 2, 3);

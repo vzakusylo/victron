@@ -1,5 +1,5 @@
 {
-  "i": 25,
+  "i": 26,
   "changes": [
     {
       "i": 1,
@@ -150,6 +150,12 @@
       "date": "2026-11-23",
       "pr": 154,
       "what": "Test the Grid control dashboard status"
+    },
+    {
+      "i": 26,
+      "date": "2026-11-23",
+      "pr": 155,
+      "what": "Coalesce heat pump model and dashboard updates"
     }
   ]
 }

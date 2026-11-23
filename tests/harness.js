@@ -80,4 +80,17 @@ function loadGrid({ captureTrace = false } = {}) {
     };
 }
 
-module.exports = { loadNode, loadGrid, readSource, ROOT };
+// Model-focused tests can complete each five-second batch at their supplied wall time.
+function loadHeatPumpState() {
+    const state = loadNode('34 Heat pump state.js');
+    return {
+        ...state,
+        run(msg, opts) {
+            const call = state.run(msg, opts);
+            call.timers[0]?.cb();
+            return { ...call, result: call.sent[0] ?? call.result };
+        }
+    };
+}
+
+module.exports = { loadNode, loadGrid, loadHeatPumpState, readSource, ROOT };
