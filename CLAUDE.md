@@ -60,7 +60,8 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
 2. **A unit test for every new or changed decision.** Pure decisions (e.g. `heatDecide`) are tested directly; behaviour
    through `tests/harness.js` with ticks. A test must fail without the change.
 3. **Branches and PRs:** every change on its own branch from a fresh `origin/master`, in its own worktree, PR into
-   `master`, `gh pr merge <N> --auto --merge`. `master` requires `check`, `tests`, `secret-files`, `review`,
+   `master`. Address all review feedback and resolve every thread before enabling auto-merge with
+   `gh pr merge <N> --auto --merge`. `master` requires `check`, `tests`, `secret-files`, `review`,
    `scenarios`. Never push to `master` directly; merge commits. **One open PR at a time:**
    rebase the branch on `origin/master` right before opening its PR (force-with-lease only for that); see the
    operating guide §2a.
@@ -97,7 +98,7 @@ progress instead of the owner relaying text:
    permission prompt for every command and nobody can answer it through the harness (21 Nov: a worker waited 6 min on
    `git fetch`). Check the first `read` after `send`: a "Do you want to run this command?" box means it was started
    without it; close and start it again with the current script.
-3. Write `.copilot-brief-<branch>.md` in that worktree (goal, context, steps, tests, delivery: PR + auto-merge).
+3. Write `.copilot-brief-<branch>.md` in that worktree (goal, context, steps, tests, delivery: PR, then auto-merge after review feedback is addressed and threads are resolved).
 4. `herdr-task.ps1 send <branch> "Read .copilot-brief-<branch>.md and do all of it."`; later `send` for corrections /
    "progress?", `read <branch>` to look without interrupting, `wait <branch>` until idle / blocked.
 5. After the PR merges: `herdr-task.ps1 close <branch>`.
@@ -105,7 +106,7 @@ progress instead of the owner relaying text:
 `copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'` in a terminal is the fallback when Herdr is not
 available; then nobody can type into it except the owner.
 
-Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, auto-merge), `test-gx-local` (Docker
+Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, review before auto-merge), `test-gx-local` (Docker
 scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP), `gx-reach` (GX reachable + NR1 baseline command).
 
 The `review` check fails when the Claude review finds a failing test or a High / Critical problem (verdict gate in

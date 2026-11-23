@@ -113,7 +113,7 @@
       "i": 19,
       "date": "2026-11-22",
       "pr": null,
-      "what": "Characterize NR3 process-free reads and exercise BMS on the fixture D-Bus"
+      "what": "Test heat pump shadow writer ownership"
     }
   ]
 }

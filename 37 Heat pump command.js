@@ -5,7 +5,7 @@
 // - `37 Heat pump command.js` and the embedded `func` for "Heat pump command"
 //   in `flows.json` must always stay synchronized.
 // Purpose:
-// - The only node that WRITES to the heat pump devices. Takes requests from the
+// - The manual write path to the heat pump devices. Takes requests from the
 //   Heat Pump page (35) and the history page (39), validates them and routes them.
 // Input (msg.topic):
 // - 'curve'   payload { p23 }  -> set DP 133 (P23, curve ambient point) of the heat pump.
@@ -44,6 +44,9 @@ const MIN_GAP_MS = 5000;
 const FRESH_MS = 5 * 60 * 1000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// #include lib/heat-pump/arbiter.js
+// #include lib/heat-pump/arbiter-shadow.js
+
 const now = Date.now();
 const p = msg.payload || {};
 const st = flow.get('heatPump') || {};
@@ -80,6 +83,7 @@ case 'curve': {
     const cur = st.hp.dps['133'];
     if (Number(cur) === v) { node.status({ fill: 'grey', shape: 'dot', text: 'P23 already ' + v }); return null; }
     if (throttled('hp')) return refuse('too fast, wait 5 s');
+    shadowCheck(shadowTag({ role: 'hp', dps: 133, set: v }, 'owner', now), 'slider', now);
     node.log('Heat pump command: P23 (DP 133) ' + cur + ' -> ' + v);
     node.status({ fill: 'blue', shape: 'dot', text: 'P23 ' + cur + ' → ' + v });
     return [{ payload: { operation: 'SET', dps: 133, set: v } }, null, null];
