@@ -1,0 +1,57 @@
+<section aria-label="Grid control">
+  <h3>Grid control</h3>
+  <p>Safe mode: {{msg.payload.safeMode || 'not implemented'}}</p>
+  <p ng-if="!msg.payload">Waiting for controller status.</p>
+  <dl>
+    <dt>Decision reason</dt>
+    <dd>{{msg.payload.decision || 'Waiting'}}: {{msg.payload.reason || 'No decision received'}}</dd>
+    <dt>Scheduled cadence</dt>
+    <dd>p95 {{msg.payload.cadenceMs == null ? 'unavailable' : (msg.payload.cadenceMs + ' ms')}},
+        event-loop lag p95 {{msg.payload.lagMs == null ? 'unavailable' : (msg.payload.lagMs + ' ms')}}</dd>
+  </dl>
+  <p>Alarms reported: write feedback {{msg.payload.feedbackAlerts == null ? '—' : msg.payload.feedbackAlerts}},
+      heartbeat {{msg.payload.heartbeatAlerts == null ? '—' : msg.payload.heartbeatAlerts}}.</p>
+  <table>
+    <thead><tr><th scope="col">Output</th><th scope="col">Target</th><th scope="col">Last queued write</th>
+      <th scope="col">Read-back</th></tr></thead>
+    <tbody>
+      <tr ng-repeat="name in ['DVCC', 'ESS', 'VE.Bus'] track by $index" ng-init="units = ['A', 'W', 'A']">
+        <th scope="row">{{name}}</th>
+        <td>{{msg.payload.targets[$index] == null ? '—' : (msg.payload.targets[$index] + ' ' + units[$index])}}</td>
+        <td ng-if="msg.payload.outputs[$index].sentAt != null">
+          {{msg.payload.outputs[$index].value}} {{units[$index]}}
+          ({{msg.payload.outputs[$index].sentAt | date:'mediumTime'}})
+        </td>
+        <td ng-if="msg.payload.outputs[$index].sentAt == null">Not sent</td>
+        <td>
+          {{msg.payload.outputs[$index].phase || 'not sent'}}
+          <strong ng-if="msg.payload.outputs[$index].read"> —
+            {{msg.payload.outputs[$index].read.state}}
+            {{msg.payload.outputs[$index].read.value == null ? '' : (msg.payload.outputs[$index].read.value + ' ' + units[$index])}}
+          </strong>
+          <span ng-if="msg.payload.outputs[$index].read.error">({{msg.payload.outputs[$index].read.error}})</span>
+          <span ng-if="msg.payload.outputs[$index].fault"> — {{msg.payload.outputs[$index].fault}}</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h4>Input ages (last update received)</h4>
+  <ul>
+    <li ng-repeat="name in ['Battery voltage', 'BMS consumed Ah', 'Grid CT', 'AC load', 'DC power', 'PV charger'] track by $index">
+      {{name}}: {{inputAge(msg.payload.arrivals[$index])}}
+    </li>
+  </ul>
+  <small ng-if="msg.payload">Last status change: {{msg.payload.reportedAt | date:'mediumTime'}}.
+    Values and alarm counts reflect the last controller report.</small>
+</section>
+<script>
+(function(scope) {
+    let now = Date.now();
+    scope.inputAge = arrival => arrival == null ? 'Not seen' : Math.max(0, Math.floor((now - arrival) / 1000)) + ' s';
+    const timer = setInterval(() => {
+        now = Date.now();
+        scope.$evalAsync();
+    }, 1000);
+    scope.$on('$destroy', () => clearInterval(timer));
+})(scope);
+</script>

@@ -6,6 +6,7 @@
 //
 // Outputs 1-3: DVCC, ESS and VE.Bus (existing Victron writers and rate gates).
 // Output 4: GX alarm; 5-7: legacy, silent; 8: bookkeeping; 9: Automation log and alert digest.
+// Output 10: read-only dashboard status.
 //
 // Inputs (msg.topic):
 //   battery-voltage, battery-consumed-ah, grid-power (signed, negative = export), ac-load-power,
@@ -64,6 +65,7 @@ const SENSOR_KEYS = new Map([
 // #include lib/grid/helpers.js
 // #include lib/grid/control.js
 // #include lib/grid/feedback.js
+// #include lib/grid/dashboard.js
 
 const feedbackChannels = [
     { name: 'DVCC', topic: 'charge-current-limit', path: '/Settings/SystemSetup/MaxChargeCurrent', gap: 10100, tolerance: 0.01 },
@@ -257,6 +259,14 @@ const alarm = notice.text ? { notification: { title: 'Grid control', type: 'alar
 const event = notice.text ? { t: nowTs, kind: 'fail', rule: 'grid_feedback', live: true, text: notice.text } : null;
 const day = getHourKey(now).slice(0, 10);
 if (msg.topic === CADENCE_TOPIC) flow.set('gridDecisionPulse', Number(gridClock.hrtime.bigint() / 1000000n));
+const oldDashboard = context.get('gridDashboard') || {};
+const dashboardOutputs = feedbackChannels.map(({ tolerance }, i) => gridDashboardOutput(
+    oldDashboard.outputs?.[i], storedFeedback[i], feedback[i], commands[i], nowTs, tolerance));
+const feedbackAlerts = (oldDashboard.feedbackAlerts ?? 0) + (event ? 1 : 0);
+const dashboard = gridDashboardStatus(oldDashboard.publisher,
+    gridDashboardSnapshot(decision, waiting, context.get('gridInputArrivals'), dashboardOutputs,
+        feedbackAlerts, flow.get('gridLoopHealth')), feedbackNow, nowTs);
+context.set('gridDashboard', { publisher: dashboard.state, outputs: dashboardOutputs, feedbackAlerts });
 return [
     ...commands,
     alarm, null, null, null,
@@ -267,5 +277,6 @@ return [
         hasDcPowerReading, storedPvChargerPowerW, solarGenerationW, accountingPower
     } },
     event ? { topic: 'log', filename: `/data/home/nodered/grid-control-logs/automations/${day}.jsonl`,
-        payload: JSON.stringify(event) + '\n', event } : null
+        payload: JSON.stringify(event) + '\n', event } : null,
+    dashboard.message
 ];

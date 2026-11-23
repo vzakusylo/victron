@@ -1,5 +1,5 @@
 {
-  "i": 24,
+  "i": 25,
   "changes": [
     {
       "i": 1,
@@ -144,6 +144,12 @@
       "date": "2026-11-23",
       "pr": 153,
       "what": "Test grid isolation, lag and heartbeat"
+    },
+    {
+      "i": 25,
+      "date": "2026-11-23",
+      "pr": null,
+      "what": "Test the Grid control dashboard status"
     }
   ]
 }
