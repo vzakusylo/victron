@@ -18,12 +18,12 @@ function redeployed({ lastDefrost = NOW - 60 * MIN } = {}) {
         dhw: { showerForce: false }, heatCurve: { p23: 38, p24: 4, at: NOW - 3600000 }, dhwLastEnd: NOW - 5 * 3600000
     }) }, { now: NOW });
     node.context.set('lastDefrost', lastDefrost);
-    function tick(t, over = {}, valve = false, bypass = false) {
+    function tick(t, over = {}, valve = false, bypass = false, modeAt = 0) {
         node.flow.set('heatPump', {
             hp: { state: 'CONNECTED', lastData: t, dps: Object.assign({
                 1: true, 2: 'mute', 15: 0, 101: 32, 102: 36, 103: -2, 104: 60, 108: 40, 112: 3, 115: 60, 116: 550,
                 125: 36, 132: '1', 133: 38, 134: 4
-            }, over) },
+            }, over), dpObservedAt: { 2: modeAt } },
             valve: { state: 'CONNECTED', lastData: t, dps: { 1: valve } },
             bypass: { state: 'CONNECTED', lastData: t, dps: { 1: bypass } }
         });
@@ -103,6 +103,46 @@ const staleOutdoorCycle = () => valveCycle();
 // water 32 + startGap 7 = 39 °C at −1 °C with P24 12: P23 = round(−1 + 19 / 1.2) = 15 (pump target 39.2 °C)
 const P23_START = 15;
 const curve = (p23, p24, x) => Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x)));
+
+function silentRetryCycle() {
+    const c = redeployed();
+    c.tick(NOW);
+    Object.assign(c.dhw(), { state: 'DHW', since: NOW, run: 'initial-dhw', live: true,
+        startAt: NOW, startTank: 30, outS: [[NOW, -2]], p23Cmd: 22, p24Cmd: 12, rampAt: NOW });
+    const logs = [];
+    function tick(min, mode = 'smart', outdoor = -2, fresh = true) {
+        const t = NOW + min * MIN;
+        const dps = { 2: mode, 102: 55, 103: outdoor, 108: 31, 134: 12 };
+        const call = c.tick(t, dps, true, false, t);
+        for (let i = 0; i < call.timers.length; i++) {
+            if (call.timers[i].ms === 1500) call.timers[i].cb();
+        }
+        // A report after the SET, not merely the cached observation used by the tick.
+        if (fresh) c.node.flow.get('heatPump').hp.dpObservedAt[2] = t + S;
+        for (const timer of call.timers) if (timer.ms === 15000) timer.cb();
+        logs.push(...call.sent.map(m => m[5]?.event?.text).filter(Boolean));
+        return call.sent.filter(m => m[1]?.payload?.dps === 2 && m[1].payload.set === 'mute').length;
+    }
+    return { c, tick, logs };
+}
+
+test('ordinary DHW Silent retries pause after three unconfirmed writes and log once', () => {
+    const { tick, logs } = silentRetryCycle();
+    assert.deepEqual([tick(1), tick(2, 'smart', -2, false), tick(3), tick(4), tick(7), tick(9), tick(10)],
+        [1, 1, 1, 0, 0, 1, 0]);
+    assert.equal(logs.filter(line => line.includes('mode Silent retry paused')).length, 1);
+});
+
+test('fresh Silent or a new DHW run resets the pause; cold protection bypasses it', () => {
+    for (const reset of ['fresh Silent', 'new run', 'cold protection']) {
+        const { c, tick } = silentRetryCycle();
+        assert.deepEqual([tick(1), tick(2), tick(3), tick(4)], [1, 1, 1, 0]);
+        if (reset === 'fresh Silent') assert.equal(tick(4.5, 'mute'), 0);
+        else if (reset === 'new run') Object.assign(c.dhw(), { since: NOW + 4 * MIN, run: 'next-dhw' });
+        else c.dhw().outS = [[NOW + 4 * MIN, -20]];
+        assert.equal(tick(5, 'smart', reset === 'cold protection' ? -20 : -2), 1, reset);
+    }
+});
 
 test('the DHW start curve uses the pump\'s live outdoor value, not a stale average', () => {
     const { c, dps } = staleOutdoorCycle();
