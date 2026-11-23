@@ -44,12 +44,13 @@ function project(page) {
         const { items, unknown } = model;
         return { live: { items, unknown, summary: { meterDps, powerSource } } };
     }
-    const { updated, curveChart, dhwChart, items, unknown, ...values } = model;
+    const { updated, devices, curveChart, dhwChart, items, unknown, ...values } = model;
     const { meterDps, ...summary } = model.summary;
     const [curveLive, curveStatic] = splitChart(curveChart);
     const [dhwLive, dhwStatic] = splitChart(dhwChart);
     return {
-        live: { ...values, summary, curveChart: curveLive, dhwChart: dhwLive },
+        live: { ...values, devices: devices.map(({ ageSeconds, ...device }) => device),
+            summary, curveChart: curveLive, dhwChart: dhwLive },
         staticPart: { curveChart: curveStatic, dhwChart: dhwStatic }
     };
 }
@@ -60,8 +61,7 @@ for (const viewer of audience) {
     const page = viewer.page;
     if (!projected[page]) {
         const { live, staticPart } = project(page);
-        // Timestamp and advancing ages describe the snapshot, not a change in readings.
-        const liveKey = JSON.stringify(live, (key, value) => key === 'ageSeconds' ? undefined : value);
+        const liveKey = JSON.stringify(live);
         projected[page] = { live, liveKey, staticPart, staticKey: JSON.stringify(staticPart) };
     }
     const { live, liveKey, staticPart, staticKey } = projected[page];

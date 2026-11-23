@@ -86,6 +86,8 @@ test('new viewers get a targeted full snapshot, then only meaningful changes', (
     gx.model.updated = new Date(NOW + 5000).toISOString();
     gx.model.devices[0].ageSeconds += 5;
     assert.equal(gx.next(), null);
+    gx.model.devices[0].stale = true;
+    assert.equal(gx.next()[0][0].payload.devices[0].stale, true);
     const [[b]] = gx.event('b', 'change', 'Heat Pump');
     assert.equal(b.socketid, 'b');
     assert.deepEqual(b.hpStatic, a.hpStatic);
