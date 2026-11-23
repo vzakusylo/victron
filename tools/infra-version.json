@@ -1,5 +1,5 @@
 {
-  "i": 31,
+  "i": 32,
   "changes": [
     {
       "i": 1,
@@ -186,6 +186,12 @@
       "date": "2026-11-23",
       "pr": 160,
       "what": "Grid DST scenarios"
+    },
+    {
+      "i": 32,
+      "date": "2026-11-23",
+      "pr": 161,
+      "what": "Deploy: allow dropping an output to a removed node"
     }
   ]
 }

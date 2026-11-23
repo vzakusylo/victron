@@ -35,7 +35,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | Item | State |
 |---|---|
-| D-R4 Dropped output with removal | In progress: `deploy-drop-output`. The d#217 to d#224 offline removal plan passes; additions stop at `hp-dashboard-viewers-01` (`ui_ui_control`, no `group` field). |
 | D-R5 Preserve repository group order on additions | Open: apply new members at their repository positions without dropping live-only members; D-R3 changes only removals. |
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
@@ -158,6 +157,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#161 D-R4 Dropped output with removal (`deploy-drop-output`, d#224 unchanged · i#32): allow dropping trailing outputs wired only to approved removals. The d#217 to d#224 offline removal plan passes; additions stop at `hp-dashboard-viewers-01` (`ui_ui_control`, no `group` field).
 
 #160 TGX5-DST (`grid-dst-scenarios`, d#224 unchanged · i#31): verified Oslo spring-forward and fall-back tariff accounting, stable night limits with no extra writes, and the midnight day/month reset. Local grid edges: three passes and the existing G2-SAFE expected failure.
 
