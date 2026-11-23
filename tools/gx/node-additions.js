@@ -5,6 +5,7 @@ const TYPES = new Set([
     'ui_button', 'ui_dropdown', 'ui_switch', 'ui_slider', 'ui_numeric', 'ui_text_input', 'ui_date_picker',
     'ui_colour_picker', 'ui_form', 'ui_text', 'ui_gauge', 'ui_chart', 'ui_template', 'ui_audio', 'ui_toast', 'ui_ui_control'
 ]);
+const removable = type => TYPES.has(type) || /^victron-input-[a-z0-9-]+$/.test(type);
 const GROUP_FIELDS = new Set(['id', 'type', 'z', 'name', 'style', 'nodes', 'x', 'y', 'w', 'h']);
 const fail = (message) => { throw new Error(message); };
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -143,8 +144,11 @@ function removalPlan(live, target, allowed, baseline = []) {
     for (const id of remove) {
         const node = original.get(id), known = previous.get(id);
         if (!known || !node.definition || node.definition !== known.definition) fail(id + ': GX node does not match the recorded commit.');
-        if (original.get(node.topology.z)?.type !== 'tab' || !TYPES.has(node.type)) {
+        if (['tab', 'group'].includes(node.type) || original.get(node.topology.z)?.type !== 'tab') {
             fail(id + ': removing tabs, groups or configuration nodes requires a manual deploy.');
+        }
+        if (!removable(node.type)) {
+            fail(id + ': node type ' + node.type + ' is not removable by the deploy tool; remove it in the Node-RED editor or extend the list.');
         }
     }
 

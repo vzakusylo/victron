@@ -1,5 +1,5 @@
 {
-  "i": 26,
+  "i": 27,
   "changes": [
     {
       "i": 1,
@@ -156,6 +156,12 @@
       "date": "2026-11-23",
       "pr": 155,
       "what": "Coalesce heat pump model and dashboard updates"
+    },
+    {
+      "i": 27,
+      "date": "2026-11-23",
+      "pr": 156,
+      "what": "Deploy: allow removing Victron input nodes"
     }
   ]
 }
