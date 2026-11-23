@@ -174,7 +174,9 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
         assert.deepEqual(live.flows.find(node => node.id === 'sender'), sender);
         assert.deepEqual(live.flows.find(node => node.id === 'pump'), { ...next.find(node => node.id === 'pump'), deviceSetting: 'live' });
-        assert.deepEqual(live.flows.find(node => node.id === 'selector'), next.find(node => node.id === 'selector'));
+        const appliedSelector = live.flows.find(node => node.id === 'selector');
+        assert.equal(Object.hasOwn(appliedSelector, 'wires'), false, 'a reviewed rewire removes the field when the target omits it');
+        assert.deepEqual(appliedSelector, next.find(node => node.id === 'selector'));
         assert.deepEqual(live.flows.find(node => node.id === 'viewers'), viewers);
     });
 
