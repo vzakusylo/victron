@@ -320,7 +320,13 @@ def ready_by_timeout():
 
 def on_settings_change(changes, path=None):
     if str(path) == BMS_INSTANCE:
-        return  # the fixture repair endpoint records the write; scenario setup is not a flow write
+        value = int(changes['Value'])
+        with lock:
+            # HTTP setup updates the model under the same lock before this callback runs.
+            if value != bms['instance']:
+                bms['instance'] = value
+                writes.append(dict(ts=time.time(), service='settings', path=BMS_INSTANCE, value=value))
+        return
     # PropertiesChanged of a settings item: the flow wrote it
     global startup_write_pending, signal_seen
     if startup_write_pending and str(path) == MAX_CHARGE:
@@ -430,14 +436,6 @@ class Api(BaseHTTPRequestHandler):
                         bms[field] = body['value']
                     else:
                         apply_set(body['path'], body['value'])
-                elif self.path == '/bms-repair':
-                    instance = body.get('instance')
-                    if type(instance) is not int:
-                        raise ValueError('BmsInstance must be an integer')
-                    set_bms_instance(instance)
-                    bms['instance'] = instance
-                    writes.append(dict(ts=time.time(), service='settings', path='/Settings/SystemSetup/BmsInstance',
-                                       value=instance))
                 elif self.path == '/stale':
                     if body['path'].startswith('tuya.'):
                         tuya.stale(body['path'][5:], body.get('seconds'))

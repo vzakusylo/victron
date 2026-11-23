@@ -7,21 +7,38 @@ const { loadNode } = require('./harness');
 const t0 = Date.UTC(2026, 10, 16, 12);
 const serial = 'com.victronenergy.battery.ttyTEST';
 
-test('a serial driver restart sends one repair notification, suppresses repeats and clears the fault on recovery', () => {
-    const watchdog = loadNode('30 BMS watchdog.js');
-    const report = (seconds, fields) => watchdog.run({
+function repairHarness(code) {
+    const writes = [];
+    const watchdog = loadNode('30 BMS watchdog.js', undefined, undefined, { dbus: { systemBus: () => ({
+        connection: { on() {}, stream: { destroy() {} } },
+        invoke(request, callback) {
+            assert.equal(request.member, 'SetValue');
+            assert.equal(request.path, '/Settings/SystemSetup/BmsInstance');
+            assert.equal(request.signature, 'v');
+            writes.push(request.body[0]);
+            callback(null, code);
+        }
+    }) } });
+    return { watchdog, writes };
+}
+
+test('a serial driver restart sends one repair notification, suppresses repeats and clears the fault on recovery', async () => {
+    const { watchdog, writes } = repairHarness(0);
+    const call = (seconds, fields) => watchdog.run({
         topic: 'bms-watchdog-exec',
         payload: Object.entries(fields).map(([field, value]) => `@@${field} ${value}`).join('\n')
-    }, { now: t0 + seconds * 1000 }).result;
+    }, { now: t0 + seconds * 1000 });
+    const report = (seconds, fields) => call(seconds, fields).result;
     const active = { ACTIVE: serial, SETTING: 289, CONNECTED: 1, BATT: serial };
     const [save] = report(0, active);
     assert.equal(save.bmsWatchdogStep, 'save-good');
     assert.deepEqual(report(30, { ACTIVE: '[]', SETTING: -1, GOOD: 289 }), [null, null]);
     const missing = { ...active, ACTIVE: '[]', SETTING: -1, GOOD: 289 };
     assert.deepEqual(report(60, missing), [null, null]);
-    const [repair, alert] = report(90, missing);
-    assert.equal(repair.bmsWatchdogStep, 'repair');
-    assert.match(repair.payload, /BmsInstance SetValue %289/);
+    const attempt = call(90, missing);
+    assert.deepEqual(await attempt.result, [null, null]);
+    assert.deepEqual(writes, [['i', 289]]);
+    const [[, alert]] = attempt.sent;
     assert.deepEqual(alert.notification, {
         title: 'BMS watchdog', type: 'warning',
         message: 'Controlling BMS was lost (-1); restored automatically to the SerialBattery.'
@@ -36,19 +53,20 @@ test('a serial driver restart sends one repair notification, suppresses repeats 
     assert.equal(state.missingCount, 0);
 });
 
-test('force restore, failed write and Passthru grace retain their operator messages', () => {
-        const watchdog = loadNode('30 BMS watchdog.js');
+test('force restore, failed write and Passthru grace retain their operator messages', async () => {
+        const { watchdog, writes } = repairHarness(1);
         const run = (seconds, msg) => watchdog.run(msg, { now: t0 + seconds * 1000 });
         const report = (seconds, payload, bmsWatchdogStep = 'read') =>
             run(seconds, { topic: 'bms-watchdog-exec', bmsWatchdogStep, payload });
         run(0, { topic: 'bms-watchdog-force' });
-        const { result } = report(1, `@@ACTIVE []\n@@BATT ${serial}\n@@CONNECTED 1\n@@SETTING -1\n@@GOOD 289`);
-        assert.equal(result[0].bmsWatchdogStep, 'repair');
-        assert.equal(result[1].notification.type, 'warning');
-        assert.deepEqual(report(2, '@@WROTE 1', 'repair').result[1].notification, {
+        const attempt = report(1, `@@ACTIVE []\n@@BATT ${serial}\n@@CONNECTED 1\n@@SETTING -1\n@@GOOD "289"`);
+        assert.deepEqual(writes, [['s', '289']]);
+        assert.equal(attempt.sent[0][1].notification.type, 'warning');
+        assert.deepEqual((await attempt.result)[1].notification, {
             title: 'BMS watchdog', type: 'alarm',
             message: 'Could not restore Controlling BMS automatically. Select it in Settings > System setup > Charge control.'
         });
+
         const passthru = `@@ACTIVE ${serial}\n@@SETTING 289\n@@GOOD 289\n@@VSTATE 8\n@@BMSLOST 1`;
         assert.deepEqual(report(30, passthru).result, [null, null]);
         assert.deepEqual(report(149, passthru).result, [null, null]);
@@ -57,6 +75,20 @@ test('force restore, failed write and Passthru grace retain their operator messa
             message: 'BMS active, but MultiPlus still in Passthru with "BMS connection lost" - restart the VE.Bus system'
         });
         assert.deepEqual(report(180, passthru).result, [null, null]);
+});
+
+test('quoted legacy settings compare equal to the current string and do not trigger a repair', () => {
+    const { watchdog, writes } = repairHarness(0);
+    for (const setting of [serial, '289']) {
+        watchdog.flow.set('bmsWatchdogState', { forceRepair: true });
+        const call = watchdog.run({
+            topic: 'bms-watchdog-exec',
+            payload: `@@ACTIVE []\n@@BATT ${serial}\n@@CONNECTED 1\n@@SETTING "${setting}"\n@@GOOD '${setting}'`
+        }, { now: t0 });
+        assert.deepEqual(call.result, [null, null]);
+        assert.match(call.status.text, /already correct/);
+    }
+    assert.deepEqual(writes, []);
 });
 
 test('scheduled watchdog checks use D-Bus and disk with no exec, even when a critical read fails', async () => {
