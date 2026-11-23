@@ -154,7 +154,7 @@
     {
       "i": 26,
       "date": "2026-11-23",
-      "pr": null,
+      "pr": 155,
       "what": "Coalesce heat pump model and dashboard updates"
     }
   ]
