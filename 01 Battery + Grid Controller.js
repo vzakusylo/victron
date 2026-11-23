@@ -40,147 +40,20 @@
 // - Settings are read live from flow context: `highVoltageSettings` (Protection page) and
 //   `controllerConstantsOverrides` (Constants page, every key of CONSTANT_SPECS).
 
-// ==========================
-// TOPICS
-// ==========================
-const BATTERY_TOPIC = "battery-voltage";
-const BATTERY_CONSUMED_AH_TOPIC = "battery-consumed-ah";
-const GRID_TOPIC = "grid-power";
-const AC_LOAD_TOPIC = "ac-load-power";
-const MANUAL_DISCHARGE_TOPIC = "manual-discharge";
-const MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC = "manual-discharge-stop-voltage";
-const DC_POWER_TOPIC = "dc-power";
-const PV_CHARGER_TOPIC = "pv-charger-power";
-const CADENCE_TOPIC = "grid-control-tick";
-const SENSOR_KEYS = new Map([
-    [BATTERY_TOPIC, "batteryVoltage"],
-    [BATTERY_CONSUMED_AH_TOPIC, "batteryConsumedAh"],
-    [GRID_TOPIC, "gridPowerW"],
-    [AC_LOAD_TOPIC, "acLoadPowerW"],
-    [DC_POWER_TOPIC, "dcPowerW"],
-    [PV_CHARGER_TOPIC, "pvChargerPowerW"]
-]);
-
 // #include lib/grid/constants.js
 // #include lib/grid/helpers.js
 // #include lib/grid/control.js
 // #include lib/grid/feedback.js
 // #include lib/grid/dashboard.js
 
-const feedbackChannels = [
-    { name: 'DVCC', topic: 'charge-current-limit', path: '/Settings/SystemSetup/MaxChargeCurrent', gap: 10100, tolerance: 0.01 },
-    { name: 'ESS', topic: 'grid-setpoint', path: '/Settings/CGwacs/AcPowerSetPoint', gap: 10100, tolerance: 0 },
-    { name: 'VE.Bus', topic: 'ac-input-current-limit', path: '/Ac/In/1/CurrentLimit', gap: 0, tolerance: 0.01 }
-];
-
-async function readGridOutput(channel) {
-    const address = env.get('DBUS_SYSTEM_BUS_ADDRESS');
-    const bus = address?.startsWith('tcp:')
-        ? dbus.createClient({ busAddress: address, authMethods: ['ANONYMOUS'] }) : dbus.systemBus();
-    const connection = bus.connection;
-    let timer;
-    const disconnected = new Promise((_, reject) => {
-        connection.on('error', reject);
-        connection.on('end', () => reject(new Error('D-Bus disconnected')));
-        timer = setTimeout(() => reject(new Error('D-Bus read-back timed out')), 3000);
-    });
-    const read = (destination, path) => new Promise((resolve, reject) => {
-        bus.invoke({ destination, path, interface: 'com.victronenergy.BusItem', member: 'GetValue' },
-            (error, value) => error ? reject(new Error(String(error))) : resolve(value?.[1]?.[0]));
-    });
-    try {
-        const value = await Promise.race([disconnected, (async () => {
-            if (channel.name !== 'VE.Bus') return read('com.victronenergy.settings', channel.path);
-            // Match the exact instance configured on the existing VE.Bus writer.
-            const names = await new Promise((resolve, reject) => bus.listNames((error, result) =>
-                error ? reject(new Error(String(error))) : resolve(result)));
-            const matches = await Promise.allSettled(names.filter(name => name.startsWith('com.victronenergy.vebus.'))
-                .map(async name => await read(name, '/DeviceInstance') === 276 ? name : undefined));
-            const destinations = matches.filter(m => m.status === 'fulfilled' && m.value);
-            if (destinations.length !== 1) throw new Error('VE.Bus instance 276 unavailable or ambiguous');
-            return read(destinations[0].value, channel.path);
-        })()]);
-        if (!Number.isFinite(value)) throw new Error('D-Bus returned no numeric value');
-        return { value };
-    } finally {
-        clearTimeout(timer);
-        connection.stream.end();
-    }
-}
+// #include lib/grid/readback.js
+// #include lib/grid/output-stage.js
+// #include lib/grid/bookkeeping-handoff.js
 
 const now = new Date();
 const nowTs = now.getTime();
-const sensorKey = SENSOR_KEYS.get(msg.topic);
-if (sensorKey) {
-    const raw = msg.payload;
-    if ((typeof raw !== "number" && (typeof raw !== "string" || !raw.trim())) || !Number.isFinite(Number(raw))) return null;
-    const value = Number(raw);
-    context.set(sensorKey, msg.topic === BATTERY_CONSUMED_AH_TOPIC ? Math.abs(value)
-        : msg.topic === AC_LOAD_TOPIC || msg.topic === PV_CHARGER_TOPIC ? Math.max(0, value) : value);
-    const arrivals = context.get("gridInputArrivals") || {};
-    arrivals[sensorKey] = nowTs;
-    context.set("gridInputArrivals", arrivals);
-    const lastGrid = context.get("gridLastDecisionPowerW");
-    if (msg.topic !== GRID_TOPIC || !Number.isFinite(lastGrid) || Math.abs(value - lastGrid) <= 1000) return null;
-} else if (msg.topic !== CADENCE_TOPIC && msg.topic !== MANUAL_DISCHARGE_TOPIC &&
-        msg.topic !== MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC) {
-    return null;
-}
-const C = getConstants(flow.get("controllerConstantsOverrides"));
-const highVoltageSettings = sanitizeHighVoltageSettings(flow.get("highVoltageSettings")) || DEFAULT_HIGH_VOLTAGE_SETTINGS;
-
-const previousWindow = context.get("activeWindow") || "none";
-const batteryVoltage = Number(context.get("batteryVoltage"));
-const rawStoredConsumedAh = context.get("batteryConsumedAh");
-const consumedAhDeficit = Number.isFinite(Number(rawStoredConsumedAh)) ? Math.max(0, Number(rawStoredConsumedAh)) : Number.NaN;
-// Signed CT reading (negative = export); the clamped value feeds import-Wh tracking and floors.
-const storedGrid = readStoredNumber(context.get("gridPowerW"));
-const hasGridPowerReading = storedGrid.has;
-const storedGridPowerW = Math.max(0, storedGrid.value);
-const gridPowerW = storedGridPowerW;
-const gridPowerSignedW = storedGrid.value;
-const storedAcLoadPowerW = Math.max(0, readStoredNumber(context.get("acLoadPowerW")).value);
-const storedDc = readStoredNumber(context.get("dcPowerW"));
-const storedDcPowerW = storedDc.value;
-const hasDcPowerReading = storedDc.has;
-const storedPvChargerPowerW = Math.max(0, readStoredNumber(context.get("pvChargerPowerW")).value);
-// Solar generation is the PV charger power only; DC bus power stays informational.
-const solarGenerationW = storedPvChargerPowerW;
-const accountingPower = context.get("gridAccountingPower") || (context.get("hourBudget")
-    ? { gridW: storedGridPowerW, acW: storedAcLoadPowerW, solarW: solarGenerationW }
-    : { gridW: 0, acW: 0, solarW: 0 });
-context.set("gridAccountingPower", { gridW: storedGridPowerW, acW: storedAcLoadPowerW, solarW: solarGenerationW });
-const rawStoredManualDischargeStopVoltage = context.get("manualDischargeStopVoltage");
-let manualDischargeStopVoltage = Number.isFinite(Number(rawStoredManualDischargeStopVoltage))
-    ? Number(rawStoredManualDischargeStopVoltage)
-    : C.MANUAL_DISCHARGE_STOP_VOLTAGE;
-let manualDischarge = context.get("manualDischarge") || { active: false, startedAt: "", source: "" };
-const voltageLimitActive = context.get("voltageLimitActive") || false;
-const forceChargeLimiterActive = context.get("forceChargeLimiterActive") || false;
-const previousGridSetpoint = Number(context.get("gridSetpoint"));
-const storedExportGuard = context.get("exportGuard") || {};
-
-// ==========================
-// UPDATE STORED INPUTS
-// ==========================
-const incoming = Number(msg.payload);
-
-if (msg.topic === MANUAL_DISCHARGE_TOPIC) {
-    const manualCommand = parseManualDischargeCommand(msg.payload);
-
-    if (manualCommand) {
-        manualDischarge = {
-            active: manualCommand.active,
-            startedAt: manualCommand.active ? now.toISOString() : "",
-            source: manualCommand.source || "inject"
-        };
-        context.set("manualDischarge", manualDischarge);
-    }
-}
-else if (msg.topic === MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC && incoming >= 50 && incoming <= 60) {
-    manualDischargeStopVoltage = incoming;
-    context.set("manualDischargeStopVoltage", manualDischargeStopVoltage);
-}
+// The input stage may return early; otherwise it binds C, the stored readings, and manual-discharge state.
+// #include lib/grid/inputs.js
 
 // The VE.Bus limit is reasserted at each real hour boundary, independent of accounting.
 const lastHourKey = context.get("gridControlHourKey") ?? context.get("hourBudget")?.hourKey;
@@ -215,58 +88,8 @@ if (!waiting) {
     node.status({ fill: "grey", shape: "ring", text: waiting });
 }
 
-// Retry until bookkeeping acknowledges the handoff.
-let legacy;
-if (flow.get("gridBookkeepingSeeded") !== true) {
-    legacy = Object.fromEntries(["hourBudget", "acLoadBudget", "solarBudget", "hourPeak", "tariffDay", "tariffMonth", "tariffHistoryState", "lastTraceTs"]
-        .map(key => [key, context.get(key)]).filter(([, value]) => value !== undefined));
-}
-
-// Use the same monotonic clock as Node-RED's dropping rate gates, not wall time.
-const feedbackNow = Number(gridClock.hrtime.bigint() / 1000000n);
-const storedFeedback = context.get('gridWriteFeedback') || [];
-const desired = [decision?.finalChargeCurrent, decision?.finalGridSetpoint, decision?.gridCurrentLimitA];
-const commands = [];
-const faults = [];
-const feedback = feedbackChannels.map((channel, i) => {
-    const previous = storedFeedback[i];
-    const result = advanceGridFeedback(previous, {
-        now: feedbackNow, value: desired[i], reading: previous?.reading,
-        gap: channel.gap, tolerance: channel.tolerance,
-        refresh: i < 2 || previous?.hour !== hourKey, reassert: previous?.hour !== hourKey
-    });
-    const state = result.state;
-    delete state.reading;
-    commands[i] = result.write === undefined ? null : { topic: channel.topic, payload: result.write };
-    if (commands[i]) state.hour = hourKey;
-    if (state.fault) faults.push(`${channel.name}: ${state.fault}`);
-    if (result.read) {
-        const finish = reading => {
-            const current = context.get('gridWriteFeedback')?.[i];
-            if (current?.phase === 'reading' && current.sent === state.sent) current.reading = reading;
-        };
-        readGridOutput(channel).then(finish, error => finish({ error: error.message || String(error) }));
-    }
-    return state;
-});
-context.set('gridWriteFeedback', feedback);
-const alarmText = faults.length ? `grid not following setpoint: ${faults.join('; ')}` : '';
-context.set('gridFeedbackAlarm', { text: alarmText });
-if (alarmText) node.status({ fill: 'red', shape: 'dot', text: alarmText });
-const notice = gridFeedbackNotice(context.get('gridFeedbackNotice'), faults, nowTs);
-context.set('gridFeedbackNotice', notice.state);
-const alarm = notice.text ? { notification: { title: 'Grid control', type: 'alarm', message: notice.text }, payload: notice.text } : null;
-const event = notice.text ? { t: nowTs, kind: 'fail', rule: 'grid_feedback', live: true, text: notice.text } : null;
-const day = getHourKey(now).slice(0, 10);
-if (msg.topic === CADENCE_TOPIC) flow.set('gridDecisionPulse', Number(gridClock.hrtime.bigint() / 1000000n));
-const oldDashboard = context.get('gridDashboard') || {};
-const dashboardOutputs = feedbackChannels.map(({ tolerance }, i) => gridDashboardOutput(
-    oldDashboard.outputs?.[i], storedFeedback[i], feedback[i], commands[i], nowTs, tolerance));
-const feedbackAlerts = (oldDashboard.feedbackAlerts ?? 0) + (event ? 1 : 0);
-const dashboard = gridDashboardStatus(oldDashboard.publisher,
-    gridDashboardSnapshot(decision, waiting, context.get('gridInputArrivals'), dashboardOutputs,
-        feedbackAlerts, flow.get('gridLoopHealth')), feedbackNow, nowTs);
-context.set('gridDashboard', { publisher: dashboard.state, outputs: dashboardOutputs, feedbackAlerts });
+const legacy = gridBookkeepingSeed();
+const { commands, alarm, logMessage, dashboard } = gridOutputStage(decision, hourKey, waiting, now, nowTs);
 return [
     ...commands,
     alarm, null, null, null,
@@ -276,7 +99,6 @@ return [
         storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
         hasDcPowerReading, storedPvChargerPowerW, solarGenerationW, accountingPower
     } },
-    event ? { topic: 'log', filename: `/data/home/nodered/grid-control-logs/automations/${day}.jsonl`,
-        payload: JSON.stringify(event) + '\n', event } : null,
-    dashboard.message
+    logMessage,
+    dashboard
 ];
