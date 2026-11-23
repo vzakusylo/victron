@@ -291,6 +291,8 @@ In **Actions → Deploy GX code**, set `allow_removed_nodes` to the exact comma-
 
 On an existing flow tab, approved removals are limited to the supported core and Dashboard node types (the same type allowlist as for additions) plus read-only `victron-input-*` nodes. This does not allow adding Victron inputs or removing `victron-output-*` nodes or subflow instances.
 
+Before approving a Victron input removal, verify that surviving logic no longer depends on the value it published, including any last value cached in node or flow context. A clean wiring plan does not check those dependencies.
+
 For example, the G2 (#136) transition from d#210 to d#213 needs this exact list:
 
 ```text
