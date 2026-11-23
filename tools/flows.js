@@ -22,6 +22,7 @@ const { expand, includesOf } = require('./includes');
 const ROOT = path.resolve(__dirname, '..');
 const FLOWS = path.join(ROOT, 'flows.json');
 const SOURCE_RE = /^(\d\d) (.+?)(\.init\.js|\.js|\.html)$/;
+// Disabled inputs count too: enabling them would still leave them unwired.
 const INPUT_TYPE = /^(?:inject|.+ in|victron-input-.+)$/;
 const UNWIRED_INPUTS = new Map([
     ['2f42837904c91d73', {
