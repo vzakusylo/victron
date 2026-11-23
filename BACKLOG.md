@@ -35,7 +35,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | Item | State |
 |---|---|
-| D-R7 Function libs in deploy | In progress: `deploy-function-libs`. The two-stage offline replay clears the function-module mismatch, then stops at `hp-page-template-01`: `storeOutMessages` and `resendOnRefresh` both change from `true` to `false`. The settings guard stays in place. |
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
 | Next | Automatic: every green Test GX on a master push deploys it. |
@@ -154,6 +153,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#168 D-R7 Function libs in deploy (`deploy-function-libs`, d#227 unchanged · i#38): deploy module declarations with preflight. The historical dry run clears the module mismatch, then stops at `hp-page-template-01` because `storeOutMessages` and `resendOnRefresh` change from `true` to `false`; the settings guard is unchanged.
 
 #167 H3/H4 (`hp-ux-rooms-hidden`, d#227 · i#37): share room temperature classification between Devices and Temperatures; persist hidden Devices cards and restore them from the dashboard without affecting telemetry or device control.
 
