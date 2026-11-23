@@ -85,7 +85,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | open | Midnight / DST / month-change scenarios (Test GX plan item 5) before this. |
-| NR4 | Heat pump state + 65 KB page: one run per event (Tuya second output), at most every 5 s, page only on change and with a viewer | G4 | open | Touches the heat pump chain (#97 merged). |
+| NR4 | Heat pump state + 65 KB page: one run per event (Tuya second output), at most every 5 s, page only on change and with a viewer | G4 | in progress: `nr4-hp-page-coalesce` | Touches the heat pump chain (#97 merged). |
 | NR5 | Automations tick: one `context.set` per tick, no large `JSON.stringify` per tick; check the context store | G4 | open | |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 

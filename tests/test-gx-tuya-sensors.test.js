@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadNode, readSource } = require('./harness');
+const { loadNode, loadHeatPumpState, readSource } = require('./harness');
 
 const NOW = Date.parse('2026-11-16T19:00:00Z');
 const DAY = 24 * 3600000;
@@ -11,7 +11,7 @@ const ACC = 'bfe0dd97b76a98f454a8bt';
 const PLATE = 'bfe949ce996182ffb9b1zl';
 
 function fixture({ cloudEnabled = false } = {}) {
-    const state = loadNode('34 Heat pump state.js');
+    const state = loadHeatPumpState();
     const cloudFile = '44 Heat pump cloud sensors.js';
     const cloud = loadNode(cloudFile, cloudEnabled
         ? readSource(cloudFile).replace('const CLOUD_ENABLED = false;', 'const CLOUD_ENABLED = true;')

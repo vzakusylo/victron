@@ -1,0 +1,1 @@
+context.set('viewers', {});

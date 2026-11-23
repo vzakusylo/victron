@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadNode, readSource, ROOT } = require('./harness');
+const { loadNode, loadHeatPumpState, readSource, ROOT } = require('./harness');
 
 const S = 1000, MIN = 60 * S;
 const NOW = new Date(2026, 10, 20, 7, 0).getTime();
@@ -213,7 +213,7 @@ test('DHW without a valid pump value: the old live-sensor rule and a "fallback" 
 
 // ---- page model (34) ------------------------------------------------------------------
 test('Heat Pump page: the curve point uses the pump outdoor value and says so; the sensor stays visible', () => {
-    const node = loadNode('34 Heat pump state.js');
+    const node = loadHeatPumpState();
     const now = NOW;
     node.flow.set('dhwView', { at: now, state: 'HEATING', outAvg: -7, pumpOut: { v: -1, at: now - MIN } });
     const send = (dps) => node.run({ topic: 'hp', payload: { data: { dps } } }, { now });
