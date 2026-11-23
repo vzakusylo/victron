@@ -84,7 +84,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
-| G5 | Dashboard "Grid control" block: decision + reason, writes with read-back, input ages, safe mode, alarms, loop cadence | G3 | in progress: `grid-g5-dashboard` | |
 | G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | open | Midnight / DST / month-change scenarios (Test GX plan item 5) before this. |
 | NR4 | Heat pump state + 65 KB page: one run per event (Tuya second output), at most every 5 s, page only on change and with a viewer | G4 | open | Touches the heat pump chain (#97 merged). |
 | NR5 | Automations tick: one `context.set` per tick, no large `JSON.stringify` per tick; check the context store | G4 | open | |
@@ -159,6 +158,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#154 G5 (d#222 · i#25): read-only Grid control panel on Protection with decisions, write/read-back status, input ages, alarm counts, cadence and lag. Safe mode remains unimplemented pending G2-SAFE. Roll out the new widget and controller output wiring together.
 
 #153 G4 (d#221 · i#24): route tariff history directly to bookkeeping, report grid cadence and event-loop lag, and alarm after 10 s of missed decisions through the existing Automation log and alert digest. Verified with `grid-isolation.yml`, `grid-heartbeat.yml`, and `charging-guards.yml`. Roll out the new monitor and history wiring together.
 
