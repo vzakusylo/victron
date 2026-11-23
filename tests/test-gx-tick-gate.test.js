@@ -7,10 +7,25 @@ const flows = require('../flows.json');
 
 test('fixture gates only the selected periodic injects and preserves their downstream wires', () => {
     const gated = gateTickInjects(flows);
-    assert.equal(gated.length, flows.length + GATED_INJECTS.length);
+    assert.equal(gated.length, flows.length + GATED_INJECTS.length + 1);
     assert.ok(flows.every(node => !node.id.endsWith(GATE_SUFFIX)));
     for (const original of flows) {
         const inject = gated.find(node => node.id === original.id);
+        if (original.id === 'grid-cadence-inject-01') {
+            const gate = gated.find(node => node.id === 'test-gx-grid-pause');
+            assert.deepEqual(inject, { ...original, wires: [[gate.id]] });
+            assert.deepEqual(gate.wires, original.wires);
+            assert.equal(gate.z, original.z);
+            const run = new Function('msg', 'flow', gate.func);
+            const msg = { payload: 1 };
+            const context = new Map();
+            assert.equal(run(msg, context), msg);
+            context.set('testGxGridExercise', 'pause');
+            assert.equal(run(msg, context), null);
+            context.set('testGxGridExercise', 'resume');
+            assert.equal(run(msg, context), msg);
+            continue;
+        }
         if (!GATED_INJECTS.includes(original.id)) {
             assert.deepEqual(inject, original);
             continue;

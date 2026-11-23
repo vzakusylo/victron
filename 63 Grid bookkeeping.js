@@ -10,7 +10,17 @@ const QUIET_TOPICS = ["grid-control-tick", "grid-power"];
 const TRACE_MIN_INTERVAL_MS = 5000;
 const ENERGY_LOG_DIR = "/data/home/nodered/grid-control-logs";
 
-if (!msg.tick) { node.error("Grid bookkeeping requires a controller tick", msg); return null; }
+function buildEnergyHistoryCommand(monthKey) {
+    const script = 'cd "' + ENERGY_LOG_DIR + '" 2>/dev/null && cat energy-' + monthKey + '-*.log energy-' + monthKey + '.csv 2>/dev/null; true';
+    return "'" + script.replace(/'/g, "'\\''") + "'";
+}
+
+if (!msg.tick) {
+    if (msg.topic === TARIFF_HISTORY_TOPIC && typeof msg.payload === "string") {
+        context.set("pendingHistory", msg.payload);
+    } else node.error("Grid bookkeeping requires a controller tick or history reply", msg);
+    return null;
+}
 const { nowTs, C, waiting, decision, legacy, sendGridCurrentLimit, highVoltageSettings,
     previousWindow, previousGridSetpoint, batteryVoltage, consumedAhDeficit, manualDischargeStopVoltage,
     storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
@@ -104,8 +114,11 @@ if (tariffMonth.monthKey !== monthKey) {
 
 // History restore: the closed hours of this month are read back from the energy files
 // (monthly CSV + legacy daily energy-*.log) so Day / Month survive a restart or redeploy.
-if (msg.topic === TARIFF_HISTORY_TOPIC && typeof msg.payload === "string") {
-    const history = parseEnergyHistory(msg.payload, monthKey, C);
+const pendingHistory = context.get("pendingHistory");
+if (pendingHistory !== undefined) {
+    context.set("pendingHistory", undefined);
+    msg.topic = TARIFF_HISTORY_TOPIC;
+    const history = parseEnergyHistory(pendingHistory, monthKey, C);
     let historyDayWh = 0;
     let historyDayPeakWh = 0;
     let historyDayPeakHourKey = "";

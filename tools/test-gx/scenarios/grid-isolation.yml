@@ -1,0 +1,18 @@
+name: Grid decisions keep their cadence while non-grid work is busy
+faketime: '@2026-11-16 13:00:00 x1'
+controller: {"protection":{"gridSupportW":500,"gridSupportMode":"hv-only"}}
+observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+initial: {"inputs":{"batt_v":55.4,"consumed_ah":-40,"grid_w":1000,"load_w":1600,"pv_w":0}}
+steps:
+  - when: 0s
+    settle: 20s
+    expect: {"outputs":[{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1000}]}
+  - when: 21s
+    gridExercise: load
+    inputs: {"grid_w":3000}
+    settle: 20s
+    expect:
+      if_changed: true
+      maxWriteDelay: 16s
+      writes: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint","value":1100}]
+      grid: [{"path":"gridLoopHealth.lagP95Ms","lessThan":100},{"path":"gridLoopHealth.intervalP95Ms","lessThan":2200}]

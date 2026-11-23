@@ -10,7 +10,7 @@
 // Inputs (msg.topic):
 //   battery-voltage, battery-consumed-ah, grid-power (signed, negative = export), ac-load-power,
 //   dc-power (informational), pv-charger-power, manual-discharge, manual-discharge-stop-voltage,
-//   tariff-history (reply from the history reader); any other topic only recalculates.
+//   grid-control-tick (scheduled decisions); other topics are ignored.
 //
 // Logic:
 // - Restoration: the BMS consumed Ah is the deficit to refill, less the Ah today's solar forecast is
@@ -51,7 +51,6 @@ const MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC = "manual-discharge-stop-voltage";
 const DC_POWER_TOPIC = "dc-power";
 const PV_CHARGER_TOPIC = "pv-charger-power";
 const CADENCE_TOPIC = "grid-control-tick";
-const TARIFF_HISTORY_TOPIC = "tariff-history";
 const SENSOR_KEYS = new Map([
     [BATTERY_TOPIC, "batteryVoltage"],
     [BATTERY_CONSUMED_AH_TOPIC, "batteryConsumedAh"],
@@ -121,9 +120,6 @@ if (sensorKey) {
     context.set("gridInputArrivals", arrivals);
     const lastGrid = context.get("gridLastDecisionPowerW");
     if (msg.topic !== GRID_TOPIC || !Number.isFinite(lastGrid) || Math.abs(value - lastGrid) <= 1000) return null;
-} else if (msg.topic === TARIFF_HISTORY_TOPIC) {
-    if (typeof msg.payload === "string") context.set("gridPendingTariffHistory", msg.payload);
-    return null;
 } else if (msg.topic !== CADENCE_TOPIC && msg.topic !== MANUAL_DISCHARGE_TOPIC &&
         msg.topic !== MANUAL_DISCHARGE_STOP_VOLTAGE_TOPIC) {
     return null;
@@ -224,9 +220,6 @@ if (flow.get("gridBookkeepingSeeded") !== true) {
         .map(key => [key, context.get(key)]).filter(([, value]) => value !== undefined));
 }
 
-const history = context.get("gridPendingTariffHistory");
-if (history !== undefined) context.set("gridPendingTariffHistory", undefined);
-
 // Use the same monotonic clock as Node-RED's dropping rate gates, not wall time.
 const feedbackNow = Number(gridClock.hrtime.bigint() / 1000000n);
 const storedFeedback = context.get('gridWriteFeedback') || [];
@@ -263,11 +256,11 @@ context.set('gridFeedbackNotice', notice.state);
 const alarm = notice.text ? { notification: { title: 'Grid control', type: 'alarm', message: notice.text }, payload: notice.text } : null;
 const event = notice.text ? { t: nowTs, kind: 'fail', rule: 'grid_feedback', live: true, text: notice.text } : null;
 const day = getHourKey(now).slice(0, 10);
+if (msg.topic === CADENCE_TOPIC) flow.set('gridDecisionPulse', Number(gridClock.hrtime.bigint() / 1000000n));
 return [
     ...commands,
     alarm, null, null, null,
-    { topic: history === undefined ? msg.topic : TARIFF_HISTORY_TOPIC,
-      payload: history === undefined ? msg.payload : history, tick: {
+    { topic: msg.topic, tick: {
         nowTs, C, waiting, decision, legacy, sendGridCurrentLimit, highVoltageSettings,
         previousWindow, previousGridSetpoint, batteryVoltage, consumedAhDeficit, manualDischargeStopVoltage,
         storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
