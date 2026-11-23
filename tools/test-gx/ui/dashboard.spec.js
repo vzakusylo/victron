@@ -82,3 +82,15 @@ for (const entry of visible) {
         }
     });
 }
+
+test('Grid control displays live status on Protection', async ({ page }) => {
+    const items = await openDashboard(page, [], { clicked: false, opening: true });
+    await items.filter({ hasText: pageNamePattern('Protection') }).click();
+    const panel = page.getByRole('region', { name: 'Grid control' });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText('Safe mode: not implemented')).toBeVisible();
+    await expect(panel.getByRole('rowheader', { name: 'ESS' })).toBeVisible();
+    await expect(panel.getByText('Scheduled cadence', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Decision reason', { exact: true })).toBeVisible();
+    await expect(panel.getByText(/Last status change:/)).toBeVisible();
+});

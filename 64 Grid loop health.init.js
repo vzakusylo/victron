@@ -46,7 +46,9 @@ setInterval(() => {
     const lagP95Ms = gridP95(lag);
     const intervalP95Ms = gridP95(intervals);
     const silent = heartbeat.silent;
-    context.set('gridLoopHealth', { ageMs, lagP95Ms, intervalP95Ms, silent, alerts, alarmAgeMs });
+    const health = { ageMs, lagP95Ms, intervalP95Ms, silent, alerts, alarmAgeMs };
+    context.set('gridLoopHealth', health);
+    flow.set('gridLoopHealth', health);
     node.status({ fill: silent ? 'red' : lagP95Ms >= 100 ? 'yellow' : 'green', shape: 'dot',
         text: `${silent ? 'SILENT' : 'Grid loop'} ${(ageMs / 1000).toFixed(1)} s ago / p95 interval ${intervalP95Ms ?? '-'} ms / lag ${lagP95Ms} ms` });
 }, 100);
