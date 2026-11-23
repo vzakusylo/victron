@@ -17,7 +17,7 @@ const TOOLS = [
     'gx/deploy.js', 'gx/live-snapshot.js', 'gx/monitor.js', 'gx/verify.js'
 ];
 const FIXTURE_TOOLS = {
-    'test-gx-bin/dbus': 'dbus', 'test-gx-bms-dbus.js': 'bms-dbus.js', 'send-mail.js': 'send-mail.js'
+    'send-mail.js': 'send-mail.js'
 };
 
 function fixtureFiles() {
@@ -49,14 +49,12 @@ function fixtureFiles() {
     for (const node of flows) {
         if (node.type === 'tab' && /d#\d+/.test(node.label || '')) node.label += ' TEST-GX';
     }
-    const bmsExec = flows.find(node => node.id === 'bmswd-exec-01');
-    if (bmsExec?.command !== 'sh -c' || bmsExec.addpay !== 'payload') throw new Error('BMS watchdog exec contract changed');
-    bmsExec.command = 'PATH=/data/home/nodered/tools/test-gx-bin:$PATH sh -c';
     json('nodered/.node-red/flows.json', gateTickInjects(transformTuya(flows, registry).flows));
     json('nodered/.node-red/flows_cred.json', {});
     json('versions.json', versions);
     const dependencies = Object.fromEntries(Object.entries(versions.palette).filter(([name]) => name !== 'node-red'));
     dependencies['@victronenergy/node-red-contrib-victron'] = '1.6.65';
+    dependencies['dbus-native-victron'] = '0.4.5';
     dependencies.tuyapi = '7.7.1';
     json('nodered/package.json', {
         name: 'test-gx-synthetic', version: '1.0.0', private: true, dependencies,

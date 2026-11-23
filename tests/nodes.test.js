@@ -224,7 +224,7 @@ test('52 / 50: a Qingping MQTT message becomes the Air monitor card of the Devic
     assert.equal(empty.online, false);
     assert.match(empty.note, /developer\.qingping\.co/);
 });
-test('52 / 54: readings go to the day file once, and the Air quality page gets the day chart', () => {
+test('52 / 54: readings go to the day file once, and the Air quality page gets the day chart', async () => {
     const air = loadNode('52 Air monitor.js');
     const ts = Math.round(NOW / 1000);
     const msg = (type, rows) => ({ topic: 'qingping/582D34701F19/up', payload: JSON.stringify({ type, mac: '582D34701F19', timestamp: ts, sensorData: rows }) });
@@ -238,13 +238,19 @@ test('52 / 54: readings go to the day file once, and the Air quality page gets t
     assert.deepEqual(second[0].map((m) => m.payload), ['13:29:00,900,,,,21.9,36.5\n']);
     assert.equal(air.run(msg('17', [row(ts - 60, 900)]), { now: NOW }).result, null, 'nothing new: nothing written');
 
-    const hist = loadNode('54 Air quality history.js');
-    const ask = hist.run({ topic: 'ui', payload: { action: 'day', day: '2026-11-11' } }, { now: NOW }).result;
-    assert.equal(ask[1].day, '2026-11-11');
-    assert.match(ask[1].payload, /cat \/data\/home\/nodered\/grid-control-logs\/air\/2026-11-11\.csv/);
-    assert.equal(hist.run({ topic: 'ui', payload: { action: 'day', day: '../../etc/x' } }, { now: NOW + 10000 }).result[1].day, '2026-11-11', 'a bad day is ignored');
-    const text = '2026-11-10.csv\n2026-11-11.csv\nnotes.txt\n@@DATA\n00:01:00,700,5,6,400,21,40\n00:01:00,700,5,6,400,21,40\n00:03:00,900,7,8,,22,\n23:59:30,1000,,,,,\n';
-    const model = hist.run({ topic: 'read', day: '2026-11-11', payload: text }, { now: NOW }).result[0].payload;
+    const text = '00:01:00,700,5,6,400,21,40\n00:01:00,700,5,6,400,21,40\n00:03:00,900,7,8,,22,\n23:59:30,1000,,,,,\n';
+    const hist = loadNode('54 Air quality history.js', undefined, undefined, { fs: { promises: {
+        readdir: async () => ['2026-11-10.csv', '2026-11-11.csv', 'notes.txt'],
+        readFile: async path => {
+            assert.equal(path, '/data/home/nodered/grid-control-logs/air/2026-11-11.csv');
+            return text;
+        }
+    } } });
+    const model = (await hist.run({ topic: 'ui', payload: { action: 'day', day: '2026-11-11' } }, { now: NOW }).result).payload;
+    assert.equal(model.day, '2026-11-11');
+    const cached = hist.run({ topic: 'ui', payload: { action: 'day', day: '../../etc/x' } }, { now: NOW + 10000 });
+    assert.deepEqual(cached.sent, [{ topic: 'airHistory', payload: model }]);
+    assert.deepEqual((await cached.result).payload, model, 'a bad day is ignored');
     assert.equal(model.count, 3, 'a reading written twice counts once');
     assert.deepEqual(model.days, ['2026-11-12', '2026-11-11', '2026-11-10'], 'today first, newest first');
     assert.equal(model.series.co2.length, 288);

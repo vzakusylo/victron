@@ -290,6 +290,7 @@ namespace = {
     'state': {'load_w': 1000, 'pv_w': 500, 'soc': 60}, 'failed': {},
     'computed': {'grid_w': 1000, 'batt_v': 54, 'batt_a': 0, 'batt_w': 0},
     'stale_until': {'system.' + grid: 20},
+    'bms': {'active': False}, 'BMS_SERVICE': 'com.victronenergy.battery.ttyTEST',
 }
 exec(compile(ast.Module(body=[function], type_ignores=[]), '<publish>', 'exec'), namespace)
 namespace['publish']('system')

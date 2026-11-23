@@ -146,7 +146,8 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
     });
 
 test('verified dry-run code replacement plans against a fake GX only when it matches the recorded Git deployment',
-    { skip: !available && 'needs git and curl', timeout: 60000 }, async t => {
+    // Two PowerShell deploy runs and multiple snapshots compete with the full suite on Windows.
+    { skip: !available && 'needs git and curl', timeout: 180000 }, async t => {
         const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-replacement-test-'));
         t.after(() => fs.rmSync(cwd, { force: true, recursive: true }));
         const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -224,7 +225,7 @@ test('verified dry-run code replacement plans against a fake GX only when it mat
                 function scp { $global:LASTEXITCODE = 0 }
                 & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -AllowReplaceDeployedLines -RunDirectory $env:GX_TEST_RUN
                 exit $LASTEXITCODE
-            `], { cwd, env: { ...process.env, GITHUB_STEP_SUMMARY: summary, GX_TEST_SNAPSHOT: baseline,
+            `], { cwd, timeout: 60000, env: { ...process.env, GITHUB_STEP_SUMMARY: summary, GX_TEST_SNAPSHOT: baseline,
                 GX_TEST_RUNNER: runner, GX_TEST_RUN: path.join(cwd, name) } },
             (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
             return { ...output, summary: fs.existsSync(summary) ? fs.readFileSync(summary, 'utf8') : '' };

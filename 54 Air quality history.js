@@ -14,10 +14,8 @@
 // - 'ui'   (page 53) payload { action: 'open' | 'day' | 'refresh', day: 'YYYY-MM-DD' } -> read that day
 //          (open: the day shown last, today at first)
 // - 'tick' (inject, 2 min) -> read again when today is shown
-// - 'read' (exec stdout, msg.day) -> parse, build the model, output 1
-// Output (2):
+// Output:
 // - output 1 -> ui_template "Air quality page", msg.payload = model
-// - output 2 -> exec node "Read air quality day" (`sh -c <payload>`), msg.day
 // Model: { day, today, days: [days with a file, newest first], count, first, last,
 //   stats: { key: { min, avg, max, last } }, series: { key: [avg of each BUCKET_MIN bucket | null] },
 //   bucketMin }
@@ -35,14 +33,8 @@ const dayOf = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d
 const validDay = (s) => /^\d{4}-\d\d-\d\d$/.test(String(s || ''));
 const r1 = (x) => Math.round(x * 10) / 10;
 
-function readCmd(day) {
-    // day is checked by validDay, so it is safe in the command
-    return "ls -1 " + DIR + " 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.csv$'; echo '@@DATA'; cat " + DIR + '/' + day + '.csv 2>/dev/null; true';
-}
-
-function build(text, day, today) {
-    const [list, data] = String(text || '').split('@@DATA');
-    const days = (list || '').split(/\r?\n/).map((s) => s.trim().replace(/\.csv$/, '')).filter(validDay).sort().reverse();
+function build(files, data, day, today) {
+    const days = files.filter(s => s.endsWith('.csv')).map(s => s.slice(0, -4)).filter(validDay).sort().reverse();
     // one value per second of the day: a reading written twice counts once
     const bySec = new Map();
     for (const line of (data || '').split(/\r?\n/)) {
@@ -90,14 +82,6 @@ function build(text, day, today) {
 const now = new Date();
 const today = dayOf(now);
 
-if (msg.topic === 'read') {
-    const day = validDay(msg.day) ? msg.day : today;
-    const model = build(msg.payload, day, today);
-    context.set('model', model);
-    node.status({ fill: model.count ? 'green' : 'yellow', shape: 'dot', text: day + ': ' + model.count + ' readings' });
-    return [{ topic: 'airHistory', payload: model }, null];
-}
-
 let day = context.get('day') || today;
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
@@ -113,4 +97,17 @@ const lastRead = context.get('lastRead') || 0;
 const cached = context.get('model');
 if (msg.topic === 'tick' && Date.now() - lastRead < MIN_READ_GAP_MS) return null;
 context.set('lastRead', Date.now());
-return [msg.topic === 'ui' && cached && cached.day === day ? { topic: 'airHistory', payload: cached } : null, { topic: 'read', day, payload: readCmd(day) }];
+if (msg.topic === 'ui' && cached && cached.day === day) node.send({ topic: 'airHistory', payload: cached });
+const missing = fallback => error => {
+    if (error.code !== 'ENOENT') node.warn(`Air quality history: ${error.message}`);
+    return fallback;
+};
+return Promise.all([
+    fs.promises.readdir(DIR).catch(missing([])),
+    fs.promises.readFile(`${DIR}/${day}.csv`, 'utf8').catch(missing(''))
+]).then(([files, data]) => {
+    const model = build(files, data, day, dayOf(new Date()));
+    context.set('model', model);
+    node.status({ fill: model.count ? 'green' : 'yellow', shape: 'dot', text: day + ': ' + model.count + ' readings' });
+    return { topic: 'airHistory', payload: model };
+});
