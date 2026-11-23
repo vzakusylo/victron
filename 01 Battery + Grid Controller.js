@@ -48,6 +48,7 @@
 
 // #include lib/grid/readback.js
 // #include lib/grid/output-stage.js
+// #include lib/grid/bookkeeping-handoff.js
 
 const now = new Date();
 const nowTs = now.getTime();
@@ -86,13 +87,7 @@ if (!waiting) {
     node.status({ fill: "grey", shape: "ring", text: waiting });
 }
 
-// Retry until bookkeeping acknowledges the handoff.
-let legacy;
-if (flow.get("gridBookkeepingSeeded") !== true) {
-    legacy = Object.fromEntries(["hourBudget", "acLoadBudget", "solarBudget", "hourPeak", "tariffDay", "tariffMonth", "tariffHistoryState", "lastTraceTs"]
-        .map(key => [key, context.get(key)]).filter(([, value]) => value !== undefined));
-}
-
+const legacy = gridBookkeepingSeed();
 const { commands, alarm, logMessage, dashboard } = gridOutputStage(decision, hourKey, waiting, now, nowTs);
 return [
     ...commands,
