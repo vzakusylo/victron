@@ -30,7 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| #89 | `testgx-p1p2` | Test GX scenarios for P1 (curve follow) and P2 (off-curve monitor) | Open, auto-merge; Test GX on the PR decides. |
+| — | — | — | No open pull requests at start of TGX-R1. |
 
 ## 2. Deploy
 
@@ -133,7 +133,8 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | 2 | Charging scenarios | Done (#55); follow-ups in section 4 |
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
 | 8p / T1 | Speed up Test GX; target < 20 min | Steps 1–2: parallel matrix (#87) and faster fixture fake time (#103). Remaining: Docker cache and stack reuse. See T1 below |
-| P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | In progress: #89 |
+| P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | Done (#89) |
+| TGX-R1 | Emulator MQTT connect retry (CI flake run 45119354024) | in progress: `testgx-emu-mqtt-retry` |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Done: #114 |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |

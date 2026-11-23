@@ -22,6 +22,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from mqtt_connect import MQTT_READY_TIMEOUT, connect_mqtt
 from mqtt_publish import publish_message, validate_message
 from tuya_devices import TuyaDevices
 from forecast_fixture import forecast_fixture
@@ -533,9 +534,11 @@ def main():
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     mqtt_client.on_subscribe = on_subscribe
-    mqtt_client.connect('mosquitto', 1883, 30)
+    connect_mqtt(mqtt_client, os.environ.get('EMU_MQTT_HOST', 'mosquitto'),
+                 int(os.environ.get('EMU_MQTT_PORT', '1883')), 30,
+                 deadline_s=int(os.environ.get('EMU_MQTT_CONNECT_TIMEOUT', '60')))
     mqtt_client.loop_start()
-    if not connected.wait(10):
+    if not connected.wait(MQTT_READY_TIMEOUT):
         raise RuntimeError('Tuya MQTT connection/subscription did not become ready')
     sysbus = dbus.SystemBus()
     settings = sysbus.get_object('com.victronenergy.settings', '/Settings')
