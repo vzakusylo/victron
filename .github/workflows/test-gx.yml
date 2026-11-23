@@ -211,9 +211,8 @@ jobs:
         run: |
           ssh-keygen -q -t ed25519 -N '' -C test-gx -f "$RUNNER_TEMP/test-gx-key"
           cp "$RUNNER_TEMP/test-gx-key.pub" tools/test-gx/test_key.pub
-          compose=(docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE")
-          if ! "${compose[@]}" up -d --no-build; then
-            "${compose[@]}" logs --no-color --tail 80 venus
+          if ! docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" up -d --no-build; then
+            docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" logs --no-color --tail 80 venus
             exit 1
           fi
       - name: Wait for emulator and Node-RED
