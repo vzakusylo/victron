@@ -107,7 +107,8 @@ progress instead of the owner relaying text:
 available; then nobody can type into it except the owner.
 
 Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, review before auto-merge), `test-gx-local` (Docker
-scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP), `gx-reach` (GX reachable + NR1 baseline command).
+scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP), `gx-reach`
+(GX reachable + NR1 baseline command), `claude-review-token` (owner-run rotation of the Claude review secret).
 
 The `review` check fails when the Claude review finds a failing test or a High / Critical problem (verdict gate in
 `claude-code-review.yml`); fix it and push, or comment `@claude review` to re-run. `.github/CODEOWNERS` requests the

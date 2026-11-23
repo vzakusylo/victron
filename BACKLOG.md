@@ -158,6 +158,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#157 Claude review token skill (d#223 unchanged · i#28): document owner-run rotation of the Claude review secret without echoing its value or putting it on the command line.
+
 #156 D-R2 Remove Victron input nodes in deploy (d#223 unchanged · i#27): allow reviewed read-only Victron input removals. The d#217 → d#222/d#223 Git replay still stops at the independent `dv-aq-fn-01` output-count change; the wiring guard is unchanged.
 
 #155 NR4 (d#223 · i#26): separate Tuya connection events from data, keep the raw state immediate for controls, and build the derived model at most once per 5 s. Send changed live values and static curve parts only to viewers, with a full snapshot on entry. History remains on demand. Roll out the new nodes, wire changes and templates together.
