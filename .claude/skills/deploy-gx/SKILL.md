@@ -26,7 +26,7 @@ Review deployments → victron-gx → Approve and deploy. Read the result:
   rewrote. Then apply with `allow_live_only_lines=true`. If the GX has hand edits, stop and show them to the owner
   (`node tools/gx/compare.js LIVE.b64 --commit <sha> --show <id>`); wanted lines go into the `NN` source first.
 - **Added nodes:** the deploy stops on new nodes; tell the owner (backlog D1).
-- **New wires to existing nodes:** review the compare, then use manual `allow_new_wires` with the exact source IDs. Check each added connection in a dry run of the same commit before apply. Automatic runs ignore this input.
+- **Reviewed wiring changes:** review the compare, then use manual `allow_new_wires` with the exact source IDs. Check each source's before/after wiring in a dry run of the same commit before apply. Automatic runs ignore this input.
 
 ## 3. Apply
 `gh workflow run deploy-gx-code.yml --ref master -f mode=apply -f confirm=deploy-gx-code -f version=test`

@@ -238,7 +238,7 @@ function main() {
         }
         let removalBase;
         let previous = [];
-        if (allowed.length && diff.onlyLive.length) {
+        if ((allowed.length && diff.onlyLive.length) || allowNewWires.length) {
             const sha = recordedCommit(liveTab?.info);
             try {
                 git('merge-base', '--is-ancestor', sha, commit);
@@ -249,9 +249,12 @@ function main() {
                 throw new Error('The recorded deployment is not a readable ancestor of the target commit.');
             }
         }
-        const removals = removalPlan(live.nodes, allowed.length ? snapshot(repoFlows, null, { topology: true }).nodes : repo.nodes, allowed, previous);
-        const nodes = additionPlan(cleanTopology(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), removals),
-            repoFlows, allowNewNodes, allowNewWires);
+        const topology = nodes => nodes.map(({ id, type, name, topology }) => ({ id, type, name, ...topology }));
+        const beforeRemovals = topology(live.nodes);
+        const removals = removalPlan(live.nodes, allowed.length ? snapshot(repoFlows, null, { topology: true }).nodes : repo.nodes,
+            allowed, previous, allowNewWires);
+        const nodes = additionPlan(cleanTopology(beforeRemovals, removals), repoFlows, allowNewNodes, allowNewWires,
+            { baseline: topology(previous), beforeRemovals, removed: removals.remove });
         const added = new Set(nodes.add);
         const newNodes = repoFlows.filter((node) => added.has(node.id));
         if (newNodes.some((node) => node.type === 'function')) {
@@ -275,8 +278,10 @@ function main() {
             ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + removals.remove.length + ' removal(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
         for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
         for (const id of nodes.wire) console.log('wire patch      : ' + id);
-        for (const { id, output, dest, name, added } of nodes.newConnections || []) {
-            console.log(`added connection: ${id}[${output}] -> ${dest} (${JSON.stringify(name)}, ${added ? 'new' : 'existing'})`);
+        const formatWires = wires => wires ? '[' + wires.map(({ id, name, status }) =>
+            `${id} (${JSON.stringify(name)}, ${status})`).join(', ') + ']' : '(no output)';
+        for (const { id, output, gx, target } of nodes.rewires || []) {
+            console.log(`reviewed wiring : ${id}[${output}]: GX ${formatWires(gx)} -> target ${formatWires(target)}`);
         }
         for (const id of nodes.groups || []) console.log('group patch     : ' + id);
         for (const id of removals.remove) console.log('node to remove  : ' + id);

@@ -156,6 +156,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#166 D-R6 Reviewed rewires in deploy (`deploy-reviewed-wires`, d#226 unchanged · i#36): apply explicitly reviewed target wiring only when live wiring matches the recorded Git baseline; the full offline replay writes a plan with six reviewed sources.
+
 #165 H16(1) (d#226 · i#35): back off routine near-target DHW Silent retries after three unconfirmed writes. Fresh DP 2 confirmation or a new decision cycle resets the retry streak; protection writes are unchanged.
 
 #164 D-R5 Group-less dashboard nodes in deploy additions and reviewed new wires (`deploy-groupless-ui`, d#225 unchanged · i#34): allow group-less Dashboard-wide nodes and opt-in append-only wiring; the Git-only replay still stops at `hp-tuya-pump-01` because output 1 replaces `hp-topic-hp-01` with `hp-status-topic-hp-01`.

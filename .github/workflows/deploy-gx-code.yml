@@ -30,7 +30,7 @@ on:
         type: string
         default: ""
       allow_new_wires:
-        description: "Comma-separated source node IDs for reviewed append-only wiring to existing nodes. Ignored on automatic runs."
+        description: "Comma-separated source node IDs for reviewed wiring changes. Ignored on automatic runs."
         type: string
         default: ""
   # A green Test GX push to master can deploy the newest eligible green commit.
