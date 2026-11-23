@@ -40,6 +40,18 @@ test('GX comparison separates code, trailing whitespace and config differences',
     assert.deepEqual(buildPatch(diff, true), { fn2: ['func'], fn1: ['func'] });
 });
 
+test('function module declarations are compared as ordered, stable JSON', () => {
+    const live = repoFlows(), repo = repoFlows();
+    live[2].libs = [{ module: 'fs', var: 'fs' }];
+    repo[2].libs = [{ var: 'fs', module: 'fs' }];
+    live[3].libs = [{ module: 'process', var: 'clock' }];
+    repo[4].libs = [{ module: 'fs', var: 'fs' }];
+    const diff = diffSnapshots(snapshot(live), snapshot(repo));
+    assert.deepEqual(buildPatch(diff, false), { fn2: ['libs'] });
+    assert.deepEqual(diff.config.map(node => node.id), ['tuya1']);
+    assert.equal(diff.code[0].removed, 1, 'a dropped declaration is a live-only code change');
+});
+
 test('GX snapshot carries code and hashes, never node settings or credentials', () => {
     const flows = repoFlows();
     flows[4].credentials = { localKey: 'do-not-export' };

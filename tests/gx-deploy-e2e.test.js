@@ -92,12 +92,15 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
             { id: 'keep', type: 'delay', name: 'Keep', z: 'tab', g: 'layout', wires: [[]] },
             { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [[], []] },
             { id: 'pump', type: 'tuya-smart-device', z: 'tab', deviceSetting: 'old', wires: [['keep'], ['gone']] },
-            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1, wires: [['keep']] }];
-        const sender = { ...old[8], outputs: 3, wires: [['keep'], [], ['keep']] };
+            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1, wires: [['keep']] },
+            { id: 'former-module-user', type: 'function', z: 'tab', libs: [{ var: 'old', module: 'not-installed' }] }];
+        const sender = { ...old[8], func: 'return msg;', libs: [{ var: 'fs', module: 'node:fs' }, { var: 'fixture', module: 'gx-test-module' }],
+            outputs: 3, wires: [['keep'], [], ['keep']] };
         const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '', wires: [['keep']] };
         const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, old[3], old[4],
             { ...old[5], nodes: ['keep'] }, old[7], sender, { ...old[9], deviceSetting: 'target', wires: [['keep'], ['viewers']] },
-            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1 }, viewers];
+            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1 },
+            { id: 'former-module-user', type: 'function', z: 'tab' }, viewers];
         const commit = (flows, label) => {
             fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
             git('add', '--all');
@@ -129,6 +132,10 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const env = { VICTRON_API_PORT: api.address().port, VICTRON_HOME: cwd, VICTRON_RAW_BASE: `http://127.0.0.1:${raw.address().port}` };
         const nr = path.join(cwd, '.node-red');
         fs.mkdirSync(nr);
+        const settings = path.join(cwd, 'venus-settings.js');
+        const saveSettings = enabled => fs.writeFileSync(settings, `module.exports = { functionExternalModules: ${enabled} };`);
+        saveSettings(true);
+        env.VICTRON_NODE_RED_SETTINGS = settings;
         fs.writeFileSync(path.join(nr, 'flows.json'), JSON.stringify(old));
         fs.writeFileSync(path.join(nr, 'flows_cred.json'), '{}');
         const snap = await run(GX('live-snapshot.js'), ['--topology'], env);
@@ -136,8 +143,10 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
         fs.writeFileSync(input, snap.stdout);
         const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan,
-            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender,pump,selector'], env, cwd);
+            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender,pump,selector',
+            '--allow-replace-deployed-lines'], env, cwd);
         assert.equal(result.code, 0, result.stderr);
+        assert.deepEqual(JSON.parse(fs.readFileSync(plan, 'utf8')).patch.sender, ['func', 'libs']);
         assert.match(result.stdout, /^reviewed wiring\s+: sender\[2\]: GX \(no output\) -> target \[keep \("Keep", existing\)\]$/m);
         assert.match(result.stdout, /^reviewed wiring\s+: pump\[1\]: GX \[gone \("", approved removal\)\] -> target \[viewers \("", new\)\]$/m);
         const report = require('../tools/gx/deploy-report.js');
@@ -145,8 +154,26 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }, { id: 'battery', type: 'victron-input-battery', name: '' }]);
         assert.match(report.formatReport({ mode: 'dry-run', commit: target, changes: [], removals }), /Planned node removals \(2/);
         const deploy = DRY => run(GX('deploy.js'), [plan], { ...env, DRY });
+        const approved = fs.readFileSync(plan, 'utf8');
+        const nonFunction = JSON.parse(approved);
+        nonFunction.patch.pump = ['libs'];
+        fs.writeFileSync(plan, JSON.stringify(nonFunction));
+        assert.match((await deploy('0')).stderr, /ABORT: pump\.libs: only function nodes/);
+        fs.writeFileSync(plan, approved);
+        const missing = await deploy('0');
+        assert.match(missing.stderr, /ABORT: sender\.libs: module gx-test-module is not available to Node-RED on the GX/);
+        assert.equal(live.rev, 'r1');
+        assert.equal(fs.readdirSync(nr).some(name => name.startsWith('backup-')), false);
+        const fixture = path.join(nr, 'node_modules', 'gx-test-module');
+        fs.mkdirSync(fixture, { recursive: true });
+        fs.writeFileSync(path.join(fixture, 'index.js'), 'throw new Error("only resolve, do not load");');
+        saveSettings(false);
+        assert.match((await deploy('1')).stderr, /ABORT: Node-RED functionExternalModules is disabled/);
+        saveSettings(true);
         const dry = await deploy('1');
         assert.equal(dry.code, 0, dry.stderr);
+        assert.match(dry.stdout, /^module node:fs : builtin$/m);
+        assert.ok(dry.stdout.includes('module gx-test-module : ' + path.join(fixture, 'index.js')));
         assert.match(dry.stdout, /node to remove\s+: gone/);
         const pump = live.flows.find(node => node.id === 'pump');
         pump.wires = [['keep'], []];
@@ -169,7 +196,9 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const applied = await deploy('0');
         assert.equal(applied.code, 0, applied.stderr);
         assert.equal(live.rev, 'r2');
-        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'pump', 'selector', 'viewers']);
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep',
+            'sender', 'pump', 'selector', 'former-module-user', 'viewers']);
+        assert.equal(Object.hasOwn(live.flows.find(node => node.id === 'former-module-user'), 'libs'), false);
         assert.deepEqual(live.flows[1].wires, [[]]);
         assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
         assert.deepEqual(live.flows.find(node => node.id === 'sender'), sender);

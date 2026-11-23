@@ -25,6 +25,7 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { isBuiltin } = require('module');
 const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
@@ -32,6 +33,8 @@ const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
 const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
 const RAW_BASE = process.env.VICTRON_RAW_BASE || 'https://raw.githubusercontent.com';
 const NODE_RED_DIR = path.join(HOME, '.node-red');
+// Venus OS service settings, including settings-user.js, as documented in scripts/SECRETS.md.
+const NODE_RED_SETTINGS = process.env.VICTRON_NODE_RED_SETTINGS || '/usr/lib/node_modules/node-red/venus-settings.js';
 const DRY = process.env.DRY !== '0';
 const SCOPES = ['dashboard', 'automations'];
 const AUTOMATIONS_NODE = 'hpa-fn-01';
@@ -47,6 +50,36 @@ function stable(value) {
     return JSON.stringify(value === undefined ? null : value);
 }
 const withoutLayout = (node) => { const copy = Object.assign({}, node); delete copy.x; delete copy.y; delete copy.g; return stable(copy); };
+const fieldValue = (node, field) => field === 'libs' ? (Object.hasOwn(node, field) ? stable(node[field]) : '') : norm(node[field]);
+
+function preflightModules(nodes) {
+    const modules = new Map();
+    for (const node of nodes) {
+        if (node.type !== 'function' || !Object.hasOwn(node, 'libs')) continue;
+        if (!Array.isArray(node.libs)) fail(node.id + '.libs: expected a module list.');
+        for (const entry of node.libs) {
+            const name = entry?.module;
+            if (typeof name !== 'string' || (!isBuiltin(name) && !/^(?:@[\w-]+\/)?[\w-][\w.-]*$/.test(name))) {
+                fail(node.id + '.libs: invalid module name.');
+            }
+            if (!modules.has(name)) modules.set(name, node.id);
+        }
+    }
+    if (!modules.size) return;
+    let settings;
+    try { settings = require(NODE_RED_SETTINGS); }
+    catch { fail('Cannot load Node-RED service settings at ' + NODE_RED_SETTINGS + '.'); }
+    if (settings.functionExternalModules === false) fail('Node-RED functionExternalModules is disabled on the GX.');
+    const paths = [settings.userDir || NODE_RED_DIR, path.dirname(NODE_RED_SETTINGS)];
+    for (const [name, id] of modules) {
+        let resolved = 'builtin';
+        if (!isBuiltin(name)) {
+            try { resolved = require.resolve(name, { paths }); }
+            catch { fail(id + '.libs: module ' + name + ' is not available to Node-RED on the GX'); }
+        }
+        console.log('module ' + name + ' : ' + resolved);
+    }
+}
 
 function api(method, urlPath, body, headers) {
     return new Promise((resolve, reject) => {
@@ -174,9 +207,17 @@ function readPlan(file) {
             const reviewed = reviewedWires.has(id);
             const keepsLiveSettings = reviewed && node.type === 'tuya-smart-device';
             for (const field of plan.patch[id] || []) {
-                if (!['func', 'initialize', 'finalize', 'format', 'command'].includes(field)) fail('Field ' + field + ' cannot be deployed by a plan.');
-                if (norm(node[field]) !== norm(source[field])) changes.push(id + '.' + field + ': ' + norm(node[field]).split('\n').length + ' -> ' + norm(source[field]).split('\n').length + ' lines');
-                node[field] = source[field];
+                if (field === 'libs') {
+                    if (node.type !== 'function' || source.type !== 'function') fail(id + '.libs: only function nodes can deploy libs.');
+                    const before = fieldValue(node, field), after = fieldValue(source, field);
+                    if (before !== after) changes.push(id + '.libs: ' + (before || '(absent)') + ' -> ' + (after || '(absent)'));
+                    if (Object.hasOwn(source, field)) node.libs = source.libs;
+                    else delete node.libs;
+                } else {
+                    if (!['func', 'initialize', 'finalize', 'format', 'command'].includes(field)) fail('Field ' + field + ' cannot be deployed by a plan.');
+                    if (norm(node[field]) !== norm(source[field])) changes.push(id + '.' + field + ': ' + norm(node[field]).split('\n').length + ' -> ' + norm(source[field]).split('\n').length + ' lines');
+                    node[field] = source[field];
+                }
             }
             if (wireIds.has(id)) {
                 if (Object.hasOwn(source, 'wires')) node.wires = source.wires;
@@ -189,6 +230,7 @@ function readPlan(file) {
                 fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
             }
         }
+        preflightModules([...ids.filter(id => plan.patch[id]?.includes('libs')), ...nodes.add].map(id => repoById.get(id)));
         for (const id of nodes.add) {
             const node = repoById.get(id);
             payload.flows.push(Object.assign({}, node));
@@ -284,7 +326,7 @@ function readPlan(file) {
         for (const id of ids) {
             const got = afterById.get(id), want = repoById.get(id);
             if (!got) verifyFailed(id);
-            for (const field of plan.patch[id] || []) if (norm(got[field]) !== norm(want[field])) verifyFailed(id + '.' + field);
+            for (const field of plan.patch[id] || []) if (fieldValue(got, field) !== fieldValue(want, field)) verifyFailed(id + '.' + field);
             if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) ||
                 got.outputs !== liveById.get(id).outputs)) verifyFailed(id + '.wires/outputs');
         }

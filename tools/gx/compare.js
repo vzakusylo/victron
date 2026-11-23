@@ -26,7 +26,7 @@ const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { snapshot } = require('./live-snapshot.js');
+const { snapshot, stable } = require('./live-snapshot.js');
 const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
 
 const norm = (text) => String(text === undefined ? '' : text).replace(/\r\n/g, '\n');
@@ -44,10 +44,11 @@ function diffSnapshots(live, repo) {
         for (const field of fields) {
             const a = norm(other.code[field]), b = norm(node.code[field]);
             if (a === b) continue;
-            const liveSet = new Set(lines(a)), repoSet = new Set(lines(b));
+            const count = field === 'libs' ? value => value ? [value] : [] : lines;
+            const liveSet = new Set(count(a)), repoSet = new Set(count(b));
             const item = { id: node.id, type: node.type, name: node.name, field,
-                added: lines(b).filter((line) => !liveSet.has(line)).length,
-                removed: lines(a).filter((line) => !repoSet.has(line)).length };
+                added: count(b).filter((line) => !liveSet.has(line)).length,
+                removed: count(a).filter((line) => !repoSet.has(line)).length };
             (a.trimEnd() === b.trimEnd() ? result.trailing : result.code).push(item);
         }
         if (node.rest !== other.rest) result.config.push({ id: node.id, type: node.type, name: node.name });
@@ -132,14 +133,15 @@ function main() {
     const fieldAt = (rev, id, field) => {
         if (!cache[rev]) cache[rev] = new Map(JSON.parse(git('show', rev + ':flows.json').toString('utf8')).map((node) => [node.id, node]));
         const node = cache[rev].get(id);
-        return node ? norm(node[field]) : null;
+        return node ? (field === 'libs' && Object.hasOwn(node, field) ? stable(node[field]) : norm(node[field])) : null;
     };
     const liveById = new Map(live.nodes.map((node) => [node.id, node]));
     const list = (title, items) => {
         console.log('\n' + title + ' (' + items.length + ')');
         for (const item of items) {
-            let line = '  ' + item.id.padEnd(24) + item.type.padEnd(18) + (item.name || '').padEnd(30);
-            if (item.field) line += item.field.padEnd(11) + '+' + item.added + ' -' + item.removed;
+            const label = item.field === 'libs' ? item.id + '.libs' : item.id;
+            let line = '  ' + label.padEnd(24) + item.type.padEnd(18) + (item.name || '').padEnd(30);
+            if (item.field) line += (item.field === 'libs' ? '' : item.field).padEnd(11) + '+' + item.added + ' -' + item.removed;
             if (item.field && revisions.length) {
                 const text = norm(liveById.get(item.id).code[item.field]).trimEnd();
                 const match = revisions.find((rev) => { const at = fieldAt(rev, item.id, item.field); return at !== null && at.trimEnd() === text; });
