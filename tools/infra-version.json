@@ -136,8 +136,8 @@
     {
       "i": 23,
       "date": "2026-11-23",
-      "pr": null,
-      "what": "Test grid isolation, lag and heartbeat"
+      "pr": 152,
+      "what": "Test GX emulator: retry MQTT connect at start"
     }
   ]
 }
