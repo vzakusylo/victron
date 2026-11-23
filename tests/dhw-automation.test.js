@@ -144,6 +144,18 @@ test('fresh Silent or a new DHW run resets the pause; cold protection bypasses i
     }
 });
 
+test('a routine Silent SET already in the queue is dropped and logged during backoff', () => {
+    const { c, tick, logs } = silentRetryCycle();
+    assert.deepEqual([tick(1), tick(2), tick(3)], [1, 1, 1]);
+    c.node.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'dhw',
+        run: c.dhw().run, silentPhase: c.dhw().since, text: 'mode Silent' }]);
+    c.node.context.set('pumping', true);
+    c.node.context.set('pumpAt', NOW - 10 * MIN);
+    assert.equal(tick(4), 0);
+    assert.ok(logs.includes('queued mode Silent write dropped (retry paused)'));
+    assert.equal(c.node.context.get('queue').length, 0);
+});
+
 test('the DHW start curve uses the pump\'s live outdoor value, not a stale average', () => {
     const { c, dps } = staleOutdoorCycle();
     c.tick(NOW + 30 * S, dps, true);
