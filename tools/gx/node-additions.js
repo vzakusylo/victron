@@ -45,12 +45,13 @@ function wireLists(node) {
     return wires;
 }
 
-function additionPlan(live, repo, allowNewNodes, allowNewWires = []) {
+function additionPlan(live, repo, allowNewNodes, allowNewWires = [],
+    { baseline = [], beforeRemovals = live, removed = [] } = {}) {
     const byId = (nodes) => new Map(nodes.map((node) => [node.id, node]));
     const original = byId(live), source = byId(repo);
     if (original.size !== live.length || source.size !== repo.length) fail('Duplicate node IDs.');
-    const removed = live.filter((node) => !source.has(node.id));
-    if (removed.length) fail('Removing GX nodes is not supported: ' + removed.map((node) => node.id).join(', ') + '.');
+    const unexpected = live.filter((node) => !source.has(node.id));
+    if (unexpected.length) fail('Removing GX nodes is not supported: ' + unexpected.map((node) => node.id).join(', ') + '.');
     const additions = repo.filter((node) => !original.has(node.id));
     const reviewed = new Set(allowNewWires);
     if (reviewed.size !== allowNewWires.length) fail('Duplicate source IDs in allow_new_wires.');
@@ -108,37 +109,61 @@ function additionPlan(live, repo, allowNewNodes, allowNewWires = []) {
     }
 
     const wire = [];
-    const newConnections = [];
+    const rewires = [];
+    const recorded = byId(baseline), before = byId(beforeRemovals), removedIds = new Set(removed);
     for (const node of repo) {
-        const before = original.get(node.id);
+        const current = original.get(node.id);
         const optedIn = reviewed.has(node.id);
-        if (!before || (!optedIn && !wireLists(node).flat().some((id) => added.has(id)))) continue;
-        const oldWires = wireLists(before), newWires = wireLists(node);
+        if (!current || (!optedIn && !wireLists(node).flat().some((id) => added.has(id)))) continue;
+        const oldWires = wireLists(current), newWires = wireLists(node);
+        if (optedIn) {
+            const gx = before.get(node.id), known = recorded.get(node.id);
+            if (!gx || !known || gx.type !== known.type || gx.z !== known.z || !equal(gx.wires, known.wires) ||
+                (node.type === 'function' && gx.outputs !== known.outputs)) {
+                fail(node.id + ': GX wires do not match the recorded commit (including function output count).');
+            }
+            if (gx.type !== node.type || gx.z !== node.z || original.get(node.z)?.type !== 'tab') {
+                fail(node.id + ': reviewed wiring requires the same runtime node type and an existing tab.');
+            }
+            if (node.type === 'function' && (gx.outputs !== oldWires.length || node.outputs !== newWires.length)) {
+                fail(node.id + ': inconsistent function output counts for reviewed wiring.');
+            }
+            if (equal(gx.wires, node.wires) && (node.type !== 'function' || gx.outputs === node.outputs)) {
+                fail(node.id + ': no wiring changes to review in allow_new_wires.');
+            }
+            const destinations = new Set(newWires.flat());
+            for (const id of new Set(oldWires.flat())) {
+                if (!destinations.has(id) && !original.has(id) && !removedIds.has(id)) {
+                    fail(node.id + ': dropped wire target ' + id + ' is neither kept nor an approved removal.');
+                }
+            }
+            for (const out of newWires) {
+                if (new Set(out).size !== out.length) fail(node.id + ': duplicate destinations in a reviewed output.');
+                for (const id of out) {
+                    const dest = final.get(id);
+                    if (!dest || dest.z !== node.z || ['tab', 'group'].includes(dest.type)) fail(node.id + ': invalid wire target ' + id + '.');
+                }
+            }
+            const describeWire = id => ({ id, name: (source.get(id) || before.get(id) || recorded.get(id))?.name || '',
+                status: added.has(id) ? 'new' : removedIds.has(id) ? 'approved removal' : 'existing' });
+            for (let output = 0; output < Math.max(oldWires.length, newWires.length); output++) {
+                rewires.push({ id: node.id, output, gx: oldWires[output]?.map(describeWire), target: newWires[output]?.map(describeWire) });
+            }
+            reviewed.delete(node.id);
+            wire.push(node.id);
+            continue;
+        }
         const preservesWires = newWires.length >= oldWires.length && newWires.every((out, i) =>
-            equal(optedIn ? out.slice(0, oldWires[i]?.length || 0) : out.filter((id) => !added.has(id)), oldWires[i] || []) &&
+            equal(out.filter((id) => !added.has(id)), oldWires[i] || []) &&
             (i < oldWires.length || out.length > 0) &&
             new Set(out).size === out.length &&
             out.every((id) => !added.has(id) || (added.get(id).type !== 'group' && added.get(id).z === node.z)));
-        const preservesOutputs = before.outputs === node.outputs
+        const preservesOutputs = current.outputs === node.outputs
             ? newWires.length === oldWires.length
-            : node.type === 'function' && before.outputs === oldWires.length && node.outputs === newWires.length;
-        if (before.type !== node.type || before.z !== node.z || !preservesWires || !preservesOutputs) {
-            if (optedIn) fail(node.id + ': reviewed wires must be append-only and may only grow function outputs.');
+            : node.type === 'function' && current.outputs === oldWires.length && node.outputs === newWires.length;
+        if (current.type !== node.type || current.z !== node.z || !preservesWires || !preservesOutputs) {
             fail(node.id + ': a wire patch may only add connections (and necessary function outputs) to new nodes. ' +
-                'To add a connection to an existing node, list ' + node.id + ' in allow_new_wires after reviewing the compare.');
-        }
-        if (optedIn) {
-            for (const [output, out] of newWires.entries()) {
-                for (const dest of out.slice(oldWires[output]?.length || 0)) {
-                    const target = final.get(dest);
-                    if (original.get(node.z)?.type !== 'tab' || !target || target.z !== node.z || ['tab', 'group'].includes(target.type)) {
-                        fail(node.id + ': invalid wire target ' + dest + '.');
-                    }
-                    newConnections.push({ id: node.id, output, dest, name: source.get(dest).name || '', added: added.has(dest) });
-                }
-            }
-            if (newConnections.at(-1)?.id !== node.id) fail(node.id + ': no new connections to review in allow_new_wires.');
-            reviewed.delete(node.id);
+                'For reviewed rewiring, list ' + node.id + ' in allow_new_wires after reviewing the compare.');
         }
         wire.push(node.id);
     }
@@ -159,7 +184,7 @@ function additionPlan(live, repo, allowNewNodes, allowNewWires = []) {
         groupMembers.set(id, members.concat(ordered.slice(next)));
     }
     return { add: additions.map((node) => node.id), wire, ...(groupMembers.size ? { groups: [...groupMembers.keys()], groupMembers } : {}),
-        ...(newConnections.length ? { newConnections } : {}) };
+        ...(rewires.length ? { rewires } : {}) };
 }
 
 function recordedCommit(info = '') {
@@ -169,17 +194,18 @@ function recordedCommit(info = '') {
     }
     const record = JSON.parse(records[0][1]);
     if (!/^[a-f0-9]{40}$/.test(record?.dashboard || '') || record.dashboard !== record.automations) {
-        fail('An identical Git deployment SHA for dashboard and automations is required for removals.');
+        fail('An identical Git deployment SHA for dashboard and automations is required for topology changes.');
     }
     return record.dashboard;
 }
 
-function removalPlan(live, target, allowed, baseline = []) {
+function removalPlan(live, target, allowed, baseline = [], allowNewWires = []) {
     const byId = nodes => new Map(nodes.map(node => [node.id, node]));
     const original = byId(live), source = byId(target), previous = byId(baseline);
     if (original.size !== live.length || source.size !== target.length || previous.size !== baseline.length) fail('Duplicate node IDs.');
     const remove = live.filter(node => !source.has(node.id)).map(node => node.id);
     const removed = new Set(remove), approved = new Set(allowed);
+    const reviewed = new Set(allowNewWires);
     if (approved.size !== allowed.length || allowed.some(id => !/^[a-zA-Z0-9_.-]+$/.test(id))) fail('Invalid or duplicate removal IDs.');
     const unexpected = remove.filter(id => !approved.has(id));
     if (unexpected.length) fail('Removing GX nodes is not supported without listing every removal: ' + unexpected.join(', ') + '.');
@@ -209,6 +235,8 @@ function removalPlan(live, target, allowed, baseline = []) {
         if (!from) continue;
         const fields = Object.create(null);
         for (const key of ['wires', 'links', 'nodes']) {
+            // The reviewed wire path validates these against the unmodified GX before apply.
+            if (key === 'wires' && reviewed.has(node.id)) continue;
             const recorded = previous.get(node.id)?.topology[key];
             const groupMembers = key === 'nodes' && current.type === 'group';
             const recordedRemoval = groupMembers && Array.isArray(recorded) && recorded.some(id => removed.has(id));

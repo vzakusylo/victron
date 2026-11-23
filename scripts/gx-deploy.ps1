@@ -9,7 +9,7 @@
 #   ... -AllowReplaceDeployedLines  allow GX-only replacements only when live code matches its recorded deployment
 #   ... -AllowNewNodes              plan and deploy reviewed additions from the commit (review the dry run first)
 #   ... -AllowRemovedNodes 'a,b'    remove exactly these Git-verified nodes (review the dry run first)
-#   ... -AllowNewWires 'a,b'        review append-only wires from these sources to existing nodes
+#   ... -AllowNewWires 'a,b'        review wiring changes from these sources against the recorded commit
 #   ... -UseWorkTreeScripts         development only: run the scripts of the work tree (the deployed files still come from the commit)
 #   ... -Steps                      only print the steps
 #
@@ -189,7 +189,7 @@ if (($plan.allowNewWires -join ',') -cne ((($AllowNewWires -split ',') | ForEach
     Stop-Run 'reviewed wire plan does not match -AllowNewWires (the pinned planner must support it).'
 }
 Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $($plan.remove.Count) removal(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
-$planOutput | Where-Object { $_ -match '^(node to add|node to remove|wire patch|removal wiring|group patch|added connection)' } | ForEach-Object { Write-Host $_ }
+$planOutput | Where-Object { $_ -match '^(node to add|node to remove|wire patch|removal wiring|group patch|reviewed wiring)' } | ForEach-Object { Write-Host $_ }
 
 Step '5/8 window'
 $deadline = (Get-Date).AddMinutes($WaitWindowMin)

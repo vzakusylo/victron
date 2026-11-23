@@ -35,6 +35,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | Item | State |
 |---|---|
+| D-R6 Reviewed rewires in deploy | In progress: `deploy-reviewed-wires` |
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
 | Next | Automatic: every green Test GX on a master push deploys it. |

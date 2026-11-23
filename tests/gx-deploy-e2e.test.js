@@ -90,11 +90,12 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
                 nodes: ['battery', 'keep'], x: 10, y: 20, w: 200, h: 80 },
             { id: 'battery', type: 'victron-input-battery', z: 'tab', g: 'layout', wires: [['keep']] },
             { id: 'keep', type: 'delay', name: 'Keep', z: 'tab', g: 'layout', wires: [[]] },
-            { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [[], []] }];
+            { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [[], []] },
+            { id: 'pump', type: 'tuya-smart-device', z: 'tab', deviceSetting: 'old', wires: [['keep'], ['gone']] }];
         const sender = { ...old[8], outputs: 3, wires: [['keep'], [], ['keep']] };
         const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '', wires: [['keep']] };
         const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, old[3], old[4],
-            { ...old[5], nodes: ['keep'] }, old[7], sender, viewers];
+            { ...old[5], nodes: ['keep'] }, old[7], sender, { ...old[9], deviceSetting: 'target', wires: [['keep'], ['viewers']] }, viewers];
         const commit = (flows, label) => {
             fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
             git('add', '--all');
@@ -104,6 +105,7 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const base = commit(old, 'previous deployment');
         const target = commit(next, 'removal');
         let live = require('../tools/deploy-version.js').stampDeployment({ rev: 'r1', flows: old }, { dashboard: base, automations: base });
+        live.flows = live.flows.map(node => node.id === 'pump' ? { ...node, deviceSetting: 'live' } : node);
         const api = await listen((req, res) => {
             if (req.method === 'GET') return res.end(JSON.stringify(live));
             let body = '';
@@ -132,10 +134,10 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
         fs.writeFileSync(input, snap.stdout);
         const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan,
-            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender'], env, cwd);
+            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender,pump'], env, cwd);
         assert.equal(result.code, 0, result.stderr);
-        assert.match(result.stdout, /^added connection: sender\[0\] -> keep \("Keep", existing\)$/m);
-        assert.match(result.stdout, /^added connection: sender\[2\] -> keep \("Keep", existing\)$/m);
+        assert.match(result.stdout, /^reviewed wiring\s+: sender\[2\]: GX \(no output\) -> target \[keep \("Keep", existing\)\]$/m);
+        assert.match(result.stdout, /^reviewed wiring\s+: pump\[1\]: GX \[gone \("", approved removal\)\] -> target \[viewers \("", new\)\]$/m);
         const report = require('../tools/gx/deploy-report.js');
         const removals = report.plannedRemovals(cwd, target, cwd);
         assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }, { id: 'battery', type: 'victron-input-battery', name: '' }]);
@@ -144,6 +146,12 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const dry = await deploy('1');
         assert.equal(dry.code, 0, dry.stderr);
         assert.match(dry.stdout, /node to remove\s+: gone/);
+        const pump = live.flows.find(node => node.id === 'pump');
+        pump.wires = [['keep'], []];
+        const driftedWire = await deploy('0');
+        assert.match(driftedWire.stderr, /pump: GX wires do not match the recorded commit/);
+        assert.equal(live.rev, 'r1');
+        pump.wires = [['keep'], ['gone']];
         assert.match(dry.stdout, /node to remove\s+: battery/);
         live.flows[2].name = 'edited since snapshot';
         const rejected = await deploy('0');
@@ -153,10 +161,11 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const applied = await deploy('0');
         assert.equal(applied.code, 0, applied.stderr);
         assert.equal(live.rev, 'r2');
-        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'viewers']);
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'pump', 'viewers']);
         assert.deepEqual(live.flows[1].wires, [[]]);
         assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
         assert.deepEqual(live.flows.find(node => node.id === 'sender'), sender);
+        assert.deepEqual(live.flows.find(node => node.id === 'pump'), { ...next.find(node => node.id === 'pump'), deviceSetting: 'live' });
         assert.deepEqual(live.flows.find(node => node.id === 'viewers'), viewers);
     });
 

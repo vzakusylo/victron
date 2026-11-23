@@ -184,6 +184,18 @@ function fixture() {
     return { live, repo, node };
 }
 
+test('reviewed rewires replace the second output of a device with a new node', () => {
+    const live = [{ id: 'tab', type: 'tab' }, { id: 'old', type: 'change', z: 'tab' },
+        { id: 'pump', type: 'tuya-smart-device', z: 'tab', wires: [['old'], ['old']] }];
+    const repo = [...live.slice(0, 2), { ...live[2], wires: [['old'], ['status']] }, { id: 'status', type: 'change', z: 'tab' }];
+    assert.deepEqual(additionPlan(live, repo, true, ['pump'], { baseline: live }).wire, ['pump']);
+    assert.throws(() => additionPlan(live, repo, true), /list pump in allow_new_wires/);
+    const drift = [...live.slice(0, 2), { ...live[2], wires: [['old'], []] }];
+    assert.throws(() => additionPlan(drift, repo, true, ['pump'], { baseline: live }), /GX wires do not match the recorded commit/);
+    const dangling = [...live.slice(0, 2), { ...live[2], wires: [['old'], ['absent']] }];
+    assert.throws(() => additionPlan(dangling, repo, true, ['pump'], { baseline: dangling }), /dropped wire target absent/);
+});
+
 test('reviewed wire sources can append connections and trailing outputs to existing nodes without additions', () => {
     const tab = { id: 'tab', type: 'tab' };
     const existing = ['a', 'b', 'c'].map(id => ({ id, type: 'debug', z: 'tab' }));
@@ -191,12 +203,13 @@ test('reviewed wire sources can append connections and trailing outputs to exist
     const live = [tab, ...existing, sender];
     const target = (wires, outputs = wires.length) => [tab, ...existing, { ...sender, wires, outputs }];
     const wires = [['a', 'b', 'c'], [], ['c']];
-    assert.deepEqual(additionPlan(live, target(wires), false, ['sender']).wire, ['sender']);
+    const review = { baseline: live };
+    assert.deepEqual(additionPlan(live, target(wires), false, ['sender'], review).wire, ['sender']);
     assert.deepEqual(additionPlan(live, target(wires), false).wire, []);
-    for (const invalid of [[['a', 'c'], [], ['c']], [['b', 'a', 'c'], [], ['c']], [['a', 'b', 'c']]]) {
-        assert.throws(() => additionPlan(live, target(invalid), false, ['sender']), /append-only/);
+    for (const reviewed of [[['a', 'c'], [], ['c']], [['b', 'a', 'c'], [], ['c']], [['a', 'b', 'c']]]) {
+        assert.deepEqual(additionPlan(live, target(reviewed), false, ['sender'], review).wire, ['sender']);
     }
-    assert.throws(() => additionPlan(live, target([['a', 'b', 'missing'], []]), false, ['sender']), /invalid wire target missing/);
+    assert.throws(() => additionPlan(live, target([['a', 'b', 'missing'], []]), false, ['sender'], review), /invalid wire target missing/);
 });
 
 test('adding a node does not implicitly opt its sources into new wires to existing nodes', () => {
@@ -206,10 +219,8 @@ test('adding a node does not implicitly opt its sources into new wires to existi
     repo.push(node('other-target', 'file'));
     sender.wires[0].push('other-target');
     assert.throws(() => additionPlan(live, repo, true), /list existing in allow_new_wires after reviewing the compare/);
-    assert.deepEqual(additionPlan(live, repo, true, ['existing']).newConnections, [
-        { id: 'existing', output: 0, dest: 'handler', name: '', added: true },
-        { id: 'existing', output: 0, dest: 'other-target', name: '', added: false }
-    ]);
+    assert.deepEqual(additionPlan(live, repo, true, ['existing'], { baseline: live }).rewires[0].target.map(({ id, status }) => [id, status]),
+        [['old-target', 'existing'], ['handler', 'new'], ['other-target', 'existing']]);
 });
 
 test('dashboard-wide nodes can be added without a group, but still need an existing tab', () => {

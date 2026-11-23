@@ -76,7 +76,8 @@ function readPlan(file) {
         if (plan[key] === undefined) plan[key] = [];
         if (!Array.isArray(plan[key]) || plan[key].some((id) => typeof id !== 'string')) fail('plan.' + key + ' must list node IDs');
     }
-    if (plan.remove.length && (!hex(plan.removalBase?.sha, 40) || !hex(plan.removalBase?.flowsSha256, 64))) fail('Removal baseline SHA and hash are required.');
+    if ((plan.remove.length || plan.allowNewWires.length) &&
+        (!hex(plan.removalBase?.sha, 40) || !hex(plan.removalBase?.flowsSha256, 64))) fail('Topology baseline SHA and hash are required.');
     if (!Array.isArray(plan.scopes) || !plan.scopes.length || plan.scopes.some((scope) => !SCOPES.includes(scope))) fail('plan.scopes must list dashboard and/or automations');
     plan.tools = plan.tools || {};
     for (const [tool, hash] of Object.entries(plan.tools)) {
@@ -129,24 +130,29 @@ function readPlan(file) {
         if (!(number(liveTab.label) <= number(repoTab.label))) fail('Live ' + liveTab.label + ' is newer than the commit ' + repoTab.label + '.');
 
         let removals = { remove: [], reconnect: {} };
+        let previous = [];
+        if (plan.remove.length || plan.allowNewWires.length) {
+            const base = plan.removalBase;
+            if (recordedCommit(liveTab.info) !== base.sha) fail('Live deployment record does not match the topology baseline.');
+            previous = JSON.parse(fs.readFileSync(download('flows.json', base.flowsSha256, base.sha), 'utf8'));
+        }
         if (plan.remove.length) {
             const { snapshot } = require('./live-snapshot.js');
-            const base = plan.removalBase;
-            if (recordedCommit(liveTab.info) !== base.sha) fail('Live deployment record does not match the removal baseline.');
-            const previous = JSON.parse(fs.readFileSync(download('flows.json', base.flowsSha256, base.sha), 'utf8'));
             const topology = flows => snapshot(flows, null, { topology: true }).nodes;
-            removals = removalPlan(topology(original.flows), topology(repoFlows), plan.remove, topology(previous));
+            removals = removalPlan(topology(original.flows), topology(repoFlows), plan.remove, topology(previous), plan.allowNewWires);
             payload.flows = cleanTopology(payload.flows, removals);
             liveById.clear();
             for (const node of payload.flows) liveById.set(node.id, node);
             for (const id of removals.remove) console.log('node to remove  : ' + id);
             for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));
         }
-        const nodes = additionPlan(payload.flows, repoFlows, plan.add.length > 0, plan.allowNewWires);
+        const nodes = additionPlan(payload.flows, repoFlows, plan.add.length > 0, plan.allowNewWires,
+            { baseline: previous, beforeRemovals: original.flows, removed: removals.remove });
         for (const key of ['add', 'wire', 'groups']) {
             if (stable(plan[key]) !== stable(nodes[key] || [])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
         }
         const wireIds = new Set(nodes.wire);
+        const reviewedWires = new Set(plan.allowNewWires);
         const ids = [...new Set([...Object.keys(plan.patch), ...wireIds])];
         if (liveById.has(AUTOMATIONS_NODE)) {
             const raw = JSON.parse(await api('GET', '/context/node/' + AUTOMATIONS_NODE + '/dhw'));
@@ -171,11 +177,14 @@ function readPlan(file) {
                 node[field] = source[field];
             }
             if (wireIds.has(id)) {
-                node.wires = source.wires;
-                if (Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
+                if (Object.hasOwn(source, 'wires')) node.wires = source.wires;
+                else delete node.wires;
+                if ((!reviewedWires.has(id) || node.type === 'function') && Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
                 console.log('wire patch      : ' + id + ' ' + JSON.stringify(node.wires));
             }
-            if (withoutLayout(node) !== withoutLayout(source)) fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
+            if ((!reviewedWires.has(id) || node.type === 'function') && withoutLayout(node) !== withoutLayout(source)) {
+                fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
+            }
         }
         for (const id of nodes.add) {
             const node = repoById.get(id);
@@ -273,7 +282,8 @@ function readPlan(file) {
             const got = afterById.get(id), want = repoById.get(id);
             if (!got) verifyFailed(id);
             for (const field of plan.patch[id] || []) if (norm(got[field]) !== norm(want[field])) verifyFailed(id + '.' + field);
-            if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) || got.outputs !== want.outputs)) verifyFailed(id + '.wires/outputs');
+            if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) ||
+                ((!reviewedWires.has(id) || want.type === 'function') && got.outputs !== want.outputs))) verifyFailed(id + '.wires/outputs');
         }
         console.log('DEPLOYED        : ' + afterById.get(repoTab.id).label + ' (rev ' + JSON.parse(reply).rev.slice(0, 12) + ')');
         console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');
