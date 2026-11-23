@@ -24,6 +24,14 @@ return msg;
 
 function gateTickInjects(flows) {
     return flows.flatMap(node => {
+        if (node.id === 'grid-cadence-inject-01') {
+            const id = 'test-gx-grid-pause';
+            return [{ ...node, wires: [[id]] }, {
+                id, type: 'function', z: node.z, name: 'Test GX grid pause gate',
+                func: "return flow.get('testGxGridExercise') === 'pause' ? null : msg;",
+                outputs: 1, wires: node.wires
+            }];
+        }
         if (node.type !== 'inject' || !GATED_INJECTS.includes(node.id)) return [node];
         const seconds = Number(node.repeat);
         if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Cannot gate inject without a repeat: ' + node.id);

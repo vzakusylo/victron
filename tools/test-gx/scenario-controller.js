@@ -15,10 +15,24 @@ function contextBridgeSource() {
     return `const keys = ${JSON.stringify(CONTEXT_KEYS)};
 try {
     if (msg.payload.action === 'restore') {
+        flow.set('testGxGridExercise', undefined);
         for (const key of keys) {
             const saved = msg.payload.context[key];
             if (!saved) throw Error('Missing context snapshot: ' + key);
             flow.set(key, saved.exists ? saved.value : undefined);
+        }
+    } else if (msg.payload.action === 'gridExercise') {
+        flow.set('testGxGridExercise', msg.payload.mode);
+        if (msg.payload.mode === 'load') {
+            const stop = Date.now() + 23000;
+            const rows = Array.from({ length: 3000 }, (_, i) => ({ i, value: 'synthetic dashboard row' }));
+            const work = () => {
+                if (Date.now() >= stop || flow.get('testGxGridExercise') !== 'load') return;
+                const end = Date.now() + 30;
+                do { JSON.parse(JSON.stringify(rows)); } while (Date.now() < end);
+                setTimeout(work, 70);
+            };
+            setTimeout(work, 0);
         }
     } else if (msg.payload.action === 'reset') {
         flow.set('controllerConstantsOverrides', {});
@@ -145,6 +159,7 @@ async function preserveController(request, wait, scenario, options = {}) {
         return {
             backupPath,
             restore,
+            gridExercise: mode => request('POST', route, { action: 'gridExercise', mode }),
             async apply(action) {
                 if (action.protection) {
                     await inject('protection', '', {

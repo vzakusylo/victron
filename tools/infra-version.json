@@ -1,5 +1,5 @@
 {
-  "i": 23,
+  "i": 24,
   "changes": [
     {
       "i": 1,
@@ -138,6 +138,12 @@
       "date": "2026-11-23",
       "pr": 152,
       "what": "Test GX emulator: retry MQTT connect at start"
+    },
+    {
+      "i": 24,
+      "date": "2026-11-23",
+      "pr": 153,
+      "what": "Test grid isolation, lag and heartbeat"
     }
   ]
 }

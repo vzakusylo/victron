@@ -56,6 +56,7 @@ function loadGrid({ captureTrace = false } = {}) {
     const bookkeeping = loadNode('63 Grid bookkeeping.js', undefined, control.flow);
     const cadence = { topic: 'grid-control-tick' };
     function runRaw(msg, opts) {
+        if (msg.topic === 'tariff-history') bookkeeping.run(msg, opts);
         const call = control.run(msg, opts);
         if (!call.result) return call;
         if (captureTrace) bookkeeping.context.set('lastTraceTs', 0);

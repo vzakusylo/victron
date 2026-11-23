@@ -20,7 +20,7 @@ const AUTOMATIONS_NODE = 'hpa-fn-01';
 const AUTOMATIONS_FLOW = '995ac4ed6222a706';
 const BMS_VIEW = 'bmsWatchdogState';
 const GRID_BOOKKEEPING = 'grid-bookkeeping-01';
-const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth', 'gridFeedbackAlarm'];
+const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth', 'gridFeedbackAlarm', 'gridLoopHealth'];
 
 class ScenarioTimeoutError extends Error {}
 
@@ -295,12 +295,18 @@ function validateScenario(scenario, source = 'scenario') {
         }
         for (const key of ['view', 'bms', 'grid']) if (step.expect[key] !== undefined && (!Array.isArray(step.expect[key]) ||
             step.expect[key].some(item => !item || typeof item !== 'object' || Array.isArray(item) ||
-                Object.keys(item).some(key => !['path', 'equals', 'contains'].includes(key)) ||
+                Object.keys(item).some(field => !['path', 'equals', 'contains'].includes(field) &&
+                    !(key === 'grid' && field === 'lessThan')) ||
                 typeof item.path !== 'string' || !item.path ||
                 key === 'grid' && (!scenario.controller || !GRID_VIEWS.includes(item.path.split('.')[0])) ||
-                Object.hasOwn(item, 'equals') === Object.hasOwn(item, 'contains') ||
+                ['equals', 'contains', 'lessThan'].filter(field => Object.hasOwn(item, field)).length !== 1 ||
+                Object.hasOwn(item, 'lessThan') && !Number.isFinite(item.lessThan) ||
                 Object.hasOwn(item, 'contains') && typeof item.contains !== 'string'))) {
-            throw new Error(`${source} step ${index + 1} expect.${key} must contain path and exactly one of equals or contains`);
+            throw new Error(`${source} step ${index + 1} expect.${key} must contain path and exactly one comparison`);
+        }
+        if (step.gridExercise !== undefined && (!scenario.controller ||
+            !['pause', 'resume', 'load'].includes(step.gridExercise) || faketimeRate(scenario.faketime) !== 1)) {
+            throw new Error(`${source} step ${index + 1} gridExercise requires a controller and real-time clock rate`);
         }
         if (step.expect.if_changed !== undefined &&
             (typeof step.expect.if_changed !== 'boolean' || !scenario.observe || !step.expect.writes)) {
@@ -439,9 +445,14 @@ function assertLog(fresh, expected, scenarioName, stepIndex) {
 function assertView(view, expected, scenarioName, stepIndex) {
     for (const wanted of expected) {
         const got = wanted.path.split('.').reduce((value, key) => value === null || value === undefined ? undefined : value[key], view);
-        const ok = Object.hasOwn(wanted, 'equals') ? isEqual(got, wanted.equals) : typeof got === 'string' && got.includes(wanted.contains);
+        const ok = Object.hasOwn(wanted, 'equals') ? isEqual(got, wanted.equals)
+            : Object.hasOwn(wanted, 'lessThan') ? Number.isFinite(got) && got < wanted.lessThan
+            : typeof got === 'string' && got.includes(wanted.contains);
         if (!ok) {
-            throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: view ${wanted.path} expected ${Object.hasOwn(wanted, 'equals') ? formatValue(wanted.equals) : `text containing ${formatValue(wanted.contains)}`}, received ${formatValue(got)}`);
+            const expectation = Object.hasOwn(wanted, 'equals') ? formatValue(wanted.equals)
+                : Object.hasOwn(wanted, 'lessThan') ? `a number below ${wanted.lessThan}`
+                : `text containing ${formatValue(wanted.contains)}`;
+            throw new ScenarioAssertionError(`${scenarioName} step ${stepIndex}: view ${wanted.path} expected ${expectation}, received ${formatValue(got)}`);
         }
     }
 }
@@ -752,6 +763,7 @@ async function runScenario(scenario, options = {}) {
                 await controller.apply({ protection: scenario.controller.protection || {} });
                 controllerSettingsApplied = true;
             }
+            if (step.gridExercise) await controller.gridExercise(step.gridExercise);
             await applyActions(api, step);
             inputs = { ...inputs, ...step.inputs };
             if (step.controller) await controller.apply(step.controller);
@@ -800,7 +812,8 @@ async function runScenario(scenario, options = {}) {
             if (step.expect.grid) {
                 const keys = [...new Set(step.expect.grid.map(item => item.path.split('.')[0]))];
                 const values = await Promise.all(keys.map(key => admin.readContext('node',
-                    key === 'gridFeedbackAlarm' ? 'e4766632305fb432' : GRID_BOOKKEEPING, key)));
+                    key === 'gridFeedbackAlarm' ? 'e4766632305fb432' :
+                        key === 'gridLoopHealth' ? 'grid-loop-health-01' : GRID_BOOKKEEPING, key)));
                 assertView(Object.fromEntries(keys.map((key, i) => [key, values[i]])), step.expect.grid, scenario.name, index + 1);
             }
         }

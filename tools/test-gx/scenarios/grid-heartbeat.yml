@@ -1,0 +1,20 @@
+name: A silent grid tick alarms once and recovers when the tick returns
+faketime: '@2026-11-16 13:00:00 x1'
+controller: {"protection":{}}
+observe: [{"service":"settings","path":"/Settings/CGwacs/AcPowerSetPoint"}]
+initial: {"inputs":{"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":1500}}
+steps:
+  - when: 0s
+    settle: 4s
+    expect: {"grid":[{"path":"gridLoopHealth.silent","equals":false}]}
+  - when: 5s
+    gridExercise: pause
+    settle: 10.3s
+    expect: {"grid":[{"path":"gridLoopHealth.silent","equals":true},{"path":"gridLoopHealth.alerts","equals":1},{"path":"gridLoopHealth.alarmAgeMs","lessThan":10200}]}
+  - when: 16s
+    settle: 3s
+    expect: {"grid":[{"path":"gridLoopHealth.alerts","equals":1}]}
+  - when: 20s
+    gridExercise: resume
+    settle: 3s
+    expect: {"grid":[{"path":"gridLoopHealth.silent","equals":false},{"path":"gridLoopHealth.alerts","equals":1}]}
