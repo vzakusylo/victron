@@ -4,8 +4,8 @@
 // Source of the function node "Battery + Grid Controller" in flows.json
 // (sync: `node tools/flows.js sync`, every flows.json change bumps the tab label d#<n>).
 //
-// Outputs 1-3: DVCC, ESS and VE.Bus. Outputs 4-7 stay silent because the deploy planner
-// cannot remove existing wires. Output 8 hands a tick snapshot to Grid bookkeeping.
+// Outputs 1-3: DVCC, ESS and VE.Bus (existing Victron writers and rate gates).
+// Output 4: GX alarm; 5-7: legacy, silent; 8: bookkeeping; 9: Automation log and alert digest.
 //
 // Inputs (msg.topic):
 //   battery-voltage, battery-consumed-ah, grid-power (signed, negative = export), ac-load-power,
@@ -64,6 +64,48 @@ const SENSOR_KEYS = new Map([
 // #include lib/grid/constants.js
 // #include lib/grid/helpers.js
 // #include lib/grid/control.js
+// #include lib/grid/feedback.js
+
+const feedbackChannels = [
+    { name: 'DVCC', topic: 'charge-current-limit', path: '/Settings/SystemSetup/MaxChargeCurrent', gap: 10100, tolerance: 0.01 },
+    { name: 'ESS', topic: 'grid-setpoint', path: '/Settings/CGwacs/AcPowerSetPoint', gap: 10100, tolerance: 0 },
+    { name: 'VE.Bus', topic: 'ac-input-current-limit', path: '/Ac/In/1/CurrentLimit', gap: 0, tolerance: 0.01 }
+];
+
+async function readGridOutput(channel) {
+    const address = env.get('DBUS_SYSTEM_BUS_ADDRESS');
+    const bus = address?.startsWith('tcp:')
+        ? dbus.createClient({ busAddress: address, authMethods: ['ANONYMOUS'] }) : dbus.systemBus();
+    const connection = bus.connection;
+    let timer;
+    const disconnected = new Promise((_, reject) => {
+        connection.on('error', reject);
+        connection.on('end', () => reject(new Error('D-Bus disconnected')));
+        timer = setTimeout(() => reject(new Error('D-Bus read-back timed out')), 3000);
+    });
+    const read = (destination, path) => new Promise((resolve, reject) => {
+        bus.invoke({ destination, path, interface: 'com.victronenergy.BusItem', member: 'GetValue' },
+            (error, value) => error ? reject(new Error(String(error))) : resolve(value?.[1]?.[0]));
+    });
+    try {
+        const value = await Promise.race([disconnected, (async () => {
+            if (channel.name !== 'VE.Bus') return read('com.victronenergy.settings', channel.path);
+            // Match the exact instance configured on the existing VE.Bus writer.
+            const names = await new Promise((resolve, reject) => bus.listNames((error, result) =>
+                error ? reject(new Error(String(error))) : resolve(result)));
+            const matches = await Promise.allSettled(names.filter(name => name.startsWith('com.victronenergy.vebus.'))
+                .map(async name => await read(name, '/DeviceInstance') === 276 ? name : undefined));
+            const destinations = matches.filter(m => m.status === 'fulfilled' && m.value);
+            if (destinations.length !== 1) throw new Error('VE.Bus instance 276 unavailable or ambiguous');
+            return read(destinations[0].value, channel.path);
+        })()]);
+        if (!Number.isFinite(value)) throw new Error('D-Bus returned no numeric value');
+        return { value };
+    } finally {
+        clearTimeout(timer);
+        connection.stream.end();
+    }
+}
 
 const now = new Date();
 const nowTs = now.getTime();
@@ -184,16 +226,53 @@ if (flow.get("gridBookkeepingSeeded") !== true) {
 
 const history = context.get("gridPendingTariffHistory");
 if (history !== undefined) context.set("gridPendingTariffHistory", undefined);
+
+// Use the same monotonic clock as Node-RED's dropping rate gates, not wall time.
+const feedbackNow = Number(gridClock.hrtime.bigint() / 1000000n);
+const storedFeedback = context.get('gridWriteFeedback') || [];
+const desired = [decision?.finalChargeCurrent, decision?.finalGridSetpoint, decision?.gridCurrentLimitA];
+const commands = [];
+const faults = [];
+const feedback = feedbackChannels.map((channel, i) => {
+    const previous = storedFeedback[i];
+    const result = advanceGridFeedback(previous, {
+        now: feedbackNow, value: desired[i], reading: previous?.reading,
+        gap: channel.gap, tolerance: channel.tolerance,
+        refresh: i < 2 || previous?.hour !== hourKey, reassert: previous?.hour !== hourKey
+    });
+    const state = result.state;
+    delete state.reading;
+    commands[i] = result.write === undefined ? null : { topic: channel.topic, payload: result.write };
+    if (commands[i]) state.hour = hourKey;
+    if (state.fault) faults.push(`${channel.name}: ${state.fault}`);
+    if (result.read) {
+        const finish = reading => {
+            const current = context.get('gridWriteFeedback')?.[i];
+            if (current?.phase === 'reading' && current.sent === state.sent) current.reading = reading;
+        };
+        readGridOutput(channel).then(finish, error => finish({ error: error.message || String(error) }));
+    }
+    return state;
+});
+context.set('gridWriteFeedback', feedback);
+const alarmText = faults.length ? `grid not following setpoint: ${faults.join('; ')}` : '';
+context.set('gridFeedbackAlarm', { text: alarmText });
+if (alarmText) node.status({ fill: 'red', shape: 'dot', text: alarmText });
+const notice = gridFeedbackNotice(context.get('gridFeedbackNotice'), faults, nowTs);
+context.set('gridFeedbackNotice', notice.state);
+const alarm = notice.text ? { notification: { title: 'Grid control', type: 'alarm', message: notice.text }, payload: notice.text } : null;
+const event = notice.text ? { t: nowTs, kind: 'fail', rule: 'grid_feedback', live: true, text: notice.text } : null;
+const day = getHourKey(now).slice(0, 10);
 return [
-    decision ? { topic: "charge-current-limit", payload: decision.finalChargeCurrent } : null,
-    decision ? { topic: "grid-setpoint", payload: decision.finalGridSetpoint } : null,
-    sendGridCurrentLimit ? { topic: "ac-input-current-limit", payload: decision.gridCurrentLimitA } : null,
-    null, null, null, null,
+    ...commands,
+    alarm, null, null, null,
     { topic: history === undefined ? msg.topic : TARIFF_HISTORY_TOPIC,
       payload: history === undefined ? msg.payload : history, tick: {
         nowTs, C, waiting, decision, legacy, sendGridCurrentLimit, highVoltageSettings,
         previousWindow, previousGridSetpoint, batteryVoltage, consumedAhDeficit, manualDischargeStopVoltage,
         storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
         hasDcPowerReading, storedPvChargerPowerW, solarGenerationW, accountingPower
-    } }
+    } },
+    event ? { topic: 'log', filename: `/data/home/nodered/grid-control-logs/automations/${day}.jsonl`,
+        payload: JSON.stringify(event) + '\n', event } : null
 ];

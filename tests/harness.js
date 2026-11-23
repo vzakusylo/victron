@@ -28,7 +28,7 @@ function fixedDate(nowMs) {
 
 function loadNode(file, sourceText, flow = store(), modules = {}) {
     const source = sourceText === undefined ? readSource(file) : sourceText;
-    const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', 'clearTimeout', ...Object.keys(modules), source);
+    const fn = new Function('msg', 'node', 'context', 'flow', 'global', 'env', 'Date', 'Buffer', 'setTimeout', 'clearTimeout', 'gridClock', ...Object.keys(modules), source);
     const context = store();
 
     // opts.now: Date or ms (default: real time). Returns what the node returned.
@@ -43,7 +43,8 @@ function loadNode(file, sourceText, flow = store(), modules = {}) {
             log: (t) => { call.logs.push(String(t)); }
         };
         const timer = (cb, ms) => { call.timers.push({ cb, ms }); return call.timers.length; };
-        call.result = fn(msg, node, context, flow, store(), store(opts?.env), fixedDate(now), Buffer, timer, () => {}, ...Object.values(modules));
+        call.result = fn(msg, node, context, flow, store(), store(opts?.env), fixedDate(now), Buffer, timer, () => {},
+            { hrtime: { bigint: () => BigInt(now) * 1000000n } }, ...Object.values(modules));
         return call;
     }
 
@@ -59,7 +60,14 @@ function loadGrid({ captureTrace = false } = {}) {
         if (!call.result) return call;
         if (captureTrace) bookkeeping.context.set('lastTraceTs', 0);
         const accounting = bookkeeping.run(structuredClone(call.result[7]), opts);
-        const result = call.result[0] ? [...call.result.slice(0, 3), ...accounting.result] : null;
+        // Historical replays compare decisions, not the physical writer cadence.
+        const { decision, sendGridCurrentLimit } = call.result[7].tick;
+        const result = decision ? [
+            { topic: 'charge-current-limit', payload: decision.finalChargeCurrent },
+            { topic: 'grid-setpoint', payload: decision.finalGridSetpoint },
+            sendGridCurrentLimit ? { topic: 'ac-input-current-limit', payload: decision.gridCurrentLimitA } : null,
+            ...accounting.result
+        ] : null;
         return { ...call, result, status: accounting.status };
     }
     return {

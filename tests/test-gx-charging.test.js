@@ -10,8 +10,10 @@ const {
 const { preserveController, CONTEXT_KEYS, contextBridgeSource } = require('../tools/test-gx/scenario-controller');
 const { loadNode, loadGrid } = require('./harness');
 
-// Grid-context-only scenarios are verified against the deployed controller in Test GX.
-for (const scenario of loadScenarios().filter(item => item.controller && item.steps.some(step => step.expect.outputs || step.expect.writes))) {
+// Read-back faults require a real D-Bus fixture; this replay covers decisions only.
+for (const scenario of loadScenarios().filter(item => item.controller &&
+    item.steps.some(step => step.expect.outputs || step.expect.writes) &&
+    ![item.initial, ...item.steps].some(step => Object.values(step?.fail || {}).includes('ignore-write')))) {
     test(`controller fixture: ${scenario.name}`, () => {
         const controller = loadGrid();
         const protection = loadNode('06 Apply HV settings.js');

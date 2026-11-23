@@ -20,7 +20,7 @@ const AUTOMATIONS_NODE = 'hpa-fn-01';
 const AUTOMATIONS_FLOW = '995ac4ed6222a706';
 const BMS_VIEW = 'bmsWatchdogState';
 const GRID_BOOKKEEPING = 'grid-bookkeeping-01';
-const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth'];
+const GRID_VIEWS = ['hourBudget', 'tariffDay', 'tariffMonth', 'gridFeedbackAlarm'];
 
 class ScenarioTimeoutError extends Error {}
 
@@ -799,7 +799,8 @@ async function runScenario(scenario, options = {}) {
             }
             if (step.expect.grid) {
                 const keys = [...new Set(step.expect.grid.map(item => item.path.split('.')[0]))];
-                const values = await Promise.all(keys.map(key => admin.readContext('node', GRID_BOOKKEEPING, key)));
+                const values = await Promise.all(keys.map(key => admin.readContext('node',
+                    key === 'gridFeedbackAlarm' ? 'e4766632305fb432' : GRID_BOOKKEEPING, key)));
                 assertView(Object.fromEntries(keys.map((key, i) => [key, values[i]])), step.expect.grid, scenario.name, index + 1);
             }
         }

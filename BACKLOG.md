@@ -85,7 +85,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
-| G3 | Write feedback: read back ESS setpoint / DVCC / VE.Bus limit, retry once, alarm (dashboard, log, mail); "grid not following setpoint" with reason | G2 | open | With `grid-feedback.yml`. |
 | G4 | Isolation and heartbeat: no exec / file I/O in the grid path; event-loop lag p95 < 100 ms; alarm if the loop is silent 10 s | G3 | open | With `grid-isolation.yml`, `grid-heartbeat.yml`. |
 | G5 | Dashboard "Grid control" block: decision + reason, writes with read-back, input ages, safe mode, alarms, loop cadence | G3 | open | |
 | G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | open | Midnight / DST / month-change scenarios (Test GX plan item 5) before this. |
@@ -162,6 +161,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#151 G3 (d#220 · i#22): verify ESS, DVCC and VE.Bus writes over D-Bus; retry once through the existing Victron writers and rate limits, then report a rate-limited alarm through the Automation log and existing alert digest. Test GX covers the ignored VE.Bus write and the unchanged G2 reaction ceiling. Deploy node 01's code, Function imports and alert wiring together; not a code-only deploy.
 
 #150 NR6 (d#219 · i#21): removed the unwired `/Dc/0/Current` input and added a check against unwired inputs and injects. G2 already removed the duplicate 06:00 / 22:00 injects and Tag nodes; the wired cadence inject remains. Test GX now verifies the synthetic SerialBattery has disappeared before clearing `BmsInstance`, avoiding a race reproduced on master where the watchdog reads a stale active service and remembers `-1`.
 
