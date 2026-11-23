@@ -237,7 +237,8 @@ const feedback = feedbackChannels.map((channel, i) => {
     const previous = storedFeedback[i];
     const result = advanceGridFeedback(previous, {
         now: feedbackNow, value: desired[i], reading: previous?.reading,
-        gap: channel.gap, tolerance: channel.tolerance, refresh: i < 2 || previous?.hour !== hourKey
+        gap: channel.gap, tolerance: channel.tolerance,
+        refresh: i < 2 || previous?.hour !== hourKey, reassert: previous?.hour !== hourKey
     });
     const state = result.state;
     delete state.reading;
