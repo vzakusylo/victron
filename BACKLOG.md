@@ -30,7 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| — | — | — | No open pull requests at start of TGX-R1. |
+| #152 | `testgx-emu-mqtt-retry` | Test GX emulator MQTT startup retry (TGX-R1) | Review and Test GX checks. |
 
 ## 2. Deploy
 
@@ -134,7 +134,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
 | 8p / T1 | Speed up Test GX; target < 20 min | Steps 1–2: parallel matrix (#87) and faster fixture fake time (#103). Remaining: Docker cache and stack reuse. See T1 below |
 | P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | Done (#89) |
-| TGX-R1 | Emulator MQTT connect retry (CI flake run 45119354024) | in progress: `testgx-emu-mqtt-retry` |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Done: #114 |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |
@@ -162,6 +161,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#152 TGX-R1 (d#220 · i#23): emulator MQTT connect retry (CI flake run 45119354024). Retry transient startup failures within a configurable 60 s budget, wait 30 s for subscription readiness, and print the Venus log tail if Compose cannot start the stack.
 
 #151 G3 (d#220 · i#22): verify ESS, DVCC and VE.Bus writes over D-Bus; retry once through the existing Victron writers and rate limits, then report a rate-limited alarm through the Automation log and existing alert digest. Test GX covers the ignored VE.Bus write and the unchanged G2 reaction ceiling. Deploy node 01's code, Function imports and alert wiring together; not a code-only deploy.
 
