@@ -485,7 +485,7 @@
         return 'tank = ' + e[0][1] + ' + ' + k + ' × (outdoor ' + (e[0][0] < 0 ? '+ ' + (-e[0][0]) : '− ' + e[0][0]) + ')';
     };
     scope.hpDhwPreviewLine = function () {
-        var d = scope.msg && scope.msg.payload && scope.msg.payload.dhwChart, s = d && d.svg;
+        var s = scope.hpStatic && scope.hpStatic.dhwChart && scope.hpStatic.dhwChart.svg;
         if (!s || s.yMax === undefined || !dhwEnds()) return '';
         var pts = [], frost = Number(scope.hp.dhw.frostLimit);
         for (var t = s.outMin; t <= s.outMax; t++) {
