@@ -1,5 +1,5 @@
 {
-  "i": 20,
+  "i": 21,
   "changes": [
     {
       "i": 1,
@@ -120,6 +120,12 @@
       "date": "2026-11-23",
       "pr": 149,
       "what": "Test in-process watchdog reads and stabilize the fake GX deploy test"
+    },
+    {
+      "i": 21,
+      "date": "2026-11-23",
+      "pr": null,
+      "what": "Reject unwired inputs in the flow check"
     }
   ]
 }

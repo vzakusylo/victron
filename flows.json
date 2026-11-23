@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#218 Day / Night Grid Control",
+    "label": "d#219 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -26,7 +26,6 @@
       "704426f76aa6aa4c",
       "11e303e775ec959c",
       "dc7f2a1c3e8b09c4",
-      "f46ecea6668505f3",
       "4c8d2e6b19f7a530",
       "grid-override-topic-01",
       "1b39f33beca11607",
@@ -3120,31 +3119,6 @@
       [
         "c125191024e87a94"
       ]
-    ],
-    "g": "lay-g-ctrl"
-  },
-  {
-    "id": "f46ecea6668505f3",
-    "type": "victron-input-battery",
-    "z": "995ac4ed6222a706",
-    "service": "com.victronenergy.battery/289",
-    "path": "/Dc/0/Current",
-    "serviceObj": {
-      "service": "com.victronenergy.battery/289",
-      "name": "SmartShunt IP65 300A"
-    },
-    "pathObj": {
-      "path": "/Dc/0/Current",
-      "type": "float",
-      "name": "Battery current (A)"
-    },
-    "name": "",
-    "onlyChanges": false,
-    "roundValues": "2",
-    "x": 215,
-    "y": 425,
-    "wires": [
-      []
     ],
     "g": "lay-g-ctrl"
   },
