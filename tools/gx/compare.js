@@ -244,7 +244,7 @@ function main() {
             }
         }
         const removals = removalPlan(live.nodes, allowed.length ? snapshot(repoFlows, null, { topology: true }).nodes : repo.nodes, allowed, previous);
-        const { groupMembers, ...nodes } = additionPlan(cleanTopology(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), removals), repoFlows, allowNewNodes);
+        const nodes = additionPlan(cleanTopology(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), removals), repoFlows, allowNewNodes);
         const added = new Set(nodes.add);
         const newNodes = repoFlows.filter((node) => added.has(node.id));
         if (newNodes.some((node) => node.type === 'function')) {
@@ -257,7 +257,8 @@ function main() {
             repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev,
             flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
-            patch: buildPatch(diff, args.includes('--include-trailing')), ...nodes, tools,
+            patch: buildPatch(diff, args.includes('--include-trailing')), add: nodes.add, wire: nodes.wire,
+            ...(nodes.groups ? { groups: nodes.groups } : {}), tools,
             ...(replacedFrom ? { replacedFrom } : {}),
             ...(removalBase ? { remove: removals.remove, removalBase } : {})
         };
@@ -266,7 +267,7 @@ function main() {
             ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + removals.remove.length + ' removal(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
         for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
         for (const id of nodes.wire) console.log('wire patch      : ' + id);
-        for (const id of groupMembers?.keys() || []) console.log('group patch     : ' + id);
+        for (const id of nodes.groups || []) console.log('group patch     : ' + id);
         for (const id of removals.remove) console.log('node to remove  : ' + id);
         for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));
     }

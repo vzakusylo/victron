@@ -131,7 +131,7 @@ function additionPlan(live, repo, allowNewNodes) {
         const members = liveMembers.map(member => repoSet.has(member) ? ordered[next++] : member);
         groupMembers.set(id, members.concat(ordered.slice(next)));
     }
-    return { add: additions.map((node) => node.id), wire, ...(groups.size ? { groups: [...groups.keys()], groupMembers } : {}) };
+    return { add: additions.map((node) => node.id), wire, ...(groupMembers.size ? { groups: [...groupMembers.keys()], groupMembers } : {}) };
 }
 
 function recordedCommit(info = '') {

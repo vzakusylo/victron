@@ -305,6 +305,9 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     live.splice(live.indexOf(liveNode(added.id)), 1);
     const liveGroup = liveNode(added.g);
     liveGroup.nodes = liveGroup.nodes.filter((id) => id !== added.id).reverse();
+    const liveOnlyMember = liveNode('temps-file-01');
+    liveOnlyMember.g = added.g;
+    liveGroup.nodes.splice(1, 0, liveOnlyMember.id);
     liveGroup.x += 10;
     const original = JSON.stringify(live);
 
@@ -468,7 +471,10 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.deepEqual(state.posts[1], { type: 'nodes', rev: 'rev-1' }, 'one POST, deploy type nodes, with the revision of the snapshot');
     const after = new Map(state.flows.map((node) => [node.id, node]));
     assert.deepEqual(after.get(added.id), added);
-    assert.deepEqual(after.get(added.g), { ...liveGroup, nodes: repoById.get(added.g).nodes });
+    const orderedMembers = [...repoById.get(added.g).nodes];
+    orderedMembers.splice(1, 0, liveOnlyMember.id);
+    assert.deepEqual(after.get(added.g), { ...liveGroup, nodes: orderedMembers });
+    assert.equal(after.get(liveOnlyMember.id).g, added.g);
     assert.equal(state.flows.length, repoFlows.length);
     for (const id of behind) assert.equal(after.get(id).func, repoById.get(id).func, id);
     assert.equal(after.get(page).format, repoById.get(page).format);
