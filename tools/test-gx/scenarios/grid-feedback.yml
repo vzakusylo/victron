@@ -1,0 +1,24 @@
+name: Ignored VE.Bus grid limit is retried once and raises one alarm
+faketime: '@2026-11-16 21:58:30 x2'
+controller: {"protection":{}}
+observe: [{"service":"vebus","path":"/Ac/In/1/CurrentLimit"}]
+initial:
+  inputs: {"batt_v":54,"consumed_ah":-40,"grid_w":1000,"load_w":1500,"pv_w":0}
+steps:
+  - when: 0s
+    settle: 35s
+    expect:
+      outputs: [{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":23.5}]
+  # The 22:00 transition commands a new limit after the normal daytime write.
+  - when: 40s
+    fail: {"vebus./Ac/In/1/CurrentLimit":"ignore-write"}
+    settle: 110s
+    expect:
+      writes: [{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31,"applied":false},{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":31,"applied":false}]
+      outputs: [{"service":"vebus","path":"/Ac/In/1/CurrentLimit","value":23.5}]
+      grid: [{"path":"gridFeedbackAlarm.text","contains":"grid not following setpoint: VE.Bus: expected 31; read 23.5"}]
+  - when: 155s
+    settle: 50s
+    expect:
+      writes: []
+      grid: [{"path":"gridFeedbackAlarm.text","contains":"grid not following setpoint: VE.Bus: expected 31; read 23.5"}]

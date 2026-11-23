@@ -138,7 +138,12 @@ test('one 2 s inject and six named Victron inputs feed the controller directly',
 
 test('the split is an additive deployment, preserving old wires and consumer destinations', () => {
     const flows = require('../flows.json');
-    const source = flows.find(n => n.name === 'Battery + Grid Controller');
+    const current = flows.find(n => n.name === 'Battery + Grid Controller');
+    assert.deepEqual(current.wires[3], ['233d4e08d8a8fe38', '58e14304c415b27e']);
+    assert.deepEqual(current.wires[8], ['hpa-logfile-01', 'hpl-fn-01', 'hpal-fn-01']);
+    // Test the historical G1 split independently of the later G3 alarm fan-out.
+    const source = { ...current, outputs: 8, wires: current.wires.slice(0, 8).map((w, i) => i === 3 ? w.slice(0, 1) : w) };
+    const splitFlows = flows.map(n => n.id === source.id ? source : n);
     const book = flows.find(n => n.name === 'Grid bookkeeping');
     const old = { ...source, outputs: 7, wires: [
         ['c1803b5fed00bfc2'], ['70b033ccd4654b3e'], ['66951950bfa6d862'], ['233d4e08d8a8fe38'],
@@ -146,12 +151,12 @@ test('the split is an additive deployment, preserving old wires and consumer des
         ['7a3e91c45d2b8f06']
     ] };
     const group = flows.find(n => n.id === source.g);
-    const before = flows.filter(n => n.id !== book.id).map(n => n.id === old.id ? old
+    const before = splitFlows.filter(n => n.id !== book.id).map(n => n.id === old.id ? old
         : n.id === group.id ? { ...n, nodes: n.nodes.filter(id => id !== book.id) } : n);
     assert.deepEqual(source.wires.slice(0, 7), old.wires);
     assert.deepEqual(source.wires[7], [book.id]);
     assert.deepEqual(book.wires, old.wires.slice(3));
     assert.equal(book.g, source.g);
     assert.ok(group.nodes.includes(book.id));
-    assert.deepEqual(additionPlan(before, flows, true), { add: [book.id], wire: [source.id], groups: [group.id] });
+    assert.deepEqual(additionPlan(before, splitFlows, true), { add: [book.id], wire: [source.id], groups: [group.id] });
 });

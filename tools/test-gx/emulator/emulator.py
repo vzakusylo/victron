@@ -49,6 +49,8 @@ bms = dict(BMS_DEFAULTS)
 forced = {}
 stale_until = {}      # service or service.property -> unix time
 failed = {}           # service -> 'invalid' | 'offline'
+VE_INPUT_LIMIT = '/Ac/In/1/CurrentLimit'
+ignore_vebus_limit = False
 writes = []
 ready = False         # API answers 200 only after all services are registered and the startup write is dropped
 computed = dict(grid_w=0.0, batt_w=0.0, batt_a=0.0, batt_v=51.2, consumed_ah=0.0)
@@ -98,6 +100,11 @@ def build(name):
     svc.add_path('/Serial', 'HQEMU0001')
 
     def writer(path, value):
+        if name == 'vebus' and path == VE_INPUT_LIMIT:
+            with lock:
+                if ignore_vebus_limit:
+                    writes.append(dict(ts=time.time(), service=name, path=path, value=value, applied=False))
+                    return False
         record(name, path, value)
         return True
     if name == 'system':
@@ -398,6 +405,7 @@ class Api(BaseHTTPRequestHandler):
         self._send(404, dict(error='not found'))
 
     def do_POST(self):
+        global ignore_vebus_limit
         length = int(self.headers.get('Content-Length') or 0)
         try:
             body = json.loads(self.rfile.read(length) or b'{}')
@@ -447,7 +455,9 @@ class Api(BaseHTTPRequestHandler):
                         stale_until[body['path']] = time.time() + float(body['seconds'])
                 elif self.path == '/fail':
                     mode = body.get('mode', 'invalid')
-                    if body['path'].startswith('tuya.'):
+                    if body['path'] == 'vebus.' + VE_INPUT_LIMIT and mode in ('ignore-write', 'ok'):
+                        ignore_vebus_limit = mode == 'ignore-write'
+                    elif body['path'].startswith('tuya.'):
                         tuya.fail(body['path'][5:], mode)
                     elif mode == 'ok':
                         name = service_of(body['path'])
@@ -462,6 +472,7 @@ class Api(BaseHTTPRequestHandler):
                     forced.clear()
                     stale_until.clear()
                     failed.clear()
+                    ignore_vebus_limit = False
                     set_bms_instance(BMS_DEFAULTS['instance'])
                     bms.update(BMS_DEFAULTS)
                     writes.clear()
