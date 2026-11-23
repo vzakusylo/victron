@@ -1,5 +1,5 @@
 {
-  "i": 19,
+  "i": 20,
   "changes": [
     {
       "i": 1,
@@ -114,6 +114,12 @@
       "date": "2026-11-22",
       "pr": null,
       "what": "Test heat pump shadow writer ownership"
+    },
+    {
+      "i": 20,
+      "date": "2026-11-23",
+      "pr": null,
+      "what": "Test in-process watchdog reads and stabilize the fake GX deploy test"
     }
   ]
 }
