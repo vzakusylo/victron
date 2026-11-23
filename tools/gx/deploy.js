@@ -171,6 +171,8 @@ function readPlan(file) {
         for (const id of ids) {
             const node = liveById.get(id) || fail('Planned node ' + id + ' is not on the GX.');
             const source = repoById.get(id) || fail('Planned node ' + id + ' is not in the commit.');
+            const reviewed = reviewedWires.has(id);
+            const keepsLiveSettings = reviewed && node.type === 'tuya-smart-device';
             for (const field of plan.patch[id] || []) {
                 if (!['func', 'initialize', 'finalize', 'format', 'command'].includes(field)) fail('Field ' + field + ' cannot be deployed by a plan.');
                 if (norm(node[field]) !== norm(source[field])) changes.push(id + '.' + field + ': ' + norm(node[field]).split('\n').length + ' -> ' + norm(source[field]).split('\n').length + ' lines');
@@ -179,10 +181,10 @@ function readPlan(file) {
             if (wireIds.has(id)) {
                 if (Object.hasOwn(source, 'wires')) node.wires = source.wires;
                 else delete node.wires;
-                if ((!reviewedWires.has(id) || node.type === 'function') && Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
+                // In a reviewed rewire, only a function's output count is part of the patch.
+                if ((!reviewed || node.type === 'function') && Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
                 console.log('wire patch      : ' + id + ' ' + JSON.stringify(node.wires));
             }
-            const keepsLiveSettings = reviewedWires.has(id) && node.type === 'tuya-smart-device';
             if (!keepsLiveSettings && withoutLayout(node) !== withoutLayout(source)) {
                 fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
             }
@@ -284,7 +286,7 @@ function readPlan(file) {
             if (!got) verifyFailed(id);
             for (const field of plan.patch[id] || []) if (norm(got[field]) !== norm(want[field])) verifyFailed(id + '.' + field);
             if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) ||
-                (!(reviewedWires.has(id) && want.type === 'tuya-smart-device') && got.outputs !== want.outputs))) verifyFailed(id + '.wires/outputs');
+                got.outputs !== liveById.get(id).outputs)) verifyFailed(id + '.wires/outputs');
         }
         console.log('DEPLOYED        : ' + afterById.get(repoTab.id).label + ' (rev ' + JSON.parse(reply).rev.slice(0, 12) + ')');
         console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');
