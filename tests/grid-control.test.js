@@ -162,7 +162,10 @@ test('the split is an additive deployment, preserving old wires and consumer des
     assert.deepEqual(book.wires, old.wires.slice(3));
     assert.equal(book.g, source.g);
     assert.ok(group.nodes.includes(book.id));
-    assert.deepEqual(additionPlan(before, splitFlows, true), { add: [book.id], wire: [source.id], groups: [group.id] });
+    assert.deepEqual(additionPlan(before, splitFlows, true), {
+        add: [book.id], wire: [source.id], groups: [group.id],
+        groupMembers: new Map([[group.id, splitGroup.nodes]])
+    });
 });
 
 test('tariff history bypasses control and the heartbeat uses the existing alarm destinations', () => {
