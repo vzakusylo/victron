@@ -91,11 +91,13 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
             { id: 'battery', type: 'victron-input-battery', z: 'tab', g: 'layout', wires: [['keep']] },
             { id: 'keep', type: 'delay', name: 'Keep', z: 'tab', g: 'layout', wires: [[]] },
             { id: 'sender', type: 'function', z: 'tab', outputs: 2, wires: [[], []] },
-            { id: 'pump', type: 'tuya-smart-device', z: 'tab', deviceSetting: 'old', wires: [['keep'], ['gone']] }];
+            { id: 'pump', type: 'tuya-smart-device', z: 'tab', deviceSetting: 'old', wires: [['keep'], ['gone']] },
+            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1, wires: [['keep']] }];
         const sender = { ...old[8], outputs: 3, wires: [['keep'], [], ['keep']] };
         const viewers = { id: 'viewers', type: 'ui_ui_control', z: 'tab', group: '', wires: [['keep']] };
         const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, old[3], old[4],
-            { ...old[5], nodes: ['keep'] }, old[7], sender, { ...old[9], deviceSetting: 'target', wires: [['keep'], ['viewers']] }, viewers];
+            { ...old[5], nodes: ['keep'] }, old[7], sender, { ...old[9], deviceSetting: 'target', wires: [['keep'], ['viewers']] },
+            { id: 'selector', type: 'switch', z: 'tab', rules: [{ t: 'true' }], outputs: 1 }, viewers];
         const commit = (flows, label) => {
             fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
             git('add', '--all');
@@ -134,7 +136,7 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
         fs.writeFileSync(input, snap.stdout);
         const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan,
-            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender,pump'], env, cwd);
+            '--allow-removed-nodes', 'gone,battery', '--allow-new-nodes', '--allow-new-wires', 'sender,pump,selector'], env, cwd);
         assert.equal(result.code, 0, result.stderr);
         assert.match(result.stdout, /^reviewed wiring\s+: sender\[2\]: GX \(no output\) -> target \[keep \("Keep", existing\)\]$/m);
         assert.match(result.stdout, /^reviewed wiring\s+: pump\[1\]: GX \[gone \("", approved removal\)\] -> target \[viewers \("", new\)\]$/m);
@@ -152,6 +154,12 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         assert.match(driftedWire.stderr, /pump: GX wires do not match the recorded commit/);
         assert.equal(live.rev, 'r1');
         pump.wires = [['keep'], ['gone']];
+        const selector = live.flows.find(node => node.id === 'selector');
+        selector.rules = [{ t: 'false' }];
+        const driftedRules = await deploy('0');
+        assert.match(driftedRules.stderr, /selector differs from the commit outside the planned fields/);
+        assert.equal(live.rev, 'r1');
+        selector.rules = [{ t: 'true' }];
         assert.match(dry.stdout, /node to remove\s+: battery/);
         live.flows[2].name = 'edited since snapshot';
         const rejected = await deploy('0');
@@ -161,11 +169,12 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         const applied = await deploy('0');
         assert.equal(applied.code, 0, applied.stderr);
         assert.equal(live.rev, 'r2');
-        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'pump', 'viewers']);
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep', 'sender', 'pump', 'selector', 'viewers']);
         assert.deepEqual(live.flows[1].wires, [[]]);
         assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
         assert.deepEqual(live.flows.find(node => node.id === 'sender'), sender);
         assert.deepEqual(live.flows.find(node => node.id === 'pump'), { ...next.find(node => node.id === 'pump'), deviceSetting: 'live' });
+        assert.deepEqual(live.flows.find(node => node.id === 'selector'), next.find(node => node.id === 'selector'));
         assert.deepEqual(live.flows.find(node => node.id === 'viewers'), viewers);
     });
 

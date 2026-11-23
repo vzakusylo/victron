@@ -182,7 +182,8 @@ function readPlan(file) {
                 if ((!reviewedWires.has(id) || node.type === 'function') && Object.hasOwn(source, 'outputs')) node.outputs = source.outputs;
                 console.log('wire patch      : ' + id + ' ' + JSON.stringify(node.wires));
             }
-            if ((!reviewedWires.has(id) || node.type === 'function') && withoutLayout(node) !== withoutLayout(source)) {
+            const keepsLiveSettings = reviewedWires.has(id) && node.type === 'tuya-smart-device';
+            if (!keepsLiveSettings && withoutLayout(node) !== withoutLayout(source)) {
                 fail(id + ' differs from the commit outside the planned fields (wires, outputs, settings). Deploy that node by hand.');
             }
         }
@@ -283,7 +284,7 @@ function readPlan(file) {
             if (!got) verifyFailed(id);
             for (const field of plan.patch[id] || []) if (norm(got[field]) !== norm(want[field])) verifyFailed(id + '.' + field);
             if (wireIds.has(id) && (stable(got.wires) !== stable(want.wires) ||
-                ((!reviewedWires.has(id) || want.type === 'function') && got.outputs !== want.outputs))) verifyFailed(id + '.wires/outputs');
+                (!(reviewedWires.has(id) && want.type === 'tuya-smart-device') && got.outputs !== want.outputs))) verifyFailed(id + '.wires/outputs');
         }
         console.log('DEPLOYED        : ' + afterById.get(repoTab.id).label + ' (rev ' + JSON.parse(reply).rev.slice(0, 12) + ')');
         console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');

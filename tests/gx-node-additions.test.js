@@ -194,6 +194,9 @@ test('reviewed rewires replace the second output of a device with a new node', (
     assert.throws(() => additionPlan(drift, repo, true, ['pump'], { baseline: live }), /GX wires do not match the recorded commit/);
     const dangling = [...live.slice(0, 2), { ...live[2], wires: [['old'], ['absent']] }];
     assert.throws(() => additionPlan(dangling, repo, true, ['pump'], { baseline: dangling }), /dropped wire target absent/);
+    const otherTab = { id: 'other', type: 'tab' };
+    const crossTab = [...repo.slice(0, 3), { ...repo[3], z: 'other' }, otherTab];
+    assert.throws(() => additionPlan([...live, otherTab], crossTab, true, ['pump'], { baseline: live }), /invalid wire target status/);
 });
 
 test('reviewed wire sources can append connections and trailing outputs to existing nodes without additions', () => {
