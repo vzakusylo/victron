@@ -207,6 +207,24 @@ const RULES = [
 const OUT = { hp: 1, bypass: 3, valve: 4 };
 const OUT_LOG = 5;
 
+// Load and UI messages keep their direct writes. All other topics follow the tick path.
+const nodeContext = context;
+let pending = msg.topic === 'load' || msg.topic === 'ui' ? null : new Map();
+try {
+    return runAutomations(pending ? {
+        get: key => pending?.has(key) ? pending.get(key) : nodeContext.get(key),
+        set: (key, value) => {
+            if (pending) pending.set(key, value);
+            else nodeContext.set(key, value);
+        }
+    } : nodeContext);
+} finally {
+    const batch = pending;
+    pending = null; // Timer callbacks from this tick must read and write the current store.
+    if (batch?.size) nodeContext.set([...batch.keys()], [...batch.values()]);
+}
+
+function runAutomations(context) {
 // #include lib/heat-pump/curves.js
 
 // #include lib/heat-pump/heating-decide.js
@@ -218,9 +236,12 @@ const RUNS_FAILED = { 'B46 switch >38': 4, 'B46 off >46 -4..1': 3 };
 // ---- state ------------------------------------------------------------------
 const now = Date.now();
 const st = flow.get('heatPump') || {};
-// Shared objects live in node context from the first run on, so the timer callbacks
-// (runStep / pump / verify) and this invocation always work on the same objects.
-function ctx(key, init) { if (context.get(key) === undefined) context.set(key, init); return context.get(key); }
+function ctx(key, init) {
+    const value = context.get(key);
+    if (value !== undefined) return value;
+    context.set(key, init);
+    return init;
+}
 let settings = ctx('settings', { master: false, modes: {} });
 const runtime = ctx('runtime', {});
 ctx('log', []);
@@ -769,3 +790,4 @@ const running = Object.keys(context.get('seqs') || {}).length;
 node.status({ fill: settings.master ? 'green' : 'grey', shape: running ? 'dot' : 'ring',
     text: 'master ' + (settings.master ? 'ON' : 'OFF') + ' · on ' + liveCount + '/' + RULES.length + ' · flag ' + ((context.get('flag') || flag).on ? 'ON' : 'OFF') + (running ? ' · running ' + running : '') });
 return [{ payload: model() }, null, null, null, null, null];
+}
