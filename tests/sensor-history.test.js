@@ -21,13 +21,26 @@ function roomPolicy(meta = {}) {
     const [, classifier, fixedIds] = /node -e '([^']+)' [^\n]+\/sensor-history\.js '([^']+)'/.exec(script);
     return require('node:child_process').execFileSync(process.execPath,
         ['-e', classifier, path.join(__dirname, '..', 'tools', 'sensor-history.js'), fixedIds],
-        { encoding: 'utf8', input: JSON.stringify(meta) }).trim();
+        { encoding: 'utf8', input: typeof meta === 'string' ? meta : JSON.stringify(meta) }).trim();
 }
 
 test('Devices reads the room exclusions from the history tool', () => {
     assert.deepEqual(JSON.parse(roomPolicy({ room: {} })), ['hp', 'acc', 'plate']);
     for (const key of ['hp:102', 'acc:Temperature', 'plate:Temperature', 'plate:x']) assert.equal(isRoomSensorKey(key), false, key);
     assert.equal(isRoomSensorKey('air-monitor:Temperature'), true);
+});
+
+test('missing or malformed Tuya metadata does not stop independent room history', () => {
+    for (const meta of ['', '{"room":']) {
+        const policy = roomPolicy(meta);
+        assert.deepEqual(JSON.parse(policy), ['hp', 'acc', 'plate']);
+        const node = loadNode('50 Devices model.js');
+        const { result, warnings } = node.run({ topic: 'read',
+            payload: `@@META\n${meta}\n@@ROOM_EXCLUSIONS\n${policy}\n@@DBUSJSON {"services":[]}`
+        }, { now: t });
+        assert.deepEqual(result[0].payload.temperatureSensors.map(s => s.key), ['air-monitor:Temperature']);
+        assert.equal(warnings.some(warning => /invalid Tuya device metadata/.test(warning)), !!meta);
+    }
 });
 
 test('toilet chart uses actual PIR/clear reports, not battery wakes, other devices or cached state', () => {

@@ -88,7 +88,8 @@ const STRING_LITERAL = /'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*
 const ROOM_FILTER_LITERALS = [
   `'const room = require(process.argv[1]).isRoomSensorKey;'`,
   `'const text = require("fs").readFileSync(0, "utf8");'`,
-  `'const ids = JSON.parse(process.argv[2]).concat(Object.keys(JSON.parse(text || "{}") || {}));'`,
+  `'let meta; try { meta = JSON.parse(text || "{}"); } catch (error) { if (!(error instanceof SyntaxError)) throw error; }'`,
+  `'const ids = JSON.parse(process.argv[2]).concat(Object.keys(meta || {}));'`,
   `'console.log(JSON.stringify(ids.filter(id => !room(id))));'`,
   String.raw`'printf "%s" "$meta" | node -e '`,
   `'/sensor-history.js '`,
@@ -99,8 +100,8 @@ function execText(n) {
     const source = withoutComments(f.func || '');
     const values = source.match(STRING_LITERAL) || [];
     if (f.id !== 'dv-fn-01' || n.id !== 'dv-exec-01') return values;
-    const [predicate, input, ids, output, command, tool] = ROOM_FILTER_LITERALS;
-    const definition = `const roomFilter = ${predicate} +\n        ${input} +\n        ${ids} +\n        ${output};`;
+    const [predicate, input, meta, ids, output, command, tool] = ROOM_FILTER_LITERALS;
+    const definition = `const roomFilter = ${predicate} +\n        ${input} +\n        ${meta} +\n        ${ids} +\n        ${output};`;
     const invocation = `${command} + shellQuote(roomFilter) + ' ' + TOOLS_DIR + ${tool} + shellQuote(JSON.stringify(ORDER)),`;
     if (!source.includes(definition) || !source.includes(invocation)) return values;
     // Replace just one occurrence; another inline invocation must still be flagged.

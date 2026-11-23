@@ -138,7 +138,8 @@ function readCmd() {
     // Use the predicate already exported by the installed history reader.
     const roomFilter = 'const room = require(process.argv[1]).isRoomSensorKey;' +
         'const text = require("fs").readFileSync(0, "utf8");' +
-        'const ids = JSON.parse(process.argv[2]).concat(Object.keys(JSON.parse(text || "{}") || {}));' +
+        'let meta; try { meta = JSON.parse(text || "{}"); } catch (error) { if (!(error instanceof SyntaxError)) throw error; }' +
+        'const ids = JSON.parse(process.argv[2]).concat(Object.keys(meta || {}));' +
         'console.log(JSON.stringify(ids.filter(id => !room(id))));';
     return shellQuote([
         'echo "@@VISIBILITY"; if [ -e ' + VISIBILITY_FILE + ' ]; then cat ' + VISIBILITY_FILE + ' 2>/dev/null; else echo \'{"hidden":[]}\'; fi; echo',
@@ -147,7 +148,7 @@ function readCmd() {
         // battery sensors without a local beacon: Tuya cloud, at most every 30 min (the tool throttles itself)
         'node ' + TOOLS_DIR + '/tuya-cloud-sensors.js > /dev/null 2>&1',
         'echo "@@CLOUD"; cat ' + CFG_DIR + '/tuya-devices-cloud.json 2>/dev/null; echo',
-        'meta=$(cat ' + CFG_DIR + '/tuya-devices-meta.json 2>/dev/null)',
+        'meta=$(cat ' + CFG_DIR + '/tuya-devices-meta.json 2>/dev/null) || meta=',
         'printf "@@META\\n%s\\n@@ROOM_EXCLUSIONS\\n" "$meta"',
         'printf "%s" "$meta" | node -e ' + shellQuote(roomFilter) + ' ' + TOOLS_DIR + '/sensor-history.js ' + shellQuote(JSON.stringify(ORDER)),
         'echo "@@POLL"; cat ' + CFG_DIR + '/tuya-devices-last.json 2>/dev/null; echo',
@@ -173,8 +174,15 @@ function parse(text) {
         if (/^@@(LAST|META|POLL|CLOUD|VISIBILITY|ROOM_EXCLUSIONS)$/.test(line)) { mode = line.slice(2); continue; }
         if (mode) txt[mode] += line;
     }
-    const json = (s) => { if (!s.trim()) return {}; try { return JSON.parse(s); } catch (e) { return {}; } };
-    return { last: json(txt.LAST), meta: json(txt.META), poll: json(txt.POLL), cloud: json(txt.CLOUD).devices || {},
+    const json = (s, invalid) => {
+        if (!s.trim()) return {};
+        try { return JSON.parse(s); } catch (e) {
+            if (invalid) node.warn(invalid);
+            return {};
+        }
+    };
+    const meta = json(txt.META, 'Devices: invalid Tuya device metadata; using independent sources') || {};
+    return { last: json(txt.LAST), meta, poll: json(txt.POLL), cloud: json(txt.CLOUD).devices || {},
         visibility: json(txt.VISIBILITY)?.hidden, roomExclusions: json(txt.ROOM_EXCLUSIONS),
         dbus: dbusOut || { error: 'no D-Bus output' } };
 }
