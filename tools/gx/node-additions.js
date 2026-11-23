@@ -45,15 +45,17 @@ function wireLists(node) {
     return wires;
 }
 
-function additionPlan(live, repo, allowNewNodes) {
+function additionPlan(live, repo, allowNewNodes, allowNewWires = []) {
     const byId = (nodes) => new Map(nodes.map((node) => [node.id, node]));
     const original = byId(live), source = byId(repo);
     if (original.size !== live.length || source.size !== repo.length) fail('Duplicate node IDs.');
     const removed = live.filter((node) => !source.has(node.id));
     if (removed.length) fail('Removing GX nodes is not supported: ' + removed.map((node) => node.id).join(', ') + '.');
     const additions = repo.filter((node) => !original.has(node.id));
-    if (!additions.length) return { add: [], wire: [] };
-    if (!allowNewNodes) fail('New nodes require --allow-new-nodes (-AllowNewNodes in PowerShell).');
+    const reviewed = new Set(allowNewWires);
+    if (reviewed.size !== allowNewWires.length) fail('Duplicate source IDs in allow_new_wires.');
+    if (!additions.length && !reviewed.size) return { add: [], wire: [] };
+    if (additions.length && !allowNewNodes) fail('New nodes require --allow-new-nodes (-AllowNewNodes in PowerShell).');
 
     const added = byId(additions);
     const final = new Map([...original, ...added]);
@@ -106,22 +108,41 @@ function additionPlan(live, repo, allowNewNodes) {
     }
 
     const wire = [];
+    const newConnections = [];
     for (const node of repo) {
         const before = original.get(node.id);
-        if (!before || !wireLists(node).flat().some((id) => added.has(id))) continue;
+        const optedIn = reviewed.has(node.id);
+        if (!before || (!optedIn && !wireLists(node).flat().some((id) => added.has(id)))) continue;
         const oldWires = wireLists(before), newWires = wireLists(node);
         const preservesWires = newWires.length >= oldWires.length && newWires.every((out, i) =>
-            equal(out.filter((id) => !added.has(id)), oldWires[i] || []) && (i < oldWires.length || out.length > 0) &&
+            equal(optedIn ? out.slice(0, oldWires[i]?.length || 0) : out.filter((id) => !added.has(id)), oldWires[i] || []) &&
+            (i < oldWires.length || out.length > 0) &&
             new Set(out).size === out.length &&
             out.every((id) => !added.has(id) || (added.get(id).type !== 'group' && added.get(id).z === node.z)));
         const preservesOutputs = before.outputs === node.outputs
             ? newWires.length === oldWires.length
             : node.type === 'function' && before.outputs === oldWires.length && node.outputs === newWires.length;
         if (before.type !== node.type || before.z !== node.z || !preservesWires || !preservesOutputs) {
-            fail(node.id + ': a wire patch may only add connections (and necessary function outputs) to new nodes.');
+            if (optedIn) fail(node.id + ': reviewed wires must be append-only and may only grow function outputs.');
+            fail(node.id + ': a wire patch may only add connections (and necessary function outputs) to new nodes. ' +
+                'To add a connection to an existing node, list ' + node.id + ' in allow_new_wires after reviewing the compare.');
+        }
+        if (optedIn) {
+            for (const [output, out] of newWires.entries()) {
+                for (const dest of out.slice(oldWires[output]?.length || 0)) {
+                    const target = final.get(dest);
+                    if (original.get(node.z)?.type !== 'tab' || !target || target.z !== node.z || ['tab', 'group'].includes(target.type)) {
+                        fail(node.id + ': invalid wire target ' + dest + '.');
+                    }
+                    newConnections.push({ id: node.id, output, dest, name: source.get(dest).name || '', added: added.has(dest) });
+                }
+            }
+            if (newConnections.at(-1)?.id !== node.id) fail(node.id + ': no new connections to review in allow_new_wires.');
+            reviewed.delete(node.id);
         }
         wire.push(node.id);
     }
+    if (reviewed.size) fail('allow_new_wires source must exist on the GX and in the target: ' + [...reviewed].join(', ') + '.');
     const groupMembers = new Map();
     for (const [id, newMembers] of groups) {
         const liveMembers = original.get(id).nodes;
@@ -137,7 +158,8 @@ function additionPlan(live, repo, allowNewNodes) {
         const members = liveMembers.map(member => repoSet.has(member) ? ordered[next++] : member);
         groupMembers.set(id, members.concat(ordered.slice(next)));
     }
-    return { add: additions.map((node) => node.id), wire, ...(groupMembers.size ? { groups: [...groupMembers.keys()], groupMembers } : {}) };
+    return { add: additions.map((node) => node.id), wire, ...(groupMembers.size ? { groups: [...groupMembers.keys()], groupMembers } : {}),
+        ...(newConnections.length ? { newConnections } : {}) };
 }
 
 function recordedCommit(info = '') {

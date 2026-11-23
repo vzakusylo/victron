@@ -140,6 +140,10 @@ test('deploy workflow: reviewed removals are a dispatch-only allowlist', () => {
   assert.match(deploy, /^      allow_removed_nodes:\n        description: [^\n]+\n        type: string\n        default: ""$/m);
   assert.match(deploy, /ALLOW_REMOVED_NODES: \$\{\{ inputs\.allow_removed_nodes \}\}/);
   assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_REMOVED_NODES\) \{ \$arguments \+= @\('-AllowRemovedNodes', \$env:ALLOW_REMOVED_NODES\) \}/);
+  assert.match(deploy, /^      allow_new_wires:\n        description: [^\n]+Ignored on automatic runs\."\n        type: string\n        default: ""$/m);
+  assert.match(deploy, /ALLOW_NEW_WIRES: \$\{\{ inputs\.allow_new_wires \}\}/);
+  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_NEW_WIRES\) \{ \$arguments \+= @\('-AllowNewWires', \$env:ALLOW_NEW_WIRES\) \}/);
+  assert.equal((deploy.match(/'-AllowNewWires'/g) || []).length, 1);
 });
 
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {

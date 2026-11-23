@@ -9,6 +9,7 @@
 #   ... -AllowReplaceDeployedLines  allow GX-only replacements only when live code matches its recorded deployment
 #   ... -AllowNewNodes              plan and deploy reviewed additions from the commit (review the dry run first)
 #   ... -AllowRemovedNodes 'a,b'    remove exactly these Git-verified nodes (review the dry run first)
+#   ... -AllowNewWires 'a,b'        review append-only wires from these sources to existing nodes
 #   ... -UseWorkTreeScripts         development only: run the scripts of the work tree (the deployed files still come from the commit)
 #   ... -Steps                      only print the steps
 #
@@ -27,6 +28,7 @@ param(
     [switch]$AllowReplaceDeployedLines,
     [switch]$AllowNewNodes,
     [string]$AllowRemovedNodes,
+    [string]$AllowNewWires,
     [switch]$UseWorkTreeScripts,
     [string]$RunDirectory,
     [switch]$Steps
@@ -126,7 +128,7 @@ foreach ($file in $scripts) {
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"
 
 Step '2/8 snapshot of the live flow'
-$live = Invoke-OnGx 'tools\gx\live-snapshot.js' (($AllowNewNodes -or $AllowRemovedNodes) ? '--topology' : '')
+$live = Invoke-OnGx 'tools\gx\live-snapshot.js' (($AllowNewNodes -or $AllowRemovedNodes -or $AllowNewWires) ? '--topology' : '')
 if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
 Save 'live-before.b64' $live.Text
 
@@ -156,6 +158,7 @@ Step '4/8 plan'
 $planFlags = @()
 if ($AllowNewNodes) { $planFlags += '--allow-new-nodes' }
 if ($AllowRemovedNodes) { $planFlags += @('--allow-removed-nodes', $AllowRemovedNodes) }
+if ($AllowNewWires) { $planFlags += @('--allow-new-wires', $AllowNewWires) }
 if ($AllowReplaceDeployedLines) { $planFlags += '--allow-replace-deployed-lines' }
 $planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --tools ($tools -join ',') @planFlags 2>&1
 $planCode = $LASTEXITCODE
@@ -182,8 +185,11 @@ if ($plan.replacedFrom -match '^[0-9a-f]{40}$') {
 }
 if ($plan.add.Count -ne $summary.onlyRepo.Count) { Stop-Run 'new node count in the plan does not match the comparison.' }
 if ($plan.remove.Count -ne $summary.onlyLive.Count -or ($AllowRemovedNodes -and -not $plan.remove.Count)) { Stop-Run 'removal plan does not match the comparison and opt-in.' }
+if (($plan.allowNewWires -join ',') -cne ((($AllowNewWires -split ',') | ForEach-Object { $_.Trim() }) -join ',')) {
+    Stop-Run 'reviewed wire plan does not match -AllowNewWires (the pinned planner must support it).'
+}
 Write-Host ("plan: $(@($plan.patch.PSObject.Properties).Count) code patch(es), $($plan.wire.Count) wire patch(es), $($plan.add.Count) addition(s), $($plan.remove.Count) removal(s), $(@($plan.tools.PSObject.Properties).Count) tool file(s), live revision $($plan.expectRev.Substring(0, 12))")
-$planOutput | Where-Object { $_ -match '^(node to add|node to remove|wire patch|removal wiring|group patch)' } | ForEach-Object { Write-Host $_ }
+$planOutput | Where-Object { $_ -match '^(node to add|node to remove|wire patch|removal wiring|group patch|added connection)' } | ForEach-Object { Write-Host $_ }
 
 Step '5/8 window'
 $deadline = (Get-Date).AddMinutes($WaitWindowMin)

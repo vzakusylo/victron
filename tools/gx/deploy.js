@@ -11,7 +11,7 @@
 //      raw.githubusercontent.com and checks their SHA-256 against the plan (large pushes from the PC stall)
 //   2. GET /flows; the live revision must still be plan.expectRev (nobody deployed since the comparison)
 //   3. the heat pump automations must not be in a DHW cycle (their node context is lost on a redeploy)
-//   4. copies only the planned code and new-node wiring from the commit, and adds reviewed nodes;
+//   4. copies only the planned code and reviewed wiring from the commit, and adds reviewed nodes;
 //      any other settings differences on a patched node stop the deploy
 //   5. sets the d#<n> tab label of the commit and stamps the source commit (tools/deploy-version.js)
 //   6. DRY=0 only: copies flows.json,
@@ -72,7 +72,7 @@ function readPlan(file) {
     if (!hex(plan.flowsSha256, 64) || !hex(plan.stampSha256, 64)) fail('plan file hashes are missing');
     if (typeof plan.expectRev !== 'string' || !plan.expectRev) fail('plan.expectRev is missing');
     if (!plan.patch || typeof plan.patch !== 'object' || Array.isArray(plan.patch)) fail('plan.patch must be an object');
-    for (const key of ['add', 'wire', 'groups', 'remove']) {
+    for (const key of ['add', 'wire', 'groups', 'remove', 'allowNewWires']) {
         if (plan[key] === undefined) plan[key] = [];
         if (!Array.isArray(plan[key]) || plan[key].some((id) => typeof id !== 'string')) fail('plan.' + key + ' must list node IDs');
     }
@@ -142,7 +142,7 @@ function readPlan(file) {
             for (const id of removals.remove) console.log('node to remove  : ' + id);
             for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));
         }
-        const nodes = additionPlan(payload.flows, repoFlows, plan.add.length > 0);
+        const nodes = additionPlan(payload.flows, repoFlows, plan.add.length > 0, plan.allowNewWires);
         for (const key of ['add', 'wire', 'groups']) {
             if (stable(plan[key]) !== stable(nodes[key] || [])) fail('Planned ' + key + ' IDs do not match the live/commit comparison.');
         }

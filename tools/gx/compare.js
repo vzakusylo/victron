@@ -182,6 +182,12 @@ function main() {
     if (removalInput && !/^\s*[\w.][\w.-]*(?:\s*,\s*[\w.][\w.-]*)*\s*$/.test(removalInput)) {
         throw new Error('--allow-removed-nodes must be a comma-separated list of node IDs.');
     }
+    const wireInput = option('--allow-new-wires');
+    if (args.includes('--allow-new-wires') &&
+        (!planFile || !commit || !/^\s*[\w.][\w.-]*(?:\s*,\s*[\w.][\w.-]*)*\s*$/.test(wireInput || ''))) {
+        throw new Error('--allow-new-wires requires a comma-separated list of source node IDs, --plan and --commit.');
+    }
+    const allowNewWires = wireInput ? wireInput.split(',').map(id => id.trim()) : [];
     const verifyReplacement = args.includes('--allow-replace-deployed-lines');
     if (verifyReplacement && (!planFile || !commit)) throw new Error('--allow-replace-deployed-lines requires --plan and --commit.');
     let replacedFrom = null;
@@ -227,8 +233,8 @@ function main() {
         const repoFlows = JSON.parse(flowsBuffer.toString('utf8'));
         const allowNewNodes = args.includes('--allow-new-nodes');
         const allowed = removalInput?.trim() ? removalInput.split(',').map(id => id.trim()) : [];
-        if ((allowed.length || (allowNewNodes && diff.onlyRepo.length)) && !live.nodes.every((node) => node.topology)) {
-            throw new Error('Node addition/removal planning requires a live-snapshot.js --topology snapshot.');
+        if ((allowed.length || allowNewWires.length || (allowNewNodes && diff.onlyRepo.length)) && !live.nodes.every((node) => node.topology)) {
+            throw new Error('Node addition/removal and reviewed wire planning requires a live-snapshot.js --topology snapshot.');
         }
         let removalBase;
         let previous = [];
@@ -244,7 +250,8 @@ function main() {
             }
         }
         const removals = removalPlan(live.nodes, allowed.length ? snapshot(repoFlows, null, { topology: true }).nodes : repo.nodes, allowed, previous);
-        const nodes = additionPlan(cleanTopology(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), removals), repoFlows, allowNewNodes);
+        const nodes = additionPlan(cleanTopology(live.nodes.map(({ id, type, topology }) => ({ id, type, ...topology })), removals),
+            repoFlows, allowNewNodes, allowNewWires);
         const added = new Set(nodes.add);
         const newNodes = repoFlows.filter((node) => added.has(node.id));
         if (newNodes.some((node) => node.type === 'function')) {
@@ -259,6 +266,7 @@ function main() {
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
             patch: buildPatch(diff, args.includes('--include-trailing')), add: nodes.add, wire: nodes.wire,
             ...(nodes.groups ? { groups: nodes.groups } : {}), tools,
+            ...(allowNewWires.length ? { allowNewWires } : {}), tools,
             ...(replacedFrom ? { replacedFrom } : {}),
             ...(removalBase ? { remove: removals.remove, removalBase } : {})
         };
@@ -267,6 +275,9 @@ function main() {
             ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + removals.remove.length + ' removal(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
         for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
         for (const id of nodes.wire) console.log('wire patch      : ' + id);
+        for (const { id, output, dest, name, added } of nodes.newConnections || []) {
+            console.log(`added connection: ${id}[${output}] -> ${dest} (${JSON.stringify(name)}, ${added ? 'new' : 'existing'})`);
+        }
         for (const id of nodes.groups || []) console.log('group patch     : ' + id);
         for (const id of removals.remove) console.log('node to remove  : ' + id);
         for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));

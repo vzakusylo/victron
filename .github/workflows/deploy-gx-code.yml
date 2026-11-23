@@ -29,6 +29,10 @@ on:
         description: "Exact comma-separated Git-verified node IDs to remove. Empty stops all removals."
         type: string
         default: ""
+      allow_new_wires:
+        description: "Comma-separated source node IDs for reviewed append-only wiring to existing nodes. Ignored on automatic runs."
+        type: string
+        default: ""
   # A green Test GX push to master can deploy the newest eligible green commit.
   workflow_run:
     workflows: ["Test GX scenarios"]
@@ -92,6 +96,7 @@ jobs:
       ALLOW_LIVE_ONLY_LINES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_live_only_lines }}
       ALLOW_NEW_NODES: ${{ github.event_name == 'workflow_run' && 'false' || inputs.allow_new_nodes }}
       ALLOW_REMOVED_NODES: ${{ inputs.allow_removed_nodes }}
+      ALLOW_NEW_WIRES: ${{ inputs.allow_new_wires }}
     steps:
       - uses: actions/checkout@v7
         if: env.AUTO == 'true'
@@ -206,6 +211,7 @@ jobs:
           else { $arguments += '-AllowReplaceDeployedLines' }
           if ($env:ALLOW_NEW_NODES -eq 'true') { $arguments += '-AllowNewNodes' }
           if ($env:AUTO -ne 'true' -and $env:ALLOW_REMOVED_NODES) { $arguments += @('-AllowRemovedNodes', $env:ALLOW_REMOVED_NODES) }
+          if ($env:AUTO -ne 'true' -and $env:ALLOW_NEW_WIRES) { $arguments += @('-AllowNewWires', $env:ALLOW_NEW_WIRES) }
           & pwsh @arguments
           exit $LASTEXITCODE
 
