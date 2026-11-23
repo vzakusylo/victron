@@ -85,7 +85,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
-| G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | in progress | `grid-g6-bookkeeping`; boundary scenarios landed in #160. |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -157,6 +156,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#162 G6 (`grid-g6-bookkeeping`, d#225 · i#32 unchanged): split grid input handling, D-Bus read-back, output publication and legacy bookkeeping handoff into node-local helpers without changing grid behavior.
 
 #161 D-R4 Dropped output with removal (`deploy-drop-output`, d#224 unchanged · i#32): allow dropping trailing outputs wired only to approved removals. The d#217 to d#224 offline removal plan passes; additions stop at `hp-dashboard-viewers-01` (`ui_ui_control`, no `group` field).
 
