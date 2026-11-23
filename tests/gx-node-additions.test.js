@@ -47,6 +47,43 @@ test('approved Victron input removal changes only the layout group membership', 
     assert.throws(() => plan([live[0], group, live[2]]), /lay-g-ctrl: target still references a removed node/);
 });
 
+function groupRemoval() {
+    const group = { id: 'group', type: 'group', z: 'tab', nodes: ['a', 'gone', 'b'] };
+    const tab = { id: 'tab', type: 'tab' };
+    const member = id => ({ id, type: 'delay', z: 'tab', g: group.id });
+    const plan = (live, target, recorded = group.nodes) => {
+        const nodes = (members, ids) => snapshot([tab, { ...group, nodes: members }, ...ids.map(member)], null, { topology: true }).nodes;
+        const ids = ['a', 'gone', 'b'];
+        return removalPlan(nodes(live, ids), nodes(target, ['a', 'b', 'new']), ['gone'], nodes(recorded, ids));
+    };
+    return plan;
+}
+
+test('group removal accepts order drift and writes existing members in target order', () => {
+    const { reconnect } = groupRemoval()(['a', 'b', 'gone'], ['b', 'new', 'a']);
+    assert.deepEqual(reconnect.group.nodes, ['b', 'a']);
+});
+
+test('group removal reports unrecorded GX members and missing commit members', () => {
+    const plan = groupRemoval();
+    assert.throws(() => plan(['a', 'gone', 'extra'], ['a', 'b']), {
+        message: 'group.nodes: GX differs from the recorded commit: only on GX [extra], only in commit [b]'
+    });
+    assert.throws(() => plan(['a', 'b'], ['a', 'b']), {
+        message: 'group.nodes: GX differs from the recorded commit: only on GX [], only in commit [gone]'
+    });
+    assert.throws(() => plan(['a', 'gone', 'b'], ['a', 'new']), /group\.nodes: unsafe member change alongside removal/);
+});
+
+test('group removal rejects duplicates in GX, commit and target membership', () => {
+    const plan = groupRemoval();
+    for (const [live, target, recorded] of [
+        [['a', 'gone', 'b', 'a'], ['a', 'b']],
+        [['a', 'gone', 'b'], ['a', 'b'], ['a', 'gone', 'b', 'a']],
+        [['a', 'gone', 'b'], ['a', 'new', 'new', 'b']]
+    ]) assert.throws(() => plan(live, target, recorded), /group\.nodes: duplicate group members/);
+});
+
 test('Victron outputs and subflow instances are not removable even with approval', () => {
     const target = snapshot([{ id: 'tab', type: 'tab' }], null, { topology: true }).nodes;
     for (const type of ['victron-output-ess', 'subflow:template']) {

@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-23 | Manual GX dry run 45160118243 rejected group membership that differed only in order | Compare affected layout group members as sets and restore target order for surviving members |
 | 2026-11-23 | Added the Claude review token project skill | The owner can rotate the GitHub Actions secret from a private terminal without pasting the token into chat or a command line |
 | 2026-11-23 | The GX dry-run planner rejected an explicitly approved Victron input removal (run 45146745099) | Allowed read-only Victron input removals without widening additions; checked layout membership cleanup offline |
 | 2026-11-23 | Master Test GX flake (run 45119354024) blocked the d#220 auto-deploy | Added a bounded retry for the emulator's initial MQTT connection |

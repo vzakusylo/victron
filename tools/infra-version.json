@@ -1,5 +1,5 @@
 {
-  "i": 29,
+  "i": 30,
   "changes": [
     {
       "i": 1,
@@ -174,6 +174,12 @@
       "date": "2026-11-23",
       "pr": 158,
       "what": "Batch heat pump automation tick context writes"
+    },
+    {
+      "i": 30,
+      "date": "2026-11-23",
+      "pr": 159,
+      "what": "Deploy: compare group members as a set"
     }
   ]
 }
