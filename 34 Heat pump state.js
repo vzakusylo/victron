@@ -145,15 +145,18 @@ if (typeof p.state === 'string' && !p.data) {
 
 flow.set('heatPump', st);
 // Control reads the raw state above immediately; only the derived model waits.
-if (context.get('modelPending')) return null;
-context.set('modelPending', true);
+const pending = context.get('modelPending');
+context.set('modelPending', role);
+if (pending) return null;
 setTimeout(() => {
+    const lastRole = context.get('modelPending');
     context.set('modelPending', false);
-    const model = buildModel(flow.get('heatPump'), Date.now());
+    const latest = flow.get('heatPump');
+    const model = buildModel(latest, Date.now());
     flow.set('heatPumpModel', model);
     const statusText = model.summary.supply !== null
         ? `out ${model.summary.supply}° tank ${model.summary.tank}° ${model.summary.compressorHz} Hz`
-        : `${role}: ${flow.get('heatPump')[role].state}`;
+        : `${lastRole}: ${latest[lastRole].state}`;
     node.status({ fill: model.devices.every((x) => x.state === 'CONNECTED') ? 'green' : 'yellow', shape: 'dot', text: statusText });
     node.send([{ payload: model }, null, null]);
 }, 5000);

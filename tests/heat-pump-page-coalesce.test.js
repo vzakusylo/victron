@@ -39,6 +39,14 @@ test('the Tuya connection-only branch never merges a data packet', () => {
     assert.equal(initial.sent[0][0].payload.devices[0].state, 'DISCONNECTED');
 });
 
+test('without a supply reading, the status label identifies the last role in the batch', () => {
+    const state = loadNode('34 Heat pump state.js');
+    const first = state.run(reading({ 101: 30 }), { now: NOW });
+    state.run({ topic: 'meter-status', payload: { state: 'DISCONNECTED' } }, { now: NOW + 100 });
+    first.timers[0].cb();
+    assert.equal(first.status.text, 'meter: DISCONNECTED');
+});
+
 function dashboard() {
     const node = loadNode('66 Heat pump page updates.js');
     const model = {
