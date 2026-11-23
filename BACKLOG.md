@@ -133,7 +133,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | 2 | Charging scenarios | Done (#55); follow-ups in section 4 |
 | 9 | Dashboard UI checks (Playwright) | Done (#56); follow-ups in section 4 |
 | 8p / T1 | Speed up Test GX; target < 20 min | Steps 1–2: parallel matrix (#87) and faster fixture fake time (#103). Remaining: Docker cache and stack reuse. See T1 below |
-| P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | Done (#89) |
+| P1/P2 | Test GX scenarios for the heating step-up and the curve monitor | In progress: #89 |
 | 3 | Boiler logic scenarios (DHW schedule, shower prep, forced-cycle stops, missing data, Tuya offline) | Done: #114 |
 | 5 | Edges: midnight, DST, month change, tariff tier change, sensor failures | Pending |
 | 6 | BMS watchdog: `battery.tty*`, `/ActiveBmsService`, `BmsInstance`, `send-mail.js` stub + scenarios | Pending |
