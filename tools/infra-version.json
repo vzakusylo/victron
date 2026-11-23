@@ -1,5 +1,5 @@
 {
-  "i": 27,
+  "i": 28,
   "changes": [
     {
       "i": 1,
@@ -162,6 +162,12 @@
       "date": "2026-11-23",
       "pr": 156,
       "what": "Deploy: allow removing Victron input nodes"
+    },
+    {
+      "i": 28,
+      "date": "2026-11-23",
+      "pr": null,
+      "what": "Add claude-review-token project skill"
     }
   ]
 }
