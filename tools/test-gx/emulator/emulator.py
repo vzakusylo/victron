@@ -534,9 +534,13 @@ def main():
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     mqtt_client.on_subscribe = on_subscribe
+    try:
+        connect_timeout = int(os.environ.get('EMU_MQTT_CONNECT_TIMEOUT', '60'))
+    except ValueError as error:
+        raise ValueError('EMU_MQTT_CONNECT_TIMEOUT must be a positive integer in seconds') from error
     connect_mqtt(mqtt_client, os.environ.get('EMU_MQTT_HOST', 'mosquitto'),
                  int(os.environ.get('EMU_MQTT_PORT', '1883')), 30,
-                 deadline_s=int(os.environ.get('EMU_MQTT_CONNECT_TIMEOUT', '60')))
+                 deadline_s=connect_timeout)
     mqtt_client.loop_start()
     if not connected.wait(MQTT_READY_TIMEOUT):
         raise RuntimeError('Tuya MQTT connection/subscription did not become ready')
