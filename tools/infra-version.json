@@ -160,7 +160,7 @@
     {
       "i": 27,
       "date": "2026-11-23",
-      "pr": null,
+      "pr": 156,
       "what": "Deploy: allow removing Victron input nodes"
     }
   ]
