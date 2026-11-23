@@ -5,6 +5,7 @@
 </style>
 <div class="sth">
   <h3>All sensor temperatures</h3>
+  <p class="note">Room sensors only. For heat pump, accumulator and exchange plate readings, see the Heat Pump page.</p>
   <button ng-click="loadTemp(s.days[s.days.indexOf(s.day)+1])" ng-disabled="busy || !s.days[s.days.indexOf(s.day)+1]">Previous day</button>
   <select ng-model="selected" ng-options="d for d in s.days" ng-change="loadTemp(selected)" ng-disabled="busy"></select>
   <button ng-click="loadTemp(s.days[s.days.indexOf(s.day)-1])" ng-disabled="busy || !s.days[s.days.indexOf(s.day)-1]">Next day</button>
@@ -39,7 +40,7 @@
   <table><tr><th>Sensor</th><th>Latest known °C</th><th>Status now</th><th>Selected-day samples</th><th>Source</th></tr>
     <tr ng-repeat="r in s.sensors"><td>{{r.name}}</td><td>{{r.value === null ? '—' : r.value}}</td><td>{{r.online ? 'online' : 'unavailable / stale'}}</td><td>{{r.samples}}</td><td>{{r.source}}</td></tr>
   </table>
-  <p class="note">Heat-pump, accumulator/exchange-plate and Air Monitor history comes from existing archives. Other sensors are recorded from deployment onward and kept for 400 days; missing historical values are not fabricated. Latest known values may be stale; status is based on the Devices catalogue's last update.</p>
+  <p class="note">Air Monitor history comes from existing archives. Other room sensors are recorded from deployment onward and kept for 400 days; missing historical values are not fabricated. Latest known values may be stale; status is based on the Devices catalogue's last update.</p>
 </div>
 <script>
 (function(scope) {

@@ -14,11 +14,33 @@ const dashboardBundle = 'g.menu.length>0&&e("left")&&e("left").close();' +
 const dashboardIndex = '<body ng-swipe-right="onSwipeRight();" ng-swipe-left="onSwipeLeft();" ' +
     'ng-attr-ng-swipe-disable-mouse="{{main.allowSwipe !== \'mouse\' ? \'\' : undefined}}">Dashboard</body>';
 
-test('the room sensor list of the Devices model and of the history is the same', () => {
-    const list = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/NON_ROOM_IDS = (\[[^\]]*\])/)[1];
-    assert.equal(list('tools/sensor-history.js'), list('50 Devices model.js'));
+function roomPolicy(meta = {}) {
+    const request = loadNode('50 Devices model.js').run({ topic: 'tick' }, { now: t }).result[1];
+    // Unwrap the outer sh -c argument, then execute only its local Node classifier, not the device polling.
+    const script = request.payload.slice(1, -1).replaceAll("'\\''", "'");
+    const [, classifier, fixedIds] = /node -e '([^']+)' [^\n]+\/sensor-history\.js '([^']+)'/.exec(script);
+    return require('node:child_process').execFileSync(process.execPath,
+        ['-e', classifier, path.join(__dirname, '..', 'tools', 'sensor-history.js'), fixedIds],
+        { encoding: 'utf8', input: typeof meta === 'string' ? meta : JSON.stringify(meta) }).trim();
+}
+
+test('Devices reads the room exclusions from the history tool', () => {
+    assert.deepEqual(JSON.parse(roomPolicy({ room: {} })), ['hp', 'acc', 'plate']);
     for (const key of ['hp:102', 'acc:Temperature', 'plate:Temperature', 'plate:x']) assert.equal(isRoomSensorKey(key), false, key);
     assert.equal(isRoomSensorKey('air-monitor:Temperature'), true);
+});
+
+test('missing or malformed Tuya metadata does not stop independent room history', () => {
+    for (const meta of ['', '{"room":']) {
+        const policy = roomPolicy(meta);
+        assert.deepEqual(JSON.parse(policy), ['hp', 'acc', 'plate']);
+        const node = loadNode('50 Devices model.js');
+        const { result, warnings } = node.run({ topic: 'read',
+            payload: `@@META\n${meta}\n@@ROOM_EXCLUSIONS\n${policy}\n@@DBUSJSON {"services":[]}`
+        }, { now: t });
+        assert.deepEqual(result[0].payload.temperatureSensors.map(s => s.key), ['air-monitor:Temperature']);
+        assert.equal(warnings.some(warning => /invalid Tuya device metadata/.test(warning)), !!meta);
+    }
 });
 
 test('toilet chart uses actual PIR/clear reports, not battery wakes, other devices or cached state', () => {
@@ -56,19 +78,21 @@ test('cloud PIR history can identify the sole known motion sensor before a local
     meta.other = meta.toilet;
     const ambiguous = n.run({topic:'read',payload:'@@META\n'+JSON.stringify(meta)+'\n@@DBUSJSON {"services":[]}'},{now:t});
     assert.equal(ambiguous.result[0].payload.motionSensorId,'');
-    assert.match(ambiguous.warnings[0],/multiple PIR/);
+    assert.ok(ambiguous.warnings.some(warning => /multiple PIR/.test(warning)));
 });
 
-test('the Temperatures page lists room sensors only: no pump, water, outdoor, tank, supply or return', () => {
+test('Devices catalog and Temperatures chart/table keep room and Air Monitor temperatures only', () => {
     const n = loadNode('50 Devices model.js');
     n.flow.set('heatPump',{hp:{state:'CONNECTED',lastData:t,dps:{101:30,102:36,103:-2,108:47}}});
-    const keys = n.run({topic:'read',payload:'@@META\n{}\n@@DBUSJSON {"services":[]}'},{now:t}).result[0].payload.temperatureSensors.map(s=>s.key);
-    assert.ok(!keys.some(k=>isRoomSensorKey(k)===false), keys.join());
-    const c = {sensors:[{key:'hp:102',name:'Supply'},{key:'acc:Temperature',name:'Tank'},{key:'plate:Temperature',name:'Plate'},{key:'room',name:'Room'}]};
-    const s = ['hp:102','acc:Temperature','plate:Temperature','room'].map(key=>({key,name:key,t,value:20}));
+    const meta = { room: { name: 'Living room', dps: { 1: { code: 'temp_current' } } } };
+    const keys = n.run({topic:'read',payload:'@@ROOM_EXCLUSIONS\n'+roomPolicy(meta)+'\n@@META\n'+JSON.stringify(meta)+'\n@@DBUSJSON {"services":[]}'},{now:t}).result[0].payload.temperatureSensors.map(s=>s.key);
+    assert.deepEqual(keys, ['room:Temperature', 'air-monitor:Temperature']);
+    const allKeys = ['hp:102', 'hp:103', 'acc:Temperature', 'plate:Temperature', ...keys];
+    const c = { sensors: allKeys.map(key => ({ key, name: key })) };
+    const s = allKeys.map(key => ({ key, name: key, t, value: 20 }));
     const r = build(day,c,s,[],false,[day]);
-    assert.deepEqual(r.sensors.map(x=>x.key),['room']);
-    assert.deepEqual(r.series.map(x=>x.key),['room']);
+    assert.deepEqual(r.sensors.map(x=>x.key), keys);
+    assert.deepEqual(r.series.map(x=>x.key), keys);
 });
 
 test('history keeps empty sensors, averages measured buckets and does not connect long gaps', () => {

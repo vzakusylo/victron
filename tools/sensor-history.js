@@ -36,7 +36,7 @@ function jsonLines(text, diagnostics) {
 }
 const timestamp = (t) => Number.isFinite(t) && t > 0 && t <= 8640000000000000;
 // d#201: the Temperatures page shows room sensors only; pump, water, outdoor, tank, supply and return stay on the Heat Pump page
-// the same ids as NON_ROOM_IDS in "50 Devices model.js" (tests/sensor-history.test.js keeps the two lists equal)
+// The Devices model calls this same predicate when building the temperature catalog.
 const NON_ROOM_IDS = ['hp', 'acc', 'plate'];
 const isRoomSensorKey = (key) => typeof key === 'string' && !NON_ROOM_IDS.includes(key.split(':')[0]);
 const colors = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd', '#17becf', '#e377c2', '#8c564b', '#bcbd22'];
