@@ -265,7 +265,7 @@ function main() {
             flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
             scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
             patch: buildPatch(diff, args.includes('--include-trailing')), add: nodes.add, wire: nodes.wire,
-            ...(nodes.groups ? { groups: nodes.groups } : {}), tools,
+            ...(nodes.groups ? { groups: nodes.groups } : {}),
             ...(allowNewWires.length ? { allowNewWires } : {}), tools,
             ...(replacedFrom ? { replacedFrom } : {}),
             ...(removalBase ? { remove: removals.remove, removalBase } : {})
