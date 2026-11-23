@@ -14,7 +14,10 @@ function store(initial) {
     return {
         data,
         get: (key) => data[key],
-        set: (key, value) => { data[key] = value; }
+        set: (key, value) => {
+            if (Array.isArray(key)) key.forEach((name, i) => { data[name] = value[i]; });
+            else data[key] = value;
+        }
     };
 }
 

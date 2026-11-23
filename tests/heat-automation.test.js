@@ -15,8 +15,8 @@ const NOW = new Date(2026, 10, 14, 20, 10).getTime();
 const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60 };
 
 function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {},
-    heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 } } = {}) {
-    const node = loadNode('40 Heat pump automations.js');
+    heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 }, modules } = {}) {
+    const node = loadNode('40 Heat pump automations.js', undefined, undefined, modules);
     const load = node.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: Object.assign({ dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' }, modes),
         heat: cfg, dhw: { showerForce: false }, heatCurve, dhwLastEnd
@@ -45,6 +45,53 @@ function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, m
     const heat = () => node.context.get('heat');
     return { node, load, tick, heat, writes };
 }
+
+test('steady automations tick writes node context once and still publishes the view', () => {
+    const c = heating();
+    c.tick(NOW);
+    const { context } = c.node;
+    const set = context.set;
+    const writes = [];
+    context.set = (key, value) => { writes.push(key); set(key, value); };
+    const at = NOW + 10 * S;
+    const call = c.tick(at);
+    assert.equal(writes.length, 1, 'context.set calls on a steady tick');
+    assert.equal(c.node.flow.get('dhwView').at, at);
+    assert.equal(call.result[0].payload.updatedMs, at);
+});
+
+test('steady automations tick does not serialize settings or working state', () => {
+    const serialized = [];
+    const c = heating({ modules: { JSON: {
+        parse: JSON.parse,
+        stringify(value, ...args) { serialized.push(value); return JSON.stringify(value, ...args); }
+    } } });
+    c.tick(NOW);
+    serialized.length = 0;
+    const call = c.tick(NOW + 10 * S);
+    assert.equal(serialized.length, 0, 'JSON.stringify calls on a steady tick');
+    assert.equal(call.result[0].payload.master, true);
+});
+
+test('a defrost edge still saves settings once with one context write', () => {
+    const c = heating();
+    c.tick(NOW);
+    const { context } = c.node;
+    const set = context.set;
+    let writes = 0;
+    context.set = (key, value) => { writes++; set(key, value); };
+    const at = NOW + 10 * S;
+    const defrost = { 116: 0, 115: 68 };
+    const edge = c.tick(at, defrost);
+    assert.equal(writes, 1);
+    const saves = edge.sent.flatMap(out => out[2] ? [JSON.parse(out[2].payload)] : []);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0].defrostStarts, [at]);
+    assert.equal(context.get('inDefrost'), true);
+    assert.equal(context.get('preDefSupply'), 36);
+    assert.equal(c.tick(at + 10 * S, defrost).sent.some(out => out[2]), false);
+    assert.equal(writes, 2);
+});
 
 test('heating controller with the GX settings keeps Silent and writes nothing while the supply is on the curve', () => {
     const c = heating();

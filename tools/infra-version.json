@@ -1,5 +1,5 @@
 {
-  "i": 28,
+  "i": 29,
   "changes": [
     {
       "i": 1,
@@ -168,6 +168,12 @@
       "date": "2026-11-23",
       "pr": 157,
       "what": "Add claude-review-token project skill"
+    },
+    {
+      "i": 29,
+      "date": "2026-11-23",
+      "pr": 158,
+      "what": "Batch heat pump automation tick context writes"
     }
   ]
 }
