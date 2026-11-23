@@ -4,13 +4,13 @@
 param([string]$Repo = 'vzakusylo/victron', [string]$Name = 'CLAUDE_CODE_OAUTH_TOKEN')
 
 $ErrorActionPreference = 'Stop'
-$token = ([string](Get-Clipboard -Raw)) -replace '\s', ''
-if ($token -cnotmatch '^sk-ant-oat01-[A-Za-z0-9_-]+$') {
-    throw 'Clipboard does not contain a Claude Code OAuth token. Copy the whole token and run again.'
-}
-
-# Pass via stdin so the token never appears on the command line or in history.
 try {
+    $token = ([string](Get-Clipboard -Raw)) -replace '\s', ''
+    if ($token -cnotmatch '^sk-ant-oat01-[A-Za-z0-9_-]+$') {
+        throw 'Clipboard does not contain a Claude Code OAuth token. Copy the whole token and run again.'
+    }
+
+    # Pass via stdin so the token never appears on the command line or in history.
     $token | gh secret set $Name --repo $Repo
     if ($LASTEXITCODE -ne 0) { throw "GitHub CLI failed to update secret $Name in $Repo." }
 } finally {
