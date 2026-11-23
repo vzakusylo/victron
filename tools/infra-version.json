@@ -118,7 +118,7 @@
     {
       "i": 20,
       "date": "2026-11-23",
-      "pr": null,
+      "pr": 149,
       "what": "Test in-process watchdog reads and stabilize the fake GX deploy test"
     }
   ]
