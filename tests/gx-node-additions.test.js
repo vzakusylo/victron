@@ -28,6 +28,51 @@ test('the exact recorded removal list reroutes verified connections and cleans g
     assert.ok(live.some(node => node.id === 'gone'), 'planning does not mutate live');
 });
 
+test('approved Victron input removal changes only the layout group membership', () => {
+    const group = { id: 'lay-g-ctrl', type: 'group', z: 'tab', name: 'Control',
+        style: { label: true }, nodes: ['keep', 'battery'], x: 10, y: 20, w: 200, h: 80 };
+    const live = [
+        { id: 'tab', type: 'tab' }, group,
+        { id: 'keep', type: 'function', z: 'tab', g: group.id, wires: [] },
+        { id: 'battery', type: 'victron-input-battery', z: 'tab', g: group.id, wires: [['keep']] }
+    ];
+    const baseline = snapshot(live, null, { topology: true }).nodes;
+    const target = [live[0], { ...group, nodes: ['keep'] }, live[2]];
+    const plan = flows => removalPlan(baseline, snapshot(flows, null, { topology: true }).nodes, ['battery'], baseline);
+    const result = plan(target);
+    assert.deepEqual(result.remove, ['battery']);
+    assert.deepEqual(Object.keys(result.reconnect), [group.id]);
+    assert.deepEqual({ ...result.reconnect[group.id] }, { nodes: ['keep'] });
+    assert.deepEqual(cleanTopology(live, result), target);
+    assert.throws(() => plan([live[0], group, live[2]]), /lay-g-ctrl: target still references a removed node/);
+});
+
+test('Victron outputs and subflow instances are not removable even with approval', () => {
+    const target = snapshot([{ id: 'tab', type: 'tab' }], null, { topology: true }).nodes;
+    for (const type of ['victron-output-ess', 'subflow:template']) {
+        const live = snapshot([{ id: 'tab', type: 'tab' }, { id: 'gone', type, z: 'tab' }], null, { topology: true }).nodes;
+        assert.throws(() => removalPlan(live, target, ['gone'], live), {
+            message: `gone: node type ${type} is not removable by the deploy tool; remove it in the Node-RED editor or extend the list.`
+        });
+    }
+});
+
+test('tab, layout group, config and non-tab parent removals still require a manual deploy', () => {
+    const retained = [{ id: 'tab', type: 'tab' }, { id: 'template', type: 'subflow' }];
+    const nodes = flow => snapshot(flow, null, { topology: true }).nodes;
+    for (const node of [
+        { id: 'gone', type: 'tab' },
+        { id: 'gone', type: 'group', z: 'tab', nodes: [] },
+        { id: 'gone', type: 'ui_group' },
+        { id: 'gone', type: 'victron-input-battery', z: 'template' }
+    ]) {
+        const live = nodes([...retained, node]);
+        assert.throws(() => removalPlan(live, nodes(retained), ['gone'], live), {
+            message: 'gone: removing tabs, groups or configuration nodes requires a manual deploy.'
+        });
+    }
+});
+
 test('unlisted, extra, duplicate, or live-only node removals stop', () => {
     const { old, plan, live } = removalFixture();
     assert.throws(() => plan([]), /without listing every removal: gone/);
@@ -71,6 +116,13 @@ test('new endpoints are opt-in and add the existing node’s connection in the s
     const { live, repo } = fixture();
     assert.throws(() => additionPlan(live, repo, false), /require --allow-new-nodes/);
     assert.deepEqual(additionPlan(live, repo, true), { add: ['endpoint', 'handler', 'response'], wire: ['existing'] });
+});
+
+test('approved new nodes still cannot add Victron inputs', () => {
+    const { live, repo, node } = fixture();
+    assert.throws(() => additionPlan(live, [...repo, node('battery', 'victron-input-battery')], true), {
+        message: 'battery: cannot add node type victron-input-battery (config or unsupported node).'
+    });
 });
 
 test('new nodes cannot add config, credentials, missing tabs or broken wires', () => {

@@ -85,8 +85,13 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
             { id: 'input', type: 'inject', z: 'tab', wires: [['gone']] },
             { id: 'gone', type: 'delay', z: 'tab', wires: [[]] },
             { id: 'ui', type: 'ui_base', site: { name: 'Test' } },
-            { id: 'page', type: 'ui_tab', name: 'Test' }];
-        const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, ...old.slice(3)];
+            { id: 'page', type: 'ui_tab', name: 'Test' },
+            { id: 'layout', type: 'group', z: 'tab', name: 'Control', style: { label: true },
+                nodes: ['battery', 'keep'], x: 10, y: 20, w: 200, h: 80 },
+            { id: 'battery', type: 'victron-input-battery', z: 'tab', g: 'layout', wires: [['keep']] },
+            { id: 'keep', type: 'delay', z: 'tab', g: 'layout', wires: [[]] }];
+        const next = [{ ...old[0], label: 'd#2 GX' }, { ...old[1], wires: [[]] }, old[3], old[4],
+            { ...old[5], nodes: ['keep'] }, old[7]];
         const commit = (flows, label) => {
             fs.writeFileSync(path.join(cwd, 'flows.json'), JSON.stringify(flows));
             git('add', '--all');
@@ -123,16 +128,17 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
         assert.equal(snap.code, 0, snap.stderr);
         const input = path.join(cwd, 'live.b64'), plan = path.join(cwd, 'plan.json');
         fs.writeFileSync(input, snap.stdout);
-        const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan, '--allow-removed-nodes', 'gone'], env, cwd);
+        const result = await run(GX('compare.js'), [input, '--commit', target, '--plan', plan, '--allow-removed-nodes', 'gone,battery'], env, cwd);
         assert.equal(result.code, 0, result.stderr);
         const report = require('../tools/gx/deploy-report.js');
         const removals = report.plannedRemovals(cwd, target, cwd);
-        assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }]);
-        assert.match(report.formatReport({ mode: 'dry-run', commit: target, changes: [], removals }), /Planned node removals \(1/);
+        assert.deepEqual(removals, [{ id: 'gone', type: 'delay', name: '' }, { id: 'battery', type: 'victron-input-battery', name: '' }]);
+        assert.match(report.formatReport({ mode: 'dry-run', commit: target, changes: [], removals }), /Planned node removals \(2/);
         const deploy = DRY => run(GX('deploy.js'), [plan], { ...env, DRY });
         const dry = await deploy('1');
         assert.equal(dry.code, 0, dry.stderr);
         assert.match(dry.stdout, /node to remove\s+: gone/);
+        assert.match(dry.stdout, /node to remove\s+: battery/);
         live.flows[2].name = 'edited since snapshot';
         const rejected = await deploy('0');
         assert.match(rejected.stderr, /does not match the recorded commit/);
@@ -141,8 +147,9 @@ test('a removal plan rechecks the verified baseline on the GX before applying an
         const applied = await deploy('0');
         assert.equal(applied.code, 0, applied.stderr);
         assert.equal(live.rev, 'r2');
-        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page']);
+        assert.deepEqual(live.flows.map(node => node.id), ['tab', 'input', 'ui', 'page', 'layout', 'keep']);
         assert.deepEqual(live.flows[1].wires, [[]]);
+        assert.deepEqual(live.flows.find(node => node.id === 'layout'), next.find(node => node.id === 'layout'));
     });
 
 test('verified dry-run code replacement plans against a fake GX only when it matches the recorded Git deployment',
