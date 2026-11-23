@@ -90,7 +90,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | Notes |
 |---|---|---|
-| H16 | Heat pump idle follow-ups (found by H0) | Not started. (1) The boiler controller retries "mode Silent" about every minute while the pump keeps reporting smart (37 unconfirmed writes on 2026-11-21): back off after ~3 failed tries. (2) The stored owner curve may be polluted (P23 27 vs 33 seen once): check the curve monitor. (3) A forced boiler cycle stopped after 7 min with "forced cycle safety stop pending". (4) Most idle time (484 of 685 min in Nov 14-21) is the pump's 3 min restart protection after a defrost, then waiting below its own restart level (set - DP 121); lowering DP 121 or raising the point would shorten it, owner decision. |
+| H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) The stored owner curve may be polluted (P23 27 vs 33 seen once): check the curve monitor. (3) A forced boiler cycle stopped after 7 min with "forced cycle safety stop pending". (4) Most idle time (484 of 685 min in Nov 14-21) is the pump's 3 min restart protection after a defrost, then waiting below its own restart level (set - DP 121); lowering DP 121 or raising the point would shorten it, owner decision. |
 | H1 | Heating curve "now" marker shows values | Curve target now, reported heating set (DP 125), supply now. |
 | H3 | Temperatures page "All sensor temperatures": rooms only | Same single room list as `50 Devices model.js` / `tools/sensor-history.js`. |
 | H4 | Devices page: × hides a device block, "Hidden devices" list with + to bring it back | Saved in the settings file. |
@@ -155,6 +155,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#165 H16(1) (d#226 · i#35): back off routine near-target DHW Silent retries after three unconfirmed writes. Fresh DP 2 confirmation or a new decision cycle resets the retry streak; protection writes are unchanged.
 
 #164 D-R5 Group-less dashboard nodes in deploy additions and reviewed new wires (`deploy-groupless-ui`, d#225 unchanged · i#34): allow group-less Dashboard-wide nodes and opt-in append-only wiring; the Git-only replay still stops at `hp-tuya-pump-01` because output 1 replaces `hp-topic-hp-01` with `hp-status-topic-hp-01`.
 

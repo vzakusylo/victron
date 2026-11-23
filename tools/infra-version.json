@@ -1,5 +1,5 @@
 {
-  "i": 34,
+  "i": 35,
   "changes": [
     {
       "i": 1,
@@ -204,6 +204,12 @@
       "date": "2026-11-23",
       "pr": 164,
       "what": "Deploy: group-less dashboard nodes and reviewed new wires"
+    },
+    {
+      "i": 35,
+      "date": "2026-11-23",
+      "pr": 165,
+      "what": "Test routine DHW Silent retry backoff"
     }
   ]
 }
