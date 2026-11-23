@@ -110,6 +110,41 @@ test('tab, layout group, config and non-tab parent removals still require a manu
     }
 });
 
+function outputRemoval(oldWires, newWires, liveOutputs = oldWires.length) {
+    const node = (id, type, extra) => ({ id, type, z: 'tab', ...extra });
+    const sender = wires => node('sender', 'function', { outputs: wires.length, wires });
+    const common = [{ id: 'tab', type: 'tab' }, node('page', 'delay')];
+    const gone = node('gone', 'exec');
+    const baseline = [...common, sender(oldWires), gone];
+    const live = [...common, { ...sender(oldWires), outputs: liveOutputs }, gone];
+    const target = [...common, sender(newWires)];
+    const nodes = flow => snapshot(flow, null, { topology: true }).nodes;
+    return { live, target, plan: () => removalPlan(nodes(live), nodes(target), ['gone'], nodes(baseline)) };
+}
+
+test('removal can drop a trailing output wired only to an approved removal', () => {
+    const { live, target, plan } = outputRemoval([['page'], ['gone']], [['page']]);
+    const result = plan();
+    assert.deepEqual({ ...result.reconnect.sender }, { outputs: 1, wires: [['page']] });
+    assert.deepEqual(cleanTopology(live, result), target);
+});
+
+test('removal rejects dropped outputs with kept destinations or no destinations', () => {
+    assert.throws(outputRemoval([['page'], ['gone', 'page']], [['page']]).plan, {
+        message: 'sender: output 1 dropped but it still wires to kept node(s) [page].'
+    });
+    assert.throws(outputRemoval([['gone'], []], [[]]).plan, /output 1 dropped but it has no approved removal destinations/);
+});
+
+test('removal cannot drop an earlier output and shift a later one', () => {
+    assert.throws(outputRemoval([['gone'], ['page']], [['page']]).plan, /output 1 dropped but it still wires to kept node/);
+});
+
+test('removal cannot grow output count or shrink a count that differs from the baseline', () => {
+    assert.throws(outputRemoval([['page'], ['gone']], [['page'], [], []]).plan, /output count cannot increase alongside removal/);
+    assert.throws(outputRemoval([['page'], ['gone']], [['page']], 3).plan, /GX output count does not match the recorded commit/);
+});
+
 test('unlisted, extra, duplicate, or live-only node removals stop', () => {
     const { old, plan, live } = removalFixture();
     assert.throws(() => plan([]), /without listing every removal: gone/);
