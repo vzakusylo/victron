@@ -91,7 +91,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | G6 | Move the rest of `01` into bookkeeping / `lib/grid/*`; `01` keeps only the loop wiring | G5 | open | Midnight / DST / month-change scenarios (Test GX plan item 5) before this. |
 | NR4 | Heat pump state + 65 KB page: one run per event (Tuya second output), at most every 5 s, page only on change and with a viewer | G4 | open | Touches the heat pump chain (#97 merged). |
 | NR5 | Automations tick: one `context.set` per tick, no large `JSON.stringify` per tick; check the context store | G4 | open | |
-| NR6 | Clean-up: unwired `/Dc/0/Current` input; `check` rule against unwired inputs | NR3 | in progress: `nr6-cleanup` | G2 already removed the duplicate 06:00 / 22:00 injects and Tag nodes. Keep the wired cadence inject. |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -163,6 +162,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#150 NR6 (d#219 · i#21): removed the unwired `/Dc/0/Current` input and added a check against unwired inputs and injects. G2 already removed the duplicate 06:00 / 22:00 injects and Tag nodes; the wired cadence inject remains.
 
 #149 NR3 (d#218 · i#20): estimated scheduled exec starts/h (not descendant processes): BMS 120 → 0 steady-state, air history up to 30 → 0, cloud 0 → 0 disabled (30 → 4 if enabled), Devices 30 → 30, local listener ~6 → ~6, Payback 1 → 1. Up to ~187 → ~37 with cloud off, excluding event-driven jobs; the <30/h target is not met. Devices still polls for temperature history and daily mail. GX apply needs the Function imports (`fs`, `dbus-native-victron`), cloud inject change and air-history topology change together; do not code-only deploy.
 
