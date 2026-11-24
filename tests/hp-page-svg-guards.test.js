@@ -144,6 +144,19 @@ test('Colder / Warmer previews on input and queues one owner P23 change on relea
     assert.equal(scope.hp.curveSent, null);
     assert.match(scope.hp.curveMessage, /confirmed/);
     assert.equal(scope.hpCurveChanged(), false);
+
+    const key = { key: 'ArrowRight' };
+    assert.equal(slider.attrs['ng-keydown'], 'hpCurveSliderKeyDown($event)');
+    assert.equal(slider.attrs['ng-keyup'], 'hpCurveSliderKeyUp($event)');
+    for (const p23 of [32, 33, 34]) {
+        scope.hpCurveSliderKeyDown(key);
+        scope.hp.p23 = p23;
+        scope.hpEditCurveSlider();
+        release(p23); // Chromium emits native change on each keyboard repeat.
+    }
+    assert.equal(messages.length, 1, 'held key only updates the preview');
+    scope.hpCurveSliderKeyUp(key);
+    assert.deepStrictEqual(messages.slice(1), [{ topic: 'curve', payload: { p23: 34, p24: 4, requestId: scope.hp.curveSent } }]);
 });
 
 test('history day chips start on the newest week and page between available weeks only', () => {

@@ -101,7 +101,7 @@ If the meter uses other DPs, the Power tile shows "—". The page then lists the
 
 | Control | Page | Sent | Checks |
 |---|---|---|---|
-| Colder ↔ Warmer | Move P23 under the heating chart without changing stored P24. The dashed curve and before → after set point at the 10-minute outdoor average update while dragging. | Release to queue both coefficients as one owner-baseline batch; both must be confirmed. Dragging does not write. | Same checks as Advanced; requires a stored owner curve. |
+| Colder ↔ Warmer | Move P23 under the heating chart without changing stored P24. The dashed curve and before → after set point at the 10-minute outdoor average update while adjusting. | Release the slider or adjustment key to queue both coefficients as one owner-baseline batch; both must be confirmed. | Same checks as Advanced; requires a stored owner curve. |
 | Advanced heating curve | Edit P23 and P24 under the chart; dashed preview and before → after values at −20, −10, −5, 0, +5 and +10 °C | Apply queues the same owner-baseline group: `37` forwards to `40`, which sends DP 133/134 in one batch SET with a 5-second write gap. | Whole numbers: P23 0…40, P24 1…30; P22 on; no DHW cycle, 10-minute post-DHW window or pending curve apply. |
 | Bypass | *Turn bypass ON / OFF* button | `{"operation":"SET","dps":1,"set":true/false}` to `Off Heating exchange` | boolean |
 

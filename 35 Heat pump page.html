@@ -219,6 +219,7 @@
           <span class="lbl">Colder</span>
           <input type="range" min="0" max="40" step="1" aria-label="Heating curve P23: Colder to Warmer"
                  ng-attr-id="{{hpCurveSliderId}}" ng-model="hp.p23" ng-change="hpEditCurveSlider()"
+                 ng-keydown="hpCurveSliderKeyDown($event)" ng-keyup="hpCurveSliderKeyUp($event)" ng-blur="hpCurveSliderBlur()"
                  ng-disabled="!hpCurveSliderEnabled()">
           <span class="lbl">Warmer</span>
           <span class="big">P23 {{hp.p23}} °C</span>
@@ -719,20 +720,37 @@
         scope.hp.dirty = true;
     };
     scope.hpCurveSliderId = 'hp-curve-slider-' + scope.$id;
+    var sliderKey = null, sliderKeyValue = null;
+    function releaseCurveSlider(p23) {
+        var c = cc();
+        if (scope.hp.curveSent !== null) return;
+        if (!scope.hpCurveSliderEnabled() || !validOwnerCurve(p23, c.p24) || p23 === c.p23) {
+            scope.hpCurveReset();
+            return;
+        }
+        scope.hp.p23 = p23;
+        scope.hpEditCurveSlider();
+        submitCurve(p23, c.p24);
+    }
+    scope.hpCurveSliderKeyDown = function (event) {
+        if (sliderKey === null && /^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key)) sliderKey = event.key;
+    };
+    scope.hpCurveSliderKeyUp = function (event) {
+        if (event.key !== sliderKey) return;
+        var p23 = sliderKeyValue;
+        sliderKey = sliderKeyValue = null;
+        if (p23 !== null) releaseCurveSlider(p23);
+    };
+    scope.hpCurveSliderBlur = function () {
+        if (sliderKey === null) return;
+        sliderKey = sliderKeyValue = null;
+        if (scope.hp.curveSent === null) scope.hpCurveReset();
+    };
     function commitCurveSlider(event) {
         if (event.target.id !== scope.hpCurveSliderId) return;
         var p23 = event.target.valueAsNumber;
-        scope.$evalAsync(function () {
-            var c = cc();
-            if (scope.hp.curveSent !== null) return;
-            if (!scope.hpCurveSliderEnabled() || !validOwnerCurve(p23, c.p24) || p23 === c.p23) {
-                scope.hpCurveReset();
-                return;
-            }
-            scope.hp.p23 = p23;
-            scope.hpEditCurveSlider();
-            submitCurve(p23, c.p24);
-        });
+        if (sliderKey !== null) sliderKeyValue = p23;
+        else scope.$evalAsync(function () { releaseCurveSlider(p23); });
     }
     // Angular updates the preview on input; native change commits a drag on release.
     document.addEventListener('change', commitCurveSlider);
