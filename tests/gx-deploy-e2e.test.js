@@ -108,6 +108,10 @@ async function harness(t, opts = {}) {
             for await (const chunk of req) body.push(chunk);
             const payload = JSON.parse(Buffer.concat(body));
             posts.push({ payload, headers: req.headers });
+            if (opts.postReset === 'late-apply' && posts.length === 2) {
+                rev = 'rev-1';
+                flows = posts[0].payload.flows;
+            }
             if (opts.conflict || payload.rev !== rev) { res.writeHead(409).end(); return; }
             if (opts.postStatus) { res.writeHead(opts.postStatus).end(); return; }
             if (opts.postReset === 'during-response') {
@@ -115,7 +119,8 @@ async function harness(t, opts = {}) {
                 setTimeout(() => req.socket.destroy(), 100);
                 return;
             }
-            if (opts.postReset === 'always' || (opts.postReset === 'before-apply' && posts.length === 1)) {
+            if (opts.postReset === 'always' ||
+                (['before-apply', 'late-apply'].includes(opts.postReset) && posts.length === 1)) {
                 req.socket.destroy();
                 return;
             }
@@ -230,6 +235,14 @@ test('a reset with unchanged live revision retries the identical POST once', { s
 test('two resets with unchanged live revision exhaust the retry', { skip: !curlAvailable }, async t => {
     const h = await harness(t, { postReset: 'always' });
     assert.match((await h.deploy()).stderr, /ABORT: POST \/flows failed after 2 attempts: socket hang up/);
+    assert.equal(h.posts.length, 2);
+});
+
+test('a 409 on the retry warns that the first POST may have landed', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'late-apply' });
+    const result = await h.deploy();
+    assert.match(result.stderr, /The first POST may have landed; check the live revision/);
+    assert.match(result.stderr, /ABORT: POST \/flows failed after 2 attempts: HTTP 409/);
     assert.equal(h.posts.length, 2);
 });
 

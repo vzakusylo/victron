@@ -213,6 +213,9 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
             restoreTools(replaced);
             fail('the live flow changed during the deploy');
         }
+        if (error.status === 409 && !replaced.length) {
+            console.error('The first POST may have landed; check the live revision before deploying again.');
+        }
         if (replaced.length) {
             // A transport failure can come after Node-RED accepted the flow.
             let liveRev;
