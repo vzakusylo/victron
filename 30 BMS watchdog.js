@@ -1,4 +1,4 @@
-// #libs [{"var":"fs","module":"fs"},{"var":"dbus","module":"dbus-native-victron","version":"0.4.6"}]
+// #libs [{"var":"fs","module":"fs"},{"var":"dbus","module":"dbus-native-victron","version":"0.4.13"}]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

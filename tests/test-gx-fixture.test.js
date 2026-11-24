@@ -108,8 +108,8 @@ test('fixture regenerates committed defaults and builds byte-identical derived s
     }
 });
 
-test('both D-Bus Function nodes and Test GX pin dbus-native-victron to 0.4.6', () => {
-    const module = 'dbus-native-victron', version = '0.4.6';
+test('both D-Bus Function nodes and Test GX pin dbus-native-victron to 0.4.13', () => {
+    const module = 'dbus-native-victron', version = '0.4.13';
     for (const file of [path.join(ROOT, 'flows.json'), path.join(FIXTURE, 'nodered', '.node-red', 'flows.json')]) {
         const flows = JSON.parse(fs.readFileSync(file, 'utf8'));
         for (const id of ['e4766632305fb432', 'bmswd-fn-01']) {

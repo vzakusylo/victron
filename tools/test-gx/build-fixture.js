@@ -54,7 +54,7 @@ function fixtureFiles() {
     json('versions.json', versions);
     const dependencies = Object.fromEntries(Object.entries(versions.palette).filter(([name]) => name !== 'node-red'));
     dependencies['@victronenergy/node-red-contrib-victron'] = '1.6.65';
-    dependencies['dbus-native-victron'] = '0.4.6';
+    dependencies['dbus-native-victron'] = '0.4.13';
     dependencies.tuyapi = '7.7.1';
     json('nodered/package.json', {
         name: 'test-gx-synthetic', version: '1.0.0', private: true, dependencies,
