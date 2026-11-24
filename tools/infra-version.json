@@ -304,7 +304,7 @@
     {
       "i": 51,
       "date": "2026-11-24",
-      "pr": null,
+      "pr": 181,
       "what": "Match the D-Bus pin to the Node-RED user directory"
     }
   ]
