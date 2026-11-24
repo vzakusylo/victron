@@ -1,17 +1,20 @@
 # Grid controller input freshness and cadence
 
-## Input inventory (d#211, after G1)
+## Input inventory
 
 All six Victron nodes below have `onlyChanges: false`. They can repeat cached payloads every five seconds. Neither the repeated payload nor Node-RED arrival time proves the device sampled again.
 
-| Input node | Venus service instance and path | Controller topic | Fixed 10 s input delay | Tag node |
-|---|---|---|---|---|
-| `07c74490cafdc55a` | battery 289 `/Dc/0/Voltage` | `battery-voltage` | `87b4ad2bc3ec6903` | `1d4e50f4d614e8a5` |
-| `0ee582b64b26e2e7` | battery 289 `/ConsumedAmphours` | `battery-consumed-ah` | `fd95dc1c428330fb` | `b2064b2168543e59` |
-| `751d13b6d943e5e5` | system 0 `/Ac/Grid/L1/Power` | `grid-power` | `e84b0d054ca0f956` | `efb076ae80adc1c5` |
-| `11e303e775ec959c` | system 0 `/Ac/Consumption/L1/Power` | `ac-load-power` | `ec0378c28791feff` | `4ae3639bc75d0d14` |
-| `dc7f2a1c3e8b09c4` | system 0 `/Dc/System/Power` | `dc-power` | `dc3b8e51a09c72d4` | `dc9d4c2e7a1b83f6` |
-| `pv-charger-input-01` | system 0 `/Dc/Pv/Power` | `pv-charger-power` | none | `pv-charger-tag-01` |
+| Input node | Venus service instance and path | Emitted GX topic (d#231) | Controller topic | Former 10 s delay | Former tag node |
+|---|---|---|---|---|---|
+| `07c74490cafdc55a` | battery 289 `/Dc/0/Voltage` | `<device display name> - Battery voltage (V)` | `battery-voltage` | `87b4ad2bc3ec6903` | `1d4e50f4d614e8a5` |
+| `0ee582b64b26e2e7` | battery 289 `/ConsumedAmphours` | `Battery SmartShunt consumed Ah` | `battery-consumed-ah` | `fd95dc1c428330fb` | `b2064b2168543e59` |
+| `751d13b6d943e5e5` | system 0 `/Ac/Grid/L1/Power` | `GRID CT import power` | `grid-power` | `e84b0d054ca0f956` | `efb076ae80adc1c5` |
+| `11e303e775ec959c` | system 0 `/Ac/Consumption/L1/Power` | `AC Loads power` | `ac-load-power` | `ec0378c28791feff` | `4ae3639bc75d0d14` |
+| `dc7f2a1c3e8b09c4` | system 0 `/Dc/System/Power` | `DC System Power` | `dc-power` | `dc3b8e51a09c72d4` | `dc9d4c2e7a1b83f6` |
+| `pv-charger-input-01` | system 0 `/Dc/Pv/Power` | `PV Charger Power` | `pv-charger-power` | none | `pv-charger-tag-01` |
+
+Voltage routing matches the configured `Battery voltage (V)` path label, not the device display name. If the
+path label is edited in Node-RED, update the controller's suffix and regression test together.
 
 The grid override link `704426f76aa6aa4c` enters the same grid delay as the real input. It is not a freshness source. Battery current is not a control input today. ESS and DVCC have separate **output** limits of one message per 10 s with drops (`70b033ccd4654b3e`, `c1803b5fed00bfc2`); VE.Bus current limit (`66951950bfa6d862`) is written on change or at an hour boundary.
 
