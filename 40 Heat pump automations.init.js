@@ -7,6 +7,11 @@ context.set('settingsLoaded', context.get('settings') !== undefined);
 context.set('saveHeldNoted', false);
 const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
 context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
+const ownerRequest = context.get('ownerCurveRequest');
+if (ownerRequest) {
+    context.set('ownerCurveRequest', null);
+    context.set('ownerCurveResult', { requestId: ownerRequest.requestId, ok: false, text: 'Heating curve not applied: controller restarted before confirmation' });
+}
 context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'
     + (old.length ? '; running sequences dropped: ' + old.join(', ') : '') + (oldQ ? '; ' + oldQ + ' queued writes dropped' : '') });
 // d#168: the node does not know whether a defrost just ended (lastDefrost is lost with the context), and the
@@ -15,7 +20,11 @@ context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node st
 const startAt = Date.now();
 context.set('lastDefrost', startAt);
 context.set('startedAt', startAt);   // idle.js: a lastDefrost equal to this was not a real defrost
-const d0 = context.get('dhw'); if (d0 && d0.state === 'HEATING') { d0.outS = []; d0.outAvg = null; context.set('dhw', d0); }
+const d0 = context.get('dhw'); if (d0 && d0.state === 'HEATING') {
+    d0.outS = []; d0.outAvg = null;
+    if (ownerRequest?.sentAt) d0.curveCaptureHeld = true;
+    context.set('dhw', d0);
+}
 // Do not replay an old temperature slope or pending shower request after a restart.
 const shower = context.get('shower');
 if (shower) { shower.samples = []; shower.episode = null; shower.demand = null; context.set('shower', shower); }

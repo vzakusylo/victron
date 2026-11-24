@@ -33,7 +33,7 @@ test('idle cause: a lastDefrost that only marks the node start is not reported a
     const p = plant({ lastDefrost: NOW - 2 * MIN });
     p.node.context.set('startedAt', NOW - 2 * MIN);
     p.tick(NOW, { 102: 27 }); p.tick(NOW + 10 * S, { 102: 27 });
-    assert.equal(p.view().code, 9);
+    assert.equal(p.view().text, 'restart level unknown', 'there is no outdoor average yet; DP 125 does not set the curve threshold');
 });
 
 test('idle cause: each reason gets its own code, the first matching one wins', () => {

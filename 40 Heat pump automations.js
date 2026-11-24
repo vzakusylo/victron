@@ -137,12 +137,9 @@
 //    'heating lags' check skips that time too; in a DHW cycle the tank-rise forecast restarts after a defrost.
 // 19. d#168: On Start sets lastDefrost = now and clears the outdoor average outside a cycle: after a deploy the
 //    outdoor sensor may still be warm from a defrost (14 Nov 08:42 a DHW cycle started at a read 17.8 °C).
-// 22. d#195: the pump's own outdoor value. Its curve is computed from a steady ambient value (−1 °C on 20 Nov, DP 125 36 °C
-//    at P23 39 / P24 4) while the sensor DP 103 swings −8 … +50 °C. pumpOutdoor() = P23 − (set − 20) / (P24 / 10) is latched
-//    in context.pumpOut while it is trustworthy (curve on, valve on heating, bypass off, no defrost / quiet time, P23 / P24
-//    unchanged 2 min, set not clamped) and used for 3 h: heating lag and the heating controller's point, and the DHW boiler
-//    curve (kept for the whole cycle). Without a valid value the old rules stay (average / live sensor); texts say "fallback".
-//    flow.dhwView.pumpOut carries it to the Heat Pump page (34).
+// d#233: heating, DHW and idle curve points use the defrost-held DP 103 average; DP 125 is fixed (withdraws d#195).
+//    At compressor capacity with non-falling supply, don't warn about lag or increase heating demand.
+//    Apply both owner coefficients through the paced queue; save the baseline after both are confirmed.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -154,6 +151,8 @@ const LOG_MAX = 150;
 const MODES = ['off', 'dry', 'live'];
 const HOLD = 3;
 const WRITE_GAP_MS = 1500;
+const OWNER_CURVE_GAP_MS = 5000;
+const OWNER_CURVE_TIMEOUT_MS = 90000;
 const FLAG_MAX_MS = 10 * 60 * 1000;
 const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
 const VERIFY_MS = 15 * 1000;
@@ -234,6 +233,8 @@ try {
 }
 
 function runAutomations(context) {
+// #include lib/heat-pump/heat-curve.js
+
 // #include lib/heat-pump/curves.js
 
 // #include lib/heat-pump/heating-decide.js
@@ -354,28 +355,35 @@ function send(out, m) {
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
 // against the value the device reports (ok / fail in the log, like the Smart Life log).
-function pump() {
+function pump(allowOwner = false) {
     if (context.get('pumping')) return;
     const q = context.get('queue') || [];
     if (!q.length) return;
-    context.set('pumping', true); context.set('pumpAt', Date.now());
-    const item = q.shift(); context.set('queue', q);
+    const at = Date.now();
+    const index = q.findIndex(item => !item.curveGroup);
+    const owner = index < 0;
+    const item = !owner ? q.splice(index, 1)[0] : allowOwner ? takeOwnerCurveGroup(q, at) : null;
+    if (!item) return;
+    context.set('pumping', true); context.set('pumpAt', at);
+    context.set('queue', q);
     const dp = String(item.dps);
-    const invalidCurveWrite = item.role === 'hp' &&
+    const invalidCurveWrite = owner ? !validOwnerCurve(item.curveGroup[133], item.curveGroup[134]) : item.role === 'hp' &&
         ((dp === '133' && !inCurveRange(item.set, P23_MIN, P23_MAX)) ||
          (dp === '134' && !inCurveRange(item.set, P24_MIN, P24_MAX)));
     if (invalidCurveWrite) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
-            text: 'heat pump DP ' + dp + ' = ' + item.set + ' refused (invalid heating curve value)' });
+            text: (owner ? item.text : 'heat pump DP ' + dp + ' = ' + item.set) + ' refused (invalid heating curve value)' });
     } else if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (forced cycle cancelled)' });
-    } else if (!item.force && modeOf(item.rule) !== 'live') {
+    } else if (!owner && !item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
-    } else if ((context.get('settings') || {}).master && !modeBlocked(item)) {
-        const verifyMode = isModeWrite(item) ? startModeVerification(item) : null;
+    } else if (owner || ((context.get('settings') || {}).master && !modeBlocked(item))) {
+        const verifyMode = !owner && isModeWrite(item) ? startModeVerification(item) : null;
         shadowCheck(item, 'dequeue', Date.now());
-        send(OUT[item.role], { payload: { operation: 'SET', dps: item.dps, set: item.set } });
-        node.log('Heat pump automations: ' + item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set);
+        send(OUT[item.role], { payload: owner ? { operation: 'SET', multiple: true, data: item.curveGroup }
+            : { operation: 'SET', dps: item.dps, set: item.set } });
+        if (item.role === 'hp') context.set('lastHpWrite', at);
+        node.log('Heat pump automations: ' + (owner ? item.text : item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set));
         const verify = verifyMode || (() => {
             if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
                 logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
@@ -389,14 +397,14 @@ function pump() {
             logEvent({ kind: good ? 'ok' : 'fail', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
                 text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v) });
         });
-        setTimeout(() => {
+        if (!owner) setTimeout(() => {
             shadowCheck(item, 'verify', Date.now());
             verify();
         }, VERIFY_MS);
     } else if (!(context.get('settings') || {}).master) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
-    setTimeout(() => { context.set('pumping', false); pump(); }, WRITE_GAP_MS);
+    setTimeout(() => { context.set('pumping', false); pump(); }, owner ? OWNER_CURVE_GAP_MS : WRITE_GAP_MS);
 }
 function endSeq(rule) { const all = context.get('seqs') || {}; delete all[rule.id]; context.set('seqs', all); }
 // Sequence runner (timers). Each step: device write (queued if live, logged if dry),
@@ -469,6 +477,64 @@ const FAULT_TEXT = { Er03: 'water flow failure' };
 
 // #include lib/heat-pump/idle.js
 
+function ownerCurveBlock(devices, at) {
+    const d = context.get('dhw') || {};
+    return heatCurveWriteBlock(devices.hp, devices.valve?.dps?.['1'] === true, d.state, dhwLastEnd(d), at);
+}
+function finishOwnerCurve(request, reason) {
+    const text = reason ? 'Heating curve not applied: ' + reason
+        : 'Heating curve saved: P23 ' + request.p23 + ' / P24 ' + request.p24;
+    if (reason) node.warn(text);
+    context.set('ownerCurveResult', { requestId: request.requestId, text, ok: !reason });
+    if (request.run) {
+        context.set('ownerCurveRequest', null);
+        const q = context.get('queue') || [];
+        const index = q.findIndex(item => item.curveGroup && item.run === request.run);
+        if (index >= 0) q.splice(index, 1);
+        if (reason && request.sentAt) dhwState().curveCaptureHeld = true;
+    }
+    logEvent({ kind: reason ? 'warn' : 'setting', rule: 'owner_curve', cloud: 'Owner heating curve', run: request.run, text });
+}
+function takeOwnerCurveGroup(q, at) {
+    const request = context.get('ownerCurveRequest'), group = q[0];
+    if (!request || group.run !== request.run) { q.shift(); return null; }
+    if (at - (context.get('lastHpWrite') || 0) < OWNER_CURVE_GAP_MS) return null;
+    const owners = (flow.get(HP_SHADOW_KEY) || {}).owners || {};
+    if (owners.curve && owners.curve.writer !== 'owner' && at < owners.curve.until) return null;
+    const item = shadowTag(q.shift(), 'owner', at);
+    context.set('ownerCurveRequest', { ...request, shadow: item.shadow, sentAt: at });
+    return item;
+}
+function ownerCurveTick() {
+    const request = context.get('ownerCurveRequest');
+    if (!request) return;
+    const block = ownerCurveBlock(st, now);
+    if (block || now - request.at >= OWNER_CURVE_TIMEOUT_MS) {
+        finishOwnerCurve(request, block || 'heat pump did not confirm both coefficients within 90 seconds');
+        return;
+    }
+    const claim = (flow.get(HP_SHADOW_KEY) || {}).owners?.curve;
+    if (request.shadow && (claim?.writer !== 'owner' || claim.version !== request.shadow.token)) {
+        finishOwnerCurve(request, 'a higher-priority curve write took over');
+        return;
+    }
+    const H = st.hp.dps;
+    const seen = st.hp.dpObservedAt || {};
+    if (!request.sentAt || !(seen[133] > request.sentAt && seen[134] > request.sentAt) ||
+        dhwMeasurement(H['133']) !== request.p23 || dhwMeasurement(H['134']) !== request.p24) {
+        pump(true);
+        return;
+    }
+    settings.heatCurve = { p23: request.p23, p24: request.p24, at: now };
+    const h = heatState();
+    h.boost = 0; h.warmApplied = 0; h.warmDeltaApplied = 0; h.curveCmd = null;
+    h.p23At = 0; h.samples = []; h.offSince = 0; h.offWarned = false;
+    const d = dhwState();
+    d.lagS = []; d.curveCaptureHeld = false;
+    saveSettingsFile();
+    finishOwnerCurve(request);
+}
+
 // ---- load ---------------------------------------------------------------------
 if (msg.topic === 'load') {
     const previousModes = [HEAT_ID, DHW_ID, ...RULES.map(r => r.id)].map(id => [id, modeOf(id)]);
@@ -516,6 +582,21 @@ if (msg.topic === 'load') {
 // ---- ui -----------------------------------------------------------------------
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
+    if (p.action === 'ownerCurve') {
+        const requestId = typeof p.requestId === 'string' ? p.requestId.slice(0, 80) : null;
+        const reason = !validOwnerCurve(p.p23, p.p24) ? 'use whole numbers: P23 0–40, P24 1–30'
+            : context.get('ownerCurveRequest') ? 'a curve apply is already in progress'
+            : context.get('settingsLoaded') === false ? 'settings have not loaded yet' : ownerCurveBlock(st, now);
+        if (reason) finishOwnerCurve({ requestId }, reason);
+        else {
+            const run = now + ':owner_curve';
+            context.set('ownerCurveRequest', { requestId, run, p23: p.p23, p24: p.p24, at: now });
+            queue.push({ role: 'hp', dps: 133, curveGroup: { 133: p.p23, 134: p.p24 }, rule: 'owner_curve',
+                cloud: 'Owner heating curve', run, text: 'owner curve SET P23 ' + p.p23 + ' / P24 ' + p.p24 });
+        }
+        publishView();
+        return null;
+    }
     if (p.action === 'utcpLog') {
         if (msg.fromUtcp !== true) return null;   // only the UTCP node may write "UTCP: …" lines
         logEvent({ kind: p.kind === 'warn' ? 'warn' : 'info', text: ('UTCP: ' + String(p.text || '')).slice(0, 200) });
@@ -532,7 +613,7 @@ if (msg.topic === 'ui') {
                 node.warn('Heat pump automations: warm-up out of range'); return null;
             }
             settings.heatWarm = { at: now, until: now + Math.round(hours * 3600 * 1000), deltaC: Math.round(deltaC * 2) / 2 };
-            text = 'warm-up started: heating point +' + settings.heatWarm.deltaC + ' °C for ' + hours + ' h';
+            text = 'warm-up requested: heating point +' + settings.heatWarm.deltaC + ' °C for ' + hours + ' h';
         } else {
             settings.heatWarm = null;
             text = 'warm-up cancelled: following your heating curve again';
@@ -812,10 +893,10 @@ for (const r of RULES) {
 }
 if (context.get('defRecPrev') && !defRecovering && !recentDefrost) context.set('recoveredAt', now);
 context.set('defRecPrev', defRecovering || recentDefrost);
-pumpOutTick();
 dhwTick();
 heatTick();
 kickTick();
+ownerCurveTick();
 idleTick();
 // d#134: the Heat Pump page (34 / 35) draws the boiler curve next to the heating curve
 publishView();

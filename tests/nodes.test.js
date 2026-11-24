@@ -329,11 +329,11 @@ test('08: the solar forecast is capped by the real output of the last 14 days', 
 test('40: heating power controller steps Silent → Smart while the supply lags, and down when it rises too fast', () => {
     const node = loadNode('40 Heat pump automations.js');
     const T0 = Date.parse('2026-11-14T12:00:00Z');
-    const hp = (sup, ret, mode) => ({ 1: true, 2: mode, 101: ret, 102: sup, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 });
+    const hp = (sup, ret, mode) => ({ 1: true, 2: mode, 101: ret, 102: sup, 103: -2, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 });
     const setDev = (now, dps) => node.flow.set('heatPump', {
         hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
         bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
-    node.context.set('settings', { master: true, modes: { heat: 'live' } });
+    node.context.set('settings', { master: true, modes: { heat: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
     const writes = (call) => call.sent.filter((m) => m && m[0] === null && m[1] && m[1].payload && m[1].payload.operation === 'SET').map((m) => m[1].payload);
     let all = [];
     for (let i = 0; i <= 62; i++) {
@@ -404,10 +404,10 @@ test('40: DHW waits for a forecast defrost and, after it, for the supply to reac
 test('40: the heating controller ignores a defrost and its recovery and keeps the samples from before', () => {
     const node = loadNode('40 Heat pump automations.js');
     const T0 = Date.parse('2026-11-14T12:00:00Z');
-    node.context.set('settings', { master: true, modes: { heat: 'live' } });
+    node.context.set('settings', { master: true, modes: { heat: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
     const sets = [];
     const tick = (now, over, byp) => {
-        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 33, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
+        const dps = Object.assign({ 1: true, 2: 'mute', 101: 30, 102: 33, 103: -2, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: 38, 134: 4, 15: 0 }, over);
         node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
             bypass: { state: 'CONNECTED', lastData: now, dps: { 1: !!byp } } });
         const c = node.run({ topic: 'tick' }, { now });

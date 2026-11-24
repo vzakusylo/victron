@@ -71,7 +71,8 @@ const FAULT_LABELS = ['Er03', 'Er04', 'Er05', 'Er06', 'Er09', 'Er10', 'Er12', 'E
 const faultCodes = (v) => FAULT_LABELS.filter((_, i) => (Number(v) & (1 << i)) !== 0).join(' ');
 // Idle cause codes of the recorder column `idl` (36), same table as IDLE_CAUSES in lib/heat-pump/idle.js (never renumbered)
 const IDLE_LABELS = { 1: 'heat pump not connected / data stale', 2: 'heat pump off', 3: 'pump fault', 4: 'controller Off', 5: 'after a defrost (quiet period)',
-    6: 'after a DHW cycle', 7: 'curve point reached', 8: 'pump hysteresis (waiting for the restart level)', 9: 'supply below the restart level, compressor not starting' };
+    6: 'after a DHW cycle', 7: 'curve point reached', 8: 'pump hysteresis (waiting for the restart level)', 9: 'supply below the restart level, compressor not starting',
+    10: 'restart level unknown' };
 const GAP_STATE = { N: 'connecting', D: 'disconnected', E: 'in error', U: 'state unknown', S: 'data stale' };
 const GAP_S = 150;       // a hole between two records longer than this is a gap in the event lane
 const IDLE_MIN_S = 60;   // shorter idle stops are not drawn

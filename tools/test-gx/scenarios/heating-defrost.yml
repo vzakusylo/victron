@@ -23,8 +23,6 @@
         view:
           - path: "outAvg"
             equals: -2
-          - path: "pumpOut.v"
-            equals: -2
           - path: "heat.lastStep"
             equals: 0
     # Fan stopped and compressor still spinning; supply has not crossed <27 yet.
@@ -53,7 +51,7 @@
         log:
           - contains: "defrost flag ON (DF exchange off)"
             count: 1
-    # The outdoor sensor spike must not affect either outdoor source.
+    # The outdoor sensor spike must not affect the average.
     - when: 24m
       inputs:
         tuya.pump.dps.103: 40
@@ -66,8 +64,6 @@
           - path: "outHeld"
             equals: true
           - path: "outAvg"
-            equals: -2
-          - path: "pumpOut.v"
             equals: -2
     - when: 26m
       inputs:
@@ -89,7 +85,7 @@
       expect:
         writes: []
         view:
-          - path: "pumpOut.v"
+          - path: "outAvg"
             equals: -2
     # Beyond the 15-min quiet period: 31 is still below min(37 - 5, 36 - 0.5).
     - when: 42m
@@ -102,8 +98,6 @@
           - path: "outHeld"
             equals: true
           - path: "outAvg"
-            equals: -2
-          - path: "pumpOut.v"
             equals: -2
           - path: "heat.lastStep"
             equals: 0
@@ -118,7 +112,7 @@
         view:
           - path: "outHeld"
             equals: false
-          - path: "pumpOut.v"
+          - path: "outAvg"
             equals: -4.5
           - path: "heat.lastStep"
             equals: 0

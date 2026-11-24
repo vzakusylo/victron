@@ -1,5 +1,5 @@
 {
-  "i": 47,
+  "i": 48,
   "changes": [
     {
       "i": 1,
@@ -282,6 +282,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Deploy: no keep-alive admin requests; rev-guarded POST retry"
+    },
+    {
+      "i": 48,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Follow the heat pump curve at the sensor average"
     }
   ]
 }

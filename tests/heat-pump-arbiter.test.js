@@ -51,7 +51,6 @@ const step = (call, ms, i = 0) => {
 
 function fixture(dhw = 'off') {
     const heat = loadNode('40 Heat pump automations.js');
-    const slider = loadNode('37 Heat pump command.js', undefined, heat.flow);
     heat.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: { heat: 'live', dhw, df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' },
         heat: { kickMin: 0 }, dhw: { showerForce: false },
@@ -72,19 +71,19 @@ function fixture(dhw = 'off') {
         heat.run({ topic: 'ui', payload: { action: 'heatWarm', on: true, hours: 1, deltaC: 5 } }, { now });
         return tick(now);
     };
-    return { heat, slider, tick, warm };
+    return { heat, tick, warm };
 }
 
-test('the 40/9 warm-up versus slider race is flagged without changing any outgoing SET', () => {
+test('a pending owner group does not interrupt an already queued warm-up', () => {
     const f = fixture();
     const call = f.warm(NOW + 20 * MIN);
     assert.deepEqual(setters(call), [set(134, 9)]);
-    const slider = f.slider.run({ topic: 'curve', payload: { p23: 30 } }, { now: NOW + 20 * MIN + 100 });
-    assert.deepEqual(slider.result, [{ payload: set(133, 30) }, null, null]);
-    assert.match(slider.logs.find(line => line.startsWith('HP shadow')), /slider curve DP 133=30 owner@- vs heat@1/);
+    const apply = f.heat.run({ topic: 'ui', payload: { action: 'ownerCurve', p23: 30, p24: 4 } }, { now: NOW + 20 * MIN + 100 });
+    assert.deepEqual(setters(apply), []);
     step(call, 1500);
     assert.deepEqual(setters(call), [set(134, 9), set(133, 40)]);
-    assert.equal(f.heat.flow.get('hpWriterShadow').disagreements, 1);
+    assert.equal(f.heat.flow.get('hpWriterShadow').owners.curve.writer, 'heat');
+    assert.equal(f.heat.flow.get('hpWriterShadow').disagreements || 0, 0);
 });
 
 test('DHW claim supersedes an already sent and queued heating curve command without enforcing it', () => {

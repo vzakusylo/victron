@@ -161,7 +161,7 @@ test('a running DHW cycle does not qualify for a stuck-supply kick', () => {
     const at = NOW + 5 * MIN;
     const d = c.node.context.get('dhw');
     Object.assign(d, { state: 'DHW', since: at - 30 * S, startAt: at - 3 * MIN, startTank: 44,
-        run: (at - 3 * MIN) + ':dhw', live: true, pumpLatch: -2,
+        run: (at - 3 * MIN) + ':dhw', live: true,
         p23Cmd: 22, p24Cmd: 12, goal: 25, p24Goal: 12, tickAt: at - 30 * S });
     c.node.context.set('dhw', d);
     for (let i = 0; i <= 6; i++) {
