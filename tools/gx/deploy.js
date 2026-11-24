@@ -204,7 +204,7 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
         await new Promise(resolve => setTimeout(resolve, 4000));
         const after = JSON.parse(await api('GET', '/flows'));
         if (after.rev !== deployedRev) fail('Live revision does not match the deployed revision.');
-        flow.checkDrift(flow.fingerprints(target), flow.fingerprints(after.flows), 'the stamped target', false, false);
+        flow.checkDrift(flow.fingerprints(target), flow.fingerprints(after.flows), 'the stamped target', { logEqual: false });
         if (flow.versionTab(after.flows).label !== label) fail('The stamped version label does not match.');
         await verifyHealth(after);
     } catch (error) {
@@ -252,11 +252,14 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
         const preparedBase = flow.prepared(base, plan.base.sha, prepareFlows, stampDeployment);
         const preparedTarget = flow.prepared(target, plan.sha, prepareFlows, stampDeployment);
         const liveHashes = flow.fingerprints(original.flows);
-        const matchesBase = flow.checkDrift(flow.fingerprints(preparedBase), liveHashes, plan.base.sha, plan.overwriteDrift);
+        const targetHashes = flow.fingerprints(preparedTarget);
+        const matchesBase = flow.checkDrift(flow.fingerprints(preparedBase), liveHashes, plan.base.sha, {
+            overwrite: plan.overwriteDrift, target: targetHashes
+        });
         await checkDhw(original.flows);
         preflightModules(preparedTarget);
         const jobs = makeToolJobs(plan.tools, download);
-        flow.report(base, target);
+        flow.report(flow.differences(liveHashes, targetHashes), [...base, ...target]);
         // Node-RED can also restart dependants. Count direct definition changes only.
         const changes = flow.differences(flow.fingerprints(original.flows, false), flow.fingerprints(preparedTarget, false));
         const removed = new Set(changes.removed);

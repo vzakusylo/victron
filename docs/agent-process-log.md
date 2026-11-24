@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-24 | The first automatic whole-flow deploy (45406703938) stopped on drift hidden by the old per-node tool: six input `name`/`onlyChanges` settings and group/flow order | Adopted the GX values into Git, accepted drift already matching the target, and ignored layout order. |
 | 2026-11-24 | The per-node GX deploy planner stopped on new field kinds four times | Replaced the planner with whole-flow deploy behind a drift gate. Replays use both fake and isolated real Node-RED APIs. |
 | 2026-11-24 | Dry run 45352055641 stopped on an unnamed `socket hang up` | GX admin API reads now retry transient failures, and final failures name the request; writes are not retried |
 | 2026-11-23 | Dry run 45265105379 passed planning but stopped in GX-side apply validation | Replay both `compare.js --plan` and the `deploy.js` dry run against a fake admin API before shipping deploy-tool fixes |

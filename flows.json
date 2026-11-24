@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#230 Day / Night Grid Control",
+    "label": "d#231 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -1603,8 +1603,8 @@
       "type": "float",
       "name": "Battery voltage (V)"
     },
-    "name": "battery-voltage",
-    "onlyChanges": true,
+    "name": "",
+    "onlyChanges": false,
     "roundValues": "1",
     "x": 215,
     "y": 137,
@@ -1630,8 +1630,8 @@
       "type": "float",
       "name": "Consumed Amphours (Ah)"
     },
-    "name": "battery-consumed-ah",
-    "onlyChanges": true,
+    "name": "Battery SmartShunt consumed Ah",
+    "onlyChanges": false,
     "roundValues": "1",
     "x": 215,
     "y": 185,
@@ -1980,8 +1980,8 @@
       "type": "float",
       "name": "Grid L1 (W)"
     },
-    "name": "grid-power",
-    "onlyChanges": true,
+    "name": "GRID CT import power",
+    "onlyChanges": false,
     "roundValues": "0",
     "x": 215,
     "y": 233,
@@ -2203,8 +2203,8 @@
       "type": "float",
       "name": "AC Consumption L1 (W)"
     },
-    "name": "ac-load-power",
-    "onlyChanges": true,
+    "name": "AC Loads power",
+    "onlyChanges": false,
     "roundValues": "0",
     "x": 215,
     "y": 329,
@@ -3194,8 +3194,8 @@
       "type": "float",
       "name": "DC System Power (W)"
     },
-    "name": "dc-power",
-    "onlyChanges": true,
+    "name": "DC System Power",
+    "onlyChanges": false,
     "roundValues": "0",
     "x": 215,
     "y": 377,
@@ -3221,8 +3221,8 @@
       "type": "float",
       "name": "PV Power (W)"
     },
-    "name": "pv-charger-power",
-    "onlyChanges": true,
+    "name": "PV Charger Power",
+    "onlyChanges": false,
     "roundValues": "0",
     "x": 215,
     "y": 89,

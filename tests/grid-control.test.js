@@ -121,7 +121,7 @@ test('cadence coalesces sensor bursts, but a CT step over 1 kW runs immediately'
     assert.deepEqual(run(1), run(100));
 });
 
-test('one 2 s inject and six named Victron inputs feed the controller directly', () => {
+test('one 2 s inject and six periodic Victron inputs feed the controller directly', () => {
     const flows = require('../flows.json');
     const id = 'e4766632305fb432';
     const upstream = flows.filter(node => node.wires?.flat().includes(id));
@@ -129,10 +129,11 @@ test('one 2 s inject and six named Victron inputs feed the controller directly',
     assert.deepEqual(injects.filter(node => node.repeat || node.crontab).map(node => [node.topic, node.repeat]), [
         ['grid-control-tick', '2']
     ]);
-    assert.deepEqual(upstream.filter(node => node.type.startsWith('victron-input-') && node.onlyChanges)
-        .map(node => node.name).sort(), [
-        'ac-load-power', 'battery-consumed-ah', 'battery-voltage', 'dc-power', 'grid-power', 'pv-charger-power'
+    const inputs = upstream.filter(node => node.type.startsWith('victron-input-'));
+    assert.deepEqual(inputs.map(node => node.name).sort(), [
+        '', 'AC Loads power', 'Battery SmartShunt consumed Ah', 'DC System Power', 'GRID CT import power', 'PV Charger Power'
     ]);
+    assert.ok(inputs.every(node => node.onlyChanges === false));
 });
 
 test('the split is an additive deployment, preserving old wires and consumer destinations', () => {

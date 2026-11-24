@@ -30,6 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
+| — | `adopt-gx-inputs` | D-R10 Adopt live GX input settings | In progress: offline replay of blocked automatic deploy 45406703938 |
 
 ## 2. Deploy
 
