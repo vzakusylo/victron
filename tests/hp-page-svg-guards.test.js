@@ -31,13 +31,16 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
     assert.ok(scope.hpCurvePlot.top <= -3 && scope.hpCurvePlot.bottom >= 219.5);
     assert.equal(scope.hpCurvePlot.viewBox, '0 -15 700 283');
     assert.deepStrictEqual(scope.hpCurvePlot.markers.map(p => [p.label, p.value, p.y]), [
-        ['Curve target now', 34.5, 90], ['Reported heating set (DP 125)', 36, 84], ['Supply now', 32, 100]
+        ['Curve target now', 34.5, 139.5], ['Reported heating set (DP 125)', 36, 132], ['Supply now', 32, 152]
     ]);
     assert.match(html, /<title>\{\{point\.label\}\}: \{\{point\.value\}\} °C<\/title>/);
     update({ ...chart, supply: null, svg: { now: { ...chart.svg.now, ySupply: null } } }, { bandDown: 0, bandUp: 2 });
     assert.equal(scope.hpCurvePlot.lowShift, 0);
     assert.equal(scope.hpCurvePlot.highShift, -10);
     assert.equal(scope.hpCurvePlot.markers.length, 2);
+    update({ ...chart, supply: 66 }, { bandDown: 0, bandUp: 2 });
+    assert.equal(scope.hpCurvePlot.markers.at(-1).y, -18);
+    assert.ok(scope.hpCurvePlot.top <= -18);
     update({ ...chart, target: null, svg: { now: null } }, { bandDown: 1.5, bandUp: 3 });
     assert.deepStrictEqual(scope.hpCurvePlot.markers, []);
     assert.equal(scope.hpCurvePlot.lowShift, 7.5);

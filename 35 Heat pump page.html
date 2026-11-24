@@ -608,14 +608,19 @@
         var low = cfg && Number.isFinite(cfg.bandDown) ? cfg.bandDown * pixelsPerDegree : null;
         var high = cfg && Number.isFinite(cfg.bandUp) ? -cfg.bandUp * pixelsPerDegree : null;
         // Shift the existing clamped curve and expand the viewBox without changing the temperature scale.
-        var topExtra = Math.ceil(Math.abs(high || 0)), bottomExtra = Math.ceil(low || 0);
         var box = s.viewBox.split(' ').map(Number);
         var now = c.svg && c.svg.now;
         var markers = now ? [
-            { css: 'pt-target', label: 'Curve target now', y: now.yTarget, value: c.target, radius: 6 },
-            { css: 'pt-reported', label: 'Reported heating set (DP 125)', y: now.yReported, value: c.reported, radius: 4 },
-            { css: 'pt-supply', label: 'Supply now', y: now.ySupply, value: c.supply, radius: 4 }
-        ].filter(function (point) { return Number.isFinite(point.y) && Number.isFinite(point.value); }) : [];
+            { css: 'pt-target', label: 'Curve target now', value: c.target, radius: 6 },
+            { css: 'pt-reported', label: 'Reported heating set (DP 125)', value: c.reported, radius: 4 },
+            { css: 'pt-supply', label: 'Supply now', value: c.supply, radius: 4 }
+        ].filter(function (point) { return Number.isFinite(point.value); }) : [];
+        // A live update can arrive before its static frame; use the same scale as the visible curve.
+        markers.forEach(function (point) {
+            point.y = +(s.top + (s.yMax - point.value) * pixelsPerDegree).toFixed(1);
+        });
+        var topExtra = Math.ceil(Math.max(-(high || 0), ...markers.map(function (p) { return s.top - p.y; })));
+        var bottomExtra = Math.ceil(Math.max(low || 0, ...markers.map(function (p) { return p.y - s.bottom; })));
         scope.hpCurvePlot = { lowShift: low, highShift: high, markers: markers,
             top: s.top - topExtra, bottom: s.bottom + bottomExtra,
             viewBox: [box[0], box[1] - topExtra, box[2], box[3] + topExtra + bottomExtra].join(' ') };
