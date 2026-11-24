@@ -609,6 +609,7 @@
         var high = cfg && Number.isFinite(cfg.bandUp) ? -cfg.bandUp * pixelsPerDegree : null;
         // Shift the existing clamped curve and expand the viewBox without changing the temperature scale.
         var topExtra = Math.ceil(Math.abs(high || 0)), bottomExtra = Math.ceil(low || 0);
+        var box = s.viewBox.split(' ').map(Number);
         var now = c.svg && c.svg.now;
         var markers = now ? [
             { css: 'pt-target', label: 'Curve target now', y: now.yTarget, value: c.target, radius: 6 },
@@ -617,7 +618,7 @@
         ].filter(function (point) { return Number.isFinite(point.y) && Number.isFinite(point.value); }) : [];
         scope.hpCurvePlot = { lowShift: low, highShift: high, markers: markers,
             top: s.top - topExtra, bottom: s.bottom + bottomExtra,
-            viewBox: '0 ' + (-topExtra) + ' 600 ' + (240 + topExtra + bottomExtra) };
+            viewBox: [box[0], box[1] - topExtra, box[2], box[3] + topExtra + bottomExtra].join(' ') };
     }
     scope.$watch('msg.hpStatic', function (part) {
         if (part) {

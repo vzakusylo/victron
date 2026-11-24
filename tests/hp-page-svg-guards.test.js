@@ -21,7 +21,7 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
         watchers['msg.payload'](scope.msg.payload);
     }
     watchers['msg.hpStatic']({ curveChart: { svg: {
-        viewBox: '0 0 600 240', top: 12, bottom: 212, yMin: 20, yMax: 60, line: '44,12 590,212'
+        viewBox: '0 0 700 260', top: 12, bottom: 212, yMin: 20, yMax: 60, line: '44,12 590,212'
     } } });
     update(chart, { bandDown: 1.5, bandUp: 3 });
     assert.match(html, /class="band-low"[^>]+hpCurvePlot\.lowShift/);
@@ -29,7 +29,7 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
     assert.equal(scope.hpCurvePlot.lowShift, 7.5);
     assert.equal(scope.hpCurvePlot.highShift, -15);
     assert.ok(scope.hpCurvePlot.top <= -3 && scope.hpCurvePlot.bottom >= 219.5);
-    assert.equal(scope.hpCurvePlot.viewBox, '0 -15 600 263');
+    assert.equal(scope.hpCurvePlot.viewBox, '0 -15 700 283');
     assert.deepStrictEqual(scope.hpCurvePlot.markers.map(p => [p.label, p.value, p.y]), [
         ['Curve target now', 34.5, 90], ['Reported heating set (DP 125)', 36, 84], ['Supply now', 32, 100]
     ]);
