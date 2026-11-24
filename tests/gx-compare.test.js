@@ -37,6 +37,7 @@ test('group member order is ignored, but membership changes are drift', t => {
     assert.equal(checkDrift(base, group('b', 'a'), 'base'), true);
     assert.throws(() => checkDrift(base, group('a', 'b', 'c'), 'base'), /drift\):\ng nodes$/);
     assert.throws(() => checkDrift(base, group('a'), 'base'), /drift\):\ng nodes$/);
+    assert.throws(() => checkDrift(base, group('a', 'b', 'b'), 'base'), /drift\):\ng nodes$/);
 });
 
 test('flow node order is ignored', t => {

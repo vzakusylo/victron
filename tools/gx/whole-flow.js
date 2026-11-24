@@ -40,7 +40,7 @@ function wholeFlowTools() {
                 .filter(key => key !== 'x' && key !== 'y')
                 .map(key => {
                     const value = node.type === 'group' && key === 'nodes' && Array.isArray(node.nodes)
-                        ? [...new Set(node.nodes)].sort() : node[key];
+                        ? [...node.nodes].sort() : node[key];
                     return [key, hash(stable(normalizeCode && code.has(key) && typeof value === 'string'
                         ? value.replace(/\r\n/g, '\n').trimEnd() : value))];
                 }));
