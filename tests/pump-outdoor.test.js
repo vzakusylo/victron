@@ -124,6 +124,25 @@ test('20 Nov replay: the first bypass-on sample cannot replace the pre-defrost s
     assert.equal(c.node.context.get('preDefSupply'), 36);
 });
 
+test('20 Nov replay: prolonged bypass does not carry an old supply baseline into a new defrost', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1], 102: 26 });
+    c.tick(NOW + MIN, { 102: 26 }, false, true);
+    c.tick(NOW + 6 * MIN, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] }, false, true);
+    assert.equal(c.node.context.get('preDefSupply'), undefined);
+});
+
+test('an unresolved defrost warns once after 60 minutes without treating the timeout as recovery', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1] });
+    c.tick(NOW + MIN, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] });
+    for (const min of [20, 60, 61, 62]) c.tick(NOW + min * MIN, { 116: null });
+    assert.equal(c.node.flow.get('dhwView').outHeld, true);
+    assert.ok(!c.node.context.get('recoveredAt'));
+    const log = c.node.context.get('log');
+    assert.equal(log.filter(entry => /Defrost exit still unconfirmed/.test(entry.text)).length, 1);
+});
+
 test('20 Nov recovery replay: bypassed supply is not proof of recovery after the quiet period', () => {
     const c = rig();
     const sample = (min, row, supply, bypass) => {

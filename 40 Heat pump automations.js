@@ -64,8 +64,8 @@
 //    write gap; a live sequence stops, and its queued writes are dropped, once the rule is no
 //    longer On (On → Test / Off).
 // 6. d#128: B50 on / B50 preheat do not start during a defrost or DEFROST_QUIET_MIN after it
-// d#230: missing or stale telemetry cannot create a defrost edge; bypassed supply is not proof of recovery.
 //    (outdoor sensor reads high; the cloud B50 on started a DHW cycle that way at 11:29 on 9 Nov).
+// d#230: missing or stale telemetry cannot create a defrost edge; bypassed supply is not proof of recovery.
 // 7. d#129: B42 off includes the steps of the scene "Slowly cool down" (set 39 → 38 → 37).
 // 8. d#130: DHW controller (tank by outdoor curve, one state machine, settings on the page,
 //    docs/heat-pump-dhw-controller.md). While it is On, the B* rules, their mode rules,
@@ -683,15 +683,26 @@ const exchangerInCircuit = ready('bypass') && ((st.bypass && st.bypass.dps) || {
     // d#170: supply just before the defrost — the recovery ends when the supply is back there (or at the set point)
     const supply = dhwMeasurement(hpd['102']);
     if (inDef === false && !wasDef && exchangerInCircuit && !context.get('bypassWasOn')
-        && Number.isFinite(supply) && dhwMeasurement(hpd['116']) > 0 && dhwMeasurement(hpd['115']) > 0) context.set('supBefore', supply);
+        && Number.isFinite(supply) && dhwMeasurement(hpd['116']) > 0 && dhwMeasurement(hpd['115']) > 0) {
+        context.set('supBefore', supply);
+        context.set('supBeforeAt', st.hp.lastData);
+    }
     context.set('bypassWasOn', !exchangerInCircuit);
     if (inDef && !wasDef) {
-        context.set('preDefSupply', context.get('supBefore'));
+        const beforeAt = context.get('supBeforeAt');
+        context.set('preDefSupply', beforeAt && now - beforeAt <= FRESH_MS ? context.get('supBefore') : undefined);
         context.set('defrostSince', now);
         settings.defrostStarts = (settings.defrostStarts || []).filter((x) => now - x < 12 * 3600 * 1000).concat([now]).slice(-8);
         saveSettingsFile();
     }
-    if (wasDef && inDef === null) context.set('defrostGap', true);
+    if (wasDef && inDef === null) {
+        context.set('defrostGap', true);
+        // The supply-recovery timeout is not evidence that an unobserved defrost ended.
+        if (!context.get('defrostGapWarned') && now - context.get('lastDefrost') >= 60 * MIN) {
+            context.set('defrostGapWarned', true);
+            logEvent({ kind: 'warn', text: 'Defrost exit still unconfirmed after 60 min: waiting for valid fan and compressor readings' });
+        }
+    }
     else if (inDef !== null) {
         if (wasDef && !inDef) {
             // After a gap the actual end is unknown; start the quiet period at the first confirmed exit.
@@ -699,6 +710,7 @@ const exchangerInCircuit = ready('bypass') && ((st.bypass && st.bypass.dps) || {
             armAfterDefrost();
         }
         context.set('defrostGap', false);
+        context.set('defrostGapWarned', false);
         context.set('inDefrost', inDef);
     }
 }
