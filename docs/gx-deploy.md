@@ -383,8 +383,7 @@ Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem ne
    The `module` remains unversioned because Node-RED 3.1.15 cannot import
    `package@version`. Use a dry run to confirm preflight reports `dbus-native-victron@0.4.13`. If it
    reports a mismatch, the owner must arrange the package change separately and rerun the dry run.
-   Automatic deploys stop before writing
-   anything until preflight passes.
+   Automatic deploys stop before writing anything until preflight passes.
    The version is enforced by deploy preflight, not by Node-RED at runtime. If the editor drops
    `libs[].version` on save, the next drift check reports it as a `libs` change; review the drift
    before reapplying the Git definition.
