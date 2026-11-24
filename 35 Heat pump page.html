@@ -724,7 +724,11 @@
         var p23 = event.target.valueAsNumber;
         scope.$evalAsync(function () {
             var c = cc();
-            if (!scope.hpCurveSliderEnabled() || !validOwnerCurve(p23, c.p24) || p23 === c.p23) return;
+            if (scope.hp.curveSent !== null) return;
+            if (!scope.hpCurveSliderEnabled() || !validOwnerCurve(p23, c.p24) || p23 === c.p23) {
+                scope.hpCurveReset();
+                return;
+            }
             scope.hp.p23 = p23;
             scope.hpEditCurveSlider();
             submitCurve(p23, c.p24);

@@ -123,10 +123,15 @@ test('Colder / Warmer previews on input and queues one owner P23 change on relea
     assert.equal(scope.hpCurveOutdoorPreview(), 'no outdoor value');
     chart.outdoor = -9;
 
-    const release = () => listeners.change({ target: { id: scope.hpCurveSliderId, valueAsNumber: 31 } });
+    const release = (valueAsNumber = 31) => listeners.change({ target: { id: scope.hpCurveSliderId, valueAsNumber } });
+    release(30);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'unchanged release clears the draft');
+    scope.hp.p23 = 31;
+    scope.hpEditCurveSlider();
     scope.msg.payload.controls = { curve: false, curveReason: 'DHW cycle running' };
     release();
     assert.deepStrictEqual(messages, []);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'blocked release clears the draft');
     scope.msg.payload.controls.curve = true;
     release();
     assert.ok(scope.hp.curveSent);
