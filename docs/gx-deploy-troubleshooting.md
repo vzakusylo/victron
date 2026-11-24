@@ -2,7 +2,7 @@
 
 This is the recovery procedure used for the **15 Nov 2026 d#187 deployment from master**, not an instruction to force a failed deploy. See [the deployment guide](gx-deploy.md) for the tools, [the handoff](gx-handoff.md) for the fixed steps, and [the work log](heat-pump-work-log.md#2026-11-15-1035-1038-europeoslo-master-deployed-without-stopping-node-red) for the actual result and backups.
 
-**Never replace the GX's `flows.json` with the repository template. Never deploy the secret workflow just to update code.** Code deployment preserves the live credentials and settings and restarts only modified nodes/dashboard pages, not the Node-RED service.
+**Never copy the raw repository template over the GX's `flows.json`. Never deploy the secret workflow just to update code.** The current runner prepares the target with Tuya file-secret references, checks for drift, and asks Node-RED to deploy modified nodes without restarting the service.
 
 ## 1. Restore connectivity before trying a deployment
 
@@ -54,8 +54,10 @@ Keep `$sha` unchanged for diagnosis, dry-run and apply. A pushed feature branch,
 
 Do not run `sync` merely to deploy an already merged commit: it changes the working tree, not the pinned deployment target. Do not use `-UseWorkTreeScripts` for a production deployment.
 
-## 3. Take a private snapshot and compare code, not just version labels
+## 3. Investigate drift, not just version labels
 
+The normal dry run reports drift against the stamped and prepared Git baseline. It names changed fields
+without showing their values. If you need to inspect changed *code*, use the separate diagnostic snapshot.
 Keep run files outside the repository:
 
 ```powershell
@@ -72,20 +74,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Comparison failed.' }
 
 The snapshot excludes Tuya settings/credentials but contains live function/template code. Treat it and the detailed reports as private: a hard-coded live secret could still be present. Do not commit them or upload them to public artifacts.
 
-Interpretation:
-
-| Result | Meaning and next action |
-|---|---|
-| Different `d#` / `[git ...]` / `[UI local ...; Auto ...]` | Deployment metadata, not proof of the code difference. Compare each code field. A local label can remain even when a node exactly matches a committed version. |
-| `code differs`, only `+N` | The target has code missing on GX. Review it; the normal selective deploy may update it. |
-| `-N` / `liveOnlyLines` | The target would remove live lines. This can be either genuinely uncommitted code **or an ordinary replacement of older committed code**. The runner conservatively stops in both cases. Inspect before granting any exception. |
-| `live = <commit>` with `--history` | That field exactly matches an older repository version after trailing-whitespace normalization. Check its changes against the target; the label alone was not the baseline. |
-| `live = no commit` | No match in the searched history, not proof that the code never existed in Git. Widen `--history` if needed; preserve truly unique wanted code in the numbered source, sync, test, merge and resolve a new target SHA. |
-| `trailing whitespace only` | Leave it alone. It is excluded from the normal patch and does not require a node restart. |
-| `config differs` | Check separately. Tuya secret references and the version tab are expected differences; other differences may be wiring, outputs or settings that the code runner cannot migrate. |
-| Nodes only on GX / only in repository | Stop. The normal code plan does not add or remove nodes. Use a separately reviewed structural migration, then take a new snapshot. |
-
-Inspect every field that would lose lines, using its node ID:
+The diagnostic output shows code differences against the selected commit, not necessarily drift.
+Ordinary Git changes are reported separately in the plan. To inspect one node, use its ID:
 
 ```powershell
 node .\tools\gx\compare.js $snapshotFile --commit $sha --history 100 --show temps-fn-01
@@ -93,13 +83,14 @@ node .\tools\gx\compare.js $snapshotFile --commit $sha --show temps-page-01
 node .\tools\gx\compare.js $snapshotFile --commit $sha --show temps-record-01
 ```
 
-**The actual 15 Nov finding:** all three temperature fields matched `a4af86d`. Master replaced local-time day selection with Europe/Oslo, added archive-error handling and 400-day cleanup, and avoided duplicate archive series. There were no unique live lines to copy back. The owner explicitly approved replacing that reviewed older code; only then was `-AllowLiveOnlyLines` used.
+**The actual 15 Nov finding:** all three temperature fields matched `a4af86d`. Master replaced local-time day selection with Europe/Oslo, added archive-error handling and 400-day cleanup, and avoided duplicate archive series. There were no unique live lines to copy back. The owner explicitly approved replacing the reviewed older code.
 
-Do not use that flag to make an unexplained failure disappear. It authorizes removal of live lines and belongs on **both** dry-run and apply only after the specific replacements have been reviewed and approved.
+Preserve wanted differences in Git. A missing, split or local record is not a valid Git drift baseline and
+cannot be bypassed with the override.
 
-## 4. Handle output/wiring changes separately, with a backup
+## 4. Historical example: output and wiring migration
 
-The runner patches code fields, not topology. On 15 Nov, `temps-record-01` had two outputs on GX but three in master:
+The previous runner patched code fields, not topology. On 15 Nov, `temps-record-01` had two outputs on GX but three in master:
 
 ```text
 GX:     [["temps-file-01"], ["temps-catalog-01"]]
@@ -108,27 +99,10 @@ master: [["temps-file-01"], ["temps-catalog-01"], ["temps-exec-01"]]
 
 Without the third output, the new recorder code would not deliver its cleanup command. Do not deploy that new function while silently leaving the old topology.
 
-For a structural update, first verify the exact live node/configuration against the reviewed baseline and the intended master configuration. Check that referenced targets already exist on the same flow. Obtain the owner's approval and a safe window:
-
-```powershell
-Get-Content -Raw .\tools\gx\window.js,.\tools\gx\admin-api.js |
-    ssh @sshOptions $gx "tr -d '\r' | node - --for deploy"
-if ($LASTEXITCODE -ne 0) { throw 'Not a safe deployment window.' }
-```
-
-Make a private backup before changing any structure:
-
-```powershell
-$backup = ssh @sshOptions $gx 'umask 077; d=/data/home/nodered/.node-red; b="$d/backup-$(date -u +%Y%m%dT%H%M%S)-pre-topology"; mkdir "$b" && cp -p "$d/flows.json" "$d/flows_cred.json" "$b/" && printf "%s\n" "$b"'
-if ($LASTEXITCODE -ne 0 -or -not $backup) { throw 'Backup failed; stop.' }
-$backup
-```
-
-Use a reviewed updater that checks the expected live revision before POST and verifies the read-back, or make the narrowly reviewed change in the Node-RED editor with no other pending edits. In the editor, retain the existing code, both previous output routes and all other properties; add only output 3 and its route to the existing `temps-exec-01`. Select **Modified Nodes** deployment, not a full restart. A stale editor or revision conflict means refresh and inspect again, not overwrite another deployment.
-
 The successful one-off updater checked the exact old code/configuration, revision, unchanged first two routes, the existing exec target and the safe window again immediately before POST. It backed up the flow/credentials and original API response, changed only `outputs` and `wires` of this recorder, and verified every other node was unchanged. This is a historical, specific migration, **not** a generic permission to modify arbitrary wiring.
 
-Take a fresh snapshot after the topology update. The remaining differences should now be the reviewed code fields and expected secret/layout metadata, not the recorder's outputs/wires.
+The current whole-flow deploy posts code and topology together after the drift gate. Do not perform
+a separate editor migration as part of the ordinary deployment.
 
 ## 5. Run dry-run; apply the same SHA only when all checks pass
 
@@ -139,14 +113,14 @@ pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
     -Commit $sha -RunDirectory (Join-Path $runRoot 'dry-run')
 ```
 
-If and only if removal of the specifically inspected older/unique lines has been approved, add `-AllowLiveOnlyLines`. Example for the reviewed historical-code replacement:
+If the owner explicitly approved replacing the specific drift, add `-OverwriteDrift` to the reviewed dry run:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
-    -Commit $sha -AllowLiveOnlyLines -RunDirectory (Join-Path $runRoot 'reviewed-dry-run')
+    -Commit $sha -OverwriteDrift -RunDirectory (Join-Path $runRoot 'reviewed-dry-run')
 ```
 
-Read `compare-before.txt`, `plan.json`, `window.txt` and `dry-run.txt` in that run folder. Before applying, require:
+Read `plan-output.txt`, `plan.json`, `window.txt` and `dry-run.txt` in that run folder. Before applying, require:
 
 - the target SHA is the intended pushed master commit;
 - no unexplained lost live code, added/removed nodes, wiring/output/settings differences or `ABORT`;
@@ -162,23 +136,24 @@ pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
     -Commit $sha -Apply -WaitWindowMin 30 -RunDirectory (Join-Path $runRoot 'apply')
 ```
 
-For the same explicitly reviewed historical-code replacement as above:
+For the same explicitly approved drift replacement as above:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key `
-    -Commit $sha -AllowLiveOnlyLines -Apply -WaitWindowMin 30 `
+    -Commit $sha -OverwriteDrift -Apply -WaitWindowMin 30 `
     -RunDirectory (Join-Path $runRoot 'reviewed-apply')
 ```
 
 Use a new run-directory name for each retry; never overwrite the evidence from a failed run. Apply repeats the snapshot, comparison, plan, window and dry-run checks before changing anything. If another deployment changed the revision, start again from a fresh snapshot. If DHW/defrost/rule activity blocks the safe window, wait or rerun later; do not bypass it.
 
-**Backup timing:** a successful apply that changes the GX creates its backup before replacing files or posting the flow. Record the printed path before continuing. A dry-run creates no GX backup, and `NOTHING TO DO` makes no change and creates no new backup. If a backup is required even for a no-op, make the explicit private backup from section 4 first.
+**Backup timing:** an apply that changes the GX creates its backup before replacing files or posting the flow. Record the printed path before continuing. A dry run and `NOTHING TO DO` create no GX backup.
 
-"Everything matches" does not mean every raw config/whitespace value equals the portable template. Success means no substantive code differences or added/removed nodes, both recorded source SHAs equal the target, and planned tools are current. If all of these already hold, exit 0 / `NOTHING TO DO` is the correct result. If code matches but source labels or tools lag, an apply may still update those and restart the renamed dashboard pages.
+Success means the normalized full readback matches the stamped, prepared target and the requested tool
+files are current. A previously applied version with matching tools returns `NOTHING TO DO`.
 
 ## 6. Verify immediately, then again after 15-20 minutes
 
-The apply runner must finish with `DONE`, the expected label and a comparison showing the live code equals the pinned SHA. Check independently:
+The apply runner must finish with `DONE` and the expected label after full-flow verification. Check independently:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key -Drift
@@ -199,7 +174,7 @@ Record the time, SHA, version, backup paths, migrations, review exceptions and r
 |---|---|
 | Job stays `waiting` | The `victron-gx` environment requires its configured reviewer. In Edge, open the run, choose **Review deployments**, select the environment and **Approve and deploy**. Saying "continue" in chat is not the GitHub approval. Dry-run and apply are separate approved runs. |
 | `master` changes while awaiting approval | The workflow must pass `-Commit $env:GITHUB_SHA`. Match the approved dry-run SHA with the apply SHA; a later run of master may point to a different commit. |
-| A local dry-run/apply has reviewed exceptions | The current workflow does not expose `-AllowLiveOnlyLines` or topology migration. Do not expect rerunning it to bypass those checks. Resolve drift/migration first; use the explicitly approved local procedure when necessary. |
+| The drift gate stopped the deployment | Keep wanted changes in Git. Only a manual dispatch can set `overwrite_drift`, after explicit approval and a reviewed dry run. The matching Git deployment record and revision are still required. |
 | Run reports cannot be found on Ubuntu | The script uses .NET's temp directory; set `TMPDIR` to `runner.temp` or pass an exact `-RunDirectory`. Do not search a different directory or assume Windows `cmd` exists. Git blob extraction must preserve bytes cross-platform. |
 | Public artifacts could leak GX-only code | Upload only the deliberately constructed public summary. Never upload the entire run folder, live snapshots, diffs or raw live reports. |
 | Tailscale/SSH secret is missing | Configure `GX_SSH_HOST`, `GX_SSH_KEY`, `GX_SSH_KNOWN_HOSTS`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` in the repository/environment. Keep `known_hosts` in the standard SSH location; preserve strict verification and remove runner key material in `always()`. |

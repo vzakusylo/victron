@@ -17,15 +17,14 @@ const LOG = process.env.VICTRON_LOG || '/var/log/node-red-venus/current';
 const get = (urlPath) => api('GET', urlPath);
 const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } catch { return null; } };
 
-(async () => {
-    const live = JSON.parse(await get('/flows'));
+async function verifyHealth(live) {
     const tab = live.flows.find((node) => node.type === 'tab' && /d#\d+/.test(node.label || ''));
     const source = /<!-- victron-deployment-source -->\s*([\s\S]*?)\s*<!-- \/victron-deployment-source -->/.exec(tab.info || '');
     console.log('label   : ' + tab.label);
     console.log('source  : ' + (source ? source[1] : 'not recorded'));
     console.log('rev     : ' + live.rev.slice(0, 12) + ', ' + live.flows.length + ' nodes');
 
-    const dhw = value(await get('/context/node/hpa-fn-01/dhw'));
+    const dhw = live.flows.some(node => node.id === 'hpa-fn-01') ? value(await get('/context/node/hpa-fn-01/dhw')) : null;
     console.log('dhw     : ' + (dhw ? JSON.stringify({ state: dhw.state, running: !!dhw.run, why: dhw.why, waitNote: dhw.waitNote, outdoorAvg: dhw.outAvg }) : 'no context'));
     const view = value(await get('/context/flow/' + tab.id + '/dhwView'));
     if (view) {
@@ -44,4 +43,10 @@ const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } cat
     }
     console.log('log     : last deploy line ' + (lastDeploy === undefined ? 'not in the current log file' : '"' + text[lastDeploy].replace(/^\S+ /, '').slice(0, 60) + '"'));
     console.log('errors since then: ' + (since.length ? JSON.stringify(groups) : 'none'));
-})().catch((error) => { console.error(error.message); process.exit(1); });
+}
+
+if (module.id !== '[stdin]') module.exports = { verifyHealth };
+if (require.main === module || module.id === '[stdin]') {
+    get('/flows').then(text => verifyHealth(JSON.parse(text)))
+        .catch(error => { console.error(error.message); process.exitCode = 1; });
+}

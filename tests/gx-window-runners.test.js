@@ -130,32 +130,34 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
         code: [secret], trailing: [], config: [secret], onlyLive: [], onlyRepo: [], liveOnlyLines: [secret],
         nodes: [{ func: secret }], error: secret
     };
-    const result = publicSummary(summary, null, { commit, mode: 'dry-run', outcome: 'failure', version: 'test' });
+    const result = publicSummary(summary, { commit, mode: 'dry-run', outcome: 'failure', version: 'test' });
     assert.deepEqual(result, {
         commit, mode: 'dry-run', outcome: 'failure', version: 'test',
-        previous: { dashboard: previous, automations: null },
-        before: { code: 1, trailing: 0, config: 1, onlyLive: 0, onlyRepo: 0, liveOnlyLines: 1 },
-        after: null
+        previous: { dashboard: previous, automations: null }
     });
     assert.ok(!JSON.stringify(result).includes(secret));
-    assert.equal(publicSummary(null, null, { commit, mode: 'apply', outcome: 'cancelled', version: 'stable' }).before, null);
-    assert.throws(() => publicSummary(null, null, { commit: secret, mode: 'apply', outcome: 'success', version: 'test' }), /commit SHA/);
-    assert.throws(() => publicSummary({ code: secret }, null, { commit, mode: 'apply', outcome: 'success', version: 'test' }), /summary field/);
-    assert.throws(() => publicSummary(null, null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
+    assert.deepEqual(publicSummary(null, { commit, mode: 'apply', outcome: 'cancelled', version: 'stable' }).previous,
+        { dashboard: null, automations: null });
+    assert.throws(() => publicSummary(null, { commit: secret, mode: 'apply', outcome: 'success', version: 'test' }), /commit SHA/);
+    assert.throws(() => publicSummary(null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
 });
 
-test('runner extracts the committed helpers and uploads them with the dry-run scripts', (t) => {
+test('runner uploads the whole-flow drift and API helpers with the dry-run scripts', (t) => {
     const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
     if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-runner-add-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    const gitShow = (file) => execFileSync('git', ['show', 'HEAD:' + file], { cwd: ROOT, maxBuffer: 1 << 27 });
-    const helper = 'tools/gx/node-additions.js';
-    const added = 'utcp-http-get-01';
-    const flows = JSON.parse(gitShow('flows.json')).filter((node) => node.id !== added);
-    const { snapshot } = require('../tools/gx/live-snapshot.js');
+    const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 27 });
+    const base = git('rev-parse', 'HEAD').toString().trim();
+    const helper = 'tools/gx/whole-flow.js';
+    const { prepared, fingerprints, versionTab } = require('../tools/gx/whole-flow.js');
+    const { prepareFlows } = require('../tools/victron-secrets.js');
+    const { stampDeployment } = require('../tools/deploy-version.js');
+    const flows = prepared(JSON.parse(git('show', `${base}:flows.json`)), base, prepareFlows, stampDeployment);
     const snapshotFile = path.join(dir, 'live.b64');
-    const before = require('node:zlib').gzipSync(JSON.stringify(snapshot(flows, 'test-revision', { topology: true }))).toString('base64');
+    const before = require('node:zlib').gzipSync(JSON.stringify({
+        base, rev: 'test-revision', label: versionTab(flows).label, fingerprints: fingerprints(flows)
+    })).toString('base64');
     fs.writeFileSync(snapshotFile, before);
     const run = path.join(dir, 'run');
     const result = spawnSync('pwsh', ['-NoProfile', '-Command', `
@@ -170,7 +172,7 @@ test('runner extracts the committed helpers and uploads them with the dry-run sc
         function ssh {
             $global:LASTEXITCODE = 0
             switch -Wildcard ($args[-1]) {
-                '*node - --topology' { return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT }
+                '*node - --drift' { return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT }
                 '*node - --for deploy' { return 'SAFE for deploy' }
                 '*mktemp*' { return '/tmp/gx-deploy.Test' }
                 'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
@@ -179,23 +181,23 @@ test('runner extracts the committed helpers and uploads them with the dry-run sc
             }
         }
         function scp {
-            foreach ($name in 'deploy.js','node-additions.js','admin-api.js','plan.json') {
+            foreach ($name in 'deploy.js','verify.js','whole-flow.js','admin-api.js','plan.json') {
                 if (-not ($args | Where-Object { (Split-Path -Leaf $_) -eq $name -and (Test-Path -LiteralPath $_ -PathType Leaf) })) {
                     throw "Missing $name in SCP upload"
                 }
             }
             $global:LASTEXITCODE = 0
         }
-        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -AllowNewNodes -RunDirectory $env:GX_TEST_RUN
+        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -RunDirectory $env:GX_TEST_RUN
         exit $LASTEXITCODE
     `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: snapshotFile,
         GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run } });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.deepEqual(fs.readFileSync(path.join(run, helper)), gitShow(helper));
+    assert.deepEqual(fs.readFileSync(path.join(run, helper)), fs.readFileSync(path.join(ROOT, helper)));
     const adminHelper = 'tools/gx/admin-api.js';
-    assert.deepEqual(fs.readFileSync(path.join(run, adminHelper)), gitShow(adminHelper));
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).add, [added]);
+    assert.deepEqual(fs.readFileSync(path.join(run, adminHelper)), fs.readFileSync(path.join(ROOT, adminHelper)));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).base.sha, base);
     assert.match(result.stdout, /DRY RUN - nothing changed/);
 });
 
@@ -225,7 +227,7 @@ test('deployment changelog and workflow command use recorded Git commits and rep
     assert.deepEqual([grouped[0].commits, grouped[0].files], [[], []]);
     const unavailable = repositoryChanges({ dashboard: null, automations: 'a'.repeat(40) }, third, root);
     assert.deepEqual(unavailable.map((change) => change.status), ['previous-not-recorded', 'previous-not-in-repository']);
-    const report = publicSummary(null, null, { commit: third, mode: 'dry-run', outcome: 'success', version: 'stable' });
+    const report = publicSummary(null, { commit: third, mode: 'dry-run', outcome: 'success', version: 'stable' });
     const formatted = formatReport({ ...report, changes });
     assert.match(formatted, /Version label: \*\*stable\*\* \(report only\)/);
     assert.match(formatted, /Fix dashboard &lt;script&gt;/);
@@ -236,6 +238,7 @@ test('deployment changelog and workflow command use recorded Git commits and rep
     const script = path.join(root,'tools','gx','deploy-report.js');
     fs.mkdirSync(path.dirname(script),{recursive:true});
     fs.copyFileSync(path.join(ROOT,'tools','gx','deploy-report.js'),script);
+    fs.copyFileSync(path.join(ROOT,'tools','gx','whole-flow.js'),path.join(root,'tools','gx','whole-flow.js'));
     fs.copyFileSync(path.join(ROOT,'tools','infra-version.js'),path.join(root,'tools','infra-version.js'));
     fs.writeFileSync(path.join(root,'flows.json'),JSON.stringify([{ type: 'tab', label: 'd#210 fixture' }]));
     fs.writeFileSync(path.join(root,'tools','infra-version.json'),JSON.stringify({
@@ -260,8 +263,7 @@ test('deployment changelog and workflow command use recorded Git commits and rep
         assert.deepEqual(artifact.changes[0].commits.map(commit=>commit.sha),[second,third]);
         assert.deepEqual(artifact.changes[1].commits.map(commit=>commit.sha),[third]);
         assert.deepEqual(artifact.changes[0].files,[{status:'M',path:'test.js'}]);
-        assert.equal(artifact.before.code,1);
-        assert.equal(artifact.after,null);
+        assert.equal(artifact.flow,null);
         assert.match(cli.stdout,/Fix dashboard &lt;script&gt;/);
         assert.ok(cli.stdout.includes(`Version label: **${version}**`));
         assert.match(cli.stdout, /d#210 · i#1/);

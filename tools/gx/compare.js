@@ -9,25 +9,20 @@
 //   node tools/gx/compare.js live.b64 --show <node id>     print the lines that differ in one node
 //   node tools/gx/compare.js live.b64 --history 20         also name the newest commit the live code equals
 //   node tools/gx/compare.js live.b64 --commit <sha> --plan plan.json
-//        [--tools tools/a.js,tools/b.js] [--scopes dashboard,automations] [--include-trailing] [--allow-new-nodes]
+//        [--tools tools/a.js,tools/b.js] [--overwrite-drift] [--summary summary.json]
 //   node tools/gx/compare.js live.b64 --commit <sha> --summary summary.json     the result as JSON for a script
 //
 // What the report means:
-//   code      a function / template / exec command differs: this is what a deploy changes
-//   trailing  only whitespace at the end differs (an editor artefact): left alone unless --include-trailing
-//   config    other properties differ (wires, outputs, settings). Expected for the Tuya nodes: the GX has
-//             file-secret references, the repository a portable template. Only reviewed new-node
-//             connections (and necessary function outputs) can be patched.
-//   only live / only repo   removals and additions need separate explicit opt-ins.
+// The diagnostic snapshot is useful for inspection but cannot be used to plan a deploy.
 'use strict';
 const fs = require('fs');
 const zlib = require('zlib');
 const crypto = require('crypto');
-const os = require('os');
-const path = require('path');
 const { execFileSync } = require('child_process');
 const { snapshot, stable } = require('./live-snapshot.js');
-const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
+const flow = require('./whole-flow.js');
+const { stampDeployment } = require('../deploy-version.js');
+const { prepareFlows } = require('../victron-secrets.js');
 
 const norm = (text) => String(text === undefined ? '' : text).replace(/\r\n/g, '\n');
 const lines = (text) => norm(text).split('\n');
@@ -56,29 +51,7 @@ function diffSnapshots(live, repo) {
     return result;
 }
 
-function buildPatch(diff, includeTrailing) {
-    const patch = {};
-    for (const item of diff.code.concat(includeTrailing ? diff.trailing : [])) (patch[item.id] = patch[item.id] || []).push(item.field);
-    return patch;
-}
-
-function verifyDeployedCode(live, record, readPrevious) {
-    const sha = record?.dashboard;
-    if (typeof sha !== 'string' || !/^[a-f0-9]{40}$/.test(sha) || record.automations !== sha) {
-        throw new Error('an identical Git deployment SHA for dashboard and automations is not recorded');
-    }
-    const previous = readPrevious(sha);
-    const diff = diffSnapshots(live, previous);
-    const types = new Map(previous.nodes.map(node => [node.id, node.type]));
-    // Match the post-deploy check: trailing-only differences are not code drift.
-    if (diff.onlyLive.length || diff.onlyRepo.length || diff.code.length ||
-        live.nodes.some(node => types.get(node.id) !== node.type)) {
-        throw new Error('the live nodes or code differ from the recorded deployment ' + sha.slice(0, 12));
-    }
-    return sha;
-}
-
-module.exports = { diffSnapshots, buildPatch, verifyDeployedCode };
+module.exports = { diffSnapshots };
 
 function readSnapshot(file) {
     // PowerShell may add a BOM or write UTF-16; keep only the base64 characters.
@@ -90,18 +63,37 @@ function readSnapshot(file) {
 function git(...args) { return execFileSync('git', args, { maxBuffer: 1 << 27 }); }
 const sha256 = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 
-function checkCommitSources(commit) {
-    const files = git('ls-tree', '-r', '-z', '--name-only', commit).toString().split('\0');
-    const sources = files.filter((file) => /^\d\d [^/]+\.(?:js|html)$/.test(file));
-    const inputs = files.filter((file) => file.startsWith('lib/'));
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-flow-check-'));
+function writePlan(live, commit, file, summary, tools, overwriteDrift) {
+    if (!commit) throw new Error('--plan requires --commit.');
+    if (!Array.isArray(live.fingerprints) || !live.rev || !/^[a-f0-9]{40}$/.test(live.base || '')) {
+        throw new Error('--plan requires a --drift snapshot with a Git deployment record and revision.');
+    }
+    let base;
     try {
-        const archive = git('archive', '--format=tar', commit, '--', 'flows.json', 'tools/flows.js', 'tools/includes.js', ...sources, ...inputs);
-        execFileSync('tar', ['-xf', '-', '-C', dir], { input: archive });
-        execFileSync(process.execPath, [path.join(dir, 'tools', 'flows.js'), 'check'], { stdio: 'pipe' });
-        const names = new Set(sources.filter((file) => file.endsWith('.js') && !file.endsWith('.init.js')).map((file) => file.slice(3, -3)));
-        return names;
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+        git('merge-base', '--is-ancestor', live.base, commit);
+        base = git('show', live.base + ':flows.json');
+    } catch {
+        throw new Error('The recorded deployment is not a readable ancestor of the target commit.');
+    }
+    const target = git('show', commit + ':flows.json');
+    const before = JSON.parse(base), after = JSON.parse(target);
+    const label = flow.versionTab(after).label;
+    if (summary) fs.writeFileSync(summary, JSON.stringify({
+        live: { label: live.label, rev: live.rev, source: { dashboard: live.base, automations: live.base } },
+        repo: { label, commit }
+    }) + '\n');
+    flow.checkDrift(flow.fingerprints(flow.prepared(before, live.base, prepareFlows, stampDeployment)),
+        live.fingerprints, live.base, overwriteDrift);
+    flow.report(before, after);
+    const plan = {
+        repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev, overwriteDrift,
+        base: { sha: live.base, flowsSha256: sha256(base) },
+        flowsSha256: sha256(target), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
+        prepareSha256: sha256(git('show', commit + ':tools/victron-secrets.js')),
+        tools: Object.fromEntries(tools.map(tool => [tool, sha256(git('show', commit + ':' + tool))]))
+    };
+    fs.writeFileSync(file, JSON.stringify(plan, null, 2) + '\n');
+    console.log('plan written to ' + file);
 }
 
 function main() {
@@ -116,6 +108,11 @@ function main() {
     if (against && (option('--commit') || option('--plan'))) throw new Error('--against cannot be combined with --commit or --plan.');
     let commit = option('--commit');
     if (commit) commit = git('rev-parse', '--verify', commit + '^{commit}').toString().trim();
+    const planFile = option('--plan');
+    const overwriteDrift = args.includes('--overwrite-drift');
+    if (planFile) return writePlan(live, commit, planFile, option('--summary'),
+        (option('--tools') || '').split(',').filter(Boolean), overwriteDrift);
+    if (overwriteDrift) throw new Error('--overwrite-drift requires --plan.');
     const flowsBuffer = against ? null : commit ? git('show', commit + ':flows.json') : fs.readFileSync('flows.json');
     const repo = against ? readSnapshot(against) : snapshot(JSON.parse(flowsBuffer.toString('utf8')));
     const diff = diffSnapshots(live, repo);
@@ -152,7 +149,7 @@ function main() {
     };
     list('code differs: repo lines to add (+) / live lines to drop (-)', diff.code);
     list('trailing whitespace only', diff.trailing);
-    list('config differs (only validated new-node wiring can be patched)', diff.config);
+    list('config differs', diff.config);
     list('only on the GX', diff.onlyLive);
     list('only in the repository', diff.onlyRepo);
     const liveOnlyCode = diff.code.filter((item) => item.removed > 0);
@@ -175,46 +172,6 @@ function main() {
         }
     }
 
-    const planFile = option('--plan');
-    const removalFlag = args.includes('--allow-removed-nodes');
-    const removalInput = option('--allow-removed-nodes');
-    if (removalFlag && (!planFile || !commit || removalInput === undefined)) {
-        throw new Error('--allow-removed-nodes requires an ID list, --plan and --commit.');
-    }
-    if (removalInput && !/^\s*[\w.][\w.-]*(?:\s*,\s*[\w.][\w.-]*)*\s*$/.test(removalInput)) {
-        throw new Error('--allow-removed-nodes must be a comma-separated list of node IDs.');
-    }
-    const wireInput = option('--allow-new-wires');
-    if (args.includes('--allow-new-wires') &&
-        (!planFile || !commit || !/^\s*[\w.][\w.-]*(?:\s*,\s*[\w.][\w.-]*)*\s*$/.test(wireInput || ''))) {
-        throw new Error('--allow-new-wires requires a comma-separated list of source node IDs, --plan and --commit.');
-    }
-    const allowNewWires = wireInput ? wireInput.split(',').map(id => id.trim()) : [];
-    const verifyReplacement = args.includes('--allow-replace-deployed-lines');
-    if (verifyReplacement && (!planFile || !commit)) throw new Error('--allow-replace-deployed-lines requires --plan and --commit.');
-    let replacedFrom = null;
-    if (verifyReplacement && liveOnlyCode.length) {
-        try {
-            const info = liveTab?.info || '';
-            if ((info.match(/<!-- victron-deployment-source -->/g) || []).length !== 1 ||
-                (info.match(/<!-- \/victron-deployment-source -->/g) || []).length !== 1 || !meta) {
-                throw new Error('the deployment record is missing or ambiguous');
-            }
-            replacedFrom = verifyDeployedCode(live, JSON.parse(meta[1]), sha => {
-                try {
-                    if (git('cat-file', '-t', sha).toString().trim() !== 'commit') throw new Error('not a commit');
-                    git('merge-base', '--is-ancestor', sha, commit);
-                    return snapshot(JSON.parse(git('show', sha + ':flows.json').toString('utf8')));
-                } catch {
-                    throw new Error('the recorded deployment is not a readable ancestor of the target commit');
-                }
-            });
-        } catch (error) {
-            throw new Error('Verified replacement of GX-only code lines refused: ' + error.message);
-        }
-        console.log('GX-only code: replaced lines of ' + replacedFrom + '; replacement allowed.');
-    }
-
     // Machine-readable result for scripts/gx-deploy.ps1: what a runner needs to decide, nothing else.
     const summaryFile = option('--summary');
     if (summaryFile) {
@@ -227,70 +184,8 @@ function main() {
         }, null, 2) + '\n');
     }
 
-    if (planFile) {
-        if (!commit) throw new Error('--plan needs --commit: a deploy is always from a pushed commit.');
-        if (git('status', '--porcelain', '--', 'flows.json').toString().trim()) console.log('\nNote: flows.json has uncommitted changes; the plan uses the commit, not the work tree.');
-        const tools = {};
-        for (const tool of (option('--tools') || '').split(',').filter(Boolean)) tools[tool] = sha256(git('show', commit + ':' + tool));
-        const repoFlows = JSON.parse(flowsBuffer.toString('utf8'));
-        const allowNewNodes = args.includes('--allow-new-nodes');
-        const allowed = removalInput?.trim() ? removalInput.split(',').map(id => id.trim()) : [];
-        if ((allowed.length || allowNewWires.length || (allowNewNodes && diff.onlyRepo.length)) && !live.nodes.every((node) => node.topology)) {
-            throw new Error('Node addition/removal and reviewed wire planning requires a live-snapshot.js --topology snapshot.');
-        }
-        let removalBase;
-        let previous = [];
-        if ((allowed.length && diff.onlyLive.length) || allowNewWires.length) {
-            const sha = recordedCommit(liveTab?.info);
-            try {
-                git('merge-base', '--is-ancestor', sha, commit);
-                const blob = git('show', sha + ':flows.json');
-                previous = snapshot(JSON.parse(blob), null, { topology: true }).nodes;
-                removalBase = { sha, flowsSha256: sha256(blob) };
-            } catch {
-                throw new Error('The recorded deployment is not a readable ancestor of the target commit.');
-            }
-        }
-        const topology = nodes => nodes.map(({ id, type, name, topology }) => ({ id, type, name, ...topology }));
-        const beforeRemovals = topology(live.nodes);
-        const removals = removalPlan(live.nodes, allowed.length ? snapshot(repoFlows, null, { topology: true }).nodes : repo.nodes,
-            allowed, previous, allowNewWires);
-        const nodes = additionPlan(cleanTopology(beforeRemovals, removals), repoFlows, allowNewNodes, allowNewWires,
-            { baseline: topology(previous), beforeRemovals, removed: removals.remove });
-        const added = new Set(nodes.add);
-        const newNodes = repoFlows.filter((node) => added.has(node.id));
-        if (newNodes.some((node) => node.type === 'function')) {
-            const names = checkCommitSources(commit);
-            for (const node of newNodes) {
-                if (node.type === 'function' && !names.has(node.name)) throw new Error(node.id + ': no numbered function source in the commit.');
-            }
-        }
-        const plan = {
-            repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev,
-            flowsSha256: sha256(flowsBuffer), stampSha256: sha256(git('show', commit + ':tools/deploy-version.js')),
-            scopes: (option('--scopes') || 'dashboard,automations').split(',').filter(Boolean),
-            patch: buildPatch(diff, args.includes('--include-trailing')), add: nodes.add, wire: nodes.wire,
-            ...(nodes.groups ? { groups: nodes.groups } : {}),
-            ...(allowNewWires.length ? { allowNewWires } : {}), tools,
-            ...(replacedFrom ? { replacedFrom } : {}),
-            ...(removalBase ? { remove: removals.remove, removalBase } : {})
-        };
-        fs.writeFileSync(planFile, JSON.stringify(plan, null, 2) + '\n');
-        console.log('\nplan written to ' + planFile + ': ' + Object.keys(plan.patch).length + ' code patch(es), ' + nodes.wire.length +
-            ' wire patch(es), ' + nodes.add.length + ' addition(s), ' + removals.remove.length + ' removal(s), ' + Object.keys(tools).length + ' tool file(s), scopes ' + plan.scopes.join('+'));
-        for (const node of newNodes) console.log('node to add     : ' + JSON.stringify(describe(node)));
-        for (const id of nodes.wire) console.log('wire patch      : ' + id);
-        const formatWires = wires => wires ? '[' + wires.map(({ id, name, status }) =>
-            `${id} (${JSON.stringify(name)}, ${status})`).join(', ') + ']' : '(no output)';
-        for (const { id, output, gx, target } of nodes.rewires || []) {
-            console.log(`reviewed wiring : ${id}[${output}]: GX ${formatWires(gx)} -> target ${formatWires(target)}`);
-        }
-        for (const id of nodes.groups || []) console.log('group patch     : ' + id);
-        for (const id of removals.remove) console.log('node to remove  : ' + id);
-        for (const [id, fields] of Object.entries(removals.reconnect)) console.log('removal wiring  : ' + id + ' ' + JSON.stringify(fields));
-    }
 }
 
 if (require.main === module) {
-    try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
+    try { main(); } catch (error) { console.error('ABORT: ' + error.message); process.exitCode = 1; }
 }

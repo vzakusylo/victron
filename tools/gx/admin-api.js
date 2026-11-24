@@ -60,7 +60,8 @@ function createAdminApi({
                 const detail = error.message;
                 const transient = transientCodes.has(error.code) || transientStatuses.has(error.status);
                 if (!transient || attempt === maxAttempts) {
-                    throw new Error(`${method} ${urlPath} failed after ${attempt} attempt${attempt === 1 ? '' : 's'}: ${detail}`);
+                    throw Object.assign(new Error(`${method} ${urlPath} failed after ${attempt} attempt${attempt === 1 ? '' : 's'}: ${detail}`),
+                        { status: error.status });
                 }
                 console.error(`api retry      : ${method} ${urlPath} (attempt ${attempt + 1}/${maxAttempts}: ${detail})`);
                 await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));

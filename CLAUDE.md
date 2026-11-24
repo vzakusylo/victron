@@ -69,7 +69,8 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
    with PR and `d#` in the same PR as the work.
 5. **Deploys:** a green Test GX run on a master push deploys that commit to the live GX automatically
    (`deploy-gx-code.yml`, env `victron-gx-auto`). Manual: Actions → Deploy GX code, dry run then apply, owner approval.
-   The dry run stops on GX-only lines; check them with `tools/gx/compare.js` before `allow_live_only_lines`.
+   The whole-flow deploy stops on drift from the recorded common Git baseline. Review field names with
+   `tools/gx/compare.js`; use the manual-only `overwrite_drift` only after the owner approves replacing the drift.
 6. **Live GX, secrets, real backups:** never touch without an explicit owner request. Real backups and keys stay outside
    the repo and the Docker image. `secret-files` CI blocks private hosts / keys.
 7. **Test GX work does not change production sources.** A bug found by a scenario is marked `expected_fail`; the fix gets

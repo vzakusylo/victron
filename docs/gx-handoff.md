@@ -72,19 +72,19 @@ The steps (`-Steps` prints them):
 ```text
 1 preflight   fetch, resolve the commit, check that it is pushed, extract the scripts of the commit
 2 snapshot    read the live flow from the GX (read-only)
-3 compare     live code vs the commit; stop on removals or unapproved additions / GX-only code lines
-4 plan        write the deploy plan: nodes, tool files, hashes, expected live revision
+3 compare     check live drift against the recorded commit and report Git changes
+4 plan        pin base, target, tool files, hashes and expected live revision
 5 window      no DHW cycle, no running rule sequence, no defrost (read-only)
 6 dry run     all checks of tools/gx/deploy.js on the GX, nothing changed
 7 deploy      only with -Apply: backup, tool files, POST, read back
-8 verify      label, log, automations; snapshot again: the live code must equal the commit
+8 verify      label, log and automations; deploy.js has already verified the full flow
 ```
 
 Why it gives the same result every time:
 
 - **One input.** Everything is derived from one commit SHA: the scripts that run on the PC and on the GX are extracted from that commit (`git show <sha>:…`), not taken from the work tree, and the GX downloads `flows.json` and the tool files by that SHA and checks their SHA-256 from the plan.
 - **One moment.** The plan carries the live revision of the snapshot. If anybody deploys in between, step 6 or 7 refuses and you start again.
-- **Fixed gates.** Added or removed nodes stop the run (a plan cannot deploy them). Code lines that exist only on the GX stop it unless `-AllowLiveOnlyLines` says the commit is meant to remove them. A DHW cycle, a running rule sequence or a defrost stops `-Apply` (`-WaitWindowMin 30` waits for a free moment).
+- **Fixed gates.** The live flow must match its recorded baseline unless `-OverwriteDrift` has been explicitly approved. Additions and removals are reported from Git and do not require opt-ins. A DHW cycle, a running rule sequence or a defrost stops `-Apply` (`-WaitWindowMin 30` waits for a free moment).
 - **Idempotent.** When the GX already runs the commit and all tool files are equal, the run ends with `NOTHING TO DO` and exit code 0.
 - **A record.** Every run writes its snapshot, comparison, plan, dry-run and deploy output to a run folder under the temp directory (printed first and last).
 
@@ -280,7 +280,7 @@ Covered by tests only, never executed on the GX:
 |---|---|
 | Compare the code, not the `d#` | On 14 Nov the GX and `master` both said `d#179` with different code |
 | Deploy from a pushed commit by default; use the local exception only on explicit owner request | The GX had lines deployed from an uncommitted work tree; they were in no branch |
-| Never replace the live flow with the repository file | It is a template without the secret references |
+| Never copy the raw repository flow over the live file | The deploy runner adds the deterministic Tuya file-secret references before posting |
 | Sync the secrets from the GX before an install | GitHub had a copy 18 minutes older than the file on the GX |
 | An approval is a click in GitHub | The run stays `waiting` otherwise, and Node-RED may already be stopped |
 | No `install`, no `head -c`, no time zone in an SSH shell on Venus OS | BusyBox; use `cp` / `chown` / `chmod`, and the TAI64N stamp for log times |

@@ -111,9 +111,9 @@ or "Queued after #N (overlap: …)". The rule applies to docs PRs too: a PR whos
    gets its own PR. New scenario files go into the `files` matrix of `test-gx.yml`.
 8. **Deploys**: a green Test GX on a master push deploys automatically (env `victron-gx-auto`). Manual: dry run, then
    apply, each approved by the owner in Actions (a chat "approve" is not a GitHub approval). A dry run that stops on
-   "GX has code lines the commit does not have" is a safety stop: compare the GX commit with master
-   (`git diff <gx-sha> origin/master -- <files>`); only lines the new commit replaced on purpose → apply with
-   `allow_live_only_lines=true`. Apply outside a DHW cycle (a redeploy clears the controllers' in-memory state).
+   Live drift from the recorded Git deployment is a safety stop. Review the `node-id field` report,
+   keep wanted differences in Git, and use manual `overwrite_drift` only if replacement is approved.
+   Apply outside a DHW cycle (a redeploy can clear the controllers' in-memory state).
 9. **Live GX, secrets, real backups**: no access without an explicit owner request in that session; read-only access
    when the task says so. Real backups and keys never enter the repo or the Docker image.
 10. **Reviews**: first line the verdict (safe to merge / needs changes / nothing to check); what was checked

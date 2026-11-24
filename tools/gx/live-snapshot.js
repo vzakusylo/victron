@@ -11,7 +11,7 @@
 // `rest` is a hash of every other property (wires, outputs, settings ...) without the editor position.
 // With `--raw` (node - --raw) each node also carries `restJson`, the stable JSON that was hashed. It contains
 // the real device ids and addresses, so keep that file private: it is only for compare-image.js --live --map.
-// --topology adds only the wiring, group and route metadata needed by the deploy planner.
+// --drift emits only per-field hashes and the version tab metadata needed by the deploy planner.
 // No credentials leave the GX: `GET /flows` does not return them, and the Tuya node settings are only hashed.
 'use strict';
 const crypto = require('crypto');
@@ -19,7 +19,6 @@ const crypto = require('crypto');
 const CODE_FIELDS = ['func', 'initialize', 'finalize', 'format', 'command'];
 const LAYOUT_FIELDS = ['x', 'y', 'g'];
 const SOURCE_LABEL = / \[(?:git [a-f0-9]{12}|local [a-f0-9]{12}|UI (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded); Auto (?:[a-f0-9]{12}|local [a-f0-9]{12}|unrecorded))\](?: TEST-GX)?$/;
-const TOPOLOGY_FIELDS = ['z', 'g', 'nodes', 'group', 'wires', 'outputs', 'links', 'method', 'url'];
 
 // Stable JSON: the key order of a node differs between the editor export and the repository file.
 function stable(value) {
@@ -48,11 +47,6 @@ function snapshot(flows, rev, options) {
         const entry = { id: node.id, type: node.type, name: node.name || node.label || '', code,
             rest: crypto.createHash('sha1').update(stable(rest)).digest('hex').slice(0, 12) };
         if (raw) entry.restJson = stable(rest);
-        if (options && options.topology) {
-            entry.topology = Object.fromEntries(TOPOLOGY_FIELDS.filter((key) => Object.hasOwn(node, key)).map((key) => [key, node[key]]));
-            const { x, y, ...definition } = node;
-            entry.definition = crypto.createHash('sha256').update(stable(definition)).digest('hex');
-        }
         if (node.type === 'tab') { entry.label = node.label; entry.info = node.info || ''; }
         if (node.type === 'ui_base') entry.site = node.site && node.site.name;
         return entry;
@@ -67,8 +61,16 @@ if (require.main === module || module.id === '[stdin]') {
     const api = (typeof createAdminApi === 'function' ? createAdminApi : require('./admin-api.js'))();
     api('GET', '/flows').then((body) => {
         const live = JSON.parse(body);
-        console.log(require('zlib').gzipSync(JSON.stringify(snapshot(live.flows, live.rev, {
-            raw: process.argv.includes('--raw'), topology: process.argv.includes('--topology')
-        }))).toString('base64'));
+        let result;
+        if (process.argv.includes('--drift')) {
+            const { versionTab, recordedBase, fingerprints } = typeof wholeFlowTools === 'function'
+                ? wholeFlowTools() : require('./whole-flow.js');
+            const tab = versionTab(live.flows);
+            const base = recordedBase(tab);
+            result = { rev: live.rev, label: tab.label, base, fingerprints: fingerprints(live.flows) };
+        } else {
+            result = snapshot(live.flows, live.rev, { raw: process.argv.includes('--raw') });
+        }
+        console.log(require('zlib').gzipSync(JSON.stringify(result)).toString('base64'));
     }).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

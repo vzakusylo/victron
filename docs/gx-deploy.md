@@ -1,6 +1,6 @@
 # Deploying to the Cerbo GX: scripts and step-by-step guide
 
-> How to find out what the GX really runs, deploy only the difference from a pushed commit, and check the result. Written after the d#180 deploy of 14 Nov 2026; the scripts in `tools/gx/` are the reusable form of what was done by hand that day.
+> How to find out what the GX really runs, deploy a pinned Git flow after checking for drift, and verify the result.
 
 **Start with [GX deployment handoff](gx-handoff.md)**: it has the one-command runners (`scripts/gx-deploy.ps1`, `scripts/gx-secrets-install.ps1`) that do the steps below in a fixed order. This page explains the single scripts they call.
 
@@ -16,6 +16,7 @@ For connection failures, differing versions/GX-only lines, output migrations and
 - [Step by step](#step-by-step)
 - [Monitoring](#monitoring)
 - [Reading the comparison report](#reading-the-comparison-report)
+- [GitHub Actions](#github-actions)
 - [Deploy mail](#deploy-mail)
 - [What the deploy script checks](#what-the-deploy-script-checks)
 - [Rollback](#rollback)
@@ -26,19 +27,19 @@ For connection failures, differing versions/GX-only lines, output migrations and
 
 | What | Where on the GX | How it gets there |
 |---|---|---|
-| Flow code (function nodes, dashboard templates, exec commands) | Node-RED, `/data/home/nodered/.node-red/flows.json` | `tools/gx/deploy.js`: patch of the changed nodes through the admin API |
+| Whole flow (nodes, code, configuration and wiring) | Node-RED, `/data/home/nodered/.node-red/flows.json` | `tools/gx/deploy.js`: versioned Node-RED admin API, deployment type `nodes` |
 | Tool scripts run by exec nodes (`tools/tuya-*.js` and others) | `/data/home/nodered/tools/` | `tools/gx/deploy.js` (the `tools` part of the plan) |
 | Private files (Tuya keys, mail, MCP token, `settings-user.js`) | `grid-control-config/`, `.node-red/` | GitHub workflow *Deploy Victron secrets*, see [SECRETS.md](../scripts/SECRETS.md). Not covered here |
 
-The repository `flows.json` is a portable template: its Tuya nodes have no keys and no file-secret references. **Never replace the live flow with it.** A deploy copies single code fields into the live nodes and leaves everything else as it is.
+The repository `flows.json` is a portable template. The runner uses `tools/victron-secrets.js` to add deterministic Tuya file-secret **references**, not values, to both the Git baseline and target. The configured private files and `flows_cred.json` are not uploaded or replaced by the runner. Do not copy the raw template over the live file.
 
 ## Which script is for what
 
 | Script | Runs on | Changes anything? | Use |
 |---|---|---|---|
-| [`tools/gx/live-snapshot.js`](../tools/gx/live-snapshot.js) | GX (piped over SSH) | no | Reads the live flow from the admin API and prints a compressed snapshot: the code of every node, a hash of its other properties, the tab label and the live revision. No credentials or Tuya settings leave the GX |
+| [`tools/gx/live-snapshot.js`](../tools/gx/live-snapshot.js) | GX (piped over SSH) | no | `--drift` exports per-field hashes, the Git baseline, label and revision. The separate diagnostic mode exports code; keep it private |
 | [`tools/gx/compare.js`](../tools/gx/compare.js) | PC | no | Compares a snapshot with `flows.json` of the work tree or of a commit. Shows what differs and why (`--show`, `--history`). With `--plan` writes the deploy plan |
-| [`tools/gx/deploy.js`](../tools/gx/deploy.js) | GX (as root) | only with `DRY=0` | Executes a plan: downloads the commit, checks, backs up, replaces tool files, posts the changed nodes with the source commit label, reads back. Dry run by default |
+| [`tools/gx/deploy.js`](../tools/gx/deploy.js) | GX (as root) | only with `DRY=0` | Rechecks drift against the planned revision, backs up, replaces tool files, posts and verifies the whole stamped target. Dry run by default |
 | [`tools/gx/verify.js`](../tools/gx/verify.js) | GX (piped over SSH) | no | After a deploy: label and recorded commits, DHW state and wait reason, master switch, errors in the Node-RED log since the deploy |
 | [`tools/gx/monitor.js`](../tools/gx/monitor.js) | GX (piped over SSH, or installed) | no | Health of the automations at any time: service, version label, devices, pump fault, tank, DHW and heating state, log errors, aborted cycles. One line per check, `STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2 |
 | [`scripts/gx-monitor.ps1`](../scripts/gx-monitor.ps1) | PC | no | Runs the monitor over SSH; `-Drift` adds the comparison of the live code with `origin/master`; `-Watch <s>` repeats and prints on a change; `-Json` for other tools |
@@ -114,6 +115,7 @@ PowerShell 7 on the PC, in the repository root. Take the host and key from your 
 ```powershell
 $gx  = 'root@<gx-tailscale-host>'
 $key = "$HOME\.ssh\<gx-key-file>"
+$sha = (git rev-parse --verify 'origin/master^{commit}').Trim()
 ```
 
 ### 1. Commit and push first
@@ -138,7 +140,7 @@ upgrading to another version, review and adapt the version-specific patch first:
 the helper intentionally refuses unfamiliar versions/code; never bypass that guard.
 For an asset-only repair without changing flows or their source label, use the
 [standalone Dashboard repair](dashboard.md#dashboard-366-bootstrap-and-ngtouch-compatibility).
-The normal pushed-commit procedure below remains the default.
+The normal pushed-commit procedure below remains the default. A `local:` record cannot be used as a Git drift baseline.
 
 A deploy is always from a pushed commit: the GX downloads it by SHA and the label on the dashboard names it.
 
@@ -152,70 +154,28 @@ Commit, push, wait for the checks of the pull request. Deploy from the commit th
 
 The **PR tests** workflow additionally runs the Node test suite for every opened, updated or reopened PR, on submitted PR reviews, and after pushes to `master`. Event types use separate concurrency groups and do not cancel active runs, so a submitted review cannot interrupt PR tests. The existing Node tests in **Check** and the test instructions in **Claude Code Review** remain in place; this is intentional duplication. **Check** also verifies flow/source sync and the PowerShell secret-file tests.
 
-### 2. Take a snapshot of the live flow
+### 2. Dry run, compare and plan
 
 ```powershell
-Get-Content -Raw tools\gx\live-snapshot.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node -" > live.b64
+.\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key -Commit $sha
 ```
 
-`tr -d '\r'` removes the carriage returns PowerShell adds. `live.b64` is about 300 KB; keep it out of git (it contains the flow code, no keys).
+The runner takes a `--drift` snapshot and invokes `compare.js --commit <sha> --plan <file>`. It pins the
+live revision, both Git SHAs, file hashes and tool hashes. It checks the deploy window, then runs `deploy.js`
+on the GX with no writes to the flow or installed tools. Read the report and require `DRY RUN - nothing changed`.
+If it reports drift, preserve wanted differences in Git. Use `-OverwriteDrift` only on a manual dry run and apply
+after confirming the reported differences can be replaced. It cannot bypass an invalid deployment record.
 
-### 3. Compare
+### 3. Apply and verify
+
+With the owner's go-ahead, use the same SHA and drift policy as the reviewed dry run:
 
 ```powershell
-$sha = git rev-parse HEAD
-node tools\gx\compare.js live.b64 --commit $sha --history 20
+.\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key -Commit $sha -Apply -WaitWindowMin 30
 ```
 
-Read the report ([below](#reading-the-comparison-report)) before going on. If a node has `-N` (lines only on the GX), look at them:
-
-```powershell
-node tools\gx\compare.js live.b64 --commit $sha --show dv-fn-01
-```
-
-Removed lines may be genuinely uncommitted GX code or older code already present in Git history. Inspect `--show` and the `--history` matches first. Copy wanted unique lines into the numbered source, `sync`, test, merge and start again from step 1. Use `-AllowLiveOnlyLines` only after the specific replacement/removal is reviewed and explicitly approved; see the [runbook](gx-deploy-troubleshooting.md#3-take-a-private-snapshot-and-compare-code-not-just-version-labels).
-
-### 4. Write the plan
-
-```powershell
-node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
-  --tools tools/tuya-cloud-sensors.js,tools/tuya-local-sensors.js
-```
-
-- `--tools`: the tool scripts that changed since the last deploy (`git diff --stat <deployed sha> $sha -- tools`). The deployed SHA is in the report line `live deployment source`. A tool that is already equal is skipped on the GX.
-- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/admin-api.js,tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/node-additions.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
-- `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
-- `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
-- Function setup modules (`libs`) are compared and deployed like code. Compare counts the entire list as one value; the GX dry run prints the before/after declarations. Preflight loads the trusted Venus service settings, which must not disable `functionExternalModules`. It checks built-ins and searches from the Node-RED user directory, its legacy `externalModules` directory, and the Venus installation directory. Preflight logs the resolved paths without loading or installing the planned modules.
-  Use built-in module IDs or bare package names (including scoped names). Version specifiers and package subpaths are rejected.
-- `--allow-new-nodes`: include reviewed additions in the plan. Take the snapshot with `node - --topology` first; keep that snapshot private. With the PowerShell runner, `-AllowNewNodes` handles both steps.
-- `--allow-new-wires id-one,id-two`: list source IDs for reviewed wiring changes. In a manual workflow run use `allow_new_wires` (`-AllowNewWires` in PowerShell); automatic runs ignore it. The GX wires and function output count must match the recorded Git deployment, which must be a readable ancestor of the target. Each target destination must be a kept or approved new node on the same tab; a dropped destination must be kept or explicitly approved for removal. For listed sources the patch takes the target wires and function output counts exactly, without copying device settings. Review every before/after output in the dry-run log before applying the same commit.
-
-The plan is a small JSON file: commit, expected live revision, file hashes, `{ node id: [fields] }`, added node IDs, wiring patch IDs and tool hashes. Read it.
-
-### 5. Dry run on the GX
-
-```powershell
-scp -i $key gx-plan.json "${gx}:/tmp/gx-plan.json"
-scp -i $key tools\gx\deploy.js "${gx}:/tmp/gx-deploy.js"
-scp -i $key tools\gx\node-additions.js "${gx}:/tmp/node-additions.js"
-scp -i $key tools\gx\admin-api.js "${gx}:/tmp/admin-api.js"
-ssh -i $key $gx "node /tmp/gx-deploy.js /tmp/gx-plan.json"
-```
-
-The dry run does every check and prints the code changes, the nodes that will restart and the new label. It ends with `DRY RUN - nothing changed`. Any `ABORT:` line means: fix the cause, do not force it.
-
-### 6. Deploy
-
-Only with the owner's go-ahead, and not during a DHW cycle (the script refuses anyway).
-
-```powershell
-ssh -i $key $gx 'DRY=0 node /tmp/gx-deploy.js /tmp/gx-plan.json; result=$?; rm -f /tmp/gx-deploy.js /tmp/gx-plan.json /tmp/node-additions.js /tmp/admin-api.js; exit $result'
-```
-
-Note the `backup` line of the output.
-
-### 7. Verify
+Note the backup path. `deploy.js` checks the returned revision and reads back the full stamped flow. The runner
+then checks health. Repeat the health check after 15–20 minutes:
 
 ```powershell
 Get-Content -Raw tools\gx\verify.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node -"
@@ -223,9 +183,7 @@ Get-Content -Raw tools\gx\verify.js,tools\gx\admin-api.js | ssh -i $key $gx "tr 
 
 Expected: the new label with ` [git <sha12>]`, `master true`, `errors since then: none`. `dhw.why` may say `no outdoor value yet` for a while (see [traps](#traps-met-on-14-nov)); run it again after 15–20 minutes and check that the reason is gone or is an ordinary one (tank warm enough, interval). Then look at the Heat Pump and Automations pages: devices CONNECTED, the same master / rule modes as before.
 
-Take a new snapshot and compare once more: `code differs (0)` is the proof that the GX equals the commit.
-
-### 8. Write it down
+### 4. Write it down
 
 Add a row to the [work log](heat-pump-work-log.md) (time, `d#`, commit, backup directory).
 
@@ -268,73 +226,32 @@ STATUS: WARN
 
 ## Reading the comparison report
 
-```text
-live  : d#180 Day / Night Grid Control [git 97c023b52bca]  (rev 4cd6602bfba8, read …)
-repo  : d#180 Day / Night Grid Control  (commit b67864b04bb0)
-live deployment source: {"dashboard":"97c0…","automations":"97c0…"}
+The **drift gate** compares the live flow to its recorded Git baseline. A match prints the full baseline SHA.
+Drift stops with up to 20 `node-id field` entries, no old or new values. The `d#` label alone is not evidence
+of a match. Keep diagnostic snapshots and reports out of Git and public artifacts.
 
-code differs: repo lines to add (+) / live lines to drop (-) (2)
-  hpa-fn-01    function   Heat pump automations   func   +162 -20  live = 9661738
-  dv-fn-01     function   Devices model           func   +0 -4     live = no commit of the last 20
-trailing whitespace only (14)
-config differs (not deployed by the plan) (4)
-only on the GX (0)
-only in the repository (0)
-```
+The **Git change report** compares baseline to target. It lists added/removed nodes and the top-level fields
+that changed per node, such as `hp-page-template-01 (ui_template "..."): resendOnRefresh, storeOutMessages`.
+Those are for review, not opt-ins. `nodes restarted` is an estimate of direct changes; Node-RED can also
+restart dependants. Structural changes are reviewed in the PR and tested by Test GX.
 
-| Section | Meaning | What to do |
-|---|---|---|
-| `code differs` | A function, template or exec command is different. `+N` repository lines the GX lacks, `-N` GX lines the repository lacks | This is the deploy. `live = <commit>` (with `--history`) names the commit the GX code equals: the GX is simply behind. `no commit` with `-N` means **code that exists only on the GX**: save it first |
-| `trailing whitespace only` | The editor added an empty line at the end | Nothing. Not in the plan |
-| `config differs` | Wires, outputs or settings differ | The four `tuya-smart-device` nodes are always here (file-secret references on the GX, template in the repository). Anything else: a structural change, deploy that node by hand |
-| `only on the GX` / `only in the repository` | A node would be removed / added | Each requires a separate manual opt-in below |
-
-### Reviewed node removals
-
-In **Actions → Deploy GX code**, set `allow_removed_nodes` to the exact comma-separated list of reviewed node IDs. Empty input blocks removals; automatic runs never pass this input. The runner rejects missing, extra or duplicate IDs. Each listed node must match its definition (apart from editor coordinates) in the recorded Git deployment, which must be a readable ancestor of the target. It must also be absent from the target. Tabs, editor groups and configuration nodes are not removable through this path.
-
-On an existing flow tab, approved removals are limited to the supported core and Dashboard node types (the same type allowlist as for additions) plus read-only `victron-input-*` nodes. This does not allow adding Victron inputs or removing `victron-output-*` nodes or subflow instances.
-
-Before approving a Victron input removal, verify that surviving logic no longer depends on the value it published, including any last value cached in node or flow context. A clean wiring plan does not check those dependencies.
-
-For example, the G2 (#136) transition from d#210 to d#213 needs this exact list:
-
-```text
-9217554766842bb8,7ec26167c492e338,8db34d06b6591d5e,3e6dccae307e4561,1d4e50f4d614e8a5,fd95dc1c428330fb,b2064b2168543e59,e84b0d054ca0f956,efb076ae80adc1c5,87b4ad2bc3ec6903,ec0378c28791feff,4ae3639bc75d0d14,dc3b8e51a09c72d4,dc9d4c2e7a1b83f6,pv-charger-tag-01
-```
-
-Set `allow_new_nodes=true` as well for this transition. Review `node to remove` and `removal wiring` in the dry run before applying the same SHA and inputs. The runner checks affected connections against the recorded commit, preserves unrelated connections, and takes the replacement wires from the target. It backs up flows and credentials, then verifies the removals and changed connections after posting. The public report lists only Git-sourced metadata, never unverified live node details.
-
-Affected layout groups are compared as sets without duplicates: historical additions may have left order differences, and removals restore target order for surviving members.
-
-Trailing outputs may be dropped if each had at least one destination and every destination is an approved removal; surviving outputs keep their positions and wiring checks.
-Function code changes for the new output count still go through the normal code comparison and deployment checks. Node settings changes (such as `switch` rules) are not authorized by the output-removal rule.
-
-For PowerShell use `-AllowRemovedNodes 'id-one,id-two'`. With the low-level runner use a `--topology` snapshot, pass `--allow-removed-nodes id-one,id-two` to `compare.js`, and copy `live-snapshot.js` alongside `deploy.js` on the GX.
-
-### Reviewed new nodes
-
-Use `-AllowNewNodes` for the PowerShell runner or `allow_new_nodes: true` for a manual workflow run. Start with a dry run of the same commit, review every `node to add` entry (ID, type, name, URL, wires) and every `wire patch`, then repeat with apply and the same opt-ins. The new-node opt-in does not bypass the separate GX-only code-lines check.
-
-- New IDs must be in the pinned commit, absent on the GX and on a tab that already exists there. Wires must lead to existing or planned nodes on that tab. By default, existing wiring may only gain connections to the new nodes, including a new function output if needed. Review and explicitly list any sources that need broader wiring changes in `allow_new_wires`.
-- Allowed runtime nodes: sourced functions (`flows.js check` at the pinned commit), HTTP in/response, exec, inject, change, switch, delay, link in/out, file and supported Dashboard widgets in an existing `ui_group`. Link endpoints must link back. A new editor layout group is allowed only if all its members are new nodes on the same tab.
-- `ui_ui_control`, `ui_toast` and `ui_audio` may be added without a `ui_group`; if they specify one, it must already exist on the GX.
-- When adding to an existing editor layout group, the deploy orders repository members as in the target while keeping live-only memberships. It does not move existing nodes into the group.
-- HTTP routes must not overlap any existing or planned route. If a collision cannot be ruled out, or an addition needs configuration, credentials or unsupported node types, the owner handles it manually. Additions do not authorize any removals.
-- Apply backs up flows and credentials, posts with deployment type `nodes`, and re-reads the flow to verify each added node and patched connection against the commit. The deploy report and successful apply mail list the new nodes using metadata from Git.
-
-Offline regression: after building the synthetic Test GX image, run `node tools/test-gx/check-deploy-additions.js`. It uses a network-isolated Node-RED container to test the six UTCP additions from `523ba74` (d#205) to `084387f` (d#206).
-When adding a runner dependency, cover both committed-script extraction and the dry-run upload in the PowerShell runner test. Running the JavaScript tools directly does not exercise those paths.
-
-The `d#` number alone proves nothing: on 14 Nov both sides said `d#179` with different code. Compare the code.
+After building the synthetic image, `node tools/test-gx/check-deploy-whole-flow.js` replays d#217 to d#230
+in a network-isolated Node-RED container and checks flow readback, dummy credentials, unchanged node
+instances and stale-revision rejection.
 
 ## GitHub Actions
 
-After the code commit is on `master`, run **Actions → Deploy GX code**. It defaults to `dry-run` and pins the run's `GITHUB_SHA`, even if `master` advances. Select `apply` only after reviewing a dry run of the **same SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` approval is still required. Both modes accept replaced lines without an override when live code exactly matches a recorded deployment that is an ancestor of the target. Otherwise the dry-run summary explains the stop and next step. Preserve wanted edits in Git; enable `allow_live_only_lines` only after reviewing unverified lines and confirming their removal is intended.
+After the commit is on `master`, run **Actions → Deploy GX code**. It defaults to `dry-run` and pins the
+run's `GITHUB_SHA`, even if `master` advances. Select `apply` only after reviewing a dry run of the **same
+SHA**, and type `deploy-gx-code` in the confirmation field. The `victron-gx` approval is still required.
+`overwrite_drift` defaults to false and is manual only. It displays the differences and permits replacing
+them, with a backup on apply. Keep wanted changes in Git rather than overriding them.
 
 Select `version: test` (default) or `stable` to label the report. This is an operator-selected **report label only**, not a health guarantee: it creates no Git tag/status and changes neither the deployment behavior nor the GX UI.
 
-The job log, summary and artifact show the target SHA, version label, run outcome, comparison counts, and repository commit subjects/changed file paths since the previously recorded GX commit. Dashboard and automations are compared separately when their previous SHAs differ. Missing or unavailable previous commits are explicitly reported; they are never replaced with a guessed baseline. The repository file list is context, not a promise to deploy every listed file; the existing code-node/tool plan still determines what changes on GX.
+The summary and artifact show the target SHA, version label, outcome, Git flow changes and repository
+commit subjects/paths since the previously recorded GX commit. The Git file list is context, not a list
+of files uploaded to the GX. Missing baselines are never guessed.
 
 Full snapshots, node code, live labels, live-only node IDs and raw compare/deploy/verify reports are **not uploaded**: this repository is public. Planned additions in the public report use only metadata from the target Git commit. For detailed live reports, use the local runner instead. The workflow allows 60 minutes, including up to 30 minutes waiting for a safe deployment window.
 
@@ -344,9 +261,12 @@ Configure these repository or `victron-gx` environment secrets before running it
 
 Every PR and every push to `master` starts **Test GX scenarios**. Only PR runs can skip Docker and the scenarios based on changed paths or cancel in-progress runs in their concurrency group. After a successful `master` push run, **Deploy GX code** starts automatically (`workflow_run`) with `mode=apply`, `version=test`. The `confirm` check is skipped only for this automatic path.
 
-[`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) selects the newest successful Test GX push on the current first-parent history of `master`. It will not deploy across an untested change to `flows.json` (which carries `d#`), but a newer documentation-only commit does not block a green ancestor. The triggering run must itself be green, be a push to this repository's `master`, and still be an ancestor. The workflow rechecks the pinned selection before connecting to the GX. A skip emits a warning and writes its reason to the job summary. Automatic runs still refuse new nodes and never use the manual `allow_live_only_lines` override. Runs share the `deploy-gx-code` concurrency group.
-
-Automatic runs can replace GX-only code lines when the live snapshot matches its last recorded Git deployment. The record is the `victron-deployment-source` block in the versioned flow tab's info, stamped by `tools/deploy-version.js`. The dashboard and automations entries must agree on one full Git SHA, and that commit must be a readable ancestor of the target. Before writing the plan, `compare.js` checks live node IDs, types, and all code fields against that commit's `flows.json`. As in post-deploy verification, CRLF and whitespace at the very end of a field are ignored; changes inside the code still block verified replacement. Expected configuration differences such as secret references are not part of this comparison, and the existing deploy checks still govern config and topology. The plan uses the same snapshot revision for the eventual apply. Missing, invalid, split, or non-Git records and substantive code mismatches stop verified replacement; review the comparison and use the manual path when appropriate.
+[`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) selects the newest successful Test GX push on the current
+first-parent history of `master`. It will not deploy across an untested change to `flows.json` (which carries
+`d#`), but a newer documentation-only commit does not block a green ancestor. The triggering run must itself
+be green, be a push to this repository's `master`, and still be an ancestor. The workflow rechecks the pinned
+selection before connecting to the GX. A skip emits a warning and writes its reason to the job summary.
+Automatic runs never set `overwrite_drift`. Runs share the `deploy-gx-code` concurrency group.
 
 **Deploying by hand when auto skipped:** Wait for the newer production commit's own Test GX run if it is still pending. If automatic deployment did not run, follow the manual dry-run and approval procedure above.
 
@@ -370,32 +290,38 @@ Use an SSH server that supports the `restrict` key option, and do not accept cli
 - **Send:** use one SSH call with no remote command, no PTY, and host key verification. Write exactly one UTF-8 JSON object on stdin and close stdin (EOF within 45 seconds). Its total size, including Base64 and trailing whitespace, must be at most 10 MiB (10,485,760 bytes). Required fields: `subject` (nonblank; at most 200 Unicode code points; no controls or line separators) and `text` (string, may be empty). Optional `jpg_b64` is a JPEG encoded as canonical standard Base64 with padding when required, without whitespace or a data URL. Omit the field for text-only mail; unknown fields, including `to`, are rejected.
 - **Result:** stdout is one JSON line: `{"ok":true}`, `{"ok":true,"check":true}` for check, or `{"ok":false,"error":"..."}`. Exit codes: `0` success, `1` sender/internal failure, `2` invalid or timed-out input. Parse stdout even for nonzero exits; SSH transport failures may return `255` without a JSON line. A transport timeout does not prove that no mail was sent.
 
-Subject: `GX deployed d#205 (523ba74)`. Body (plain text): previous and new `d#` with short commits, the trigger (manual dispatch by `<actor>` or automatic after a Test GX run, with its link), whether `allow_live_only_lines` was used, the changed files grouped as flow sources / lib / pages / tools (other files only counted), the commits between the previous and the new GX commit (`git log --no-merges`, at most 40, then `+N more`), and the Test GX and deploy run links. The previous commit is the one recorded on the GX tab; if it is not recorded the mail says so and omits files and commits. No hosts, IPs or addresses are included.
+Subject: `GX deployed d#205 (523ba74)`. The plain-text body shows old and new versions, the trigger,
+whether the manual drift override was enabled, added nodes, grouped file changes, up to 40 commits and
+the Test GX/deploy run links. No hosts, IPs or addresses are included.
 
 Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem never fails the deploy: the step logs `::warning::deploy mail: failed (<reason>)` and writes the same line to the job summary; success logs `deploy mail: sent`.
 
 ## What the deploy script checks
 
-In this order; the first failure stops it before anything is written.
-
-1. The plan is well formed (full SHA, hashes, known scopes, only code fields).
-2. `flows.json`, `tools/deploy-version.js` and the planned tool files of the commit download and match the SHA-256 of the plan. A commit that is not pushed fails here.
-3. Each tool file passes `node --check`.
-4. The live revision equals the one of the snapshot: nobody deployed in between.
-5. The live `d#` is not newer than the commit.
-6. The heat pump automations are in `HEATING` with no cycle running.
-7. Every planned node exists on both sides and, after the patch, equals the commit in everything except its editor position.
-8. The node count is unchanged.
+1. Both commits and all downloaded files match the plan. `dashboard` and `automations` must record the
+   same full Git SHA, and the planner requires it to be a readable ancestor of the target.
+2. The live revision still matches the snapshot. The drift gate compares against the stamped, Tuya-prepared
+   baseline. It sorts object keys, ignores only top-level `x` and `y`, and normalizes CRLF and end-of-field
+   whitespace in `func`, `initialize`, `finalize`, `format` and `command`. It retains groups, wiring,
+   settings, metadata and array order.
+3. There is no running DHW cycle. Preflight checks every target `libs` declaration, without installing
+   modules, and runs `node --check` on the tool files.
+4. On apply, save `flows.json`, `flows_cred.json` and the API response, then replace the planned tools.
+   POST the prepared target with API v2, the expected `rev` and deployment type `nodes`. A 409 stops the
+   deploy without a second POST. No credentials are sent. If the flow already matches the target and
+   only tools have changed, replace the tools without posting the flow.
+5. Verify the new revision, exact stamped label and normalized full-flow readback, and run the health checks. On verification failure,
+   use the confirmed new revision to POST the original backup flow and restore the tools. The revision
+   protects against rolling back somebody else's successful deploy. The health checks report DHW state,
+   switches and log errors again after apply.
 
 Admin API GETs time out after 30 seconds per attempt by default (`deploy-local.js` keeps 15 seconds and the performance probe keeps 5). Transient network errors (including timeouts) and HTTP 502, 503 or 504 get up to three attempts total, with waits of 1 and 3 seconds. Each retry logs the method, path, next attempt and cause to stderr. Other HTTP failures stop immediately. `verify.js` and `monitor.js` report HTTP failures rather than interpreting their bodies as missing context. Final deploy errors name the request and actual attempt count, for example `ABORT: GET /context/node/hpa-fn-01/dhw failed after 3 attempts: socket hang up`. HTTP errors report the status without printing headers or response bodies. Writes are never retried; if the commit deploy's `POST /flows` exceeds its 120-second deadline, the script checks the live revision before deciding whether to restore the tools.
 
-With `DRY=0` it then makes the backup, replaces the tool files (owner and mode set first, then a rename; the previous file is saved in the backup directory), posts with the revision and `Node-RED-Deployment-Type: nodes`, waits, reads the flow back and compares the planned fields. If the POST fails and the live revision is unchanged, the previous tool files are put back, so the flow and its tools still match; if the flow state is unknown after a failed POST, the tool files stay and the script says so. A missing or unreadable DHW state stops the deploy.
-
-What restarts: the patched nodes. The first deployment that removes legacy source suffixes also changes the dashboard site and page configuration, which can restart widgets. Subsequent source stamps do not rename pages. Function nodes lose their node context; the heat pump automations read their settings file again on start. Credentials stay: `GET /flows` returns none and Node-RED keeps those of the nodes it does not replace.
+Node-RED restarts modified nodes and their affected dependants, not the service. Node-RED retains
+credentials for surviving nodes; a flow-only rollback does not recover credentials Node-RED discarded
+for removed nodes. The backup retains `flows_cred.json` for manual recovery.
 
 The dashboard header shows `d#<n> · <sha7>` in the top-right corner on every page. The short SHA is the dashboard source commit (not the automation commit); it is omitted when no dashboard Git source was stamped. The badge reads the runtime flow name and refreshes on load and within 30 seconds while the page is visible. The tab's `info` remains the source of the full SHAs for `verify`, `monitor`, and `compare`.
-
-If the four `dashboard-version-*` nodes are missing, use the guarded process for reviewed new nodes. Later releases can update their code with the regular selective deploy workflow.
 
 ## Rollback
 
