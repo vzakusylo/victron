@@ -85,7 +85,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
-| G6 follow-up | Finish extracting grid decision state and tick handoff from `01` | #162 | in progress: `grid-g6-split` | Preserve output, context and cadence behavior. |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
 
@@ -150,6 +149,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#175 G6 follow-up (`grid-g6-split`, d#232 · i#45): move the remaining grid decision stage and bookkeeping tick assembly into node-local includes, leaving `01` as loop wiring without changing behavior.
 
 #174 D-R10 Adopt live GX input settings (`adopt-gx-inputs`, d#231 · i#44): adopt the six input names and periodic reporting settings, and translate their emitted topics to the controller's existing topics. Both deploy gates accept drift already matching the target and ignore layout order. Offline replay of run 45406703938 accepts 12 fields and reports no changes for the six inputs; no live GX access.
 
