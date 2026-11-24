@@ -23,7 +23,7 @@ const last = context.get('lastDefrost') || 0;
 const realLast = last !== context.get('startedAt') ? last : 0;
 const view = flow.get('dhwView');
 const viewAge = startAt - view?.at;
-const unknownGap = !!view && !(viewAge >= 0 && viewAge <= FRESH_MS);
+const unknownGap = !(viewAge >= 0 && viewAge <= FRESH_MS);
 const recovery = context.get('inDefrost') || context.get('defRecPrev') || (last && startAt - last < DEFROST_QUIET_MIN * MIN)
     || view?.outHeld;
 const cleanRestart = clearReading && !recovery && !unknownGap;

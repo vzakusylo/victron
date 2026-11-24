@@ -127,17 +127,20 @@ test('loss of the defrost readings during the short settle restores the conserva
     assert.match(view.heat.why, /defrost < 15 min ago/);
 });
 
-test('a stale pre-restart view cannot rule out defrost during the reporting gap', () => {
-    const c = heating();
-    c.tick(NOW - 6 * MIN);
-    const plant = c.node.flow.get('heatPump');
-    plant.hp.lastData = NOW;
-    plant.hp.dps[103] = 40;
-    c.restart(NOW);
-    c.tick(NOW + 2 * MIN, { 103: 40 });
-    const view = c.node.flow.get('dhwView');
-    assert.equal(view.outAvg, null);
-    assert.equal(view.outHeld, true);
+test('a stale or missing pre-restart view cannot rule out defrost during a reporting gap', () => {
+    for (const missing of [false, true]) {
+        const c = heating();
+        c.tick(NOW - 6 * MIN);
+        const plant = c.node.flow.get('heatPump');
+        plant.hp.lastData = NOW;
+        plant.hp.dps[103] = 40;
+        if (missing) c.node.flow.set('dhwView', undefined);
+        c.restart(NOW);
+        c.tick(NOW + 2 * MIN, { 103: 40 });
+        const view = c.node.flow.get('dhwView');
+        assert.equal(view.outAvg, null);
+        assert.equal(view.outHeld, true);
+    }
 });
 
 test('steady automations tick writes node context once and still publishes the view', () => {
