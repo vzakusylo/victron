@@ -106,7 +106,7 @@ If the meter uses other DPs, the Power tile shows "—". The page then lists the
 
 Each +1 °C of P23 raises the unclamped curve by P24 / 10 °C (0.4 °C with P24 = 4). P24 sets the slope; Apply does not change P22. The chart shows the stored owner curve and lists the pump's current P23/P24 separately when they differ.
 
-Manual writes require the target device to be CONNECTED with data ≤ 5 minutes old and are logged. The owner curve yields to higher-priority automation, including DHW. The controller saves it only after both coefficients have fresh matching readbacks. If confirmation fails, the page reports it and the baseline is unchanged; check the current pump values and apply again.
+Manual writes require the target device to be CONNECTED with data ≤ 5 minutes old and are logged. Local control OFF stops automation, not the owner's manual Apply. The owner curve yields to higher-priority automation, including DHW. The controller saves it only after both coefficients have fresh matching readbacks. If confirmation fails, the page reports it and the baseline is unchanged; check the current pump values and apply again.
 
 A Tuya cloud scene that also switches the bypass (the DF… scenes) can switch it back. Disable those scenes to keep manual control.
 
