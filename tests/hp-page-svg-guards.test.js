@@ -133,6 +133,16 @@ test('Colder / Warmer previews on input and queues one owner P23 change on relea
     assert.deepStrictEqual(messages, []);
     assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'blocked release clears the draft');
     scope.msg.payload.controls.curve = true;
+    scope.hp.p23 = 31;
+    scope.hpEditCurveSlider();
+    scope.msg.payload.controls.curve = false;
+    watchers['msg.payload'](scope.msg.payload);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'disabled mid-drag resets even without a native change');
+    scope.hp.p24 = 9;
+    scope.hpEditAdvancedCurve();
+    watchers['msg.payload'](scope.msg.payload);
+    assert.deepStrictEqual([scope.hp.p24, scope.hp.dirty], [9, true], 'disabled slider leaves the Advanced draft alone');
+    scope.msg.payload.controls.curve = true;
     release();
     assert.ok(scope.hp.curveSent);
     release();

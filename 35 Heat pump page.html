@@ -233,9 +233,9 @@
           <summary>Advanced: P23 and P24</summary>
           <div class="hpw-ctl">
             <label>P23 <input type="number" min="0" max="40" step="1" required ng-model="hp.p23"
-                   ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
+                   ng-change="hpEditAdvancedCurve()" ng-disabled="hp.curveSent !== null"></label>
             <label>P24 <input type="number" min="1" max="30" step="1" required ng-model="hp.p24"
-                   ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
+                   ng-change="hpEditAdvancedCurve()" ng-disabled="hp.curveSent !== null"></label>
             <button class="go" ng-disabled="!msg.payload.controls.curve || !hpCurveValid() || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
             <button ng-if="hp.dirty && hp.curveSent === null" ng-click="hpCurveReset()">Reset</button>
             <span class="lbl" ng-if="!hpCurveValid()">Use whole numbers: P23 0–40, P24 1–30.</span>
@@ -612,6 +612,7 @@
         scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });
     };
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
+    var sliderEditing = false, sliderKey = null, sliderKeyValue = null;
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }
     function updateCurvePlot(payload) {
         var c = payload && payload.curveChart;
@@ -656,7 +657,7 @@
                 scope.hp.curveMessage = result.text;
                 if (result.ok) scope.hp.dirty = false;
             }
-            if (!scope.hp.dirty && scope.hp.curveSent === null) scope.hpCurveReset();
+            if (scope.hp.curveSent === null && (!scope.hp.dirty || (sliderEditing && !scope.hpCurveSliderEnabled()))) scope.hpCurveReset();
         }
         var b = m.summary && m.summary.bypassOn;
         if (b === scope.hp.bypassSent) scope.hp.bypassSent = null;
@@ -664,6 +665,8 @@
     scope.hpCurveReset = function () {
         var c = cc();
         if (!c) return;
+        sliderEditing = false;
+        sliderKey = sliderKeyValue = null;
         scope.hp.p23 = c.p23; scope.hp.p24 = c.p24; scope.hp.dirty = false;
     };
     scope.hpCurveValid = function () { return validOwnerCurve(scope.hp.p23, scope.hp.p24); };
@@ -718,9 +721,13 @@
         if (!c || !c.ownerStored) return;
         scope.hp.p24 = c.p24;
         scope.hp.dirty = true;
+        sliderEditing = true;
+    };
+    scope.hpEditAdvancedCurve = function () {
+        scope.hp.dirty = true;
+        sliderEditing = false;
     };
     scope.hpCurveSliderId = 'hp-curve-slider-' + scope.$id;
-    var sliderKey = null, sliderKeyValue = null;
     function releaseCurveSlider(p23) {
         var c = cc();
         if (scope.hp.curveSent !== null) return;
@@ -730,6 +737,7 @@
         }
         scope.hp.p23 = p23;
         scope.hpEditCurveSlider();
+        sliderEditing = false;
         submitCurve(p23, c.p24);
     }
     scope.hpCurveSliderKeyDown = function (event) {
