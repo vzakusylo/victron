@@ -316,7 +316,7 @@
     {
       "i": 53,
       "date": "2026-11-24",
-      "pr": null,
+      "pr": 183,
       "what": "Restore heat-pump curve after a clean restart"
     }
   ]

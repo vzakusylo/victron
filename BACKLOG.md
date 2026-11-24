@@ -95,7 +95,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
-| D-R12 follow-up | Heat-pump restart settle | In progress: `deploy-restart-settle`. With fresh, non-defrost telemetry and no recent defrost, seed DP 103 and settle for 2 minutes. Keep the 15-minute defrost and unknown-startup hold. The D-Bus pin shipped separately in #180. |
 | HP-M3 | Mode change attribution | Open; depends on HP-M2 stage 1. Tag each DP 2 / P22–P24 / DP 121 write with the stage 1 writer labels. Log and mail any change unexplained by a pending local write as “changed outside Node-RED (app / cloud / pump)”, with old → new value and time. Mismatch mail names the requesting writer and last writer to change the value. Sources: `investigate-mode-mail` (22 Nov), HP-P1. |
 | HP-M2 | Single writer with leases for HP mode + curve; stage 2 (mode), then stage 3 (curve and owner control) | Open; next after HP-M3. One dispatcher for DP 2 / P22–P24 / DP 121 SETs with priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline. Use versioned, bounded leases, generation checks at dequeue and verify, one P22–P24 group and a composed warm-up / band / boost request. Stage 3: curve setting (`hp-curve-model`), which replaced the P23 slider, moves into the single dispatcher. |
 | H16 | Heat pump idle follow-ups (found by H0) | Open. (1) Done in #165. (2) Check why the stored owner curve may have been polluted (P23 27 vs 33). (3) A forced boiler cycle stopped after 7 min with “forced cycle safety stop pending”. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
@@ -156,6 +155,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#183 D-R12 follow-up: heat-pump restart settle (`deploy-restart-settle`, d#237 · i#53). With fresh, clear telemetry and no recent defrost, seed DP 103 and settle for 2 minutes. Keep the 15-minute hold for defrost or unknown startup conditions. The D-Bus pin shipped separately in #180 and was corrected in #181.
 
 #182 D-R13 Auto-deploy WAIT retries (`d-r13-deploy-wait-retry`, d#236 unchanged · i#52): retry eligibility, drift and the window every 15 minutes for up to two hours. Skip a stale run or one superseded by a newer automatic deploy; report window expiry separately from deploy errors. Manual dispatches do not supersede waiting runs. Verified with fake GX and a simulated clock; no live GX access.
 
