@@ -1,5 +1,5 @@
 {
-  "i": 40,
+  "i": 41,
   "changes": [
     {
       "i": 1,
@@ -240,6 +240,12 @@
       "date": "2026-11-24",
       "pr": 170,
       "what": "H1/H6 curve chart"
+    },
+    {
+      "i": 41,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "H8 defrost edge replay"
     }
   ]
 }
