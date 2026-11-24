@@ -91,8 +91,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Notes |
 |---|---|---|
 | H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) The stored owner curve may be polluted (P23 27 vs 33 seen once): check the curve monitor. (3) A forced boiler cycle stopped after 7 min with "forced cycle safety stop pending". (4) Most idle time (484 of 685 min in Nov 14-21) is the pump's 3 min restart protection after a defrost, then waiting below its own restart level (set - DP 121); lowering DP 121 or raising the point would shorten it, owner decision. |
-| H1 | Heating curve "now" marker shows values | In progress: `hp-curve-chart-now-band`. Curve target, reported DP 125, supply. |
-| H6 | Heating curve chart: low and high band lines | In progress: `hp-curve-chart-now-band`. Point − `bandDown` and point + `bandUp`. |
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
 | HP-M2 | **Single writer with leases for HP mode + curve** (after HP-M1). One dispatcher for every DP 2 / P22–P24 / DP 121 SET (node 40 queue AND the node 37 slider); priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline; versioned owner + bounded lease per resource, generation checks at dequeue and verify, P22–P24 as one group; warm-up / band / boost composed into one heating curve request. Staged: shadow mode logging disagreements first, then mode, then curve + slider | Fixes the reproduced slider vs warm-up mixed curve (40/9) and stale queued writes after DHW takes over. Depends: HP-M1; state: open. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
@@ -152,6 +150,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#170 H1/H6 (`hp-curve-chart-now-band`, d#229 · i#40): show the current curve target, reported DP 125 and supply at the heating curve marker; plot the configured lower and upper bands.
 
 #169 H10 (`hp-history-week-nav`, d#228 · i#39): History by day opens on the newest week and pages through available weeks, with at most seven day chips visible.
 
