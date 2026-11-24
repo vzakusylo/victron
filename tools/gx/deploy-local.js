@@ -14,13 +14,13 @@ function prepare(snapshotFile, output) {
     const live = JSON.parse(zlib.gunzipSync(Buffer.from(raw, 'base64')));
     const flows = JSON.parse(fs.readFileSync(path.join(ROOT, 'flows.json')));
     const { snapshot } = require('./live-snapshot');
-    const { diffSnapshots, buildPatch } = require('./compare');
+    const { diffSnapshots } = require('./compare');
     const diff = diffSnapshots(live, snapshot(flows));
     const byId = new Map(flows.map(n => [n.id,n]));
     const old = new Map(live.nodes.map(n => [n.id,n]));
     const patch = {};
-    for (const [id, fields] of Object.entries(buildPatch(diff, false))) {
-        patch[id] = Object.fromEntries(fields.map(field => [field, { before:hash(norm(old.get(id).code[field])), value:byId.get(id)[field] }]));
+    for (const { id, field } of diff.code) {
+        (patch[id] ||= {})[field] = { before:hash(norm(old.get(id).code[field])), value:byId.get(id)[field] };
     }
     const newNodes = diff.onlyRepo.map(n => byId.get(n.id));
     if (newNodes.some(n => !n.id.startsWith('temps-'))) fail('Unreviewed new node outside the temperature page');

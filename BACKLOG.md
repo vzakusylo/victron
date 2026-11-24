@@ -150,6 +150,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#173 D-R9 Whole-flow deploy (`deploy-whole-flow`, d#230 unchanged · i#43): replace the per-node opt-ins (D1, D-R2–D-R6 and P-D1) with a recorded Git baseline drift gate and revision-guarded whole-flow deployment. Use deterministic Tuya file-secret references for both commits. Fake API tests and an isolated Node-RED replay cover d#217 → d#230; no live GX access.
+
 #172 D-R8 Admin API read retries (`deploy-api-retry`, d#230 unchanged · i#42): retry transient Node-RED GET failures with a deadline and name the failed request. The fake GX replay verifies recovery and exhaustion, HTTP status handling, and that POST is attempted once with the existing rollback behavior.
 
 #171 H8 (`hp-defrost-detect-review`, d#230 · i#41): fault injection into the 20 Nov defrost replay found false edges on missing/stale DP 116/115 and false recovery from bypassed supply. Keep the defrost active through telemetry gaps, restart the 15-minute quiet period when the exit was unobserved, and validate bypass release and supply recovery.

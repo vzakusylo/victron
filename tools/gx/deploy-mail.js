@@ -3,11 +3,11 @@
 // /data/home/nodered/tools/send-mail.js on the GX after a successful apply. Pure text, no secrets, no hosts.
 //
 // CLI: deploy-mail.js RUN_FOLDER   (env: DEPLOY_SHA, TRIGGER_EVENT, ACTOR, TEST_RUN_URL, DEPLOY_RUN_URL,
-//                                   ALLOW_LIVE_ONLY_LINES) -> mail JSON on stdout
+//                                   OVERWRITE_DRIFT) -> mail JSON on stdout
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { plannedAdditions } = require('./deploy-report.js');
+const { plannedChanges } = require('./deploy-report.js');
 const { versions } = require('../infra-version.js');
 
 const MAX_COMMITS = 40;
@@ -44,7 +44,7 @@ function buildMail(input) {
     } else {
         lines.push(`Trigger: automatic after Test GX run${input.trigger && input.trigger.testRunUrl ? ' ' + input.trigger.testRunUrl : ''}`);
     }
-    if (input.allowLiveOnlyLines) lines.push('allow_live_only_lines: USED (GX-only code lines were replaced)');
+    if (input.overwriteDrift) lines.push('overwrite_drift: ENABLED');
     if (input.additions?.length) {
         lines.push('', `Added nodes (${input.additions.length}):`);
         for (const node of input.additions) lines.push('  ' + scrub(JSON.stringify(node)));
@@ -103,15 +103,9 @@ function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
             : { kind: 'manual', actor: env.ACTOR },
         testRunUrl: env.TEST_RUN_URL || '',
         deployRunUrl: env.DEPLOY_RUN_URL || '',
-        allowLiveOnlyLines: env.ALLOW_LIVE_ONLY_LINES === 'true' ||
-            (env.TRIGGER_EVENT === 'workflow_run' && SHA.test(planReplacedFrom(runFolder) || '')),
-        additions: plannedAdditions(runFolder, newCommit, root)
+        overwriteDrift: env.TRIGGER_EVENT === 'workflow_dispatch' && env.OVERWRITE_DRIFT === 'true',
+        additions: plannedChanges(runFolder, newCommit, root)?.additions
     };
-}
-
-function planReplacedFrom(runFolder) {
-    const file = path.join(runFolder, 'plan.json');
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).replacedFrom : null;
 }
 
 module.exports = { buildMail, collect, groupFiles, scrub, MAX_COMMITS };

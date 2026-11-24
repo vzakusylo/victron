@@ -3,63 +3,39 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { versions } = require('../infra-version.js');
+const { differences, fingerprints } = require('./whole-flow.js');
 
 // Only counts, validated commit IDs and addition metadata from Git may leave the private run folder.
-function publicSummary(before, after, { commit, mode, outcome, version }) {
+function publicSummary(before, { commit, mode, outcome, version }) {
     if (!/^[0-9a-f]{40}$/.test(commit || '')) throw new Error('Expected a full deployment commit SHA.');
     if (!['dry-run', 'apply'].includes(mode)) throw new Error('Unexpected deployment mode.');
     if (!['success', 'failure', 'cancelled', 'skipped'].includes(outcome)) throw new Error('Unexpected deployment outcome.');
     if (!['stable', 'test'].includes(version)) throw new Error('Unexpected version label.');
     const sha = (value) => /^[0-9a-f]{40}$/.test(value || '') ? value : null;
-    const counts = (summary) => summary === null ? null : Object.fromEntries(
-        ['code', 'trailing', 'config', 'onlyLive', 'onlyRepo', 'liveOnlyLines'].map((key) => {
-            if (!Array.isArray(summary[key])) throw new Error('Invalid comparison summary field: ' + key);
-            return [key, summary[key].length];
-        }));
     return {
         commit, mode, outcome, version,
         previous: {
             dashboard: sha(before?.live?.source?.dashboard),
             automations: sha(before?.live?.source?.automations)
-        },
-        before: counts(before),
-        after: counts(after)
+        }
     };
 }
 
-function plannedAdditions(runFolder, commit, root = path.join(__dirname, '..', '..')) {
+function plannedChanges(runFolder, commit, root = path.join(__dirname, '..', '..')) {
     const file = path.join(runFolder, 'plan.json');
-    if (!fs.existsSync(file)) return [];
+    if (!fs.existsSync(file)) return null;
     const plan = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-    if (plan.add === undefined || plan.add.length === 0) return [];
-    if (!/^[0-9a-f]{40}$/.test(commit || '') || plan.sha !== commit || !Array.isArray(plan.add)) {
-        throw new Error('Invalid addition plan for deployment report.');
+    const base = plan.base?.sha;
+    if (![base, commit].every(sha => /^[0-9a-f]{40}$/.test(sha || '')) || plan.sha !== commit) {
+        throw new Error('Invalid plan for deployment report.');
     }
-    const flows = JSON.parse(execFileSync('git', ['-C', root, 'show', commit + ':flows.json'], { maxBuffer: 1 << 27 }));
-    const byId = new Map(flows.map((node) => [node.id, node]));
-    const { describe } = require('./node-additions.js');
-    return plan.add.map((id) => {
-        if (!byId.has(id)) throw new Error('Planned addition is not in the reporting commit.');
-        return describe(byId.get(id));
-    });
-}
-
-function plannedRemovals(runFolder, commit, root = path.join(__dirname, '..', '..')) {
-    const file = path.join(runFolder, 'plan.json');
-    if (!fs.existsSync(file)) return [];
-    const plan = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-    if (!plan.remove?.length) return [];
-    const base = plan.removalBase?.sha;
-    if (!/^[0-9a-f]{40}$/.test(base || '') || plan.sha !== commit || !Array.isArray(plan.remove)) throw new Error('Invalid removal plan for deployment report.');
     const git = (...args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: 1 << 27 });
     git('merge-base', '--is-ancestor', base, commit);
-    const old = new Map(JSON.parse(git('show', base + ':flows.json')).map(node => [node.id, node]));
-    const target = new Set(JSON.parse(git('show', commit + ':flows.json')).map(node => node.id));
-    return plan.remove.map(id => {
-        if (!old.has(id) || target.has(id)) throw new Error('Planned removal is not in the reporting Git diff.');
-        const { type, name = '' } = old.get(id);
-        return { id, type, name };
-    });
+    const old = JSON.parse(git('show', base + ':flows.json'));
+    const target = JSON.parse(git('show', commit + ':flows.json'));
+    const { added, removed, changed } = differences(fingerprints(old), fingerprints(target));
+    const nodes = new Map([...old, ...target].map(({ id, type, name }) => [id, { id, type, name: name || '' }]));
+    return { additions: added.map(id => nodes.get(id)), removals: removed.map(id => nodes.get(id)), changed: changed.length };
 }
 
 function repositoryChanges(previous, commit, root = path.join(__dirname, '..', '..')) {
@@ -123,23 +99,16 @@ function formatReport(report) {
         if (!change.files.length) lines.push('No repository file changes.');
         for (const file of change.files) lines.push(`- ${escape(file.status)} ${escape(file.path)}`);
     }
-    lines.push('', 'GX comparison counts:', '', '| Check | Before | After |', '| --- | ---: | ---: |');
-    for (const key of ['code', 'trailing', 'config', 'onlyLive', 'onlyRepo', 'liveOnlyLines']) {
-        lines.push(`| ${key} | ${report.before?.[key] ?? 'unavailable'} | ${report.after?.[key] ?? 'unavailable'} |`);
-    }
-    if (report.additions?.length) {
-        lines.push('', `Planned node additions (${report.additions.length}; from the target commit):`);
-        for (const node of report.additions) lines.push('- ' + escape(JSON.stringify(node)));
-    }
-    if (report.removals?.length) {
-        const verified = report.mode === 'apply' && report.outcome === 'success' && report.after;
-        lines.push('', `${verified ? 'Removed nodes' : 'Planned node removals'} (${report.removals.length}; from the recorded Git commit):`);
-        for (const node of report.removals) lines.push('- ' + escape(JSON.stringify(node)));
+    if (report.flow) {
+        lines.push('', `Git flow diff: ${report.flow.additions.length} added, ${report.flow.removals.length} removed, ${report.flow.changed} changed.`);
+        for (const [label, nodes] of [['Added', report.flow.additions], ['Removed', report.flow.removals]]) {
+            for (const node of nodes) lines.push(`- ${label}: ` + escape(JSON.stringify(node)));
+        }
     }
     return lines.join('\n') + '\n';
 }
 
-module.exports = { publicSummary, repositoryChanges, formatReport, plannedAdditions, plannedRemovals };
+module.exports = { publicSummary, repositoryChanges, formatReport, plannedChanges };
 
 if (require.main === module) {
     const [runFolder, output] = process.argv.slice(2);
@@ -148,14 +117,13 @@ if (require.main === module) {
         const file = path.join(runFolder, name);
         return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
     };
-    const report = publicSummary(read('summary-before.json'), read('summary-after.json'), {
+    const report = publicSummary(read('summary-before.json'), {
         commit: process.env.DEPLOY_SHA || process.env.GITHUB_SHA, mode: process.env.MODE, outcome: process.env.DEPLOY_OUTCOME,
         version: process.env.VERSION_TYPE
     });
     report.changes = repositoryChanges(report.previous, report.commit);
     report.repositoryVersion = versions();
-    report.additions = plannedAdditions(runFolder, report.commit);
-    report.removals = plannedRemovals(runFolder, report.commit);
+    report.flow = plannedChanges(runFolder, report.commit);
     fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
     process.stdout.write(formatReport(report));
 }

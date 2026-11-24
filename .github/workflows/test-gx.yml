@@ -152,6 +152,9 @@ jobs:
       - name: Build synthetic Node-RED image
         if: steps.changes.outputs.relevant == 'true'
         run: docker compose -p test-gx -f tools/test-gx/docker-compose.yml -f "$TEST_GX_COMPOSE_OVERRIDE" build nodered
+      - name: Verify the whole-flow deploy against Node-RED
+        if: steps.changes.outputs.relevant == 'true'
+        run: node tools/test-gx/check-deploy-whole-flow.js
       - name: Bundle shared Test GX images
         id: bundle
         if: steps.changes.outputs.relevant == 'true'

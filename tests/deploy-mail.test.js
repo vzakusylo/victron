@@ -12,7 +12,7 @@ const base = {
     trigger: { kind: 'automatic', testRunUrl: 'https://github.com/o/r/actions/runs/1' },
     testRunUrl: 'https://github.com/o/r/actions/runs/1',
     deployRunUrl: 'https://github.com/o/r/actions/runs/2',
-    allowLiveOnlyLines: false
+    overwriteDrift: false
 };
 
 test('subject and old -> new line', () => {
@@ -40,9 +40,9 @@ test('automatic vs manual trigger', () => {
     assert.doesNotMatch(manual.text, /Test GX run:/);
 });
 
-test('allow_live_only_lines is shown only when used', () => {
-    assert.doesNotMatch(buildMail(base).text, /allow_live_only_lines/);
-    assert.match(buildMail({ ...base, allowLiveOnlyLines: true }).text, /allow_live_only_lines: USED/);
+test('the mail identifies an enabled drift override', () => {
+    assert.doesNotMatch(buildMail(base).text, /overwrite_drift/);
+    assert.match(buildMail({ ...base, overwriteDrift: true }).text, /overwrite_drift: ENABLED/);
 });
 
 test('empty commit list and unknown previous version', () => {

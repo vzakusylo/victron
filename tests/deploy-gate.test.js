@@ -114,13 +114,14 @@ test('deploy workflow: a sparse checkout never shares the full checkout path in 
   }
 });
 
-test('deploy workflow: auto path requests verified replacement, not the manual override', () => {
+test('deploy workflow: only a manual dispatch can override the default drift gate', () => {
   assert.match(deploy, /environment: \$\{\{ github\.event_name == 'workflow_run' && 'victron-gx-auto' \|\| 'victron-gx' \}\}/);
   assert.match(deploy, /MODE: \$\{\{ github\.event_name == 'workflow_run' && 'apply' \|\| inputs\.mode \}\}/);
-  assert.match(deploy, /ALLOW_LIVE_ONLY_LINES: \$\{\{ github\.event_name == 'workflow_run' && 'false' \|\| inputs\.allow_live_only_lines \}\}/);
-  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_LIVE_ONLY_LINES -eq 'true'\) \{ \$arguments \+= '-AllowLiveOnlyLines' \}\n\s+else \{ \$arguments \+= '-AllowReplaceDeployedLines' \}/);
+  assert.match(deploy, /^      overwrite_drift:\n        description: [^\n]+\n        type: boolean\n        default: false$/m);
+  assert.match(deploy, /OVERWRITE_DRIFT: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.overwrite_drift \}\}/);
+  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:OVERWRITE_DRIFT -eq 'true'\) \{ \$arguments \+= '-OverwriteDrift' \}/);
   const script = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'gx-deploy.ps1'), 'utf8');
-  assert.match(script, /if \(\$AllowReplaceDeployedLines\) \{ \$planFlags \+= '--allow-replace-deployed-lines' \}/);
+  assert.match(script, /if \(\$OverwriteDrift\) \{ \$planFlags \+= '--overwrite-drift' \}/);
   assert.match(deploy, /node tools\/gx\/deploy-gate\.js/);
 });
 
@@ -128,22 +129,6 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
   assert.match(deploy, /'victron-gx'/);
   assert.match(deploy, /\[\[ "\$GITHUB_REF" == "refs\/heads\/master" \]\]/);
   assert.match(deploy, /"\$MODE" == "apply" && "\$CONFIRM" != "deploy-gx-code"/);
-});
-
-test('deploy workflow: reviewed additions are manual and default to off', () => {
-  assert.match(deploy, /^      allow_new_nodes:\n        description: [^\n]+\n        type: boolean\n        default: false$/m);
-  assert.match(deploy, /ALLOW_NEW_NODES: \$\{\{ github\.event_name == 'workflow_run' && 'false' \|\| inputs\.allow_new_nodes \}\}/);
-  assert.match(deploy, /if \(\$env:ALLOW_NEW_NODES -eq 'true'\) \{ \$arguments \+= '-AllowNewNodes' \}/);
-});
-
-test('deploy workflow: reviewed removals are a dispatch-only allowlist', () => {
-  assert.match(deploy, /^      allow_removed_nodes:\n        description: [^\n]+\n        type: string\n        default: ""$/m);
-  assert.match(deploy, /ALLOW_REMOVED_NODES: \$\{\{ inputs\.allow_removed_nodes \}\}/);
-  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_REMOVED_NODES\) \{ \$arguments \+= @\('-AllowRemovedNodes', \$env:ALLOW_REMOVED_NODES\) \}/);
-  assert.match(deploy, /^      allow_new_wires:\n        description: [^\n]+Ignored on automatic runs\."\n        type: string\n        default: ""$/m);
-  assert.match(deploy, /ALLOW_NEW_WIRES: \$\{\{ inputs\.allow_new_wires \}\}/);
-  assert.match(deploy, /if \(\$env:AUTO -ne 'true' -and \$env:ALLOW_NEW_WIRES\) \{ \$arguments \+= @\('-AllowNewWires', \$env:ALLOW_NEW_WIRES\) \}/);
-  assert.equal((deploy.match(/'-AllowNewWires'/g) || []).length, 1);
 });
 
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {
