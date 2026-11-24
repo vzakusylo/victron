@@ -1,5 +1,5 @@
 {
-  "i": 52,
+  "i": 53,
   "changes": [
     {
       "i": 1,
@@ -312,6 +312,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Auto-deploy retries on WAIT (D-R13)"
+    },
+    {
+      "i": 53,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Restore heat-pump curve after a clean restart"
     }
   ]
 }

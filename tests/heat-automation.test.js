@@ -43,8 +43,88 @@ function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, m
         return call;
     }
     const heat = () => node.context.get('heat');
-    return { node, load, tick, heat, writes };
+    function restart(t) {
+        const init = loadNode('40 Heat pump automations.init.js', undefined, node.flow);
+        Object.assign(init.context.data, node.context.data);
+        init.run({}, { now: t });
+        Object.assign(node.context.data, init.context.data);
+    }
+    return { node, load, tick, heat, writes, restart };
 }
+
+test('a clean restart seeds the outdoor curve and resumes heating evaluation after two minutes', () => {
+    const c = heating({ dhw: 'live' });
+    c.tick(NOW - 10 * S, { 103: -3 });
+    c.tick(NOW);
+    c.restart(NOW);
+    c.tick(NOW);
+    const view = () => c.node.flow.get('dhwView');
+    assert.equal(view().outAvg, -2, 'seed with the current DP 103, not the pre-restart average');
+    assert.match(view().heat.why, /settling after restart/);
+    assert.match(c.node.context.get('dhw').why, /settling after restart/);
+    c.tick(NOW + 2 * MIN - S);
+    assert.equal(c.heat().paused, NOW);
+    c.tick(NOW + 2 * MIN);
+    assert.equal(c.heat().paused, 0);
+    assert.equal(c.heat().target, 36);
+    assert.deepEqual(c.heat().samples.at(-1)?.slice(0, 2), [NOW + 2 * MIN, 0]);
+});
+
+test('a defrost at restart, or immediately after a clean restart, holds outdoor samples for the real quiet period', () => {
+    for (const activeAtStart of [true, false]) {
+        const c = heating();
+        c.tick(NOW - 10 * S);
+        if (activeAtStart) c.tick(NOW, { 116: 0, 103: 40 });
+        c.restart(NOW);
+        c.tick(NOW + S, { 116: 0, 103: 40 });
+        const view = () => c.node.flow.get('dhwView');
+        assert.equal(view().outAvg, activeAtStart ? null : -2);
+        assert.match(view().heat.why, /defrost now/);
+        c.tick(NOW + 2 * MIN, { 103: 40 });
+        assert.equal(view().outHeld, true);
+        assert.equal(view().outAvg, activeAtStart ? null : -2);
+        assert.match(view().heat.why, /defrost < 15 min ago/);
+        c.tick(NOW + S + 15 * MIN);
+        assert.equal(view().outAvg, -2);
+        assert.equal(view().outHeld, false);
+    }
+});
+
+test('a clear fan reading right after defrost does not qualify for the short restart settle', () => {
+    const c = heating();
+    c.tick(NOW - MIN, { 116: 0, 103: 40 });
+    c.tick(NOW, { 103: 40 });
+    c.restart(NOW);
+    c.tick(NOW + 2 * MIN, { 103: 40 });
+    const view = c.node.flow.get('dhwView');
+    assert.equal(view.outAvg, null);
+    assert.match(view.heat.why, /defrost < 15 min ago/);
+    assert.equal(c.node.context.get('lastDefrost'), NOW - MIN, 'retain the real defrost timestamp');
+});
+
+test('a retained flow view protects defrost recovery even when the node context is lost', () => {
+    const c = heating({ dhw: 'live' });
+    c.tick(NOW - MIN, { 116: 0, 103: 40 });
+    c.tick(NOW, { 103: 40 });
+    for (const key of Object.keys(c.node.context.data)) delete c.node.context.data[key];
+    c.restart(NOW);
+    c.tick(NOW + 2 * MIN, { 103: 40 });
+    const view = c.node.flow.get('dhwView');
+    assert.equal(view.outAvg, null);
+    assert.equal(view.outHeld, true);
+});
+
+test('loss of the defrost readings during the short settle restores the conservative hold', () => {
+    const c = heating();
+    c.tick(NOW);
+    c.restart(NOW);
+    c.tick(NOW + S, { 116: undefined, 103: 40 });
+    c.tick(NOW + 2 * MIN, { 103: 40 });
+    const view = c.node.flow.get('dhwView');
+    assert.equal(view.outAvg, -2);
+    assert.equal(view.outHeld, true);
+    assert.match(view.heat.why, /defrost < 15 min ago/);
+});
 
 test('steady automations tick writes node context once and still publishes the view', () => {
     const c = heating();
