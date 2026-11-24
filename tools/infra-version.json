@@ -1,5 +1,5 @@
 {
-  "i": 51,
+  "i": 52,
   "changes": [
     {
       "i": 1,
@@ -306,6 +306,12 @@
       "date": "2026-11-24",
       "pr": 181,
       "what": "Match the D-Bus pin to the Node-RED user directory"
+    },
+    {
+      "i": 52,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Auto-deploy retries on WAIT (D-R13)"
     }
   ]
 }

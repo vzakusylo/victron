@@ -98,7 +98,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | HP-M3 | Mode change attribution | Open; depends on HP-M2 stage 1. Tag each DP 2 / P22–P24 / DP 121 write with the stage 1 writer labels. Log and mail any change unexplained by a pending local write as “changed outside Node-RED (app / cloud / pump)”, with old → new value and time. Mismatch mail names the requesting writer and last writer to change the value. Sources: `investigate-mode-mail` (22 Nov), HP-P1. |
 | HP-M2 | Single writer with leases for HP mode + curve; stage 2 (mode), then stage 3 (curve and owner control) | Open; next after HP-M3. One dispatcher for DP 2 / P22–P24 / DP 121 SETs with priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline. Use versioned, bounded leases, generation checks at dequeue and verify, one P22–P24 group and a composed warm-up / band / boost request. Stage 3: curve setting (`hp-curve-model`), which replaced the P23 slider, moves into the single dispatcher. |
 | H16 | Heat pump idle follow-ups (found by H0) | Open. (1) Done in #165. (2) Check why the stored owner curve may have been polluted (P23 27 vs 33). (3) A forced boiler cycle stopped after 7 min with “forced cycle safety stop pending”. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
-| D-R13 | Auto-deploy WAIT retries | Open. Re-check an automatic deploy on WAIT instead of failing (e.g. every 15 min for up to 2 h); see step 4 of [deploy efficiency research](docs/gx-deploy-efficiency-research.md). |
 
 ## 4. Review follow-ups (deferred Low / Nit)
 
@@ -156,6 +155,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#182 D-R13 Auto-deploy WAIT retries (`d-r13-deploy-wait-retry`, d#236 unchanged · i#52): retry eligibility, drift and the window every 15 minutes for up to two hours. Skip a stale run or one superseded by a newer automatic deploy; report window expiry separately from deploy errors. Manual dispatches do not supersede waiting runs. Verified with fake GX and a simulated clock; no live GX access.
 
 #181 D-R12 pin correction (`deploy-pin-0413`, d#236 · i#51): pin both Function nodes and Test GX to `dbus-native-victron@0.4.13`. Deploy run 45482443134 stopped before writing because Node-RED loads 0.4.13 from its user directory, not the unused 0.4.6 copy in `externalModules`. Preflight stays strict.
 

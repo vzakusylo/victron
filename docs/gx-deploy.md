@@ -334,7 +334,15 @@ first-parent history of `master`. It will not deploy across an untested change t
 `d#`), but a newer documentation-only commit does not block a green ancestor. The triggering run must itself
 be green, be a push to this repository's `master`, and still be an ancestor. The workflow rechecks the pinned
 selection before connecting to the GX. A skip emits a warning and writes its reason to the job summary.
-Automatic runs never set `overwrite_drift`. Runs share the `deploy-gx-code` concurrency group.
+Automatic runs never set `overwrite_drift`. Deploy jobs share the `deploy-gx-code` concurrency group, but the
+eligibility gates run independently so a newer eligible automatic run can supersede an older one while it waits.
+
+On `WAIT`, the automatic runner sleeps in the same job. It rechecks eligibility, takes a fresh snapshot, and
+reruns both the drift and window checks every 15 minutes for up to two hours. It skips if `master` is no
+longer at the pinned commit or a newer automatic run passed its deployment gate, and rechecks eligibility before
+applying. If the window never opens, it ends without changes or mail and reports **Not deployed: window
+never opened within 2 hours**. GitHub marks that run unsuccessful; the notice and exit code 78 distinguish
+it from a deploy error. Manual runs keep their existing 30-minute wait and approval.
 
 **Deploying by hand when auto skipped:** Wait for the newer production commit's own Test GX run if it is still pending. If automatic deployment did not run, follow the manual dry-run and approval procedure above.
 
