@@ -68,9 +68,9 @@
 //    only the two ends are set, the rest is read-only like the heating curve): chart lines without
 //    the 0.5 °C rounding, dhwChart.table at -20…15 °C, dhwChart.formula, svg yMin / yMax / outMin /
 //    outMax for the edit preview on the page.
-// 13. d#195: curveChart.outdoor = the pump's own outdoor value (flow.dhwView.pumpOut from 40, derived from the reported
-//    set point), fallback the 10-min sensor average / DP 103; outdoorSource 'pump' | 'sensor', outdoorText for the page,
-//    sensor = DP 103 (shown as "outdoor sensor").
+// d#233: curveChart.outdoor is the defrost-held 10-min sensor average from 40 (withdraws d#195). Raw DP 103
+//    and the fixed pump set (DP 125) remain visible; no current curve point without a fresh average. Show the
+//    stored owner curve, current pump coefficients if different, and the two-coefficient Apply status.
 // 14. d#210: battery sensor temperature expires independently of other readings (TGX7-LOCAL-AGE).
 // ==========================
 
@@ -93,6 +93,8 @@ const CLOUD_ROLES = ['acc', 'plate'];
 const CLOUD_STALE_MS = 24 * 3600 * 1000;
 
 // #include lib/heat-pump/state-devices.js
+
+// #include lib/heat-pump/heat-curve.js
 
 // #include lib/heat-pump/state-heating-curve.js
 

@@ -4,7 +4,7 @@
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-35).
   Shows the state built by "Heat pump state" (34). Two controls send commands through
   "Heat pump command" (37), each after a confirm dialog:
-    {topic:'curve',  payload:{p23}}  — warmer / colder slider (curve P23, DP 133)
+    {topic:'curve',  payload:{p23,p24,requestId}}  — apply the owner heating curve
     {topic:'bypass', payload:{on}}   — heat exchanger bypass relay on / off
     {topic:'ui', payload:{action:'mode', id:'dhw', mode}} — DHW controller Off / Test / On (d#138)
     {topic:'ui', payload:{action:'dhwSet', cfg}}           — DHW controller curve and settings (d#138)
@@ -164,7 +164,7 @@
       <div class="hpw-cards hpw-wrap" ng-if="msg.payload.summary">
         <div class="hpw-card"><div class="k">Supply</div><div class="v">{{msg.payload.summary.supply}}<span class="u">°C</span></div></div>
         <div class="hpw-card"><div class="k">Return</div><div class="v">{{msg.payload.summary.ret}}<span class="u">°C</span></div></div>
-        <div class="hpw-card"><div class="k">Heating set</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
+        <div class="hpw-card"><div class="k">Pump set (fixed, DP 125)</div><div class="v">{{msg.payload.summary.heatingSetpoint}}<span class="u">°C</span></div></div>
         <div class="hpw-card" title="Tuya Wi-Fi sensor on battery: it reports on a change of 0.3 °C, read locally when it wakes"><div class="k">Accumulator</div><div class="v">{{msg.payload.summary.accTemp === null || msg.payload.summary.accTemp === undefined ? '—' : msg.payload.summary.accTemp}}<span class="u">°C</span></div></div>
         <div class="hpw-card" title="Tuya Wi-Fi sensor on battery: it reports on a change of 0.3 °C or every 40 min, read locally when it wakes"><div class="k">Exchange plate</div><div class="v">{{msg.payload.summary.plateTemp === null || msg.payload.summary.plateTemp === undefined ? '—' : msg.payload.summary.plateTemp}}<span class="u">°C</span></div></div>
       </div>
@@ -184,9 +184,9 @@
       </div>
       <div ng-if="msg.payload.curveChart && hpStatic.curveChart && hpCurvePlot" class="hpw-curve">
         <h4>Heating curve (P22 {{msg.payload.curveChart.enabled === null ? '?' : (msg.payload.curveChart.enabled ? 'ON' : 'OFF')}} · P23 {{msg.payload.curveChart.p23}} °C · P24 {{msg.payload.curveChart.p24}})</h4>
-        <div class="hpw-note" ng-if="msg.payload.curveChart.boilerActive">DHW cycle: the pump runs on the boiler / stop curve now (P23 {{msg.payload.curveChart.pumpP23}} / P24 {{msg.payload.curveChart.pumpP24}}). This chart shows the stored heating curve; it is written back at the end of the cycle.</div>
+        <div class="hpw-note" ng-if="msg.payload.curveChart.differsFromPump">Stored owner curve: P23 {{msg.payload.curveChart.p23}} / P24 {{msg.payload.curveChart.p24}} · pump now: P23 {{msg.payload.curveChart.pumpP23 === null ? '—' : msg.payload.curveChart.pumpP23}} / P24 {{msg.payload.curveChart.pumpP24 === null ? '—' : msg.payload.curveChart.pumpP24}}.</div>
         <div class="hpw-sub">Heating set point = {{msg.payload.curveChart.formula}}, limited to 20–60 °C.
-          <span ng-if="msg.payload.curveChart.target !== null">Now: {{msg.payload.curveChart.outdoorText}} → curve {{msg.payload.curveChart.target}} °C · reported set {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C · outdoor sensor {{msg.payload.curveChart.sensor === null ? '—' : msg.payload.curveChart.sensor}} °C</span>
+          <span>Now: {{msg.payload.curveChart.outdoorText}}<span ng-if="msg.payload.curveChart.target !== null"> → curve {{msg.payload.curveChart.target}} °C</span> · pump set (fixed, DP 125) {{msg.payload.curveChart.reported === null ? '—' : msg.payload.curveChart.reported}} °C · supply {{msg.payload.curveChart.supply === null ? '—' : msg.payload.curveChart.supply}} °C · outdoor sensor {{msg.payload.curveChart.sensor === null ? '—' : msg.payload.curveChart.sensor}} °C</span>
         </div>
         <svg ng-attr-view_box="{{hpCurvePlot.viewBox}}" class="hpw-curve-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Heating curve">
           <g class="grid">
@@ -202,7 +202,7 @@
           <polyline class="band-low" ng-if="hpCurvePlot.lowShift !== null" ng-attr-transform="translate(0 {{hpCurvePlot.lowShift}})" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="band-high" ng-if="hpCurvePlot.highShift !== null" ng-attr-transform="translate(0 {{hpCurvePlot.highShift}})" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="curve" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
-          <polyline class="preview" ng-if="hp.p23 !== null && hp.p23 != msg.payload.curveChart.p23" ng-attr-points="{{hpPreviewLine()}}"></polyline>
+          <polyline class="preview" ng-if="hpCurveChanged()" ng-attr-points="{{hpPreviewLine()}}"></polyline>
           <g ng-if="msg.payload.curveChart.svg.now">
             <line class="nowline" ng-attr-x1="{{msg.payload.curveChart.svg.now.x}}" ng-attr-x2="{{msg.payload.curveChart.svg.now.x}}" ng-attr-y1="{{hpCurvePlot.top}}" ng-attr-y2="{{hpCurvePlot.bottom}}"></line>
             <circle ng-repeat="point in hpCurvePlot.markers track by point.css" ng-class="point.css" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{point.y}}" ng-attr-r="{{point.radius}}"><title>{{point.label}}: {{point.value}} °C</title></circle>
@@ -213,28 +213,24 @@
           <span ng-if="hpCurvePlot.lowShift !== null"><i class="sw band-low"></i>low band (−{{msg.payload.heatCtl.cfg.bandDown}} °C)</span>
           <span ng-if="hpCurvePlot.highShift !== null"><i class="sw band-high"></i>high band (+{{msg.payload.heatCtl.cfg.bandUp}} °C)</span>
           <span ng-repeat="point in hpCurvePlot.markers track by point.css"><i class="sw" ng-class="point.css"></i>{{point.label}}: <b>{{point.value}} °C</b></span>
-          <span ng-if="hp.p23 !== null && hp.p23 != msg.payload.curveChart.p23"><i class="sw pt-supply"></i>new curve (P23 {{hp.p23}}), not applied</span>
+          <span ng-if="hpCurveChanged()"><i class="sw pt-supply"></i>edited curve (not applied)</span>
         </div>
-        <div class="hpw-ctl" ng-if="hp.p23 !== null">
-          <span class="lbl">Colder</span>
-          <input type="range" min="20" max="40" step="1"
-                 ng-model="hp.p23" ng-change="hp.dirty = true" ng-disabled="!msg.payload.controls.curve || hp.curveSent !== null">
-          <span class="lbl">Warmer</span>
-          <span class="big">P23 {{hp.p23}} °C</span>
-          <span class="lbl" ng-if="msg.payload.curveChart.outdoor !== null">
-            at {{msg.payload.curveChart.outdoor}} °C outdoor: {{hpCurveAt(msg.payload.curveChart.p23)}} → <b>{{hpCurveAt(hp.p23)}} °C</b>
-            ({{hpCurveAt(hp.p23) - hpCurveAt(msg.payload.curveChart.p23) >= 0 ? '+' : ''}}{{(hpCurveAt(hp.p23) - hpCurveAt(msg.payload.curveChart.p23)) | number:1}})
-          </span>
-          <button class="go" ng-disabled="!msg.payload.controls.curve || hp.p23 == msg.payload.curveChart.p23 || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
-          <button ng-if="hp.p23 != msg.payload.curveChart.p23 && hp.curveSent === null" ng-click="hp.p23 = msg.payload.curveChart.p23; hp.dirty = false">Reset</button>
-          <span class="lbl" ng-if="hp.curveSent !== null">sent, waiting for the heat pump…</span>
-          <span class="lbl" ng-if="!msg.payload.controls.curve && !msg.payload.curveChart.boilerActive">heat pump not connected</span>
-          <span class="lbl" ng-if="msg.payload.curveChart.boilerActive">locked during the DHW cycle</span>
-          <span class="lbl" ng-if="msg.payload.curveChart.enabled === false">P22 is OFF — the curve is not used now</span>
+        <div class="hpw-ctl">
+          <span class="big">Heating curve setting</span>
+          <label>P23 <input type="number" min="0" max="40" step="1" required ng-model="hp.p23"
+                 ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
+          <label>P24 <input type="number" min="1" max="30" step="1" required ng-model="hp.p24"
+                 ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
+          <button class="go" ng-disabled="!msg.payload.controls.curve || !hpCurveValid() || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
+          <button ng-if="hp.dirty && hp.curveSent === null" ng-click="hpCurveReset()">Reset</button>
+          <span class="lbl" ng-if="hp.curveSent !== null">queued; waiting for both coefficients to be confirmed…</span>
+          <span class="lbl" ng-if="hp.curveSent === null && msg.payload.controls.curveReason">{{msg.payload.controls.curveReason}}</span>
+          <span class="lbl" ng-if="!hpCurveValid()">Use whole numbers: P23 0–40, P24 1–30.</span>
+          <span class="lbl" ng-if="hp.curveMessage" role="status">{{hp.curveMessage}}</span>
         </div>
         <table class="hpw-curve-table">
           <tr><th>Outdoor °C</th><td ng-repeat="r in hpStatic.curveChart.table" class="num">{{r.out}}</td></tr>
-          <tr><th>Set point °C</th><td ng-repeat="r in hpStatic.curveChart.table" class="num">{{r.set}}</td></tr>
+          <tr><th>Set point °C<br>before → after</th><td ng-repeat="r in hpStatic.curveChart.table" class="num">{{r.set}}<span ng-if="hpCurveValid()"> → {{hpCurvePreviewAt(r.out)}}</span></td></tr>
         </table>
         <div class="hpw-ctl hpw-dhw" ng-if="msg.payload.heatCtl">
           <span class="big">Heating power controller</span>
@@ -447,15 +443,19 @@
 <script>
 (function (scope) {
     // Local UI state; msg.payload (the model) is replaced on every update
-    scope.hp = { p23: null, dirty: false, curveSent: null, bypassSent: null };
+    // #include lib/heat-pump/heat-curve.js
+    scope.hp = { p23: null, p24: null, dirty: false, curveSent: null, curveMessage: '', bypassSent: null };
     var pending = {};
     function awaitAck(key, value) {
         clearTimeout(pending[key]);
         scope.hp[key] = value;
         pending[key] = setTimeout(function () {
             delete pending[key];
-            scope.$evalAsync(function () { scope.hp[key] = null; });
-        }, 60000);
+            scope.$evalAsync(function () {
+                scope.hp[key] = null;
+                if (key === 'curveSent') scope.hp.curveMessage = 'Heating curve was not confirmed. Check the pump values before retrying.';
+            });
+        }, key === 'curveSent' ? 120000 : 60000);
     }
     scope.$on('$destroy', function () {
         Object.keys(pending).forEach(function (key) { clearTimeout(pending[key]); });
@@ -612,7 +612,7 @@
         var now = c.svg && c.svg.now;
         var markers = now ? [
             { css: 'pt-target', label: 'Curve target now', value: c.target, radius: 6 },
-            { css: 'pt-reported', label: 'Reported heating set (DP 125)', value: c.reported, radius: 4 },
+            { css: 'pt-reported', label: 'Pump set (fixed, DP 125)', value: c.reported, radius: 4 },
             { css: 'pt-supply', label: 'Supply now', value: c.supply, radius: 4 }
         ].filter(function (point) { return Number.isFinite(point.value); }) : [];
         // A live update can arrive before its static frame; use the same scale as the visible curve.
@@ -635,26 +635,37 @@
         updateCurvePlot(m);
         if (!m) return;
         var c = m.curveChart;
-        if (c && c.p23 !== null && c.p23 !== undefined) {
-            if (c.p23 === scope.hp.curveSent) scope.hp.curveSent = null;
-            if (scope.hp.p23 === null || (!scope.hp.dirty && scope.hp.curveSent === null)) scope.hp.p23 = c.p23;
+        if (c) {
+            var result = c.ownerCurveResult;
+            if (result && scope.hp.curveSent !== null && result.requestId === scope.hp.curveSent) {
+                scope.hp.curveSent = null;
+                scope.hp.curveMessage = result.text;
+                if (result.ok) scope.hp.dirty = false;
+            }
+            if (!scope.hp.dirty && scope.hp.curveSent === null) scope.hpCurveReset();
         }
         var b = m.summary && m.summary.bypassOn;
         if (b === scope.hp.bypassSent) scope.hp.bypassSent = null;
     });
-    scope.hpCurveAt = function (p23) {
+    scope.hpCurveReset = function () {
         var c = cc();
-        if (!c || c.outdoor === null) return null;
-        var t = 20 + (c.p24 / 10) * (Number(p23) - c.outdoor);
-        return Math.max(20, Math.min(60, Math.round(t * 10) / 10));
+        if (!c) return;
+        scope.hp.p23 = c.p23; scope.hp.p24 = c.p24; scope.hp.dirty = false;
+    };
+    scope.hpCurveValid = function () { return validOwnerCurve(scope.hp.p23, scope.hp.p24); };
+    scope.hpCurveChanged = function () {
+        var c = cc();
+        return c && scope.hpCurveValid() && (scope.hp.p23 !== c.p23 || scope.hp.p24 !== c.p24);
+    };
+    scope.hpCurvePreviewAt = function (outdoor) {
+        return scope.hpCurveValid() ? Math.round(heatCurveAt(scope.hp.p23, scope.hp.p24, outdoor) * 10) / 10 : null;
     };
     scope.hpPreviewLine = function () {
-        var c = cc();
         var s = scope.hpStatic && scope.hpStatic.curveChart && scope.hpStatic.curveChart.svg;
-        if (!c || !s) return '';
+        if (!s || !scope.hpCurveValid()) return '';
         var pts = [];
         for (var t = s.outMin; t <= s.outMax; t++) {
-            var v = Math.max(20, Math.min(60, 20 + (c.p24 / 10) * (Number(scope.hp.p23) - t)));
+            var v = heatCurveAt(scope.hp.p23, scope.hp.p24, t);
             v = Math.max(s.yMin, Math.min(s.yMax, v));
             var x = s.left + (t - s.outMin) / (s.outMax - s.outMin) * (s.right - s.left);
             var y = s.top + (s.yMax - v) / (s.yMax - s.yMin) * (s.bottom - s.top);
@@ -664,13 +675,12 @@
     };
     scope.hpApplyCurve = function () {
         var c = cc();
-        var v = Number(scope.hp.p23);
-        if (!c || !confirm('Change heating curve P23 from ' + c.p23 + ' to ' + v + ' °C?\n'
-            + (v > c.p23 ? 'Warmer' : 'Colder') + ': the heating set point changes by '
-            + ((v - c.p23) * c.p24 / 10).toFixed(1) + ' °C at every outdoor temperature.')) return;
-        awaitAck('curveSent', v);
-        scope.hp.dirty = false;
-        scope.send({ topic: 'curve', payload: { p23: v } });
+        if (!c || !scope.msg.payload.controls.curve || !scope.hpCurveValid() || scope.hp.curveSent !== null) return;
+        if (!confirm('Apply heating curve P23 ' + scope.hp.p23 + ' / P24 ' + scope.hp.p24 + '?')) return;
+        var requestId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        scope.hp.curveMessage = '';
+        awaitAck('curveSent', requestId);
+        scope.send({ topic: 'curve', payload: { p23: scope.hp.p23, p24: scope.hp.p24, requestId: requestId } });
     };
     scope.hpBypass = function (on) {
         if (!confirm('Turn the heat exchanger bypass ' + (on ? 'ON (exchanger bypassed)' : 'OFF') + '?')) return;

@@ -86,10 +86,8 @@ test('after the quiet time the average returns and the cycle follows the logged 
     assert.ok(c.dhw().p23Cmd > 0 && c.dhw().p23Cmd <= c.dhw().goal);
 });
 
-// 19 Nov 23:30: a stale outdoor average (−6 °C) while the pump read −1 °C; P23 8 gave the pump 30.8 °C,
-// below the 32 °C water, and the compressor never started.
-// A DHW cycle with the valve on the tank, water 32 / 32 °C, pump outdoor (DP 103) −1 °C and the compressor off.
-// outAvg is the controller's 10-min average; recentDefrost keeps it stale, as on the GX.
+// The valve is on the tank, water is 32 °C, and the raw outdoor sensor reads −1 °C.
+// During recovery the controller uses the pre-defrost outdoor average instead.
 function valveCycle({ outAvg = -6, recentDefrost = true } = {}) {
     const c = redeployed({ lastDefrost: NOW - 60 * MIN });
     const dps = { 101: 32, 102: 32, 103: -1, 108: 31, 115: 0, 116: 0 };
@@ -99,7 +97,6 @@ function valveCycle({ outAvg = -6, recentDefrost = true } = {}) {
     if (recentDefrost) c.node.context.set('lastDefrost', NOW - 10 * MIN);
     return { c, dps };
 }
-const staleOutdoorCycle = () => valveCycle();
 // water 32 + startGap 7 = 39 °C at −1 °C with P24 12: P23 = round(−1 + 19 / 1.2) = 15 (pump target 39.2 °C)
 const P23_START = 15;
 const curve = (p23, p24, x) => Math.max(20, Math.min(60, 20 + p24 / 10 * (p23 - x)));
@@ -156,16 +153,17 @@ test('a routine Silent SET already in the queue is dropped and logged during bac
     assert.equal(c.node.context.get('queue').length, 0);
 });
 
-test('the DHW start curve uses the pump\'s live outdoor value, not a stale average', () => {
-    const { c, dps } = staleOutdoorCycle();
-    c.tick(NOW + 30 * S, dps, true);
-    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
-    const target = curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1);   // what the pump computes
-    assert.ok(target >= 32 + 6, 'pump target ' + target + ' °C must be at least 6 °C above the 32 °C water');
+test('the DHW start curve uses the held average, not the instantaneous sensor', () => {
+    for (const raw of [-1, 40]) {
+        const { c, dps } = valveCycle();
+        c.tick(NOW + 30 * S, { ...dps, 103: raw }, true);
+        assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+        assert.equal(c.dhw().p23Cmd, 10, '39 °C at −6 °C, rounded to the nearest P23');
+    }
 });
 
 test('while the compressor is off the ramp may ask startGap above the water, and only gap once it runs', () => {
-    const { c, dps } = staleOutdoorCycle();
+    const { c, dps } = valveCycle({ outAvg: -1, recentDefrost: false });
     let t = NOW + 30 * S;
     c.tick(t, dps, true);
     for (let i = 0; i < 15; i++) { t += MIN; c.tick(t, dps, true); }
@@ -175,14 +173,6 @@ test('while the compressor is off the ramp may ask startGap above the water, and
     // compressor running: the ordinary 5 °C gap caps the ramp, so P23 comes down to it
     for (let i = 0; i < 4; i++) { t += MIN; c.tick(t, Object.assign({}, dps, { 115: 40, 116: 550 }), true); }
     assert.ok(curve(c.dhw().p23Cmd, c.dhw().p24Cmd, -1) <= 32 + 5 + 1.2, 'running: ramp capped at water + gap');
-});
-
-test('an implausible live outdoor reading falls back to the average', () => {
-    const { c, dps } = staleOutdoorCycle();
-    c.tick(NOW + 30 * S, Object.assign({}, dps, { 103: 40 }), true);
-    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
-    // water 32 + startGap 7 = 39 °C at the −6 °C average: P23 = round(−6 + 19 / 1.2) = 10 (with 40 °C it would be 40)
-    assert.equal(c.dhw().p23Cmd, 10);
 });
 
 // Recorded on the GX, 19 Nov: with the valve on the tank, outdoor (DP 103) −1 °C and water 32 / 32 °C, the

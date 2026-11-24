@@ -97,16 +97,16 @@ Still an estimate: it assumes DP 112 is the unit's input current. Once the SA1 m
 
 If the meter uses other DPs, the Power tile shows "—". The page then lists the raw meter DPs, so the map in `meterReading()` can be extended. The value counts as fresh for 5 min.
 
-**Controls (d#121).** Both are sent through `Heat pump command` (`37`) and only after a confirm dialog in the browser:
+**Controls.** Both pass through `Heat pump command` (`37`) and require browser confirmation:
 
-| Control | Page | Sent | Checks in 37 |
+| Control | Page | Sent | Checks |
 |---|---|---|---|
-| Curve shift, *colder ← → warmer* | slider under the heating curve, with a dashed preview line and the set point at the current outdoor temperature before → after | `{"operation":"SET","dps":133,"set":<P23>}` to `Heating pump` | integer 20…40 |
+| Heating curve setting (d#233, replaces the P23 slider) | Edit P23 and P24 under the chart; dashed preview and before → after values at −20, −10, −5, 0, +5 and +10 °C | `37` forwards one owner-baseline group to `40`, which sends DP 133/134 in one batch SET with a 5-second write gap | Whole numbers: P23 0…40, P24 1…30; P22 on; no DHW cycle or 10-minute post-DHW window |
 | Bypass | *Turn bypass ON / OFF* button | `{"operation":"SET","dps":1,"set":true/false}` to `Off Heating exchange` | boolean |
 
-Each +1 °C of P23 raises the curve by P24 / 10 °C (0.4 °C with P24 = 4) at every outdoor temperature. P22 and P24 are not changed.
+Each +1 °C of P23 raises the unclamped curve by P24 / 10 °C (0.4 °C with P24 = 4). P24 sets the slope; Apply does not change P22. The chart shows the stored owner curve and lists the pump's current P23/P24 separately when they differ.
 
-Every write also requires the target device to be CONNECTED with data ≤ 5 min old, and allows at most one write per device every 5 s. A same-value P23 is ignored. Writes are logged with `node.log`.
+Manual writes require the target device to be CONNECTED with data ≤ 5 minutes old and are logged. Local control OFF stops automation, not the owner's manual Apply. The owner curve yields to higher-priority automation, including DHW. The controller saves it only after both coefficients have fresh matching readbacks. If confirmation fails, the page reports it and the baseline is unchanged; check the current pump values and apply again.
 
 A Tuya cloud scene that also switches the bypass (the DF… scenes) can switch it back. Disable those scenes to keep manual control.
 
@@ -171,7 +171,7 @@ From the Tuya cloud thing model of the heat pump (product `5oc9wmac3bbidekc`):
 | 121 / 122 | aircond_temp_diff / wth_temp_diff | heating / DHW hysteresis | rw | 2–18 °C |
 | 123 | wth_stemp | DHW set point | rw | 28–60 °C |
 | 124 | acc_stemp | cooling set point | rw | 7–30 °C |
-| 125 | ach_stemp | heating set point | rw | 15–55 °C |
+| 125 | ach_stemp | pump set (fixed setting, not the weather-curve output) | rw | 15–55 °C |
 | 126 | water_temp_compenst | water temp compensation | rw | −5–15 °C |
 | 132 | heat_target_temp_auto_adj | P22 weather curve on/off | rw | 0/1 |
 | 133 | heat_compst_temp_point_hj | P23 ambient point | rw | 0–40 °C |
@@ -186,13 +186,15 @@ From the Tuya cloud thing model of the heat pump (product `5oc9wmac3bbidekc`):
 
 Built-in curve (P22 on): heating set point = 20 + (P24 / 10) × (P23 − outdoor), 20…60 °C (P24 = 4 → 0.4).
 
-The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. It marks the current point: the curve target at the current outdoor temperature, the reported heating set point (DP 125) and the supply temperature. A table lists −20…+15 °C. With P23 = 37 and P24 = 4 (P23 raised from 32 on 8 Nov 2026 = +2 °C at every outdoor temperature; roll back = P23 32):
+The Heat Pump page draws this curve (d#118), for outdoor −25…+25 °C. The controller and page follow the curve at the 10-minute outdoor sensor (DP 103) average, held during defrost and recovery. The page shows supply, raw DP 103 and **pump set (fixed, DP 125)** separately. Without a valid average there is no current curve point and the controller skips lag-based decisions. A table lists −20…+15 °C. With P23 = 37 and P24 = 4 (P23 raised from 32 on 8 Nov 2026 = +2 °C at every outdoor temperature; roll back = P23 32):
 
 | Outdoor °C | −20 | −15 | −10 | −5 | 0 | 5 | 10 | 15 |
 |---|---|---|---|---|---|---|---|---|
 | Set point °C | 42.8 | 40.8 | 38.8 | 36.8 | 34.8 | 32.8 | 30.8 | 28.8 |
 
-Check of the formula: with P23 = 32 at −3 °C outdoor the curve gave 34 °C and the pump reported 35 °C (DP 125); with P23 = 37 at −1 °C the curve gives 35.2 °C and the pump reports 35 °C. So the formula is close but not confirmed exactly. If the two keep differing, the controller rounds or offsets differently.
+**d#195 “pump outdoor” model withdrawn in d#233.** In 30-second samples from 18–24 Nov 2026, DP 125 was 36 °C throughout: P23 ranged from 0 to 40, P24 from 4 to 17, and outdoor temperature from −8 to +9 °C. DP 125 is a fixed setting, not a way to infer outdoor temperature or curve output. With P23/P24 at 40/9, inverting 36 °C gave a fictitious +22.2 °C; the sensor average near −9 °C gives a 60 °C curve target.
+
+The formula is consistent with measured supply when the point is reachable: P23/P24 29/12 at about +0.8 °C gives 53.8 °C versus 55 °C supply; 38/4 at about −2 °C gives 36 °C versus 34 °C supply. At 40/8–9 and −6 to −9 °C, the curve asks for up to 60 °C while supply reaches only 39–42 °C at 89–90 Hz. At ≥ 85 Hz with flat or rising supply, the controller reports **capacity-limited: compressor at max** when below target. It resets the off-curve timer, holds upward power/curve steps, defers new warm-up and band increases, and skips new kicks. Protective step-downs and offset cancellation still work.
 
 ## Automations page (d#123–d#126)
 
@@ -228,11 +230,9 @@ All Smart Life scenes of the heat pump (**B\*** DHW cycles and modes, **DF\*** d
 ## Automation log page (d#126)
 
 The Automations page's **shadow disagreements** count tracks decisions that differ
-from the existing write path. Shadow arbitration treats the manual P23 slider as
-an owner-baseline intent below active heating, but still sends the slider SET
-unchanged. Before curve enforcement (HP-M2 stage 3), the owner must decide whether
-a manual move overrides heating or updates the baseline for later application,
-and how the dashboard should communicate that behavior.
+from the existing write path. The heating curve editor no longer sends an independent
+SET. It queues an owner-baseline group below other automation writes; the shadow
+observer records it as `owner`. HP-M2 stage 3 will move this group into the unified dispatcher.
 
 The separate **same-writer supersessions** count compares the original writer
 with the current owner. If ownership goes A → B → A before a check, A's old write

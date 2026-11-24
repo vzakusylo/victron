@@ -8,10 +8,7 @@
 // - The manual write path to the heat pump devices. Takes requests from the
 //   Heat Pump page (35) and the history page (39), validates them and routes them.
 // Input (msg.topic):
-// - 'curve'   payload { p23 }  -> set DP 133 (P23, curve ambient point) of the heat pump.
-//                                 Higher P23 = warmer: every +1 °C raises the heating set point
-//                                 by P24/10 °C at every outdoor temperature (P24 = 4 -> +0.4 °C).
-//                                 Integer, CURVE_MIN…CURVE_MAX only.
+// - 'curve'   payload { p23, p24, requestId } -> validate, pace and save the owner curve in node 40.
 // - 'bypass'  payload { on }   -> set DP 1 of the "Off Heating exchange" relay (true = bypass ON).
 // - 'summary' payload {}       -> read the last HISTORY_DAYS day folders (cached days skipped)
 // - 'day'     payload { day }  -> read every hour file of one day (YYYY-MM-DD)
@@ -19,7 +16,7 @@
 //                              -> DHW controller panel of the Heat Pump page (d#138): passed to
 //                                 "Heat pump automations" (40), which checks and stores it.
 // Output (4):
-// - output 1 -> Tuya node "Heating pump"          { operation: 'SET', dps, set }
+// - output 1 -> unused (owner curve uses node 40's heat-pump queue)
 // - output 2 -> Tuya node "Off Heating exchange"  { operation: 'SET', dps: 1, set }
 // - output 3 -> exec "Read heat pump history" (`sh -c <payload>`), msg.topic / msg.day kept
 // - output 4 -> "Heat pump automations" (40), msg.topic 'ui'
@@ -33,19 +30,15 @@
 // 2. d#138: 'ui' requests of the DHW controller panel go to output 4.
 // 3. d#142: P23 (curve) refused while a DHW cycle runs (the pump is on the boiler curve then).
 // 4. d#166 / d#174: 'ui' also passes the heating controller (mode id 'heat', heatSet) and dhwResume.
+// 5. d#233: route the two-coefficient owner curve via node 40.
 // ==========================
 
 const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
 const MOTION_DIR = '/data/home/nodered/grid-control-logs/sensor-events';
 const HISTORY_DAYS = 14;
-const CURVE_MIN = 20;
-const CURVE_MAX = 40;
 const MIN_GAP_MS = 5000;
 const FRESH_MS = 5 * 60 * 1000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// #include lib/heat-pump/arbiter.js
-// #include lib/heat-pump/arbiter-shadow.js
 
 const now = Date.now();
 const p = msg.payload || {};
@@ -73,21 +66,8 @@ function refuse(text) {
 const CAT_DAY = 'for f in $(ls $d | sort); do case $f in *.csv.gz) gzip -dc $d/$f;; *.csv) cat $d/$f;; esac; done';
 
 switch (msg.topic) {
-case 'curve': {
-    const v = Number(p.p23);
-    if (!Number.isInteger(v) || v < CURVE_MIN || v > CURVE_MAX) return refuse('P23 ' + p.p23 + ' outside ' + CURVE_MIN + '…' + CURVE_MAX);
-    if (!ready('hp')) return refuse('heat pump not connected');
-    // d#142: during a DHW cycle the pump runs on the boiler curve; the heating P23 comes back at its end
-    const dv = flow.get('dhwView');
-    if (dv && dv.state && dv.state !== 'HEATING') return refuse('DHW cycle running, change the heating curve after it');
-    const cur = st.hp.dps['133'];
-    if (Number(cur) === v) { node.status({ fill: 'grey', shape: 'dot', text: 'P23 already ' + v }); return null; }
-    if (throttled('hp')) return refuse('too fast, wait 5 s');
-    shadowCheck(shadowTag({ role: 'hp', dps: 133, set: v }, 'owner', now), 'slider', now);
-    node.log('Heat pump command: P23 (DP 133) ' + cur + ' -> ' + v);
-    node.status({ fill: 'blue', shape: 'dot', text: 'P23 ' + cur + ' → ' + v });
-    return [{ payload: { operation: 'SET', dps: 133, set: v } }, null, null];
-}
+case 'curve':
+    return [null, null, null, { topic: 'ui', payload: { action: 'ownerCurve', p23: p.p23, p24: p.p24, requestId: p.requestId } }];
 case 'bypass': {
     if (typeof p.on !== 'boolean') return refuse('bypass: on must be true / false');
     if (!ready('bypass')) return refuse('bypass relay not connected');

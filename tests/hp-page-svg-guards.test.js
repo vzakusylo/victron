@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { readSource } = require('./harness');
+const { readSource, loadHeatPumpState } = require('./harness');
 
 const ROOT = path.join(__dirname, '..');
 const FILES = ['35 Heat pump page.html', '39 Heat pump history page.html'];
@@ -31,7 +31,7 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
     assert.ok(scope.hpCurvePlot.top <= -3 && scope.hpCurvePlot.bottom >= 219.5);
     assert.equal(scope.hpCurvePlot.viewBox, '0 -15 700 283');
     assert.deepStrictEqual(scope.hpCurvePlot.markers.map(p => [p.label, p.value, p.y]), [
-        ['Curve target now', 34.5, 139.5], ['Reported heating set (DP 125)', 36, 132], ['Supply now', 32, 152]
+        ['Curve target now', 34.5, 139.5], ['Pump set (fixed, DP 125)', 36, 132], ['Supply now', 32, 152]
     ]);
     assert.match(html, /<title>\{\{point\.label\}\}: \{\{point\.value\}\} °C<\/title>/);
     update({ ...chart, supply: null, svg: { now: { ...chart.svg.now, ySupply: null } } }, { bandDown: 0, bandUp: 2 });
@@ -50,6 +50,42 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
     assert.equal(scope.hpCurvePlot.highShift, null);
     update(null);
     assert.equal(scope.hpCurvePlot, null);
+});
+
+test('heating editor previews both coefficients against the stored owner curve', () => {
+    const now = Date.UTC(2026, 10, 24, 18);
+    const state = loadHeatPumpState();
+    state.flow.set('dhwView', { at: now, state: 'DHW', outAvg: -2, heatCurve: { p23: 38, p24: 4 } });
+    const chart = state.run({ topic: 'hp', payload: { data: { dps: { 132: '1', 133: 20, 134: 12 } } } }, { now }).result[0].payload.curveChart;
+    assert.deepStrictEqual([chart.p23, chart.p24, chart.pumpP23, chart.pumpP24], [38, 4, 20, 12]);
+    assert.equal(chart.differsFromPump, true);
+    const html = readSource(FILES[0]);
+    const scope = { $watch() {}, $on() {}, hpStatic: { curveChart: chart }, msg: { payload: { curveChart: chart } } };
+    new Function('scope', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope);
+    scope.hpCurveReset();
+    assert.equal(scope.hpCurveChanged(), false);
+    Object.assign(scope.hp, { p23: 40, p24: 9 });
+    assert.equal(scope.hpCurveChanged(), true);
+    assert.deepStrictEqual(chart.table.map(row => [row.out, row.set, scope.hpCurvePreviewAt(row.out)]),
+        [[-20, 43.2, 60], [-10, 39.2, 60], [-5, 37.2, 60], [0, 35.2, 56], [5, 33.2, 51.5], [10, 31.2, 47]]);
+    assert.equal(scope.hpPreviewLine().split(' ').length, 51);
+});
+
+test('heating editor displays the unconfirmed result without replacing the edit', () => {
+    const html = readSource(FILES[0]);
+    const watchers = {}, messages = [];
+    const scope = { $watch: (key, fn) => { watchers[key] = fn; }, $on() {}, send: msg => messages.push(msg) };
+    new Function('scope', 'confirm', 'setTimeout', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope, () => true, () => {});
+    scope.msg = { payload: { controls: { curve: true }, curveChart: { p23: 38, p24: 4 } } };
+    watchers['msg.payload'](scope.msg.payload);
+    Object.assign(scope.hp, { p23: 40, p24: 9, dirty: true });
+    scope.hpApplyCurve();
+    assert.deepStrictEqual(messages[0], { topic: 'curve', payload: { p23: 40, p24: 9, requestId: scope.hp.curveSent } });
+    scope.msg.payload.curveChart.ownerCurveResult = { requestId: scope.hp.curveSent, text: 'Heating curve not applied: not confirmed', ok: false };
+    watchers['msg.payload'](scope.msg.payload);
+    assert.equal(scope.hp.curveSent, null);
+    assert.match(scope.hp.curveMessage, /not confirmed/);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.p24], [40, 9]);
 });
 
 test('history day chips start on the newest week and page between available weeks only', () => {

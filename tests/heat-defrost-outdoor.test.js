@@ -1,6 +1,6 @@
 'use strict';
-// H2 + H7: during a defrost and its recovery the outdoor sensor (DP 103) reads 30–47 °C and the pump's set point is
-// disturbed. The 10-min average, the pump outdoor latch, the page and the history keep the value from before.
+// H2 + H7: during defrost and recovery, the outdoor sensor (DP 103) reads 30–47 °C.
+// The 10-min average, the page and the history ignore the spike.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadNode, loadHeatPumpState } = require('./harness');
@@ -27,18 +27,16 @@ function rig() {
         });
         return node.run({ topic: 'tick' }, { now: t });
     }
-    return { node, tick, dhw: () => node.context.get('dhw'), pumpOut: () => node.context.get('pumpOut') };
+    return { node, tick, dhw: () => node.context.get('dhw') };
 }
 
 // 20 Nov shape: steady heating at -7 °C, a defrost (fan 0) with DP 103 at 40 °C, then a slow recovery (> 15 min)
-// with the sensor still high and the pump's set point disturbed.
-test('defrost + slow recovery: the outdoor average and the pump latch stay at the pre-defrost value, then resume', () => {
+// with the sensor still high.
+test('defrost + slow recovery: the outdoor average stays at the pre-defrost value, then resumes', () => {
     const c = rig();
     let t = NOW;
-    for (let i = 0; i <= 12; i++, t += 30 * S) c.tick(t);
+    for (let i = 0; i <= 12; i++, t += 30 * S) c.tick(t, { 103: i < 6 ? -8.4 : -5.8 });
     assert.equal(c.dhw().outAvg, -7);
-    assert.equal(c.pumpOut().v, -1);
-    const latchedAt = c.pumpOut().at;
 
     for (let i = 0; i < 6; i++, t += 30 * S) c.tick(t, { 103: 40, 116: 0, 115: 60, 102: 25, 125: 31 });
     assert.equal(c.node.flow.get('dhwView').outHeld, true);
@@ -46,8 +44,6 @@ test('defrost + slow recovery: the outdoor average and the pump latch stay at th
     for (let i = 0; i < 50; i++, t += 30 * S) {
         c.tick(t, { 103: 40, 116: 550, 115: 40, 102: 28, 125: 31 });
         assert.equal(c.dhw().outAvg, -7, 'recovery minute ' + (i / 2));
-        assert.equal(c.pumpOut().v, -1);
-        assert.equal(c.pumpOut().at, latchedAt, 'not re-latched');
     }
     assert.equal(c.node.flow.get('dhwView').outHeld, true, 'still held after 15 min, supply not back');
 
