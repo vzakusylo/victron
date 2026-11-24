@@ -89,7 +89,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | Notes |
 |---|---|---|
-| HP-C1 | Curve model: drop pump outdoor | In progress: `hp-curve-model`. Follow the defrost-held sensor average, suppress lag-driven actions at capacity, and add a confirmed owner-curve Apply. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
 
 ### Approved follow-up queue after HP-C1 (2026-11-24, in priority order)
@@ -158,6 +157,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#178 HP-C1 Curve model: drop pump outdoor (`hp-curve-model`, d#233 · i#48). Use the defrost-held DP 103 average; report capacity instead of escalating lag at ≥ 85 Hz with non-falling supply. Replace the slider with one low-priority P23/P24 batch and save only on two fresh readbacks. No live GX access.
 
 #177 D-R11 Admin API keep-alive EPIPE (`deploy-no-keepalive`, d#232 unchanged · i#47): use fresh connections for all GX admin requests. On a pre-response reset, retry the whole-flow POST once only if the live revision is unchanged; otherwise verify without reposting. Fake-GX replay covers the 1 MiB POST, retry, and verification paths; no live GX access.
 
