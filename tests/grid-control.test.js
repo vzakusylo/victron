@@ -150,6 +150,9 @@ test('one 2 s inject and six periodic Victron inputs feed the controller directl
         control.run({ topic: emittedTopic(node), payload }, { now });
         assert.equal(control.context.get(key), expected, `${node.id} (${emittedTopic(node)})`);
     }
+    const voltage = inputs.find(node => node.id === '07c74490cafdc55a');
+    control.run({ topic: emittedTopic({ ...voltage, serviceObj: { name: 'Renamed SmartShunt' } }), payload: 54 }, { now });
+    assert.equal(control.context.get('batteryVoltage'), 54);
     assert.ok(control.run({ topic: 'grid-control-tick' }, { now }).result[7].tick.decision);
     const ct = inputs.find(node => node.id === '751d13b6d943e5e5');
     const { result } = control.run({ topic: emittedTopic(ct), payload: 2001 }, { now });
