@@ -690,7 +690,8 @@ const exchangerInCircuit = ready('bypass') && ((st.bypass && st.bypass.dps) || {
     context.set('bypassWasOn', !exchangerInCircuit);
     if (inDef && !wasDef) {
         const beforeAt = context.get('supBeforeAt');
-        context.set('preDefSupply', beforeAt && now - beforeAt <= FRESH_MS ? context.get('supBefore') : undefined);
+        const ageAtDefrost = st.hp.lastData - beforeAt;
+        context.set('preDefSupply', beforeAt && ageAtDefrost >= 0 && ageAtDefrost <= FRESH_MS ? context.get('supBefore') : undefined);
         context.set('defrostSince', now);
         settings.defrostStarts = (settings.defrostStarts || []).filter((x) => now - x < 12 * 3600 * 1000).concat([now]).slice(-8);
         saveSettingsFile();

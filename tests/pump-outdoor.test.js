@@ -44,9 +44,9 @@ function rig({ dhw = 'off', heat = 'off', heatCfg = { kickMin: 1, kickSec: 60 },
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
     const writes = [];
-    function tick(t, over = {}, valve = false, bypass = false, hpState = 'CONNECTED') {
+    function tick(t, over = {}, valve = false, bypass = false, hpState = 'CONNECTED', hpAt = t) {
         node.flow.set('heatPump', {
-            hp: { state: hpState, lastData: t, dps: Object.assign({
+            hp: { state: hpState, lastData: hpAt, dps: Object.assign({
                 1: true, 2: 'mute', 15: 0, 101: 32, 102: 36, 103: -7, 104: 60, 108: 49, 112: 3, 115: 40, 116: 550,
                 125: 36, 132: '1', 133: 39, 134: 4
             }, over) },
@@ -130,6 +130,14 @@ test('20 Nov replay: prolonged bypass does not carry an old supply baseline into
     c.tick(NOW + MIN, { 102: 26 }, false, true);
     c.tick(NOW + 6 * MIN, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] }, false, true);
     assert.equal(c.node.context.get('preDefSupply'), undefined);
+});
+
+test('20 Nov replay: tick delay cannot expire a baseline that was fresh when defrost was reported', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1], 102: 36 });
+    c.tick(NOW + 5 * MIN + 5 * S, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] },
+        false, true, 'CONNECTED', NOW + 5 * MIN - 5 * S);
+    assert.equal(c.node.context.get('preDefSupply'), 36);
 });
 
 test('an unresolved defrost warns once after 60 minutes without treating the timeout as recovery', () => {
