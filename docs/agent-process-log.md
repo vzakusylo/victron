@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-23 | Dry run 45265105379 passed planning but stopped in GX-side apply validation | Replay both `compare.js --plan` and the `deploy.js` dry run against a fake admin API before shipping deploy-tool fixes |
 | 2026-11-23 | Successive wiring stops in the GX deploy planner | Replay the full offline plan until it is written before shipping a deploy-tool fix; if an unrelated guard blocks it, report the exact stop instead of widening that guard |
 | 2026-11-23 | Dry run 45221077361 reached an addition blocker after removals passed | Run the full offline `compare.js --plan` path with both opt-ins, not just an individual planner stage |
 | 2026-11-23 | Manual GX dry run 45184915777 rejected the air-quality function's trailing output removal | Allow dropping only trailing outputs wired exclusively to approved removals; keep the existing checks on surviving outputs |

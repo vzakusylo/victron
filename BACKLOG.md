@@ -154,6 +154,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#168 D-R7 Function libs in deploy (`deploy-function-libs`, d#227 unchanged · i#38): deploy module declarations with preflight. The historical dry run clears the module mismatch, then stops at `hp-page-template-01` because `storeOutMessages` and `resendOnRefresh` change from `true` to `false`; the settings guard is unchanged.
+
 #167 H3/H4 (`hp-ux-rooms-hidden`, d#227 · i#37): share room temperature classification between Devices and Temperatures; persist hidden Devices cards and restore them from the dashboard without affecting telemetry or device control.
 
 #166 D-R6 Reviewed rewires in deploy (`deploy-reviewed-wires`, d#226 unchanged · i#36): apply explicitly reviewed target wiring only when live wiring matches the recorded Git baseline; the full offline replay writes a plan with six reviewed sources.

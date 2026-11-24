@@ -1,5 +1,5 @@
 {
-  "i": 37,
+  "i": 38,
   "changes": [
     {
       "i": 1,
@@ -222,6 +222,12 @@
       "date": "2026-11-23",
       "pr": null,
       "what": "Test shared room classification and dashboard device visibility"
+    },
+    {
+      "i": 38,
+      "date": "2026-11-23",
+      "pr": 168,
+      "what": "Deploy: function libs and module preflight"
     }
   ]
 }

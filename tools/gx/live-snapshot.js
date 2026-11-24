@@ -6,7 +6,7 @@
 //   Get-Content -Raw tools\gx\live-snapshot.js | ssh <gx> "tr -d '\r' | node -" > live.b64
 //
 // Output: one line, base64 of gzip of
-//   { rev, at, nodes: [{ id, type, name, code: { func, initialize, finalize, format, command }, rest,
+//   { rev, at, nodes: [{ id, type, name, code: { func, initialize, finalize, format, command, libs }, rest,
 //                        label, info, site }] }
 // `rest` is a hash of every other property (wires, outputs, settings ...) without the editor position.
 // With `--raw` (node - --raw) each node also carries `restJson`, the stable JSON that was hashed. It contains
@@ -41,6 +41,10 @@ function snapshot(flows, rev, options) {
         if (rest.site && typeof rest.site.name === 'string') rest.site = Object.assign({}, rest.site, { name: rest.site.name.replace(SOURCE_LABEL, '') });
         const code = {};
         for (const field of CODE_FIELDS) if (typeof node[field] === 'string') code[field] = node[field];
+        if (node.type === 'function' && Object.hasOwn(node, 'libs')) {
+            code.libs = stable(node.libs);
+            delete rest.libs;
+        }
         const entry = { id: node.id, type: node.type, name: node.name || node.label || '', code,
             rest: crypto.createHash('sha1').update(stable(rest)).digest('hex').slice(0, 12) };
         if (raw) entry.restJson = stable(rest);
