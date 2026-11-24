@@ -56,7 +56,7 @@ async function deploy(file) {
         const {stampDeployment} = require(path.join(stage,'tools/deploy-version.js'));
         const {snapshot} = require(path.join(stage,'tools/gx/live-snapshot.js'));
         const {collect,judge,format} = require(path.join(stage,'tools/gx/window.js'));
-        const request = require(path.join(stage,'tools/gx/admin-api.js'))({ writeTimeoutMs: 15000 });
+        const request = require(path.join(stage,'tools/gx/admin-api.js'))({ getTimeoutMs: 15000, writeTimeoutMs: 15000 });
         const api = async (method, url, body) => JSON.parse(await request(method, url, JSON.stringify(body), {
             'Content-Type': 'application/json', 'Node-RED-Deployment-Type': 'nodes'
         }));
