@@ -427,6 +427,7 @@ test('local code dry-run leaves missing or unfamiliar Dashboard assets alone', a
         ['tools/deploy-version.js',fs.readFileSync(path.join(__dirname,'..','tools','deploy-version.js'))],
         ['tools/gx/live-snapshot.js',Buffer.from('module.exports = {};')],
         ['tools/gx/window.js',Buffer.from('module.exports = {collect: async () => ({}), judge: () => ({safe:true}), format: () => "SAFE"};')],
+        ['tools/gx/admin-api.js',fs.readFileSync(path.join(__dirname,'..','tools','gx','admin-api.js'))],
         ['tools/gx/dashboard-assets.js',fs.readFileSync(path.join(__dirname,'..','tools','gx','dashboard-assets.js'))]
     ]) files[name] = {data:data.toString('base64'),hash:crypto.createHash('sha256').update(data).digest('hex')};
     const content = {files,patch:{},newNodes:[],recorder:null,label:'d#187 Test',wire:{id:'dv-fn-01',before:[],value:[]}};

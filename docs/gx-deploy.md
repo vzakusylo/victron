@@ -155,7 +155,7 @@ The **PR tests** workflow additionally runs the Node test suite for every opened
 ### 2. Take a snapshot of the live flow
 
 ```powershell
-Get-Content -Raw tools\gx\live-snapshot.js | ssh -i $key $gx "tr -d '\r' | node -" > live.b64
+Get-Content -Raw tools\gx\live-snapshot.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node -" > live.b64
 ```
 
 `tr -d '\r'` removes the carriage returns PowerShell adds. `live.b64` is about 300 KB; keep it out of git (it contains the flow code, no keys).
@@ -183,7 +183,7 @@ node tools\gx\compare.js live.b64 --commit $sha --plan gx-plan.json `
 ```
 
 - `--tools`: the tool scripts that changed since the last deploy (`git diff --stat <deployed sha> $sha -- tools`). The deployed SHA is in the report line `live deployment source`. A tool that is already equal is skipped on the GX.
-- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/node-additions.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
+- To keep the deploy and check scripts on the GX itself (and so in its backup), add them to `--tools` too: `tools/gx/admin-api.js,tools/gx/live-snapshot.js,tools/gx/deploy.js,tools/gx/node-additions.js,tools/gx/verify.js`. They land in `/data/home/nodered/tools/gx/`.
 - `--scopes dashboard` or `--scopes automations`: record the commit for one part only. Default is both. The other part keeps its previous commit on the label (`[UI …; Auto …]`).
 - `--include-trailing`: also deploy nodes that differ only in whitespace at the end. Not needed; it restarts nodes for nothing.
 - Function setup modules (`libs`) are compared and deployed like code. Compare counts the entire list as one value; the GX dry run prints the before/after declarations. Preflight loads the trusted Venus service settings, which must not disable `functionExternalModules`. It checks built-ins and searches from the Node-RED user directory, its legacy `externalModules` directory, and the Venus installation directory. Preflight logs the resolved paths without loading or installing the planned modules.
@@ -199,6 +199,7 @@ The plan is a small JSON file: commit, expected live revision, file hashes, `{ n
 scp -i $key gx-plan.json "${gx}:/tmp/gx-plan.json"
 scp -i $key tools\gx\deploy.js "${gx}:/tmp/gx-deploy.js"
 scp -i $key tools\gx\node-additions.js "${gx}:/tmp/node-additions.js"
+scp -i $key tools\gx\admin-api.js "${gx}:/tmp/admin-api.js"
 ssh -i $key $gx "node /tmp/gx-deploy.js /tmp/gx-plan.json"
 ```
 
@@ -209,7 +210,7 @@ The dry run does every check and prints the code changes, the nodes that will re
 Only with the owner's go-ahead, and not during a DHW cycle (the script refuses anyway).
 
 ```powershell
-ssh -i $key $gx 'DRY=0 node /tmp/gx-deploy.js /tmp/gx-plan.json; result=$?; rm -f /tmp/gx-deploy.js /tmp/gx-plan.json /tmp/node-additions.js; exit $result'
+ssh -i $key $gx 'DRY=0 node /tmp/gx-deploy.js /tmp/gx-plan.json; result=$?; rm -f /tmp/gx-deploy.js /tmp/gx-plan.json /tmp/node-additions.js /tmp/admin-api.js; exit $result'
 ```
 
 Note the `backup` line of the output.
@@ -217,7 +218,7 @@ Note the `backup` line of the output.
 ### 7. Verify
 
 ```powershell
-Get-Content -Raw tools\gx\verify.js | ssh -i $key $gx "tr -d '\r' | node -"
+Get-Content -Raw tools\gx\verify.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node -"
 ```
 
 Expected: the new label with ` [git <sha12>]`, `master true`, `errors since then: none`. `dhw.why` may say `no outdoor value yet` for a while (see [traps](#traps-met-on-14-nov)); run it again after 15–20 minutes and check that the reason is gone or is an ordinary one (tank warm enough, interval). Then look at the Heat Pump and Automations pages: devices CONNECTED, the same master / rule modes as before.
@@ -385,6 +386,8 @@ In this order; the first failure stops it before anything is written.
 6. The heat pump automations are in `HEATING` with no cycle running.
 7. Every planned node exists on both sides and, after the patch, equals the commit in everything except its editor position.
 8. The node count is unchanged.
+
+Admin API GETs time out after 30 seconds per attempt by default (`deploy-local.js` keeps 15 seconds and the performance probe keeps 5). Transient network errors (including timeouts) and HTTP 502, 503 or 504 get up to three attempts total, with waits of 1 and 3 seconds. Each retry logs the method, path, next attempt and cause to stderr. Other HTTP failures stop immediately. `verify.js` and `monitor.js` report HTTP failures rather than interpreting their bodies as missing context. Final deploy errors name the request and actual attempt count, for example `ABORT: GET /context/node/hpa-fn-01/dhw failed after 3 attempts: socket hang up`. HTTP errors report the status without printing headers or response bodies. Writes are never retried; if the commit deploy's `POST /flows` exceeds its 120-second deadline, the script checks the live revision before deciding whether to restore the tools.
 
 With `DRY=0` it then makes the backup, replaces the tool files (owner and mode set first, then a rename; the previous file is saved in the backup directory), posts with the revision and `Node-RED-Deployment-Type: nodes`, waits, reads the flow back and compares the planned fields. If the POST fails and the live revision is unchanged, the previous tool files are put back, so the flow and its tools still match; if the flow state is unknown after a failed POST, the tool files stay and the script says so. A missing or unreadable DHW state stops the deploy.
 

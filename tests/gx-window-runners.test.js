@@ -144,7 +144,7 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
     assert.throws(() => publicSummary(null, null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
 });
 
-test('runner extracts the committed additions helper and uploads it with the dry-run scripts', (t) => {
+test('runner extracts the committed helpers and uploads them with the dry-run scripts', (t) => {
     const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
     if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-runner-add-'));
@@ -179,7 +179,7 @@ test('runner extracts the committed additions helper and uploads it with the dry
             }
         }
         function scp {
-            foreach ($name in 'deploy.js','node-additions.js','plan.json') {
+            foreach ($name in 'deploy.js','node-additions.js','admin-api.js','plan.json') {
                 if (-not ($args | Where-Object { (Split-Path -Leaf $_) -eq $name -and (Test-Path -LiteralPath $_ -PathType Leaf) })) {
                     throw "Missing $name in SCP upload"
                 }
@@ -193,6 +193,8 @@ test('runner extracts the committed additions helper and uploads it with the dry
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.deepEqual(fs.readFileSync(path.join(run, helper)), gitShow(helper));
+    const adminHelper = 'tools/gx/admin-api.js';
+    assert.deepEqual(fs.readFileSync(path.join(run, adminHelper)), gitShow(adminHelper));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).add, [added]);
     assert.match(result.stdout, /DRY RUN - nothing changed/);
 });

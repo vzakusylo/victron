@@ -14,7 +14,7 @@ const TOOLS = [
     'tuya-cloud-sensors.js', 'tuya-cloud-status.js', 'tuya-devices-setup.js',
     'tuya-local-sensors.js', 'victron-secrets.js', 'sensor-history.js',
     'heatpump-decode.js', 'deploy-version.js',
-    'gx/deploy.js', 'gx/live-snapshot.js', 'gx/monitor.js', 'gx/verify.js'
+    'gx/admin-api.js', 'gx/deploy.js', 'gx/live-snapshot.js', 'gx/monitor.js', 'gx/verify.js'
 ];
 const FIXTURE_TOOLS = {
     'send-mail.js': 'send-mail.js'

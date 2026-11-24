@@ -3,7 +3,7 @@
 // Runs ON THE GX (piped over SSH); tools/gx/compare.js on the PC compares it with the repository.
 //
 // Usage (PowerShell 7 on the PC, see docs/gx-deploy.md):
-//   Get-Content -Raw tools\gx\live-snapshot.js | ssh <gx> "tr -d '\r' | node -" > live.b64
+//   Get-Content -Raw tools\gx\live-snapshot.js,tools\gx\admin-api.js | ssh <gx> "tr -d '\r' | node -" > live.b64
 //
 // Output: one line, base64 of gzip of
 //   { rev, at, nodes: [{ id, type, name, code: { func, initialize, finalize, format, command, libs }, rest,
@@ -64,16 +64,11 @@ module.exports = { snapshot, stable, CODE_FIELDS, LAYOUT_FIELDS };
 
 // Piped to `node -` there is no main module (module.id is "[stdin]"); `node -e` and require() must not start the request.
 if (require.main === module || module.id === '[stdin]') {
-    require('http').get({ host: '127.0.0.1', port: Number(process.env.VICTRON_API_PORT) || 1880, path: '/flows', headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => {
-            if (res.statusCode !== 200) { console.error('GET /flows -> ' + res.statusCode); process.exit(1); }
-            const live = JSON.parse(body);
-            console.log(require('zlib').gzipSync(JSON.stringify(snapshot(live.flows, live.rev, {
-                raw: process.argv.includes('--raw'), topology: process.argv.includes('--topology')
-            }))).toString('base64'));
-        });
-    }).on('error', (error) => { console.error(error.message); process.exit(1); });
+    const api = (typeof createAdminApi === 'function' ? createAdminApi : require('./admin-api.js'))();
+    api('GET', '/flows').then((body) => {
+        const live = JSON.parse(body);
+        console.log(require('zlib').gzipSync(JSON.stringify(snapshot(live.flows, live.rev, {
+            raw: process.argv.includes('--raw'), topology: process.argv.includes('--topology')
+        }))).toString('base64'));
+    }).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

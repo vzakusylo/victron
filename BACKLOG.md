@@ -150,6 +150,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#172 D-R8 Admin API read retries (`deploy-api-retry`, d#230 unchanged · i#42): retry transient Node-RED GET failures with a deadline and name the failed request. The fake GX replay verifies recovery and exhaustion, HTTP status handling, and that POST is attempted once with the existing rollback behavior.
+
 #171 H8 (`hp-defrost-detect-review`, d#230 · i#41): fault injection into the 20 Nov defrost replay found false edges on missing/stale DP 116/115 and false recovery from bypassed supply. Keep the defrost active through telemetry gaps, restart the 15-minute quiet period when the exit was unobserved, and validate bypass release and supply recovery.
 
 #170 H1/H6 (`hp-curve-chart-now-band`, d#229 · i#40): show the current curve target, reported DP 125 and supply at the heating curve marker; plot the configured lower and upper bands.

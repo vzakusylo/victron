@@ -1,5 +1,5 @@
 {
-  "i": 41,
+  "i": 42,
   "changes": [
     {
       "i": 1,
@@ -246,6 +246,12 @@
       "date": "2026-11-24",
       "pr": 171,
       "what": "H8 defrost edge replay"
+    },
+    {
+      "i": 42,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Deploy: retry admin API reads and name failed requests"
     }
   ]
 }

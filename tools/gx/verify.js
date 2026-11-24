@@ -2,7 +2,7 @@
 // Read-only health check of the live flow after a deploy. Runs ON THE GX (piped over SSH).
 //
 // Usage (PowerShell 7 on the PC, see docs/gx-deploy.md):
-//   Get-Content -Raw tools\gx\verify.js | ssh <gx> "tr -d '\r' | node -"
+//   Get-Content -Raw tools\gx\verify.js,tools\gx\admin-api.js | ssh <gx> "tr -d '\r' | node -"
 //
 // Prints: the d# tab label and the recorded source commits, the DHW state of the heat pump
 // automations with the reason it is waiting, the master switch, the shower option, and the
@@ -11,18 +11,10 @@
 // taken during a defrost and 15 minutes after it, so "no outdoor value yet" is normal for a while.
 'use strict';
 const fs = require('fs');
-const http = require('http');
+const api = (typeof createAdminApi === 'function' ? createAdminApi : require('./admin-api.js'))();
 
 const LOG = process.env.VICTRON_LOG || '/var/log/node-red-venus/current';
-const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
-const get = (urlPath) => new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: API_PORT, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
-        let text = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => { text += chunk; });
-        res.on('end', () => resolve(text));
-    }).on('error', reject);
-});
+const get = (urlPath) => api('GET', urlPath);
 const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } catch { return null; } };
 
 (async () => {

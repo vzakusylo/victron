@@ -19,10 +19,11 @@ const GX = (name) => path.join(ROOT, 'tools', 'gx', name);
 const TAB_STAMP = /<!-- victron-deployment-source -->\s*([\s\S]*?)\s*<!-- \/victron-deployment-source -->/;
 
 function gitShow(file) { return execFileSync('git', ['-C', ROOT, 'show', 'HEAD:' + file], { maxBuffer: 1 << 27 }); }
-function run(file, args, env, cwd = ROOT) {
+function run(file, args, env, cwd = ROOT, { input, ...options } = {}) {
     return new Promise((resolve) => {
-        execFile(process.execPath, [file].concat(args || []), { cwd, env: Object.assign({}, process.env, env), maxBuffer: 1 << 27 },
+        const child = execFile(process.execPath, [file].concat(args || []), { cwd, env: Object.assign({}, process.env, env), maxBuffer: 1 << 27, ...options },
             (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout, stderr }));
+        if (input !== undefined) child.stdin.end(input);
     });
 }
 function listen(handler) {
@@ -263,7 +264,7 @@ test('verified dry-run code replacement plans against a fake GX only when it mat
             fs.mkdirSync(path.dirname(runner), { recursive: true });
             fs.copyFileSync(path.join(ROOT, 'scripts', 'gx-deploy.ps1'), runner);
             fs.mkdirSync(path.join(cwd, 'tools', 'gx'), { recursive: true });
-            for (const script of ['compare.js', 'node-additions.js', 'deploy.js', 'window.js', 'verify.js', 'live-snapshot.js']) {
+            for (const script of ['compare.js', 'node-additions.js', 'admin-api.js', 'deploy.js', 'window.js', 'verify.js', 'live-snapshot.js']) {
                 fs.copyFileSync(GX(script), path.join(cwd, 'tools', 'gx', script));
             }
             const summary = path.join(cwd, `${name}.md`);
@@ -379,19 +380,23 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const logFile = path.join(home, 'node-red.log');
     fs.writeFileSync(logFile, '@400000006af89ae01f481074 14 Nov 18:31:02 - [info] Started flows\n');
 
-    const state = { rev: 'rev-1', flows: JSON.parse(original), posts: [], failNextPost: false,
+    const state = { rev: 'rev-1', flows: JSON.parse(original), posts: [], failNextPost: false, dhwReplies: null, dhwReads: 0,
+        failNextSnapshot: true,
         dhw: { state: 'HEATING', run: null, why: 'tank warm', outAvg: 1 }, now: Date.now() };
     const context = (value) => (value === undefined ? { msg: '(undefined)', format: 'undefined' } : { msg: JSON.stringify(value), format: 'Object' });
     const api = await listen((req, res) => {
         const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
-        if (req.method === 'GET' && req.url === '/flows') return send(200, { rev: state.rev, flows: state.flows });
+        if (req.method === 'GET' && req.url === '/flows') {
+            if (state.failNextSnapshot) { state.failNextSnapshot = false; return send(503, {}); }
+            return send(200, { rev: state.rev, flows: state.flows });
+        }
         if (req.method === 'POST' && req.url === '/flows') {
             let body = '';
             req.on('data', (chunk) => { body += chunk; });
             req.on('end', () => {
                 const payload = JSON.parse(body);
                 state.posts.push({ type: req.headers['node-red-deployment-type'], rev: payload.rev });
-                if (state.failNextPost) { state.failNextPost = false; return send(500, { message: 'simulated failure' }); }
+                if (state.failNextPost) { state.failNextPost = false; return req.socket.destroy(); }
                 if (payload.rev !== state.rev) return send(409, { code: 'version_mismatch' });
                 state.flows = payload.flows;
                 state.rev = crypto.createHash('sha256').update(body).digest('hex');
@@ -401,6 +406,13 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
         }
         const node = /^\/context\/node\/hpa-fn-01\/(\w+)$/.exec(req.url);
         if (node) {
+            if (node[1] === 'dhw' && state.dhwReplies) {
+                state.dhwReads++;
+                const reply = state.dhwReplies.shift();
+                if (reply === 'hangup') return req.socket.destroy();
+                if (reply === 'stall') return;
+                if (reply) return send(reply, { diagnostic: 'do-not-log-this-body' });
+            }
             return send(200, context({ dhw: state.dhw, seqs: {}, queue: [], flag: { on: false },
                 settings: { master: true, modes: { dhw: 'live', heat: 'live' }, defrostStarts: [] } }[node[1]]));
         }
@@ -428,8 +440,10 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const leftovers = () => fs.readdirSync(home).filter((name) => name.startsWith('.gx-deploy-stage.'));
 
     // ---- step 2: snapshot (read-only), as piped over SSH ---------------------------------------------------
-    const snap = await run(GX('live-snapshot.js'), ['--topology'], env);
+    const snapshotScript = ['live-snapshot.js', 'admin-api.js'].map(name => fs.readFileSync(GX(name), 'utf8')).join('\n');
+    const snap = await run('-', ['--topology'], env, ROOT, { input: snapshotScript });
     assert.equal(snap.code, 0, snap.stderr);
+    assert.match(snap.stderr, /^api retry\s+: GET \/flows \(attempt 2\/3: HTTP 503\)$/m);
     fs.writeFileSync(file('live.b64'), snap.stdout);
     const decoded = JSON.parse(zlib.gunzipSync(Buffer.from(snap.stdout.trim(), 'base64')).toString('utf8'));
     assert.equal(decoded.rev, 'rev-1');
@@ -439,7 +453,7 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     const gateTool = 'tools/camera-mail-gate.js';
     // The deploy fixture serves committed bytes; exercise the new tool after the first commit.
     const committedGate = execFileSync('git', ['-C', ROOT, 'ls-tree', 'HEAD', '--', gateTool], { encoding: 'utf8' });
-    const tools = 'tools/tuya-local-sensors.js,tools/gx/verify.js,tools/send-mail.js' + (committedGate ? `,${gateTool}` : '');
+    const tools = 'tools/tuya-local-sensors.js,tools/gx/verify.js,tools/gx/admin-api.js,tools/send-mail.js' + (committedGate ? `,${gateTool}` : '');
     const compareArgs = [file('live.b64'), '--commit', sha, '--plan', file('plan.json'), '--summary', file('summary.json'), '--tools', tools];
     const refused = await run(GX('compare.js'), compareArgs);
     assert.equal(refused.code, 1);
@@ -461,6 +475,40 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.deepEqual([plan.sha, plan.expectRev], [sha, 'rev-1']);
     assert.equal(plan.tools['tools/tuya-local-sensors.js'], crypto.createHash('sha256').update(gitShow('tools/tuya-local-sensors.js')).digest('hex'));
 
+    const dhwPath = '/context/node/hpa-fn-01/dhw';
+    const dryWithReplies = async (replies, extraEnv) => {
+        state.dhwReads = 0;
+        state.dhwReplies = replies;
+        try {
+            return await run(GX('deploy.js'), [file('plan.json')], { ...env, ...extraEnv }, ROOT, { timeout: 20000 });
+        } finally {
+            state.dhwReplies = null;
+        }
+    };
+    const retryLines = out => out.split(/\r?\n/).filter(line => line.startsWith('api retry'));
+    await t.test('GET /dhw recovers after one socket hang up', async () => {
+        const result = await dryWithReplies(['hangup']);
+        assert.equal(result.code, 0, result.stderr);
+        assert.equal(state.dhwReads, 2);
+        assert.deepEqual(retryLines(result.stderr), [`api retry      : GET ${dhwPath} (attempt 2/3: socket hang up)`]);
+    });
+    await t.test('GET /dhw abort names the request after three socket hang ups', async () => {
+        const result = await dryWithReplies(['hangup', 'hangup', 'hangup']);
+        assert.equal(result.code, 1);
+        assert.ok(result.stderr.includes(`ABORT: GET ${dhwPath} failed after 3 attempts: socket hang up`), result.stderr);
+        assert.equal(state.dhwReads, 3);
+    });
+    await t.test('GET /dhw recovers from HTTP 503 but does not retry HTTP 404', async () => {
+        const transient = await dryWithReplies([503]);
+        const transientReads = state.dhwReads;
+        const permanent = await dryWithReplies([404]);
+        assert.deepEqual([transient.code, transientReads, permanent.code, state.dhwReads], [0, 2, 1, 1],
+            transient.stderr + permanent.stderr);
+        assert.deepEqual(retryLines(transient.stderr), [`api retry      : GET ${dhwPath} (attempt 2/3: HTTP 503)`]);
+        assert.deepEqual(retryLines(permanent.stderr), []);
+        assert.ok(permanent.stderr.includes(`ABORT: GET ${dhwPath} failed after 1 attempt: HTTP 404`), permanent.stderr);
+        assert.doesNotMatch(transient.stderr + permanent.stderr, /do-not-log-this-body/);
+    });
     // ---- step 5: window ------------------------------------------------------------------------------------
     const safe = await run(GX('window.js'), ['--for', 'stop'], env);
     assert.equal(safe.code, 0, safe.stdout + safe.stderr);
@@ -509,17 +557,27 @@ test('GX deploy end to end: every step of the runbook against a fake GX', { skip
     assert.deepEqual([state.posts.length, backups().length], [0, 0], 'nothing posted, no backup made by refused or dry runs');
 
     // ---- refused: the POST fails; the tool files are put back ----------------------------------------------
-    state.failNextPost = true;
-    const failed = await run(GX('deploy.js'), [file('plan.json')], Object.assign({ DRY: '0' }, env));
-    assert.equal(failed.code, 1);
-    assert.match(failed.stderr, /tool restored\s+: .*tuya-local-sensors\.js/);
-    assert.match(failed.stderr, /ABORT: POST \/flows -> 500/);
-    assert.equal(state.posts.length, 1);
+    await t.test('POST /flows socket hang up is named and never retried', async () => {
+        state.failNextPost = true;
+        const failed = await run(GX('deploy.js'), [file('plan.json')], { ...env, DRY: '0' });
+        assert.equal(failed.code, 1);
+        assert.equal(state.posts.length, 1);
+        assert.match(failed.stderr, /tool restored\s+: .*tuya-local-sensors\.js/);
+        assert.doesNotMatch(failed.stderr, /api retry\s+: POST/);
+        assert.match(failed.stderr, /ABORT: POST \/flows failed after 1 attempt: socket hang up/);
+    });
     assert.equal(JSON.stringify(state.flows), original);
     assert.equal(fs.readFileSync(toolFile, 'utf8'), oldTool, 'the previous tool file is back after a rejected POST');
     assert.ok(!fs.existsSync(path.join(home, 'tools', 'gx', 'verify.js')), 'a tool that was new is removed again');
     assert.deepEqual(leftovers(), []);
     fs.rmSync(path.join(home, '.node-red', backups()[0]), { recursive: true });
+
+    await t.test('GET /dhw times out and retries when the server never answers', async () => {
+        const result = await dryWithReplies(['stall'], { VICTRON_API_GET_TIMEOUT_MS: '500' });
+        assert.equal(result.code, 0, result.stderr);
+        assert.equal(state.dhwReads, 2);
+        assert.deepEqual(retryLines(result.stderr), [`api retry      : GET ${dhwPath} (attempt 2/3: timeout after 500 ms)`]);
+    });
 
     // ---- step 7: deploy ------------------------------------------------------------------------------------
     const done = await run(GX('deploy.js'), [file('plan.json')], Object.assign({ DRY: '0' }, env));

@@ -22,16 +22,15 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { isBuiltin, builtinModules } = require('module');
 const isCoreModule = isBuiltin || (name => builtinModules.includes(name.replace(/^node:/, '')));
 const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
+const api = require('./admin-api.js')();
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
 // Overridden only by the end-to-end test (tests/gx-deploy-e2e.test.js): a local admin API and file server.
-const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
 const RAW_BASE = process.env.VICTRON_RAW_BASE || 'https://raw.githubusercontent.com';
 const NODE_RED_DIR = path.join(HOME, '.node-red');
 // Venus OS service settings, including settings-user.js, as documented in scripts/SECRETS.md.
@@ -82,22 +81,6 @@ function preflightModules(nodes) {
         }
         console.log('module ' + name + ' : ' + resolved);
     }
-}
-
-function api(method, urlPath, body, headers) {
-    return new Promise((resolve, reject) => {
-        const request = http.request({ host: '127.0.0.1', port: API_PORT, path: urlPath, method,
-            headers: Object.assign({ 'Node-RED-API-Version': 'v2' }, headers || {}) }, (res) => {
-            let text = '';
-            res.setEncoding('utf8');
-            res.on('data', (chunk) => { text += chunk; });
-            res.on('end', () => (res.statusCode >= 200 && res.statusCode < 300 ? resolve(text)
-                : reject(new Error(method + ' ' + urlPath + ' -> ' + res.statusCode + ' ' + text.slice(0, 300)))));
-        });
-        request.on('error', reject);
-        if (body) request.write(body);
-        request.end();
-    });
 }
 
 function readPlan(file) {
@@ -305,7 +288,8 @@ function readPlan(file) {
             // Put the tool files back only if the flow really was not replaced: a transport error
             // on the POST can come after Node-RED accepted it.
             let liveRev = null;
-            try { liveRev = JSON.parse(await api('GET', '/flows')).rev; } catch { /* unknown */ }
+            try { liveRev = JSON.parse(await api('GET', '/flows')).rev; }
+            catch (readError) { console.error('Cannot determine flow state: ' + readError.message); }
             if (liveRev === plan.expectRev) restoreTools();
             else console.error('Flow state after the failed step is unknown (rev ' + liveRev + '); tool files left as replaced. Check the flow and roll back from ' + backup);
             throw error;

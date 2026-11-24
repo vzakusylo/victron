@@ -142,7 +142,7 @@ git fetch; pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $k
 `STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2. Levels and limits: [gx-deploy.md](gx-deploy.md#monitoring). Is this a good moment to deploy or to stop Node-RED:
 
 ```powershell
-Get-Content -Raw tools\gx\window.js | ssh -i $key $gx "tr -d '\r' | node - --for stop"
+Get-Content -Raw tools\gx\window.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node - --for stop"
 ```
 
 ## Operation D: access secrets
@@ -167,7 +167,7 @@ The two Tailscale values come from the admin console (Settings → Trust credent
 | [`scripts/setup-ci-access.ps1`](../scripts/setup-ci-access.ps1) | Operation D: CI key, its line on the GX, five `gh secret set` without printing a value | Credentials are created by the owner, and never typed into a chat or a file |
 | [`scripts/sync-secrets.ps1`](../scripts/sync-secrets.ps1) | GX → GitHub: collects the 11 private files and uploads them | GitHub must hold what the GX runs before an install |
 
-**Scripts that run on the GX** — started by the runners; each can also be piped by hand (`Get-Content -Raw <file> | ssh … "tr -d '\r' | node -"`). Since d#181 they are also installed in `/data/home/nodered/tools/gx/`.
+**Scripts that run on the GX** — started by the runners; read-only admin scripts can also be piped by hand with their shared helper (`Get-Content -Raw <file>,tools\gx\admin-api.js | ssh … "tr -d '\r' | node -"`). Since d#181 they are also installed in `/data/home/nodered/tools/gx/`.
 
 | Script | What it does | Why |
 |---|---|---|

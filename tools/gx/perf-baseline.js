@@ -37,29 +37,12 @@ function descendants(processes, root) {
 
 async function sampleRemote(durationS, intervalS) {
     const fs = require('node:fs');
-    const http = require('node:http');
     const { execFileSync } = require('node:child_process');
     const { performance } = require('node:perf_hooks');
     const hz = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim());
     if (!Number.isSafeInteger(hz) || hz <= 0) throw new Error('Cannot determine Linux clock tick frequency');
-    const port = Number(process.env.VICTRON_API_PORT) || 1880;
-    function probe() {
-        return new Promise((resolve, reject) => {
-            const start = performance.now();
-            const req = http.get({ host: '127.0.0.1', port, path: '/flows', headers: { 'Node-RED-API-Version': 'v2' } }, res => {
-                const ms = performance.now() - start;
-                res.on('error', reject);
-                res.resume();
-                res.on('end', () => {
-                    if (res.statusCode !== 200) reject(new Error(`Node-RED admin GET /flows returned ${res.statusCode}`));
-                    else resolve(ms);
-                });
-            });
-            const timer = setTimeout(() => req.destroy(new Error('Node-RED admin request timed out')), 5000);
-            req.on('close', () => clearTimeout(timer));
-            req.on('error', reject);
-        });
-    }
+    const api = createAdminApi({ getTimeoutMs: 5000, measureTtfb: true });
+    const probe = () => api('GET', '/flows');
     const samples = [];
     const started = performance.now();
     let nodeRed;
@@ -128,7 +111,8 @@ function collect(durationMin, env, exec = spawnSync) {
     if (!Number.isSafeInteger(durationMin) || durationMin < 1 || durationMin > 120) {
         throw new Error('Duration must be a whole number of minutes from 1 to 120');
     }
-    const script = `${parseStat}\n${descendants}\n${sampleRemote}\n` +
+    const createAdminApi = require('./admin-api.js');
+    const script = `${parseStat}\n${descendants}\n${createAdminApi}\n${sampleRemote}\n` +
         `sampleRemote(${durationS}, ${INTERVAL_S}).then(r => console.log(JSON.stringify(r)), err => {\n` +
         `console.error(err.message); process.exitCode = 1;\n});\n`;
     const result = exec('ssh', ['-T', '-i', key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
@@ -136,6 +120,7 @@ function collect(durationMin, env, exec = spawnSync) {
     { input: script, encoding: 'utf8', timeout: (durationS + 30) * 1000, maxBuffer: 8 * 1024 * 1024 });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`GX sampler failed: ${String(result.stderr || result.signal).trim()}`);
+    if (result.stderr) process.stderr.write(result.stderr);
     const data = parseSamples(result.stdout);
     if (data.samples.length !== durationS / INTERVAL_S + 1) throw new Error('Incomplete GX baseline');
     return { summary: summarize(data), ...data };

@@ -39,6 +39,7 @@ function ssh(command, input) {
     const options = sshKey ? ['-i', sshKey, '-o', 'IdentitiesOnly=yes'] : [];
     const result = spawnSync('ssh', [...options, sshHost, command], { input, encoding: 'utf8', maxBuffer: 1 << 28 });
     if (result.status !== 0) throw new Error('ssh ' + sshHost + ' "' + command + '": ' + (result.stderr || result.error || '').toString().trim());
+    if (result.stderr) process.stderr.write(result.stderr);
     return result.stdout;
 }
 function getJson(url) {
@@ -84,7 +85,9 @@ async function main() {
     const versionsFile = path.join(backupDir, 'versions.json');
 
     // 1. flow: image (same live-snapshot.js as for the real GX) against the backup
-    const imageSnap = decodeSnapshot(ssh('tr -d "\\r" | node -', fs.readFileSync(path.join(__dirname, '..', 'gx', 'live-snapshot.js'), 'utf8')));
+    const snapshotScript = ['live-snapshot.js', 'admin-api.js']
+        .map(file => fs.readFileSync(path.join(__dirname, '..', 'gx', file), 'utf8')).join('\n');
+    const imageSnap = decodeSnapshot(ssh('tr -d "\\r" | node -', snapshotScript));
     const backupFlows = JSON.parse(fs.readFileSync(flowsFile, 'utf8'));
     const backupSnap = snapshot(backupFlows, undefined, { raw: true });
     const sanitizeReport = JSON.parse(fs.readFileSync(path.join(backupDir, 'sanitize-report.json'), 'utf8'));
