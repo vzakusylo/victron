@@ -1,5 +1,5 @@
 {
-  "i": 46,
+  "i": 47,
   "changes": [
     {
       "i": 1,
@@ -276,6 +276,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "R6 handoff docs"
+    },
+    {
+      "i": 47,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Deploy: no keep-alive admin requests; rev-guarded POST retry"
     }
   ]
 }

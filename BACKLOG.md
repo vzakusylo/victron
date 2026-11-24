@@ -30,6 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
+| — | `deploy-no-keepalive` | D-R11 Admin API keep-alive EPIPE | In progress: close each GX admin connection and guard a single whole-flow POST retry by live revision. |
 
 ## 2. Deploy
 

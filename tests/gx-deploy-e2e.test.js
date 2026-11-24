@@ -12,14 +12,15 @@ const { gunzipSync } = require('node:zlib');
 const { prepared } = require('../tools/gx/whole-flow.js');
 const { prepareFlows } = require('../tools/victron-secrets.js');
 const { stampDeployment } = require('../tools/deploy-version.js');
+const createAdminApi = require('../tools/gx/admin-api.js');
 const { ROOT } = require('./harness');
 
 const GX = path.join(ROOT, 'tools', 'gx');
 const run = promisify(execFile);
 const curlAvailable = spawnSync('curl', ['--version']).status === 0;
 const hash = data => createHash('sha256').update(data).digest('hex');
-const listen = async (t, handler) => {
-    const server = http.createServer(handler);
+const listen = async (t, handler, options) => {
+    const server = http.createServer(options, handler);
     await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise(resolve => server.close(resolve)));
     return server.address().port;
@@ -27,6 +28,25 @@ const listen = async (t, handler) => {
 const resultOf = promise => promise.catch(error => {
     assert.equal(typeof error.code, 'number', String(error));
     return error;
+});
+
+test('GX admin API opens a fresh connection for a 1 MiB POST after the server idle timeout', async t => {
+    const sockets = new Set(), connections = [], sizes = [];
+    const port = await listen(t, async (req, res) => {
+        sockets.add(req.socket);
+        connections.push(req.headers.connection);
+        let size = 0;
+        for await (const chunk of req) size += chunk.length;
+        sizes.push(size);
+        res.end('{}');
+    }, { keepAliveTimeout: 100, keepAliveTimeoutBuffer: 0 });
+    const api = createAdminApi({ port });
+    await api('GET', '/flows');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(await api('POST', '/flows', Buffer.alloc(1024 * 1024)), '{}');
+    assert.deepEqual(sizes, [0, 1024 * 1024]);
+    assert.deepEqual(connections, ['close', 'close']);
+    assert.equal(sockets.size, 2);
 });
 
 function repoFlows() {
@@ -89,8 +109,24 @@ async function harness(t, opts = {}) {
             const payload = JSON.parse(Buffer.concat(body));
             posts.push({ payload, headers: req.headers });
             if (opts.conflict || payload.rev !== rev) { res.writeHead(409).end(); return; }
+            if (opts.postStatus) { res.writeHead(opts.postStatus).end(); return; }
+            if (opts.postReset === 'during-response') {
+                res.writeHead(200).flushHeaders();
+                setTimeout(() => req.socket.destroy(), 100);
+                return;
+            }
+            if (opts.postReset === 'always' || (opts.postReset === 'before-apply' && posts.length === 1)) {
+                req.socket.destroy();
+                return;
+            }
             rev = `rev-${posts.length}`;
             flows = payload.flows;
+            if (opts.postReset === 'after-apply' && posts.length === 1) { req.socket.destroy(); return; }
+            if (opts.postReset === 'other-flow' && posts.length === 1) {
+                flows = original.map(node => node.id === 'hpa-fn-01' ? { ...node, func: 'return null;' } : node);
+                req.socket.destroy();
+                return;
+            }
             res.end(JSON.stringify({ rev }));
         } else if (req.url === '/flows') {
             const sent = opts.verifyFail && posts.length === 1 ? flows.map(node => node.id === 'new'
@@ -179,6 +215,60 @@ test('drift reports only ID and changed field, writes no backup, and the explici
 test('409 is not retried or rolled back', { skip: !curlAvailable }, async t => {
     const h = await harness(t, { conflict: true });
     assert.match((await h.deploy()).stderr, /^ABORT: the live flow changed during the deploy\s*$/);
+    assert.equal(h.posts.length, 1);
+});
+
+test('a reset with unchanged live revision retries the identical POST once', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'before-apply' });
+    const result = await h.deploy();
+    assert.match(result.stderr, /api retry +: POST \/flows \(live rev unchanged, attempt 2\/2: socket hang up\)/);
+    assert.match(result.stdout, /DEPLOYED +: d#2 GX/, result.stderr);
+    assert.equal(h.posts.length, 2);
+    assert.deepEqual(h.posts[0].payload, h.posts[1].payload);
+});
+
+test('two resets with unchanged live revision exhaust the retry', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'always' });
+    assert.match((await h.deploy()).stderr, /ABORT: POST \/flows failed after 2 attempts: socket hang up/);
+    assert.equal(h.posts.length, 2);
+});
+
+test('a reset after applying the target verifies the changed revision without reposting', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'after-apply' });
+    const result = await h.deploy();
+    assert.match(result.stdout, /DEPLOYED +: d#2 GX.*\(rev rev-1\)/, result.stderr);
+    assert.doesNotMatch(result.stderr, /api retry/);
+    assert.equal(h.posts.length, 1);
+});
+
+test('a reset with an unrelated revision goes to verification without retry or rollback', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'other-flow' });
+    const result = await h.deploy();
+    assert.match(result.stderr, /ROLLBACK NOT ATTEMPTED: no confirmed deployment revision/);
+    assert.match(result.stderr, /VERIFY FAILED: live flow differs from the stamped target/);
+    assert.doesNotMatch(result.stderr, /api retry/);
+    assert.equal(h.posts.length, 1);
+});
+
+test('a reset after applying the target still allows rollback if health verification fails', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'after-apply', healthFail: true });
+    const result = await h.deploy();
+    assert.match(result.stderr, /rollback +: restored the original flow/);
+    assert.match(result.stderr, /VERIFY FAILED: GET .* HTTP 500/);
+    assert.doesNotMatch(result.stderr, /api retry/);
+    assert.equal(h.posts.length, 2);
+    assert.deepEqual(h.posts[1].payload, { rev: 'rev-1', flows: h.original });
+});
+
+test('a reset after response headers does not retry the POST', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postReset: 'during-response' });
+    assert.match((await h.deploy()).stderr, /^ABORT: POST \/flows failed after 1 attempt: aborted\s*$/);
+    assert.equal(h.posts.length, 1);
+});
+
+test('a POST HTTP 500 is not retried even if the revision is unchanged', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { postStatus: 500 });
+    assert.match((await h.deploy()).stderr, /^ABORT: POST \/flows failed after 1 attempt: HTTP 500\s*$/);
     assert.equal(h.posts.length, 1);
 });
 

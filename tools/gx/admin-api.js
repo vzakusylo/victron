@@ -18,10 +18,13 @@ function createAdminApi({
         try {
             return await new Promise((resolve, reject) => {
                 const start = performance.now();
+                let responseStarted = false;
                 const request = http.request({
                     host: '127.0.0.1', port, path: urlPath, method,
+                    agent: false,
                     headers: { 'Node-RED-API-Version': 'v2', ...headers }
                 }, (res) => {
+                    responseStarted = true;
                     res.on('error', reject);
                     if (res.statusCode < 200 || res.statusCode >= 300) {
                         reject(Object.assign(new Error(`HTTP ${res.statusCode}`), { status: res.statusCode }));
@@ -37,7 +40,8 @@ function createAdminApi({
                     }
                     res.on('end', () => resolve(measureTtfb ? ttfb : text));
                 });
-                request.on('error', reject);
+                request.on('information', () => { responseStarted = true; });
+                request.on('error', error => reject(Object.assign(error, { beforeResponse: !responseStarted })));
                 timer = setTimeout(() => {
                     const error = Object.assign(new Error(`timeout after ${timeoutMs} ms`), { code: 'ETIMEDOUT' });
                     reject(error);
@@ -61,7 +65,7 @@ function createAdminApi({
                 const transient = transientCodes.has(error.code) || transientStatuses.has(error.status);
                 if (!transient || attempt === maxAttempts) {
                     throw Object.assign(new Error(`${method} ${urlPath} failed after ${attempt} attempt${attempt === 1 ? '' : 's'}: ${detail}`),
-                        { status: error.status });
+                        { cause: error, status: error.status });
                 }
                 console.error(`api retry      : ${method} ${urlPath} (attempt ${attempt + 1}/${maxAttempts}: ${detail})`);
                 await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
