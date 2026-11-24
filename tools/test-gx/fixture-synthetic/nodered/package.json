@@ -7,7 +7,7 @@
     "victron-vrm-api": "0.2.13",
     "node-red-dashboard": "3.6.6",
     "node-red-contrib-tuya-smart-device": "5.4.0",
-    "dbus-native-victron": "0.4.6",
+    "dbus-native-victron": "0.4.13",
     "tuyapi": "7.7.1"
   },
   "testGx": {

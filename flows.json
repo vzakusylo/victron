@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#235 Day / Night Grid Control",
+    "label": "d#236 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -1710,7 +1710,7 @@
       {
         "var": "dbus",
         "module": "dbus-native-victron",
-        "version": "0.4.6"
+        "version": "0.4.13"
       },
       {
         "var": "gridClock",
@@ -3821,7 +3821,7 @@
       {
         "var": "dbus",
         "module": "dbus-native-victron",
-        "version": "0.4.6"
+        "version": "0.4.13"
       }
     ],
     "x": 668,

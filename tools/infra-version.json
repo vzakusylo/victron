@@ -1,5 +1,5 @@
 {
-  "i": 50,
+  "i": 51,
   "changes": [
     {
       "i": 1,
@@ -300,6 +300,12 @@
       "date": "2026-11-24",
       "pr": 180,
       "what": "Pin dbus-native-victron"
+    },
+    {
+      "i": 51,
+      "date": "2026-11-24",
+      "pr": 181,
+      "what": "Match the D-Bus pin to the Node-RED user directory"
     }
   ]
 }
