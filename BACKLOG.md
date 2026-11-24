@@ -30,7 +30,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| — | `adopt-gx-inputs` | D-R10 Adopt live GX input settings | In progress: offline replay of blocked automatic deploy 45406703938 |
 
 ## 2. Deploy
 
@@ -150,6 +149,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#174 D-R10 Adopt live GX input settings (`adopt-gx-inputs`, d#231 · i#44): adopt the six input names and periodic reporting settings. Both deploy gates accept drift already matching the target and ignore layout order. Offline replay of run 45406703938 accepts 12 fields and reports no changes for the six inputs; no live GX access.
 
 #173 D-R9 Whole-flow deploy (`deploy-whole-flow`, d#230 unchanged · i#43): replace the per-node opt-ins (D1, D-R2–D-R6 and P-D1) with a recorded Git baseline drift gate and revision-guarded whole-flow deployment. Use deterministic Tuya file-secret references for both commits. Fake API tests and an isolated Node-RED replay cover d#217 → d#230; no live GX access.
 
