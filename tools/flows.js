@@ -12,11 +12,13 @@
 //   "NN Name.js"       -> function node "Name", property `func`
 //   "NN Name.init.js"  -> function node "Name", property `initialize` (On Start)
 //   "NN Name.html"     -> ui_template "Name" (or "Name" without a trailing " page"), property `format`
+// A leading `// #libs <JSON array>` in "NN Name.js" sets the Function node's `libs` without changing its code.
 // Sources are embedded with LF line endings and without trailing blank lines, whatever the
 // checkout uses, so the same source always gives the same flows.json.
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { isDeepStrictEqual } = require('node:util');
 const { expand, includesOf } = require('./includes');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -40,6 +42,15 @@ function listSources() {
         const m = file.match(SOURCE_RE);
         if (!m) return null;
         const kind = m[3];
+        let text = normalize(fs.readFileSync(path.join(ROOT, file), 'utf8'));
+        let libs;
+        const declaration = kind === '.js' && /^\/\/ #libs\b([^\n]*)\n?/.exec(text);
+        if (declaration) {
+            try { libs = JSON.parse(declaration[1]); }
+            catch (error) { throw new Error(file + ': invalid #libs JSON: ' + error.message, { cause: error }); }
+            if (!Array.isArray(libs)) throw new Error(file + ': #libs must be a JSON array.');
+            text = text.slice(declaration[0].length);
+        }
         return {
             file,
             number: m[1],
@@ -47,7 +58,8 @@ function listSources() {
             type: kind === '.html' ? 'ui_template' : 'function',
             prop: kind === '.html' ? 'format' : (kind === '.init.js' ? 'initialize' : 'func'),
             // `// #include lib/…js` lines are replaced by the file's text (tools/includes.js)
-            text: normalize(expand(fs.readFileSync(path.join(ROOT, file), 'utf8'), ROOT))
+            text: normalize(expand(text, ROOT)),
+            libs
         };
     }).filter(Boolean).sort((a, b) => a.file.localeCompare(b.file));
 }
@@ -98,10 +110,14 @@ function cmdSync(args) {
             continue;
         }
         for (const node of nodes) {
-            if (node[source.prop] === source.text) continue;
-            node[source.prop] = source.text;
+            const codeChanged = node[source.prop] !== source.text;
+            const libsChanged = source.libs !== undefined && !isDeepStrictEqual(node.libs, source.libs);
+            if (!codeChanged && !libsChanged) continue;
+            if (codeChanged) node[source.prop] = source.text;
+            if (libsChanged) node.libs = source.libs;
             changed++;
-            console.log('SYNCED    ' + source.file + ' -> ' + node.name + (source.prop === 'func' || source.prop === 'format' ? '' : ' (' + source.prop + ')'));
+            const fields = [codeChanged && source.prop, libsChanged && 'libs'].filter(Boolean).join(', ');
+            console.log('SYNCED    ' + source.file + ' -> ' + node.name + ' (' + fields + ')');
         }
     }
     if (!changed) {
@@ -143,6 +159,9 @@ function cmdCheck() {
         if (!nodes.length) problems.push(source.file + ': no ' + source.type + ' node named "' + source.name + '"');
         for (const node of nodes) {
             if (node[source.prop] !== source.text) problems.push(source.file + ': differs from node "' + node.name + '" (' + source.prop + ') - run: node tools/flows.js sync');
+            if (source.libs !== undefined && !isDeepStrictEqual(node.libs, source.libs)) {
+                problems.push(source.file + ': differs from node "' + node.name + '" (libs) - run: node tools/flows.js sync');
+            }
         }
     }
 

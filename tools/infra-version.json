@@ -1,5 +1,5 @@
 {
-  "i": 49,
+  "i": 50,
   "changes": [
     {
       "i": 1,
@@ -294,6 +294,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Restore queued heating curve slider"
+    },
+    {
+      "i": 50,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Pin dbus-native-victron"
     }
   ]
 }

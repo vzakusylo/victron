@@ -1,3 +1,4 @@
+// #libs [{"var":"dbus","module":"dbus-native-victron","version":"0.4.6"},{"var":"gridClock","module":"process"}]
 // ==========================
 // BATTERY + GRID CONTROLLER
 // ==========================

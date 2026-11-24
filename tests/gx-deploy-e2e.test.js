@@ -71,6 +71,11 @@ async function harness(t, opts = {}) {
     if (opts.module) {
         for (const flows of [base, target]) flows[4].libs[0].module = opts.module;
     }
+    if (opts.modulePin) {
+        for (const flows of [base, target]) {
+            flows[4].libs[0] = { module: 'gx-test-pinned', var: 'pinned', version: '0.4.6' };
+        }
+    }
     const original = prepared(base, baseSha, prepareFlows, stampDeployment);
     original[4].x = 412;
     original[4].y = 23;
@@ -141,6 +146,12 @@ async function harness(t, opts = {}) {
     });
     const nodeRedDir = path.join(home, '.node-red');
     fs.mkdirSync(nodeRedDir);
+    if (opts.modulePin) {
+        const installed = path.join(nodeRedDir, 'externalModules', 'node_modules', 'gx-test-pinned');
+        fs.mkdirSync(installed, { recursive: true });
+        fs.writeFileSync(path.join(installed, 'package.json'), JSON.stringify({ name: 'gx-test-pinned', version: opts.modulePin }));
+        fs.writeFileSync(path.join(installed, 'index.js'), 'module.exports = {};');
+    }
     fs.writeFileSync(path.join(nodeRedDir, 'flows.json'), JSON.stringify(original));
     fs.writeFileSync(path.join(nodeRedDir, 'flows_cred.json'), '{"fake":"credentials"}');
     const settings = path.join(home, 'settings.js');
@@ -292,6 +303,18 @@ test('module preflight checks even unchanged target functions and DHW still bloc
     const blocked = await harness(t, { dhw: 'DHW' });
     assert.match((await blocked.deploy()).stderr, /A DHW cycle is running/);
     assert.equal(blocked.posts.length, 0);
+});
+
+test('module preflight accepts the exact installed pin and blocks a version mismatch before POST', { skip: !curlAvailable }, async t => {
+    const matching = await harness(t, { modulePin: '0.4.6' });
+    const dry = await matching.deploy('1');
+    assert.match(dry.stdout, /module gx-test-pinned@0\.4\.6 : /, dry.stderr);
+    assert.match(dry.stdout, /DRY RUN - nothing changed/);
+    const mismatch = await harness(t, { modulePin: '0.4.5' });
+    const result = await mismatch.deploy();
+    assert.match(result.stderr, /hpa-fn-01\.libs: expected gx-test-pinned@0\.4\.6, found 0\.4\.5/);
+    assert.equal(mismatch.posts.length, 0);
+    assert.equal(fs.readdirSync(mismatch.nodeRedDir).filter(file => file.startsWith('backup-')).length, 0);
 });
 
 test('exhausted DHW read retries name the request and prevent all writes', { skip: !curlAvailable }, async t => {

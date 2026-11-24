@@ -374,7 +374,10 @@ Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem ne
    and `command`. Groups, wiring, settings and metadata still count; array order is significant except for
    the top-level flow and each layout group's `nodes`.
 3. There is no running DHW cycle. Preflight checks every target `libs` declaration, without installing
-   modules, and runs `node --check` on the tool files.
+   modules, and runs `node --check` on the tool files. A `libs` entry with `version` requires that exact
+   installed package version (currently `dbus-native-victron` 0.4.6). The `module` remains unversioned
+   because Node-RED 3.1.15 cannot import `package@version`. If preflight reports a mismatch, update
+   the installed package separately before trying the deploy again.
 4. On apply, save `flows.json`, `flows_cred.json` and the API response, then replace the planned tools.
    POST the prepared target with API v2, the expected `rev` and deployment type `nodes`. A 409 stops the
    deploy without a second POST. No credentials are sent. If the flow already matches the target and
