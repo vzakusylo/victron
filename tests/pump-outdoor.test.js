@@ -44,9 +44,9 @@ function rig({ dhw = 'off', heat = 'off', heatCfg = { kickMin: 1, kickSec: 60 },
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
     const writes = [];
-    function tick(t, over = {}, valve = false, bypass = false) {
+    function tick(t, over = {}, valve = false, bypass = false, hpState = 'CONNECTED', hpAt = t) {
         node.flow.set('heatPump', {
-            hp: { state: 'CONNECTED', lastData: t, dps: Object.assign({
+            hp: { state: hpState, lastData: hpAt, dps: Object.assign({
                 1: true, 2: 'mute', 15: 0, 101: 32, 102: 36, 103: -7, 104: 60, 108: 49, 112: 3, 115: 40, 116: 550,
                 125: 36, 132: '1', 133: 39, 134: 4
             }, over) },
@@ -71,6 +71,120 @@ const ROWS = [
     [1, 16, 550, 40], [1, 10, 550, 40], [1, 4, 550, 40],
     [16, -5, 550, 40], [1, -6, 550, 40]
 ];
+
+test('20 Nov replay: a missing fan value before the real start does not record a defrost or open bypass', () => {
+    const c = rig();
+    c.node.run({ topic: 'ui', payload: { action: 'mode', id: 'df_exchange_off', mode: 'live' } }, { now: NOW });
+    const [, outdoor, fan, hz] = ROWS[4];
+    c.tick(NOW, { 103: outdoor, 116: fan, 115: hz });
+    // Drop DP 116 during the transition; the recorder only establishes the surrounding valid rows.
+    for (let i = 1; i <= 3; i++) c.tick(NOW + i * 10 * S, { 103: outdoor, 116: null, 115: hz, 102: 26 });
+    assert.deepEqual(c.node.context.get('settings').defrostStarts, []);
+    assert.deepEqual(c.writes, []);
+    const [, nextOutdoor, nextFan, nextHz] = ROWS[5];
+    c.tick(NOW + MIN, { 103: nextOutdoor, 116: nextFan, 115: nextHz });
+    assert.deepEqual(c.node.context.get('settings').defrostStarts, [NOW + MIN]);
+});
+
+test('20 Nov replay: interrupted defrost telemetry cannot fabricate an end or a second start', () => {
+    const c = rig();
+    let t = NOW;
+    for (const [gap, outdoor, fan, hz] of ROWS.slice(0, 12)) {
+        t += gap * MIN;
+        if (outdoor === 35) {
+            c.tick(t - 20 * S, { 103: 21, 116: 0, 115: 60 }, false, true, 'DISCONNECTED');
+            assert.ok(!c.node.context.get('afterDefrostAt'), 'disconnection is not a confirmed end');
+            c.tick(t - 10 * S, { 103: 21, 116: undefined, 115: 60 }, false, true);
+            assert.equal(c.node.context.get('inDefrost'), true, 'missing DP is not a confirmed end');
+        }
+        c.tick(t, { 103: outdoor, 116: fan, 115: hz }, false, fan === 0);
+    }
+    assert.deepEqual(c.node.context.get('settings').defrostStarts, [NOW + 5 * MIN]);
+    assert.equal(c.node.context.get('afterDefrostAt'), t);
+    assert.equal(c.node.flow.get('dhwView').outHeld, true);
+});
+
+test('20 Nov replay: resumed fan with no heating set does not release the bypass', () => {
+    const c = rig();
+    c.node.run({ topic: 'ui', payload: { action: 'mode', id: 'df_exchange_on', mode: 'live' } }, { now: NOW });
+    c.tick(NOW, { 103: ROWS[10][1], 116: ROWS[10][2], 115: ROWS[10][3], 102: 25 }, false, true);
+    const [, outdoor, fan, hz] = ROWS[11];
+    for (let i = 1; i <= 3; i++) c.tick(NOW + i * 10 * S, { 103: outdoor, 116: fan, 115: hz, 125: null }, false, true);
+    assert.deepEqual(c.writes, []);
+    for (let i = 4; i <= 6; i++) c.tick(NOW + i * 10 * S, { 103: outdoor, 116: fan, 115: hz, 125: 36 }, false, true);
+    assert.deepEqual(c.writes.map(w => [w.device, w.set]), [['bypass', false]]);
+});
+
+test('20 Nov replay: the first bypass-on sample cannot replace the pre-defrost supply', () => {
+    const c = rig();
+    const [, outdoor, fan, hz] = ROWS[4];
+    c.tick(NOW, { 103: outdoor, 116: fan, 115: hz, 102: 36 });
+    c.tick(NOW + 10 * S, { 103: outdoor, 116: fan, 115: hz, 102: 26 }, false, true);
+    c.tick(NOW + MIN, { 103: ROWS[5][1], 116: 0, 115: 60, 102: 25 }, false, true);
+    assert.equal(c.node.context.get('preDefSupply'), 36);
+});
+
+test('20 Nov replay: prolonged bypass does not carry an old supply baseline into a new defrost', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1], 102: 26 });
+    c.tick(NOW + MIN, { 102: 26 }, false, true);
+    c.tick(NOW + 6 * MIN, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] }, false, true);
+    assert.equal(c.node.context.get('preDefSupply'), undefined);
+});
+
+test('20 Nov replay: tick delay cannot expire a baseline that was fresh when defrost was reported', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1], 102: 36 });
+    c.tick(NOW + 5 * MIN + 5 * S, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] },
+        false, true, 'CONNECTED', NOW + 5 * MIN - 5 * S);
+    assert.equal(c.node.context.get('preDefSupply'), 36);
+});
+
+test('an unresolved defrost warns once after 60 minutes without treating the timeout as recovery', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1] });
+    c.tick(NOW + MIN, { 103: ROWS[5][1], 116: ROWS[5][2], 115: ROWS[5][3] });
+    for (const min of [20, 60, 61, 62]) c.tick(NOW + min * MIN, { 116: null });
+    assert.equal(c.node.flow.get('dhwView').outHeld, true);
+    assert.ok(!c.node.context.get('recoveredAt'));
+    const log = c.node.context.get('log');
+    assert.equal(log.filter(entry => /Defrost exit still unconfirmed/.test(entry.text)).length, 1);
+});
+
+test('20 Nov recovery replay: bypassed supply is not proof of recovery after the quiet period', () => {
+    const c = rig();
+    const sample = (min, row, supply, bypass) => {
+        const [, outdoor, fan, hz] = ROWS[row];
+        c.tick(NOW + min * MIN, { 103: outdoor, 116: fan, 115: hz, 102: supply }, false, bypass);
+    };
+    sample(0, 4, 36, false);
+    sample(1, 5, 25, false);
+    sample(6, 10, 25, true);
+    sample(7, 11, 37, true);
+    sample(20, 12, 37, true);
+    assert.equal(c.node.flow.get('dhwView').outHeld, true, 'quiet period still active');
+    sample(21, 12, 37, true);
+    assert.equal(c.node.flow.get('dhwView').outHeld, true, 'bypass is not the heating circuit');
+    sample(22, 13, 30, false);
+    assert.equal(c.node.flow.get('dhwView').outHeld, true, 'supply is still low');
+    sample(23, 14, 36, false);
+    assert.equal(c.node.context.get('recoveredAt'), NOW + 23 * MIN);
+    assert.equal(c.node.flow.get('dhwView').outHeld, false);
+});
+
+test('20 Nov replay: when telemetry hides the exit, quiet time begins at the first valid non-defrost reading', () => {
+    const c = rig();
+    c.tick(NOW, { 103: ROWS[4][1], 116: ROWS[4][2], 115: ROWS[4][3] });
+    c.tick(NOW + MIN, { 103: ROWS[10][1], 116: ROWS[10][2], 115: ROWS[10][3] }, false, true);
+    c.tick(NOW + 16 * MIN, { 116: undefined, 115: undefined }, false, false, 'DISCONNECTED');
+    assert.equal(c.node.flow.get('dhwView').outHeld, true);
+    const recovered = { 103: ROWS[11][1], 116: ROWS[11][2], 115: ROWS[11][3] };
+    c.tick(NOW + 17 * MIN, recovered);
+    c.tick(NOW + 32 * MIN - 1, recovered);
+    assert.equal(c.node.flow.get('dhwView').outHeld, true);
+    c.tick(NOW + 32 * MIN, recovered);
+    assert.equal(c.node.flow.get('dhwView').outHeld, false);
+});
 
 test('20 Nov replay: the pump outdoor value stays -1 °C while DP 103 swings -8 .. +50 °C, defrost rows are ignored', () => {
     const c = rig();

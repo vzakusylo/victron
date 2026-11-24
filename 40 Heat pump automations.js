@@ -65,6 +65,7 @@
 //    longer On (On → Test / Off).
 // 6. d#128: B50 on / B50 preheat do not start during a defrost or DEFROST_QUIET_MIN after it
 //    (outdoor sensor reads high; the cloud B50 on started a DHW cycle that way at 11:29 on 9 Nov).
+// d#230: missing or stale telemetry cannot create a defrost edge; bypassed supply is not proof of recovery.
 // 7. d#129: B42 off includes the steps of the scene "Slowly cool down" (set 39 → 38 → 37).
 // 8. d#130: DHW controller (tank by outdoor curve, one state machine, settings on the page,
 //    docs/heat-pump-dhw-controller.md). While it is On, the B* rules, their mode rules,
@@ -173,6 +174,14 @@ const wait = (ms) => ({ delay: ms, text: 'wait ' + (ms >= MIN ? ms / MIN + ' min
 const note = (text) => ({ note: text, text: 'notify: ' + text });
 
 const n = (v) => Number(v);
+function dhwMeasurement(value) {
+    return value === null || value === undefined || value === '' || typeof value === 'boolean' ? NaN : n(value);
+}
+function defrostReading(hp) {
+    const fan = dhwMeasurement(hp['116']), hz = dhwMeasurement(hp['115']);
+    if (!Number.isFinite(fan) || fan < 0 || !Number.isFinite(hz) || hz < 0) return null;
+    return fan === 0 && hz > 30;
+}
 const between = (v, a, b) => n(v) >= a && n(v) <= b;
 const hpTxt = (h) => 'set ' + h['125'] + ', supply ' + h['102'] + ', tank ' + h['108'] + ', outdoor ' + h['103'] + ', fan ' + h['116'] + ', ' + h['115'] + ' Hz';
 const rel = (d) => (d['1'] === true ? 'ON' : 'OFF');
@@ -185,13 +194,13 @@ const RULES = [
         name: 'Defrost starts during heating → bypass ON, flag ON',
         when: 'fan 0, compressor > 30 Hz, bypass OFF, supply < 27 °C, outdoor < 14 °C, no DHW cycle running',
         roles: ['hp', 'bypass'], cooldownMs: 3 * MIN,
-        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && n(hp['116']) === 0 && n(hp['115']) > 30 && b['1'] === false && n(hp['102']) < 27 && n(hp['103']) < 14,
+        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && defrostReading(hp) === true && b['1'] === false && dhwMeasurement(hp['102']) < 27 && dhwMeasurement(hp['103']) < 14,
         steps: [bypass(true), flagStep(true)] },
     { id: 'df_exchange_on', cloud: 'DF exchange on 31', group: 'Defrost',
         name: 'Defrost over → bypass OFF, flag OFF after 7 min',
         when: 'bypass ON, fan > 300, supply > 27 °C, set point < 45 °C, curve P22 on, no DHW cycle running',
         roles: ['hp', 'bypass'], cooldownMs: 10 * MIN,
-        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && b['1'] === true && n(hp['116']) > 300 && n(hp['102']) > 27 && n(hp['125']) < 45 && String(hp['132']) === '1',
+        check: ({ hp, bypass: b, dhwIdle }) => dhwIdle && b['1'] === true && dhwMeasurement(hp['116']) > 300 && dhwMeasurement(hp['102']) > 27 && dhwMeasurement(hp['125']) < 45 && String(hp['132']) === '1',
         steps: [bypass(false), wait(7 * MIN), flagStep(false)] },
 
     // Heat pump (HP scenes)
@@ -664,24 +673,49 @@ if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
 // Defrost sign (fan 0 while the compressor runs > 30 Hz): during a defrost the outdoor sensor
 // (DP 103) heats up to 30–47 °C and stays high for minutes after it. Rules that start on
 // "outdoor > 1" (B50 on / preheat) must not start then (seen 2026-11-09 11:29 in the cloud).
+const exchangerInCircuit = ready('bypass') && ((st.bypass && st.bypass.dps) || {})['1'] === false;
 {
     const hpd = (st.hp && st.hp.dps) || {};
-    const inDef = ready('hp') && n(hpd['116']) === 0 && n(hpd['115']) > 30;
+    const inDef = ready('hp') ? defrostReading(hpd) : null;
+    const wasDef = context.get('inDefrost');
     if (inDef) context.set('lastDefrost', now);
     // d#169: defrost starts (edge), kept in the settings file for the next-defrost forecast
     // d#170: supply just before the defrost — the recovery ends when the supply is back there (or at the set point)
-    if (!inDef && !(context.get('bypassWasOn')) && Number.isFinite(Number(hpd['102'])) && hpd['102'] !== null && n(hpd['116']) > 0) context.set('supBefore', Number(hpd['102']));
-    context.set('bypassWasOn', ((st.bypass && st.bypass.dps) || {})['1'] === true);
-    if (inDef && !context.get('inDefrost')) {
-        context.set('preDefSupply', context.get('supBefore'));
+    const supply = dhwMeasurement(hpd['102']);
+    if (inDef === false && !wasDef && exchangerInCircuit && !context.get('bypassWasOn')
+        && Number.isFinite(supply) && dhwMeasurement(hpd['116']) > 0 && dhwMeasurement(hpd['115']) > 0) {
+        context.set('supBefore', supply);
+        context.set('supBeforeAt', st.hp.lastData);
+    }
+    context.set('bypassWasOn', !exchangerInCircuit);
+    if (inDef && !wasDef) {
+        const beforeAt = context.get('supBeforeAt');
+        const ageAtDefrost = st.hp.lastData - beforeAt;
+        context.set('preDefSupply', beforeAt && ageAtDefrost >= 0 && ageAtDefrost <= FRESH_MS ? context.get('supBefore') : undefined);
         context.set('defrostSince', now);
         settings.defrostStarts = (settings.defrostStarts || []).filter((x) => now - x < 12 * 3600 * 1000).concat([now]).slice(-8);
         saveSettingsFile();
     }
-    if (!inDef && context.get('inDefrost')) armAfterDefrost();
-    context.set('inDefrost', inDef);
+    if (wasDef && inDef === null) {
+        context.set('defrostGap', true);
+        // The supply-recovery timeout is not evidence that an unobserved defrost ended.
+        if (!context.get('defrostGapWarned') && now - context.get('lastDefrost') >= 60 * MIN) {
+            context.set('defrostGapWarned', true);
+            logEvent({ kind: 'warn', text: 'Defrost exit still unconfirmed after 60 min: waiting for valid fan and compressor readings' });
+        }
+    }
+    else if (inDef !== null) {
+        if (wasDef && !inDef) {
+            // After a gap the actual end is unknown; start the quiet period at the first confirmed exit.
+            if (context.get('defrostGap')) context.set('lastDefrost', now);
+            armAfterDefrost();
+        }
+        context.set('defrostGap', false);
+        context.set('defrostGapWarned', false);
+        context.set('inDefrost', inDef);
+    }
 }
-const recentDefrost = now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MIN * MIN;
+const recentDefrost = !!context.get('inDefrost') || now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MIN * MIN;
 // d#176: recoveredAt = when the recovery after the last defrost ended (start window for DHW)
 // d#170: the supply drop of a defrost and its recovery are not a lag of the curve. From a defrost until the
 // supply is back at the heating set − supplyReady (at most 60 min after it) the heating controller and the
@@ -689,12 +723,13 @@ const recentDefrost = now - (context.get('lastDefrost') || 0) < DEFROST_QUIET_MI
 const defRecovering = (() => {
     const hpd = (st.hp && st.hp.dps) || {};
     const last = context.get('lastDefrost') || 0;
-    if (!last || now - last >= 60 * MIN) return false;
     if (recentDefrost) return true;
-    const sup = hpd['102'] === null ? NaN : Number(hpd['102']), set = hpd['125'] === null ? NaN : Number(hpd['125']);
-    const ready = ((settings.dhw || {}).supplyReady !== undefined ? settings.dhw.supplyReady : DHW_DEFAULTS.supplyReady);
+    if (!last || now - last >= 60 * MIN) return false;
+    if (!ready('hp') || !exchangerInCircuit) return true;
+    const sup = dhwMeasurement(hpd['102']), set = dhwMeasurement(hpd['125']);
+    const supplyReady = ((settings.dhw || {}).supplyReady !== undefined ? settings.dhw.supplyReady : DHW_DEFAULTS.supplyReady);
     const pre = Number(context.get('preDefSupply'));
-    const goal = Number.isFinite(pre) ? Math.min(set - ready, pre - 0.5) : set - ready;
+    const goal = Number.isFinite(pre) ? Math.min(set - supplyReady, pre - 0.5) : set - supplyReady;
     return !(Number.isFinite(sup) && Number.isFinite(goal) && sup >= goal);
 })();
 
