@@ -38,7 +38,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | GX version | `d#204` (`8bf1d37`), applied 2026-11-21 by run 44891670764; Test GX on `8bf1d37` green (run 44889488209) |
 | master | `d#204`: #79–#80 simpler heating (d#201/203), #86 P1/P2 (d#204), #83/#87 auto-deploy + parallel Test GX |
 | Next | Automatic: every green Test GX on a master push deploys it. |
-| D-R9 Whole-flow deploy | In progress (`deploy-whole-flow`): use deterministic Tuya file-secret references in both the Git baseline and target without weakening drift comparison. Fake API and isolated Node-RED replay cover d#217 → d#230; no live GX access. Supersedes the per-node opt-ins (D1, D-R2–D-R6 and P-D1). |
 | After deploy | Watch the Automation log for the first "step up blocked" / "not following the curve" (P1/P2). Count compressor starts per DHW cycle (startGap 7 vs gap 5, PR #62 review). Check `command -v flock` on the GX (P5g). |
 
 ## 3. Production backlog
@@ -150,6 +149,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#173 D-R9 Whole-flow deploy (`deploy-whole-flow`, d#230 unchanged · i#43): replace the per-node opt-ins (D1, D-R2–D-R6 and P-D1) with a recorded Git baseline drift gate and revision-guarded whole-flow deployment. Use deterministic Tuya file-secret references for both commits. Fake API tests and an isolated Node-RED replay cover d#217 → d#230; no live GX access.
 
 #172 D-R8 Admin API read retries (`deploy-api-retry`, d#230 unchanged · i#42): retry transient Node-RED GET failures with a deadline and name the failed request. The fake GX replay verifies recovery and exhaustion, HTTP status handling, and that POST is attempted once with the existing rollback behavior.
 
