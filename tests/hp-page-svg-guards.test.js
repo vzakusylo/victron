@@ -4,10 +4,56 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { readSource } = require('./harness');
 
 const ROOT = path.join(__dirname, '..');
 const FILES = ['35 Heat pump page.html', '39 Heat pump history page.html'];
 const ATTRS = ['cx', 'cy', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'd', 'points', 'width', 'height'];
+
+test('history day chips start on the newest week and page between available weeks only', () => {
+    const html = readSource(FILES[1]);
+    const messages = [];
+    let receive;
+    const scope = { send: msg => messages.push(msg), $watch: (_, fn) => { receive = fn; }, $on() {} };
+    new Function('scope', 'setTimeout', 'setInterval', html.match(/<script>([\s\S]+?)<\/script>/)[1])(
+        scope, () => {}, () => {}
+    );
+    const summary = days => receive({ topic: 'hpHistory', payload: { kind: 'summary', days } });
+    const days = Array.from({ length: 28 }, (_, i) => ({ day: new Date(Date.UTC(2026, 10, 23 - i)).toISOString().slice(0, 10) }))
+        .filter(d => d.day < '2026-11-09' || d.day > '2026-11-15'); // one week with no files
+    const chips = () => scope.h.chips.map(d => d.day);
+    summary(days);
+    assert.match(html, /ng-repeat="d in h\.chips track by d\.day"/);
+    assert.match(html, /ng-disabled="!hpWeekTarget\(1\)" ng-click="hpGoWeek\(1\)"/);
+    assert.match(html, /ng-disabled="!hpWeekTarget\(-1\)" ng-click="hpGoWeek\(-1\)"/);
+    assert.equal(scope.h.sel, '2026-11-23');
+    assert.deepStrictEqual(chips(), ['2026-11-23']);
+    assert.equal(scope.hpWeekTarget(-1), null);
+    scope.hpGoWeek(1);
+    assert.equal(scope.h.sel, '2026-11-22');
+    assert.equal(messages.at(-1).payload.day, '2026-11-22');
+    assert.deepStrictEqual(chips(), days.slice(1, 8).map(d => d.day).reverse());
+    assert.ok(chips().length <= 14);
+    summary(days);
+    assert.equal(scope.h.sel, '2026-11-22');
+    scope.hpGoWeek(1);
+    assert.equal(scope.h.sel, '2026-11-08');
+    scope.hpGoWeek(1);
+    assert.equal(scope.hpWeekTarget(1), null);
+    const count = messages.length;
+    scope.hpGoWeek(1);
+    assert.equal(messages.length, count);
+    scope.hpGoWeek(-1);
+    assert.equal(scope.h.sel, '2026-11-08');
+    scope.hpLoad(days[0].day);
+    assert.deepStrictEqual(chips(), ['2026-11-23']);
+    scope.hpLoad(scope.hpStep(1));
+    assert.equal(scope.h.sel, '2026-11-22');
+    assert.equal(chips().length, 7);
+    summary([]);
+    assert.deepStrictEqual(chips(), []);
+    assert.equal(scope.hpWeekTarget(1), null);
+});
 
 test('boiler curve edits preview against the static frame after a live update', () => {
     const html = fs.readFileSync(path.join(ROOT, FILES[0]), 'utf8');

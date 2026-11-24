@@ -96,7 +96,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | H8 | Review defrost start / end detection | Check the rules (DP 116 / 115, bypass, `recentDefrost`, `defRecovering`, quiet period) against the recorded defrosts; fix wrong edges with tests from a real sequence. |
 | HP-M2 | **Single writer with leases for HP mode + curve** (after HP-M1). One dispatcher for every DP 2 / P22–P24 / DP 121 SET (node 40 queue AND the node 37 slider); priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline; versioned owner + bounded lease per resource, generation checks at dequeue and verify, P22–P24 as one group; warm-up / band / boost composed into one heating curve request. Staged: shadow mode logging disagreements first, then mode, then curve + slider | Fixes the reproduced slider vs warm-up mixed curve (40/9) and stale queued writes after DHW takes over. Depends: HP-M1; state: open. |
 | H9 | Review that all data is stored | Every value the dashboard / controller uses must be in history (36 / 57 / 58); add what is missing, report gaps. |
-| H10 | History by day: week navigation, at most 14 day chips | `39 Heat pump history page.html` / `38`. |
 ## 4. Review follow-ups (deferred Low / Nit)
 
 | From | Item |
@@ -153,6 +152,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#169 H10 (`hp-history-week-nav`, d#228 · i#39): History by day opens on the newest week and pages through available weeks, with at most seven day chips visible.
 
 #168 D-R7 Function libs in deploy (`deploy-function-libs`, d#227 unchanged · i#38): deploy module declarations with preflight. The historical dry run clears the module mismatch, then stops at `hp-page-template-01` because `storeOutMessages` and `resendOnRefresh` change from `true` to `false`; the settings guard is unchanged.
 

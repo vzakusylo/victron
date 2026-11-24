@@ -1,5 +1,5 @@
 {
-  "i": 38,
+  "i": 39,
   "changes": [
     {
       "i": 1,
@@ -228,6 +228,12 @@
       "date": "2026-11-23",
       "pr": 168,
       "what": "Deploy: function libs and module preflight"
+    },
+    {
+      "i": 39,
+      "date": "2026-11-24",
+      "pr": 169,
+      "what": "H10 history week navigation"
     }
   ]
 }

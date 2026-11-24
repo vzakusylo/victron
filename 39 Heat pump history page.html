@@ -1,6 +1,7 @@
 <!--
   39 Heat pump history page.html
   Source of the ui_template "Heat pump history" (Heat Pump dashboard tab, below the Heat pump page).
+  d#228: previous/next week navigation; day chips show only the selected week, newest by default.
   d#134: day switcher (previous / next, day chips), temperature chart with the event lane, a
   d#162: two power charts — compressor (calculated: W, A, DC bus V) and the SA1 meter (measured:
   W, A, mains V). Before: one power chart (compressor W = DC bus × current, meter W), legends that hide / show a
@@ -41,7 +42,7 @@
 .hph-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: 3px; }
 .hph details summary { cursor: pointer; font-size: 13px; opacity: .85; margin: 6px 0; }
 .hph-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 10px; }
-.hph-days .day { border-radius: 14px; padding: 3px 10px; font-size: 12.5px; background: rgba(127,127,127,.14); cursor: pointer; border: 1px solid transparent; }
+.hph-days .day { border-radius: 14px; padding: 3px 10px; color: inherit; font: inherit; font-size: 12.5px; background: rgba(127,127,127,.14); cursor: pointer; border: 1px solid transparent; }
 .hph-days .day:hover { background: rgba(127,127,127,.24); }
 .hph-days .day.sel { background: #1f6feb; color: #fff; }
 .hph-days .day small { opacity: .75; margin-left: 4px; }
@@ -107,9 +108,11 @@
   </div>
 
   <div class="hph-days" ng-if="h.sum && h.sum.days.length">
+    <button type="button" class="nav" ng-disabled="!hpWeekTarget(1)" ng-click="hpGoWeek(1)">Previous week</button>
     <button class="nav" title="Earlier day" ng-disabled="!hpStep(1)" ng-click="hpLoad(hpStep(1))">‹</button>
-    <span ng-repeat="d in h.sum.days.slice().reverse()" class="day" ng-class="{sel: d.day == h.sel}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></span>
+    <button type="button" ng-repeat="d in h.chips track by d.day" class="day" ng-class="{sel: d.day == h.sel}" ng-attr-aria-pressed="{{d.day == h.sel}}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></button>
     <button class="nav" title="Later day" ng-disabled="!hpStep(-1)" ng-click="hpLoad(hpStep(-1))">›</button>
+    <button type="button" class="nav" ng-disabled="!hpWeekTarget(-1)" ng-click="hpGoWeek(-1)">Next week</button>
   </div>
 
   <div ng-if="h.day && h.day.empty"><h4>{{h.day.day}}</h4><div class="hph-sub">No data for this day.</div></div>
@@ -240,7 +243,8 @@
 
 <script>
 (function (scope) {
-    scope.h = { sum: null, day: null, sel: null, loading: false, hide: {} };
+    scope.h = { sum: null, day: null, sel: null, loading: false, hide: {}, chips: [] };
+    var weeks = [], weekIndex = -1;
     try { scope.h.hide = JSON.parse(localStorage.getItem('hphHide') || '{}') || {}; } catch (e) { scope.h.hide = {}; }
     // hover / tap on a chart: values of the visible series at that 2-min bucket (d#136)
     var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -293,6 +297,25 @@
         for (var i = 0; i < d.length; i++) if (d[i].day === scope.h.sel) return d[i + dir] ? d[i + dir].day : null;
         return null;
     };
+    function monday(day) {
+        // The recorder's day is a calendar date, not an instant in the browser's time zone.
+        var date = new Date(day + 'T00:00:00Z');
+        date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+        return date.getTime();
+    }
+    function showWeek(day) {
+        var start = day ? monday(day) : null;
+        weekIndex = weeks.findIndex(function (week) { return week.monday === start; });
+        scope.h.chips = weekIndex < 0 ? [] : weeks[weekIndex].days.slice().reverse();
+    }
+    scope.hpWeekTarget = function (dir) {
+        var week = weekIndex < 0 ? null : weeks[weekIndex + dir];
+        return week ? week.days[0].day : null;
+    };
+    scope.hpGoWeek = function (dir) {
+        var target = scope.hpWeekTarget(dir);
+        if (target) scope.hpLoad(target);
+    };
     scope.hpDayLabel = function (d) {
         if (d.today) return 'Today';
         var p = d.day.split('-'), dt = new Date(+p[0], +p[1] - 1, +p[2]);
@@ -303,14 +326,27 @@
         var p = m.payload;
         if (p.kind === 'summary') {
             scope.h.sum = p;
-            if (!scope.h.sel && p.days.length) scope.hpLoad(p.days[0].day);
-        } else if (p.kind === 'day' && (!scope.h.sel || p.day === scope.h.sel)) {
+            weeks = [];
+            p.days.forEach(function (d) {
+                var start = monday(d.day), week = weeks[weeks.length - 1];
+                if (!week || week.monday !== start) weeks.push(week = { monday: start, days: [] });
+                week.days.push(d);
+            });
+            if (p.days.some(function (d) { return d.day === scope.h.sel; })) showWeek(scope.h.sel);
+            else if (p.days.length) scope.hpLoad(p.days[0].day);
+            else {
+                scope.h.sel = scope.h.day = null;
+                scope.h.loading = false;
+                showWeek(null);
+            }
+        } else if (p.kind === 'day' && p.day === scope.h.sel) {
             scope.h.day = p;
             scope.h.loading = false;
         }
     });
     scope.hpLoad = function (day) {
         scope.h.sel = day;
+        showWeek(day);
         scope.h.loading = true;
         scope.send({ topic: 'day', payload: { day: day } });
     };
