@@ -298,7 +298,7 @@
     {
       "i": 50,
       "date": "2026-11-24",
-      "pr": null,
+      "pr": 180,
       "what": "Pin dbus-native-victron"
     }
   ]
