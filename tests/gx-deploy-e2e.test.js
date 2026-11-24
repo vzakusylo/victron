@@ -45,6 +45,7 @@ async function harness(t, opts = {}) {
     t.after(() => fs.rmSync(home, { recursive: true, force: true }));
     const baseSha = 'a'.repeat(40), sha = 'b'.repeat(40);
     const base = repoFlows(), target = repoFlows().filter(node => node.id !== 'obsolete');
+    if (opts.removeBroker) base.push({ id: 'old-broker', type: 'mqtt-broker', name: 'Private broker' });
     target[0].label = 'd#2 GX';
     target.push({ id: 'new', type: 'ui_template', format: 'é', storeOutMessages: false });
     if (opts.module) {
@@ -118,6 +119,7 @@ test('equal baseline (layout and trailing newline only) deploys the entire stamp
     assert.match(dry.stdout, /drift gate +: live flow equals a{40}/);
     assert.match(dry.stdout, /DRY RUN - nothing changed/);
     assert.match(dry.stderr, /api retry +: GET \/context\/node\/hpa-fn-01\/dhw/);
+    assert.doesNotMatch(dry.stderr, /Flow-only rollback/);
     assert.equal(h.posts.length, 0);
     assert.equal(fs.readdirSync(h.nodeRedDir).length, 2);
     const result = await h.deploy();
@@ -130,6 +132,17 @@ test('equal baseline (layout and trailing newline only) deploys the entire stamp
     const backup = fs.readdirSync(h.nodeRedDir).find(file => file.startsWith('backup-'));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.nodeRedDir, backup, 'original-live.json'))).flows, h.original);
     assert.equal(fs.readFileSync(path.join(h.nodeRedDir, backup, 'flows_cred.json'), 'utf8'), '{"fake":"credentials"}');
+});
+
+test('dry run warns that a removed broker may need credential recovery', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { removeBroker: true });
+    const result = await h.deploy('1');
+    assert.match(result.stdout, /DRY RUN - nothing changed/);
+    assert.match(result.stderr, /WARNING: removed credential-capable nodes: old-broker \(mqtt-broker\)/);
+    assert.match(result.stderr, /Flow-only rollback cannot restore their credentials;.*backup.*flows_cred\.json/);
+    assert.doesNotMatch(result.stderr, /Private broker|obsolete|tuya/);
+    assert.equal(h.posts.length, 0);
+    assert.equal(fs.readdirSync(h.nodeRedDir).length, 2);
 });
 
 test('drift reports only ID and changed field, writes no backup, and the explicit override works', { skip: !curlAvailable }, async t => {

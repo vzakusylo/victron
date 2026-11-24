@@ -18,6 +18,9 @@ const sha256 = buffer => crypto.createHash('sha256').update(buffer).digest('hex'
 const fail = message => { throw new Error(message); };
 const isCoreModule = isBuiltin || (name => builtinModules.includes(name.replace(/^node:/, '')));
 const hasCredentials = flows => flows.some(node => Object.hasOwn(node, 'credentials'));
+const credentialNodeTypes = new Set([
+    'mqtt-broker', 'http request', 'tls-config', 'e-mail', 'e-mail in', 'tuya-smart-device'
+]);
 const post = (flows, rev) => {
     if (hasCredentials(flows)) fail('Refusing to send flow credentials.');
     return api('POST', '/flows', JSON.stringify({ flows, rev }),
@@ -256,6 +259,13 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
         flow.report(base, target);
         // Node-RED can also restart dependants. Count direct definition changes only.
         const changes = flow.differences(flow.fingerprints(original.flows, false), flow.fingerprints(preparedTarget, false));
+        const removed = new Set(changes.removed);
+        const credentialRemovals = original.flows.filter(node => removed.has(node.id) && credentialNodeTypes.has(node.type));
+        if (credentialRemovals.length) {
+            const nodes = credentialRemovals.map(({ id, type }) => `${id.replace(/[^\w.-]/g, '?')} (${type})`);
+            console.error('WARNING: removed credential-capable nodes: ' + nodes.join(', ') +
+                '. Flow-only rollback cannot restore their credentials; use the deploy backup flows_cred.json for manual recovery.');
+        }
         const label = flow.versionTab(preparedTarget).label;
         console.log('nodes restarted : ' + (changes.added.length + changes.changed.length) + ' (estimate: direct changes only)');
         console.log('live label      : ' + liveTab.label + ' -> ' + label);
