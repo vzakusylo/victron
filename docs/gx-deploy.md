@@ -261,6 +261,11 @@ Configure these repository or `victron-gx` environment secrets before running it
 
 Every PR and every push to `master` starts **Test GX scenarios**. Only PR runs can skip Docker and the scenarios based on changed paths or cancel in-progress runs in their concurrency group. After a successful `master` push run, **Deploy GX code** starts automatically (`workflow_run`) with `mode=apply`, `version=test`. The `confirm` check is skipped only for this automatic path.
 
+Automatic deploys can now add or remove nodes and change node settings without a separate opt-in.
+The drift gate checks the starting flow, not whether the target topology behaves correctly. This
+relies on Test GX scenarios covering the affected topology and its behavior; add or update those
+scenarios when a PR changes it.
+
 [`tools/gx/deploy-gate.js`](../tools/gx/deploy-gate.js) selects the newest successful Test GX push on the current
 first-parent history of `master`. It will not deploy across an untested change to `flows.json` (which carries
 `d#`), but a newer documentation-only commit does not block a green ancestor. The triggering run must itself
