@@ -257,7 +257,7 @@ test('a reset after applying the target verifies the changed revision without re
 test('a reset with an unrelated revision goes to verification without retry or rollback', { skip: !curlAvailable }, async t => {
     const h = await harness(t, { postReset: 'other-flow' });
     const result = await h.deploy();
-    assert.match(result.stderr, /ROLLBACK NOT ATTEMPTED: no confirmed deployment revision/);
+    assert.match(result.stderr, /ROLLBACK NOT ATTEMPTED: observed flow does not exactly match the target/);
     assert.match(result.stderr, /VERIFY FAILED: live flow differs from the stamped target/);
     assert.doesNotMatch(result.stderr, /api retry/);
     assert.equal(h.posts.length, 1);

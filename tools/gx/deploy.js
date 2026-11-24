@@ -249,7 +249,8 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
                 console.error('ROLLBACK FAILED: ' + rollbackError.message + '; backup: ' + backup);
             }
         } else {
-            console.error('ROLLBACK NOT ATTEMPTED: no confirmed deployment revision; backup: ' + backup);
+            const reason = observed ? 'observed flow does not exactly match the target' : 'no confirmed deployment revision';
+            console.error('ROLLBACK NOT ATTEMPTED: ' + reason + '; backup: ' + backup);
         }
         fail('VERIFY FAILED: ' + error.message);
     }
