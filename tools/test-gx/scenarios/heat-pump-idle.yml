@@ -4,7 +4,8 @@
   initial:
     inputs:
       tuya.pump.dps.1: true
-      tuya.pump.dps.2: smart
+      # Start in Silent: 31 °C clears startup recovery and otherwise steps Smart down.
+      tuya.pump.dps.2: mute
       tuya.pump.dps.15: 0
       tuya.pump.dps.101: 26
       tuya.pump.dps.102: 31
