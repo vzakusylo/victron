@@ -134,6 +134,27 @@ test('one 2 s inject and six periodic Victron inputs feed the controller directl
         '', 'AC Loads power', 'Battery SmartShunt consumed Ah', 'DC System Power', 'GRID CT import power', 'PV Charger Power'
     ]);
     assert.ok(inputs.every(node => node.onlyChanges === false));
+    const readings = {
+        '07c74490cafdc55a': ['batteryVoltage', 53, 53],
+        '0ee582b64b26e2e7': ['batteryConsumedAh', -200, 200],
+        '751d13b6d943e5e5': ['gridPowerW', 1000, 1000],
+        '11e303e775ec959c': ['acLoadPowerW', 1500, 1500],
+        'dc7f2a1c3e8b09c4': ['dcPowerW', -100, -100],
+        'pv-charger-input-01': ['pvChargerPowerW', 450, 450]
+    };
+    const { control } = loadGrid();
+    const now = new Date('2026-11-12T23:00:00+01:00');
+    const emittedTopic = node => node.name || `${node.serviceObj.name} - ${node.pathObj.name}`;
+    for (const node of inputs) {
+        const [key, payload, expected] = readings[node.id];
+        control.run({ topic: emittedTopic(node), payload }, { now });
+        assert.equal(control.context.get(key), expected, `${node.id} (${emittedTopic(node)})`);
+    }
+    assert.ok(control.run({ topic: 'grid-control-tick' }, { now }).result[7].tick.decision);
+    const ct = inputs.find(node => node.id === '751d13b6d943e5e5');
+    const { result } = control.run({ topic: emittedTopic(ct), payload: 2001 }, { now });
+    assert.equal(result[7].topic, 'grid-power');
+    assert.equal(result[7].tick.gridPowerSignedW, 2001);
 });
 
 test('the split is an additive deployment, preserving old wires and consumer destinations', () => {
