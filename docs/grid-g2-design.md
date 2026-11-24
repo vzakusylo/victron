@@ -48,7 +48,7 @@ The Phase A cases affected are the stale CT export-charge case, stale battery vo
 
 ## Cadence independent of freshness
 
-Store valid input values and Node-RED arrival times without evaluating the decision. The Victron nodes use their configured names as message topics and send only on change. Evaluate on a single 2 s inject, plus a grid delta strictly greater than 1 kW against the grid value used in the last decision. Manual discharge commands still act immediately; settings and history are picked up at the next decision. ESS/DVCC output rate limits are unchanged.
+Store valid input values and Node-RED arrival times without evaluating the decision. The Victron nodes send periodic readings using their configured names as message topics; the unnamed voltage node uses its service and path display names. Controller 01 translates the six GX topics to the controller topics in the inventory above. Evaluate on a single 2 s inject, plus a grid delta strictly greater than 1 kW against the grid value used in the last decision. Manual discharge commands still act immediately; settings and history are picked up at the next decision. ESS/DVCC output rate limits are unchanged.
 
 Accounting uses the previous decision's power snapshot over the interval between decisions; an intermediate change inside that interval can shift a small amount of energy compared with per-message accounting. A large grid step closes the interval immediately. The frozen replay now compares each recorded sample's final decision, any VE.Bus limit sent in that sample, and all tariff totals, rather than expecting an actuator output for every input in the sample. The expected files are unchanged.
 
