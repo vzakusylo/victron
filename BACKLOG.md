@@ -30,7 +30,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
-| — | `deploy-no-keepalive` | D-R11 Admin API keep-alive EPIPE | In progress: close each GX admin connection and guard a single whole-flow POST retry by live revision. |
 
 ## 2. Deploy
 
@@ -149,6 +148,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#177 D-R11 Admin API keep-alive EPIPE (`deploy-no-keepalive`, d#232 unchanged · i#47): use fresh connections for all GX admin requests. On a pre-response reset, retry the whole-flow POST once only if the live revision is unchanged; otherwise verify without reposting. Fake-GX replay covers the 1 MiB POST, retry, and verification paths; no live GX access.
 
 - #176 R6: consolidated live GX runner guidance and archived the three handoffs (i#46, d#232 unchanged).
 
