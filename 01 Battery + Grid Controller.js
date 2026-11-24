@@ -55,50 +55,15 @@ const nowTs = now.getTime();
 // The input stage may return early; otherwise it binds C, the stored readings, and manual-discharge state.
 // #include lib/grid/inputs.js
 
-// The VE.Bus limit is reasserted at each real hour boundary, independent of accounting.
-const lastHourKey = context.get("gridControlHourKey") ?? context.get("hourBudget")?.hourKey;
-const hourKey = getHourKey(now);
-const hourRolledOver = Boolean(lastHourKey) && lastHourKey !== hourKey;
-context.set("gridControlHourKey", hourKey);
-
-const waiting = !Number.isFinite(batteryVoltage) ? "WAITING FOR BATTERY VOLTAGE"
-    : !Number.isFinite(consumedAhDeficit) && !manualDischarge.active ? "WAITING FOR BMS CONSUMED AH" : "";
-let decision = null;
-let sendGridCurrentLimit = false;
-if (!waiting) {
-    decision = decideGrid({
-        now, C, highVoltageSettings, batteryVoltage, consumedAhDeficit, hasGridPowerReading,
-        storedGridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedPvChargerPowerW,
-        solarGenerationW, manualDischargeStopVoltage, previousGridSetpoint, storedExportGuard,
-        solarForecastToday: flow.get("solarForecastToday"), solarForecastAdjusted: flow.get("solarForecastAdjusted")
-    }, { manualDischarge, voltageLimitActive, forceChargeLimiterActive });
-    sendGridCurrentLimit = Number(context.get("gridCurrentLimitA")) !== decision.gridCurrentLimitA || hourRolledOver;
-    context.set("gridCurrentLimitA", decision.gridCurrentLimitA);
-    if (hasGridPowerReading) context.set("gridLastDecisionPowerW", gridPowerSignedW);
-    context.set("forceChargeLimiterActive", decision.forceChargeLimiterActive);
-    context.set("boostActive", decision.boostActive);
-    context.set("activeWindow", decision.windowName);
-    context.set("voltageLimitActive", decision.voltageLimitActive);
-    context.set("gridSetpoint", decision.finalGridSetpoint);
-    context.set("manualDischarge", decision.manualDischarge);
-    context.set("exportGuard", decision.exportGuard);
-    node.status({ fill: "green", shape: "dot", text:
-        `${decision.windowName} ${decision.finalGridSetpoint} W · ${decision.finalChargeCurrent} A DVCC · ${decision.gridCurrentLimitA} A AC` });
-} else {
-    node.status({ fill: "grey", shape: "ring", text: waiting });
-}
+// G6: bind the decision and persist loop state before publishing outputs.
+// #include lib/grid/decision-stage.js
 
 const legacy = gridBookkeepingSeed();
 const { commands, alarm, logMessage, dashboard } = gridOutputStage(decision, hourKey, waiting, now, nowTs);
 return [
     ...commands,
     alarm, null, null, null,
-    { topic: msg.topic, tick: {
-        nowTs, C, waiting, decision, legacy, sendGridCurrentLimit, highVoltageSettings,
-        previousWindow, previousGridSetpoint, batteryVoltage, consumedAhDeficit, manualDischargeStopVoltage,
-        storedGridPowerW, gridPowerW, gridPowerSignedW, storedAcLoadPowerW, storedDcPowerW,
-        hasDcPowerReading, storedPvChargerPowerW, solarGenerationW, accountingPower
-    } },
+    gridBookkeepingTick(),
     logMessage,
     dashboard
 ];

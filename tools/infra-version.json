@@ -1,5 +1,5 @@
 {
-  "i": 43,
+  "i": 44,
   "changes": [
     {
       "i": 1,
@@ -258,6 +258,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Deploy: whole-flow deploy behind a drift gate"
+    },
+    {
+      "i": 44,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "G6 grid split"
     }
   ]
 }

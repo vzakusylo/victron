@@ -96,6 +96,28 @@ test('a failed first bookkeeping tick retries the legacy seed without overwritin
     assert.equal(tick().tick.legacy, undefined);
 });
 
+test('waiting tick retains its bookkeeping shape and the second Oslo 02:00 reasserts the hourly limit once', () => {
+    const { control } = loadGrid();
+    const at = Date.parse('2026-10-25T02:00:00+01:00');
+    const tick = now => control.run({ topic: 'grid-control-tick' }, { now });
+    const waiting = tick(at - 60000);
+    assert.deepEqual(waiting.result.slice(0, 7), Array(7).fill(null));
+    assert.deepEqual(waiting.status, { fill: 'grey', shape: 'ring', text: 'WAITING FOR BATTERY VOLTAGE' });
+    assert.equal(waiting.result[7].tick.decision, null);
+    assert.equal(waiting.result[7].tick.sendGridCurrentLimit, false);
+    assert.equal(control.context.get('gridControlHourKey'), '2026-10-25 02');
+
+    control.context.set('batteryVoltage', 53);
+    control.context.set('batteryConsumedAh', 0);
+    control.context.set('gridCurrentLimitA', 31);
+    const rolled = tick(at);
+    assert.equal(rolled.result[7].tick.sendGridCurrentLimit, true);
+    assert.equal(rolled.result[7].tick.decision.gridCurrentLimitA, 31);
+    assert.equal(control.context.get('gridControlHourKey'), '2026-10-25 02+0100');
+    assert.deepEqual(rolled.result[2], { topic: 'ac-input-current-limit', payload: 31 });
+    assert.equal(tick(at + 2000).result[7].tick.sendGridCurrentLimit, false);
+});
+
 test('cadence coalesces sensor bursts, but a CT step over 1 kW runs immediately', () => {
     const now = Date.parse('2026-11-12T23:00:00+01:00');
     const run = repeats => {
