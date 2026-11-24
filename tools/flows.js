@@ -12,7 +12,8 @@
 //   "NN Name.js"       -> function node "Name", property `func`
 //   "NN Name.init.js"  -> function node "Name", property `initialize` (On Start)
 //   "NN Name.html"     -> ui_template "Name" (or "Name" without a trailing " page"), property `format`
-// A leading `// #libs <JSON array>` in "NN Name.js" sets the Function node's `libs` without changing its code.
+// A leading `// #libs <JSON array>` in "NN Name.js" sets `libs` on every Function
+// node matched by that source name, just like `func`, without changing its code.
 // Sources are embedded with LF line endings and without trailing blank lines, whatever the
 // checkout uses, so the same source always gives the same flows.json.
 'use strict';
