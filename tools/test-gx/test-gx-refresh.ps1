@@ -77,7 +77,8 @@ $cmp += @('--ssh-key', (Join-Path $here 'test_key'))
 if ($GxHost) {
     $live = Join-Path $runs 'live.b64'
     # --raw: the snapshot also carries the config text of every node, so the sanitizer's map can be applied; keep live.b64 private
-    Get-Content -Raw (Join-Path $repo 'tools\gx\live-snapshot.js') | ssh @sshArgs $GxHost "tr -d '\r' | node - --raw" | Set-Content $live -Encoding ascii
+    Get-Content -Raw (Join-Path $repo 'tools\gx\live-snapshot.js'), (Join-Path $repo 'tools\gx\admin-api.js') |
+        ssh @sshArgs $GxHost "tr -d '\r' | node - --raw" | Set-Content $live -Encoding ascii
     Check 'live snapshot'
     $cmp += @('--live', $live, '--map', "$out.map.json")
 }

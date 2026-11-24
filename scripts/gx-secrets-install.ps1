@@ -56,7 +56,7 @@ function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundC
 function Stop-Run([string]$Text) { Write-Host "STOPPED: $Text" -ForegroundColor Yellow; exit ($stopped ? 2 : 1) }
 function Invoke-Gx([string]$Command) { $out = & ssh @ssh $GxHost $Command; return @{ Text = ($out -join "`n"); Code = $LASTEXITCODE } }
 function Invoke-OnGx([string]$Script, [string]$Arguments) {
-    $out = Get-Content -Raw (Join-Path $root $Script) | & ssh @ssh $GxHost "tr -d '\r' | node - $Arguments"
+    $out = Get-Content -Raw (Join-Path $root $Script), (Join-Path $root 'tools\gx\admin-api.js') | & ssh @ssh $GxHost "tr -d '\r' | node - $Arguments"
     return @{ Text = ($out -join "`n"); Code = $LASTEXITCODE }
 }
 # Starts a run and returns its id: gh prints the run URL; older versions print nothing, then the newest run is taken.

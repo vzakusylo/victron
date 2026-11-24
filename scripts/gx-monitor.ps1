@@ -22,7 +22,7 @@ $ssh = @('-i', $SshKey, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o',
 
 function Invoke-Remote([string]$Script, [string]$Arguments) {
     # tr removes the carriage returns PowerShell adds; `node -` reads the script from stdin.
-    $out = Get-Content -Raw (Join-Path $root $Script) | & ssh @ssh "tr -d '\r' | node - $Arguments"
+    $out = Get-Content -Raw (Join-Path $root $Script), (Join-Path $root 'tools\gx\admin-api.js') | & ssh @ssh "tr -d '\r' | node - $Arguments"
     return @{ Text = ($out -join "`n"); Code = $LASTEXITCODE }
 }
 

@@ -23,7 +23,7 @@ function host() {
         for (const [file, blob] of [['flows.json', 'flows.json'], ['stamp.js', 'tools/deploy-version.js']]) {
             fs.writeFileSync(path.join(dir, file), git('show', sha + ':' + blob));
         }
-        for (const file of ['deploy.js', 'node-additions.js']) fs.copyFileSync(path.join(root, 'tools', 'gx', file), path.join(dir, file));
+        for (const file of ['deploy.js', 'node-additions.js', 'admin-api.js']) fs.copyFileSync(path.join(root, 'tools', 'gx', file), path.join(dir, file));
         fs.copyFileSync(__filename, path.join(dir, 'check.js'));
         const { snapshot } = require('../gx/live-snapshot.js');
         const live = path.join(dir, 'live.b64');

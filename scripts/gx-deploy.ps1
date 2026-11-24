@@ -52,7 +52,9 @@ if ($GxHost -notmatch '^[A-Za-z0-9_.-]+@[A-Za-z0-9._-]+$') { throw 'GxHost must 
 
 # Scripts that run on the GX and are kept there in /data/home/nodered/tools (a tool that is equal is skipped).
 # The secret loader (victron-secrets.js, reload-victron-secrets.js) belongs to the secret workflow, not here.
+$apiHelper = 'tools/gx/admin-api.js'
 $gxTools = @(
+    $apiHelper,
     'tools/gx/live-snapshot.js', 'tools/gx/deploy.js', 'tools/gx/node-additions.js', 'tools/gx/verify.js', 'tools/gx/monitor.js', 'tools/gx/window.js',
     'tools/send-mail.js', 'tools/camera-mail-gate.js', 'tools/tuya-cloud-sensors.js', 'tools/tuya-cloud-status.js', 'tools/tuya-devices-setup.js',
     'tools/tuya-local-poll.js', 'tools/tuya-local-sensors.js'
@@ -102,7 +104,9 @@ function Save-GitBlob([string]$CommitSha, [string]$Path, [string]$Destination) {
 }
 # A script of the commit, piped to `node -` on the GX; tr removes the carriage returns PowerShell adds.
 function Invoke-OnGx([string]$Script, [string]$Arguments) {
-    $out = Get-Content -Raw (Join-Path $run $Script) | & ssh @ssh $GxHost "tr -d '\r' | node - $Arguments"
+    $files = @((Join-Path $run $Script))
+    if ($scripts -contains $apiHelper) { $files += (Join-Path $run $apiHelper) }
+    $out = Get-Content -Raw -Path $files | & ssh @ssh $GxHost "tr -d '\r' | node - $Arguments"
     return @{ Text = ($out -join "`n"); Code = $LASTEXITCODE }
 }
 function Save([string]$Name, [string]$Text) { [IO.File]::WriteAllText((Join-Path $run $Name), $Text + "`n") }
@@ -117,6 +121,7 @@ if (-not (Invoke-Git branch -r --contains $sha)) { Stop-Run "commit $sha is not 
 New-Item -ItemType Directory (Join-Path $run 'tools\gx') | Out-Null
 $tools = @($gxTools | Where-Object { & git -C $root cat-file -e "${sha}:$_" 2>$null; $LASTEXITCODE -eq 0 })
 $scripts = @('tools/gx/live-snapshot.js', 'tools/gx/compare.js', 'tools/gx/deploy.js', 'tools/gx/verify.js', 'tools/gx/window.js')
+if ($UseWorkTreeScripts -or $tools -contains $apiHelper) { $scripts += $apiHelper }
 $helper = 'tools/gx/node-additions.js'
 if ($UseWorkTreeScripts -or $tools -contains $helper) { $scripts += $helper }
 elseif ($AllowNewNodes) { Stop-Run "commit $sha does not support -AllowNewNodes." }
@@ -210,6 +215,7 @@ try {
     $upload = @((Join-Path $run 'plan.json'), (Join-Path $run 'tools\gx\deploy.js'))
     if ($plan.remove.Count) { $upload += (Join-Path $run 'tools\gx\live-snapshot.js') }
     if ($scripts -contains $helper) { $upload += (Join-Path $run $helper) }
+    if ($scripts -contains $apiHelper) { $upload += (Join-Path $run $apiHelper) }
     & scp @ssh @upload "${GxHost}:$remote/" | Out-Null
     if ($LASTEXITCODE -ne 0) { Stop-Run 'the plan could not be copied to the GX.' }
     $dry = & ssh @ssh $GxHost "node $remote/deploy.js $remote/plan.json 2>&1"
@@ -237,7 +243,7 @@ try {
     $out | Where-Object { $_ -match '^(backup|tool replaced|tool restored|DEPLOYED|ABORT|TOOL NOT RESTORED|Flow state)' } | ForEach-Object { Write-Host $_ }
     if ($code -ne 0) { Stop-Run 'the deploy failed (ABORT line above). Read deploy.txt; the backup folder is named there.' }
 }
-finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/node-additions.js $remote/live-snapshot.js; rmdir $remote" 2>$null | Out-Null }
+finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/node-additions.js $remote/live-snapshot.js $remote/admin-api.js; rmdir $remote" 2>$null | Out-Null }
 
 Step '8/8 verify'
 Start-Sleep -Seconds 20

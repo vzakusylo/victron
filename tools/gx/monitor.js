@@ -2,7 +2,7 @@
 // Read-only health monitor of the heat pump automations on the GX. Runs ON THE GX.
 //
 // Usage (PowerShell 7 on the PC, see docs/gx-deploy.md; scripts/gx-monitor.ps1 wraps it):
-//   Get-Content -Raw tools\gx\monitor.js | ssh <gx> "tr -d '\r' | node -"
+//   Get-Content -Raw tools\gx\monitor.js,tools\gx\admin-api.js | ssh <gx> "tr -d '\r' | node -"
 //   ssh <gx> "node /data/home/nodered/tools/gx/monitor.js"          once a deploy has placed it there
 //   ... "node - --json"                                              the collected data and the findings as JSON
 //
@@ -118,19 +118,11 @@ module.exports = { evaluate, format, tai64nMs, collect, LIMITS };
 async function collect(options) {
     const opt = options || {};
     const fs = require('fs');
-    const http = require('http');
     const { execFileSync } = require('child_process');
     const home = opt.home || process.env.VICTRON_HOME || '/data/home/nodered';
-    const port = opt.port || Number(process.env.VICTRON_API_PORT) || 1880;
     const logFile = opt.log || process.env.VICTRON_LOG || '/var/log/node-red-venus/current';
-    const get = (urlPath) => new Promise((resolve, reject) => {
-        http.get({ host: '127.0.0.1', port, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
-            let text = '';
-            res.setEncoding('utf8');
-            res.on('data', (chunk) => { text += chunk; });
-            res.on('end', () => resolve(text));
-        }).on('error', reject);
-    });
+    const api = (typeof createAdminApi === 'function' ? createAdminApi : require('./admin-api.js'))({ port: opt.port });
+    const get = (urlPath) => api('GET', urlPath);
     const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } catch { return null; } };
     const now = opt.now || Date.now();
     const input = { now, service: { up: false, seconds: 0 } };

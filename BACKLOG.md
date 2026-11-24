@@ -30,6 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
+| — | `deploy-api-retry` | D-R8 Admin API read retries | In progress: retry transient Node-RED GET failures and name failed requests; test against a fake admin API. |
 
 ## 2. Deploy
 

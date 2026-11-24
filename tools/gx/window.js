@@ -2,7 +2,7 @@
 // Read-only: is this a safe moment to redeploy the automations or to stop Node-RED? Runs ON THE GX.
 //
 // Usage (PowerShell 7 on the PC; the runners in scripts/ call it):
-//   Get-Content -Raw tools\gx\window.js | ssh <gx> "tr -d '\r' | node -"
+//   Get-Content -Raw tools\gx\window.js,tools\gx\admin-api.js | ssh <gx> "tr -d '\r' | node -"
 //   ssh <gx> "node /data/home/nodered/tools/gx/window.js --for stop --margin 8"
 //   ... --json                                   the values and the verdict as JSON
 //
@@ -73,16 +73,8 @@ module.exports = { judge, format, defrostIntervalMin };
 
 async function collect(options) {
     const opt = options || {};
-    const http = require('http');
-    const port = opt.port || Number(process.env.VICTRON_API_PORT) || 1880;
-    const get = (urlPath) => new Promise((resolve, reject) => {
-        http.get({ host: '127.0.0.1', port, path: urlPath, headers: { 'Node-RED-API-Version': 'v2' } }, (res) => {
-            let text = '';
-            res.setEncoding('utf8');
-            res.on('data', (chunk) => { text += chunk; });
-            res.on('end', () => (res.statusCode === 200 ? resolve(text) : reject(new Error('GET ' + urlPath + ' -> ' + res.statusCode))));
-        }).on('error', reject);
-    });
+    const api = (typeof createAdminApi === 'function' ? createAdminApi : require('./admin-api.js'))({ port: opt.port });
+    const get = (urlPath) => api('GET', urlPath);
     const value = (reply) => { try { return JSON.parse(JSON.parse(reply).msg); } catch { return null; } };
     const live = JSON.parse(await get('/flows'));
     const tab = live.flows.find((node) => node.type === 'tab' && /d#\d+/.test(node.label || ''));

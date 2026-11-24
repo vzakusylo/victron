@@ -62,7 +62,7 @@ Keep run files outside the repository:
 $runRoot = Join-Path ([IO.Path]::GetTempPath()) ('gx-review-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $runRoot | Out-Null
 $snapshotFile = Join-Path $runRoot 'live.b64'
-$snapshot = Get-Content -Raw .\tools\gx\live-snapshot.js |
+$snapshot = Get-Content -Raw .\tools\gx\live-snapshot.js,.\tools\gx\admin-api.js |
     ssh @sshOptions $gx "tr -d '\r' | node -"
 if ($LASTEXITCODE -ne 0 -or -not $snapshot) { throw 'Snapshot failed.' }
 [IO.File]::WriteAllText($snapshotFile, ($snapshot -join "`n") + "`n")
@@ -111,7 +111,7 @@ Without the third output, the new recorder code would not deliver its cleanup co
 For a structural update, first verify the exact live node/configuration against the reviewed baseline and the intended master configuration. Check that referenced targets already exist on the same flow. Obtain the owner's approval and a safe window:
 
 ```powershell
-Get-Content -Raw .\tools\gx\window.js |
+Get-Content -Raw .\tools\gx\window.js,.\tools\gx\admin-api.js |
     ssh @sshOptions $gx "tr -d '\r' | node - --for deploy"
 if ($LASTEXITCODE -ne 0) { throw 'Not a safe deployment window.' }
 ```

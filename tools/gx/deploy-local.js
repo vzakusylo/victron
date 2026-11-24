@@ -3,7 +3,7 @@
 // Prepare on PC: node tools/gx/deploy-local.js --prepare LIVE.b64 PLAN.json
 // On GX: node deploy-local.js PLAN.json (dry); DRY=0 node deploy-local.js PLAN.json
 'use strict';
-const fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib'), http = require('http');
+const fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib');
 const { execFileSync } = require('child_process');
 const hash = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const norm = (s) => String(s || '').replace(/\r\n/g, '\n');
@@ -25,7 +25,7 @@ function prepare(snapshotFile, output) {
     const newNodes = diff.onlyRepo.map(n => byId.get(n.id));
     if (newNodes.some(n => !n.id.startsWith('temps-'))) fail('Unreviewed new node outside the temperature page');
     const files = {};
-    for (const file of ['tools/sensor-history.js','tools/heatpump-decode.js','tools/elvenett-statistics.js','tools/deploy-version.js','tools/gx/live-snapshot.js','tools/gx/window.js','tools/gx/dashboard-assets.js','tools/gx/deploy-local.js']) {
+    for (const file of ['tools/sensor-history.js','tools/heatpump-decode.js','tools/elvenett-statistics.js','tools/deploy-version.js','tools/gx/admin-api.js','tools/gx/live-snapshot.js','tools/gx/window.js','tools/gx/dashboard-assets.js','tools/gx/deploy-local.js']) {
         const data = fs.readFileSync(path.join(ROOT,file));
         files[file] = { data:data.toString('base64'), hash:hash(data) };
     }
@@ -39,19 +39,6 @@ function prepare(snapshotFile, output) {
     const plan = { expectRev:live.rev, source:'local:'+hash(JSON.stringify(content)), content };
     fs.writeFileSync(output,JSON.stringify(plan),{mode:0o600});
     console.log('Prepared '+plan.source+'; '+Object.keys(patch).length+' existing nodes, '+newNodes.length+' new nodes');
-}
-function api(method, url, body) {
-    return new Promise((resolve,reject) => {
-        const req = http.request({host:'127.0.0.1',port:Number(process.env.VICTRON_API_PORT)||1880,path:url,method,
-            headers:{'Node-RED-API-Version':'v2','Content-Type':'application/json','Node-RED-Deployment-Type':'nodes'}},res=>{
-            let text=''; res.on('data',b=>text+=b); res.on('end',()=>{
-                if (res.statusCode<200||res.statusCode>=300) return reject(new Error(method+' '+url+' -> '+res.statusCode));
-                try {resolve(JSON.parse(text));} catch(e) {reject(e);}
-            });
-        });
-        req.setTimeout(15000,()=>req.destroy(new Error('Admin API timeout')));
-        req.on('error',reject); if(body) req.write(JSON.stringify(body)); req.end();
-    });
 }
 async function deploy(file) {
     const home = process.env.VICTRON_HOME || '/data/home/nodered';
@@ -69,6 +56,10 @@ async function deploy(file) {
         const {stampDeployment} = require(path.join(stage,'tools/deploy-version.js'));
         const {snapshot} = require(path.join(stage,'tools/gx/live-snapshot.js'));
         const {collect,judge,format} = require(path.join(stage,'tools/gx/window.js'));
+        const request = require(path.join(stage,'tools/gx/admin-api.js'))({ writeTimeoutMs: 15000 });
+        const api = async (method, url, body) => JSON.parse(await request(method, url, JSON.stringify(body), {
+            'Content-Type': 'application/json', 'Node-RED-Deployment-Type': 'nodes'
+        }));
         const original=await api('GET','/flows');
         if(original.rev!==p.expectRev) fail('Live revision changed: take a fresh snapshot');
         const verdict=judge(await collect());
@@ -145,5 +136,5 @@ module.exports={prepare,deploy};
 if(require.main===module) {
     const args=process.argv.slice(2);
     Promise.resolve().then(()=>args[0]==='--prepare'?prepare(args[1],args[2]):deploy(args[0]))
-        .catch(e=>{console.error('ABORT '+e.message);process.exitCode=1;});
+        .catch(e=>{console.error('ABORT: '+e.message);process.exitCode=1;});
 }
