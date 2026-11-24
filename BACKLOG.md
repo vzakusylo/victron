@@ -158,7 +158,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#178 HP-C1 Curve model: drop pump outdoor (`hp-curve-model`, d#233 · i#48). Use the defrost-held DP 103 average; report capacity instead of escalating lag at ≥ 85 Hz with non-falling supply. Replace the slider with one low-priority P23/P24 batch and save only on two fresh readbacks. No live GX access.
+#178 HP-C1 Curve model: drop pump outdoor (`hp-curve-model`, d#233 · i#48). Use the defrost-held DP 103 average; report capacity instead of escalating lag at ≥ 85 Hz with non-falling supply. Replace the slider with one low-priority P23/P24 batch and save only on two fresh readbacks. The idle scenario now verifies a valid sensor average before inducing a stop: during startup the restart level is unknown, not inferred from DP 125. No live GX access.
 
 #177 D-R11 Admin API keep-alive EPIPE (`deploy-no-keepalive`, d#232 unchanged · i#47): use fresh connections for all GX admin requests. On a pre-response reset, retry the whole-flow POST once only if the live revision is unchanged; otherwise verify without reposting. Fake-GX replay covers the 1 MiB POST, retry, and verification paths; no live GX access.
 

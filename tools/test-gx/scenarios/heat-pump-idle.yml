@@ -7,18 +7,33 @@
       tuya.pump.dps.2: smart
       tuya.pump.dps.15: 0
       tuya.pump.dps.101: 26
-      tuya.pump.dps.102: 27
+      tuya.pump.dps.102: 31
       tuya.pump.dps.103: 6
       tuya.pump.dps.108: 47
-      tuya.pump.dps.115: 0
-      tuya.pump.dps.116: 0
+      tuya.pump.dps.115: 40
+      tuya.pump.dps.116: 500
       tuya.pump.dps.121: 3
       tuya.pump.dps.125: 36
       tuya.pump.dps.132: "1"
       tuya.pump.dps.133: 27
       tuya.pump.dps.134: 5
   steps:
-    - when: 10m
+    # Let the startup hold end and establish the sensor average before testing a stop.
+    - when: 19m
+      expect:
+        writes: []
+        view:
+          - path: outHeld
+            equals: false
+          - path: outAvg
+            equals: 6
+          - path: idle.active
+            equals: false
+    - when: 20m
+      inputs:
+        tuya.pump.dps.102: 27
+        tuya.pump.dps.115: 0
+        tuya.pump.dps.116: 0
       settle: 3m
       expect:
         writes: []
@@ -34,8 +49,9 @@
             equals: 9
           - path: status.text
             contains: "Idle:"
-    - when: 14m
+    - when: 24m
       inputs:
+        tuya.pump.dps.102: 31
         tuya.pump.dps.115: 40
         tuya.pump.dps.116: 500
       settle: 3m
