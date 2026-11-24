@@ -35,10 +35,18 @@ function preflightModules(nodes) {
         if (!Array.isArray(node.libs)) fail(node.id + '.libs: expected a module list.');
         for (const entry of node.libs) {
             const name = entry?.module;
+            const version = entry?.version;
             if (typeof name !== 'string' || (!isCoreModule(name) && !/^(?:@[\w-]+\/)?[\w-][\w.-]*$/.test(name))) {
                 fail(node.id + '.libs: invalid module name.');
             }
-            if (!modules.has(name)) modules.set(name, node.id);
+            if (version !== undefined && (isCoreModule(name) || typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version))) {
+                fail(node.id + '.libs: expected an exact package version for ' + name);
+            }
+            const previous = modules.get(name);
+            if (previous?.version && version && previous.version !== version) {
+                fail(node.id + '.libs: conflicting versions for ' + name);
+            }
+            if (!previous || version) modules.set(name, { id: node.id, version });
         }
     }
     if (!modules.size) return;
@@ -48,13 +56,32 @@ function preflightModules(nodes) {
     if (settings.functionExternalModules === false) fail('Node-RED functionExternalModules is disabled on the GX.');
     const userDir = settings.userDir || NODE_RED_DIR;
     const paths = [userDir, path.join(userDir, 'externalModules'), path.dirname(NODE_RED_SETTINGS)];
-    for (const [name, id] of modules) {
+    for (const [name, { id, version }] of modules) {
         let resolved = 'builtin';
         if (!isCoreModule(name)) {
             try { resolved = require.resolve(name, { paths }); }
             catch { fail(id + '.libs: module ' + name + ' is not available to Node-RED on the GX'); }
         }
-        console.log('module ' + name + ' : ' + resolved);
+        if (version) {
+            // Read the manifest of the resolved copy even if package exports hide it.
+            let dir = path.dirname(resolved);
+            let manifest;
+            while (true) {
+                const file = path.join(dir, 'package.json');
+                if (fs.existsSync(file)) {
+                    try { manifest = JSON.parse(fs.readFileSync(file, 'utf8')); }
+                    catch (error) { fail(id + '.libs: cannot read installed version of ' + name + ': ' + error.message); }
+                    if (manifest?.name === name) break;
+                }
+                const parent = path.dirname(dir);
+                if (parent === dir) fail(id + '.libs: no package manifest for ' + name + ' at ' + resolved);
+                dir = parent;
+            }
+            if (manifest.version !== version) {
+                fail(id + '.libs: expected ' + name + '@' + version + ', found ' + (manifest.version ?? 'no version'));
+            }
+        }
+        console.log('module ' + name + (version ? '@' + version : '') + ' : ' + resolved);
     }
 }
 

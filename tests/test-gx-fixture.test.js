@@ -108,6 +108,21 @@ test('fixture regenerates committed defaults and builds byte-identical derived s
     }
 });
 
+test('both D-Bus Function nodes and Test GX pin dbus-native-victron to 0.4.6', () => {
+    const module = 'dbus-native-victron', version = '0.4.6';
+    for (const file of [path.join(ROOT, 'flows.json'), path.join(FIXTURE, 'nodered', '.node-red', 'flows.json')]) {
+        const flows = JSON.parse(fs.readFileSync(file, 'utf8'));
+        for (const id of ['e4766632305fb432', 'bmswd-fn-01']) {
+            const node = flows.find(n => n.id === id);
+            assert.deepEqual(node?.libs?.filter(lib => lib.var === 'dbus'), [{ var: 'dbus', module, version }], id);
+        }
+    }
+    for (const root of [FIXTURE, COMMITTED_FIXTURE]) {
+        const { dependencies } = JSON.parse(fs.readFileSync(path.join(root, 'nodered', 'package.json'), 'utf8'));
+        assert.equal(dependencies[module], version);
+    }
+});
+
 test('fixture keeps every original function body, initializer and finalizer byte-identical', () => {
     const source = JSON.parse(fs.readFileSync(path.join(ROOT, 'flows.json'), 'utf8'));
     const generated = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'nodered', '.node-red', 'flows.json'), 'utf8'));
