@@ -45,6 +45,12 @@ function eligibleHistory(tip, runGit = git) {
   return [...lines(runGit('rev-list', '--first-parent', `${production}..${tip}`)), production];
 }
 
+function newerAutomaticRunIds(runs, runNumber) {
+  return runs
+    .filter(run => run.event === 'workflow_run' && run.run_number > Number(runNumber) && run.conclusion !== 'cancelled')
+    .map(run => String(run.id));
+}
+
 const sources = {
   isAncestor: (sha, tip) => {
     try { git('merge-base', '--is-ancestor', sha, tip); return true; }
@@ -59,9 +65,9 @@ const sources = {
     const created = api(`${base}/runs/${runId}`, '--jq', '.created_at');
     const runs = lines(api('--paginate', '-X', 'GET', `${base}/workflows/deploy-gx-code.yml/runs`,
       '-f', 'branch=master', '-f', `created=>=${created}`, '-f', 'per_page=100',
-      '--jq', `.workflow_runs[] | select(.run_number > ${runNumber} and .conclusion != "cancelled") | .id`));
+      '--jq', '.workflow_runs[] | {id, run_number, event, conclusion} | @json')).map(line => JSON.parse(line));
     // The deploy job may still be queued on the shared lock. Only runs that passed their gate supersede us.
-    return runs.find(id => api(`${base}/runs/${id}/jobs`, '--jq',
+    return newerAutomaticRunIds(runs, runNumber).find(id => api(`${base}/runs/${id}/jobs`, '--jq',
       '[.jobs[] | select(.name == "gate") | .steps[] | select(.name == "Eligible for GX deployment" and .conclusion == "success")] | length') === '1');
   }
 };
@@ -111,4 +117,4 @@ function append(file, text) {
 
 if (require.main === module) process.exit(main(process.env, sources, process.argv[2]));
 
-module.exports = { decide, eligibleHistory, main, recheck };
+module.exports = { decide, eligibleHistory, main, newerAutomaticRunIds, recheck };

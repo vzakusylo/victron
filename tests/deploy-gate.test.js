@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { decide, eligibleHistory, main, recheck } = require('../tools/gx/deploy-gate.js');
+const { decide, eligibleHistory, main, newerAutomaticRunIds, recheck } = require('../tools/gx/deploy-gate.js');
 
 const SHA = 'a'.repeat(40);
 const ok = {
@@ -37,6 +37,17 @@ test('a waiting deploy skips when a newer eligible run reached the deploy queue'
   }, phase);
   assert.equal(result.deploy, false);
   assert.match(result.reason, /Newer deploy run 20/);
+});
+
+test('only newer, non-cancelled automatic runs can supersede a waiting deploy', () => {
+  const runs = [
+    { id: 25, run_number: 8, event: 'workflow_dispatch', conclusion: null },
+    { id: 24, run_number: 7, event: 'workflow_run', conclusion: 'cancelled' },
+    { id: 23, run_number: 6, event: 'workflow_run', conclusion: null },
+    { id: 22, run_number: 5, event: 'workflow_run', conclusion: null },
+    { id: 21, run_number: 4, event: 'workflow_run', conclusion: 'success' },
+  ];
+  assert.deepEqual(newerAutomaticRunIds(runs, '5'), ['23']);
 });
 
 test('selects the newest green master ancestor, but never crosses an untested flow change', t => {
