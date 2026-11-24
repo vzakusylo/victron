@@ -74,7 +74,6 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 | R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | Done: #92 | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
 | R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | Done: #92 | Phase 2. |
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
-| R6 | Merge or retire the `*-handoff*.md` docs (`docs/gx-handoff.md` is quoted by tests and scripts: update those first) | open | |
 
 ### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
 
@@ -149,6 +148,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+- #176 R6: consolidated live GX runner guidance and archived the three handoffs (i#46, d#232 unchanged).
 
 #175 G6 follow-up (`grid-g6-split`, d#232 · i#45): move the remaining grid decision stage and bookkeeping tick assembly into node-local includes, leaving `01` as loop wiring without changing behavior.
 

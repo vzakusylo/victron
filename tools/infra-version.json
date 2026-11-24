@@ -1,5 +1,5 @@
 {
-  "i": 45,
+  "i": 46,
   "changes": [
     {
       "i": 1,
@@ -270,6 +270,12 @@
       "date": "2026-11-24",
       "pr": 175,
       "what": "G6 grid split"
+    },
+    {
+      "i": 46,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "R6 handoff docs"
     }
   ]
 }

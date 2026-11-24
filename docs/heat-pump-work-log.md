@@ -87,7 +87,7 @@ check. Automation code, Tuya nodes and credentials were preserved.
 |---|---|
 | Dashboard JavaScript errors | Restored the missing loading view, waited for Angular Material sidenav registration and corrected the Heat Pump event legend expression. All 16 pages checked in Edge; a fresh private-proxy reload had no console errors. |
 | Toilet motion below Heat Pump power | Real PIR and clear events from the sensor archive, with original timestamps and explicit missing-data states. |
-| GX connector documentation | [Connector](victron-gx-connector.md) and [operational handoff](gx-handoff.md). |
+| GX connector documentation | [Connector](victron-gx-connector.md) and [historical deployment handoff](archive/gx-handoff.md). |
 | All-sensor temperature history | 26 sensor rows, day navigation and motion. Late responses for another day cannot reset the selection. Previous-day rendering confirmed 46 PIR/clear markers and 8,089 temperature points. |
 | Elvenett on Payback | CLI extraction and reading; 69 monthly rows, 49,920 hours and historical capacity comparison. Only the compact statistics were copied to GX, not credentials or the raw account archive. |
 

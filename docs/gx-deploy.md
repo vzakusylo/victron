@@ -2,7 +2,7 @@
 
 > How to find out what the GX really runs, deploy a pinned Git flow after checking for drift, and verify the result.
 
-**Start with [GX deployment handoff](gx-handoff.md)**: it has the one-command runners (`scripts/gx-deploy.ps1`, `scripts/gx-secrets-install.ps1`) that do the steps below in a fixed order. This page explains the single scripts they call.
+Start with the [command runners](#command-runners), then use the individual tools below for diagnosis and recovery.
 
 Related: [Development & deployment](development.md) (rules, versioning) · [Secrets](../scripts/SECRETS.md) (private files, GitHub workflow) · [Backup & restore](backup-restore.md) · [Work log](heat-pump-work-log.md)
 
@@ -10,6 +10,7 @@ For connection failures, differing versions/GX-only lines, output migrations and
 
 ## Contents
 
+- [Command runners](#command-runners)
 - [The three things that get deployed](#the-three-things-that-get-deployed)
 - [Which script is for what](#which-script-is-for-what)
 - [Finding the GX and restoring Tailscale on Windows](#finding-the-gx-and-restoring-tailscale-on-windows)
@@ -22,6 +23,63 @@ For connection failures, differing versions/GX-only lines, output migrations and
 - [Rollback](#rollback)
 - [Traps met on 14 Nov](#traps-met-on-14-nov)
 - [What was done on 14 Nov 2026](#what-was-done-on-14-nov-2026)
+
+## Command runners
+
+Use PowerShell 7 from the repository root. Live access requires an explicit owner request.
+Set `$gx` to the approved `root@` host and `$key` to the approved SSH key path.
+
+### Deploy code
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key
+pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost $gx -SshKey $key -Apply
+```
+
+The first command is read-only. The runner defaults to `origin/master`; `-Commit <sha>` selects another pushed commit.
+`-WaitWindowMin` can wait for a safe window. Use `-Steps` to print the sequence without contacting the GX:
+
+```text
+1 preflight   fetch, resolve the commit, check that it is pushed, extract the scripts of the commit
+2 snapshot    read the live flow from the GX (read-only)
+3 compare     check live drift against the recorded commit and report Git changes
+4 plan        pin base, target, tool files, hashes and expected live revision
+5 window      no DHW cycle, no running rule sequence, no defrost (read-only)
+6 dry run     all checks of tools/gx/deploy.js on the GX, nothing changed
+7 deploy      only with -Apply: backup, tool files, POST, read back
+8 verify      informational health report (label, log and automations); deploy.js already verified the flow
+```
+
+Inspect the printed run folder for the plan, diff and logs. A drift or revision mismatch stops the deploy; do not
+override drift without owner approval. After apply, recheck with `scripts\gx-monitor.ps1` after 15–20 minutes and record
+the result and backup location in the [work log](heat-pump-work-log.md).
+
+### Install private files
+
+This is for a new/restored GX or verifying a change to the secrets installation chain, not for deploying code.
+Create a fresh dashboard backup first. The installation can stop Node-RED and requires approval of two GitHub
+Actions runs in the `victron-gx` environment. See the [secrets guide](../scripts/SECRETS.md) for private-file handling.
+
+```powershell
+pwsh -NoProfile -File .\scripts\gx-secrets-install.ps1 -GxHost $gx -SshKey $key -DryRun
+pwsh -NoProfile -File .\scripts\gx-secrets-install.ps1 -GxHost $gx -SshKey $key -WaitWindowMin 45
+```
+
+`-Steps` prints this sequence without contacting the GX:
+
+```text
+1 preflight   gh login, all secret names present, SSH to the GX, Node-RED up, a recent dashboard backup exists
+2 sync        copy the 11 private files from the GX to the GitHub secrets (skipped with -SkipSync)
+3 check       run the workflow in check mode; YOU approve it; it must succeed
+4 window      no DHW cycle, no rule sequence, no defrost due (tools/gx/window.js --for stop)
+5 dispatch    start the workflow in install mode, then stop Node-RED and confirm it is down
+6 approve     YOU approve the run; wait for it; on timeout or failure start Node-RED again
+7 compare     installed files vs the copies the installer kept; local check of the secret mappings
+8 start       start Node-RED, wait until the automations tick, print the monitor
+```
+
+Do not skip the sync unless the GitHub copies are deliberately the source of truth; an install can overwrite newer
+GX files with older copies. Review the final monitor output and ensure Node-RED is running.
 
 ## The three things that get deployed
 
