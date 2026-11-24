@@ -380,6 +380,9 @@ Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem ne
    to confirm preflight reports `dbus-native-victron@0.4.6`. If it reports a mismatch, the owner must
    arrange the package change separately and rerun the dry run. Automatic deploys stop before writing
    anything until preflight passes.
+   The version is enforced by deploy preflight, not by Node-RED at runtime. If the editor drops
+   `libs[].version` on save, the next drift check reports it as a `libs` change; review the drift
+   before reapplying the Git definition.
 4. On apply, save `flows.json`, `flows_cred.json` and the API response, then replace the planned tools.
    POST the prepared target with API v2, the expected `rev` and deployment type `nodes`. A 409 stops the
    deploy without a second POST. No credentials are sent. If the flow already matches the target and
