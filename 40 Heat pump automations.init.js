@@ -22,11 +22,13 @@ const clearReading = freshAutomationDevice(hp, startAt) && hp.lastData <= startA
 const last = context.get('lastDefrost') || 0;
 const realLast = last !== context.get('startedAt') ? last : 0;
 const view = flow.get('dhwView');
+const viewAge = startAt - view?.at;
+const unknownGap = !!view && !(viewAge >= 0 && viewAge <= FRESH_MS);
 const recovery = context.get('inDefrost') || context.get('defRecPrev') || (last && startAt - last < DEFROST_QUIET_MIN * MIN)
-    || (view?.outHeld && view.at && startAt - view.at <= FRESH_MS);
-const cleanRestart = clearReading && !recovery;
+    || view?.outHeld;
+const cleanRestart = clearReading && !recovery && !unknownGap;
 // Keep the full d#168 hold if telemetry is missing or still indicates a defrost. Preserve a known recovery.
-if (!cleanRestart) context.set('lastDefrost', clearReading && realLast ? realLast : startAt);
+if (!cleanRestart) context.set('lastDefrost', clearReading && !unknownGap && realLast ? realLast : startAt);
 else if (last !== realLast) context.set('lastDefrost', 0);
 context.set('startedAt', startAt);
 context.set('cleanRestart', cleanRestart);
