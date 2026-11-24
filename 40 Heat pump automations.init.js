@@ -14,12 +14,26 @@ if (ownerRequest) {
 }
 context.set('bootNote', { dropped: old.length + oldQ, text: 'automations node started'
     + (old.length ? '; running sequences dropped: ' + old.join(', ') : '') + (oldQ ? '; ' + oldQ + ' queued writes dropped' : '') });
-// d#168: the node does not know whether a defrost just ended (lastDefrost is lost with the context), and the
-// outdoor sensor reads 15-45 °C for minutes after one (14 Nov 08:42: 17.8 °C at 3 °C outdoor started a DHW cycle).
-// Treat the start as a defrost: no outdoor samples, no DHW start and no heating mode step for DEFROST_QUIET_MIN.
+// #include lib/heat-pump/defrost-reading.js
 const startAt = Date.now();
-context.set('lastDefrost', startAt);
-context.set('startedAt', startAt);   // idle.js: a lastDefrost equal to this was not a real defrost
+const hp = (flow.get('heatPump') || {}).hp;
+const dps = hp?.dps || {};
+const clearReading = freshAutomationDevice(hp, startAt) && hp.lastData <= startAt && defrostReading(dps) === false;
+const last = context.get('lastDefrost') || 0;
+const realLast = last !== context.get('startedAt') ? last : 0;
+const view = flow.get('dhwView');
+const viewAge = startAt - view?.at;
+const unknownGap = !(viewAge >= 0 && viewAge <= FRESH_MS);
+const recovery = context.get('inDefrost') || context.get('defRecPrev') || (last && startAt - last < DEFROST_QUIET_MIN * MIN)
+    || view?.outHeld;
+const cleanRestart = clearReading && !recovery && !unknownGap;
+// Keep the full d#168 hold if telemetry is missing or still indicates a defrost. Preserve a known recovery.
+if (!cleanRestart) context.set('lastDefrost', clearReading && !unknownGap && realLast ? realLast : startAt);
+else if (last !== realLast) context.set('lastDefrost', 0);
+context.set('startedAt', startAt);
+context.set('cleanRestart', cleanRestart);
+const outdoor = dhwMeasurement(dps['103']);
+context.set('restartOutdoor', cleanRestart && Number.isFinite(outdoor) ? [startAt, outdoor] : null);
 const d0 = context.get('dhw'); if (d0 && d0.state === 'HEATING') {
     d0.outS = []; d0.outAvg = null;
     if (ownerRequest?.sentAt) d0.curveCaptureHeld = true;

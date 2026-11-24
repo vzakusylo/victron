@@ -458,7 +458,7 @@ Re-establish a complete Git baseline as a separate, owner-approved recovery in a
 | PowerShell redirection | `>` may add a BOM; JSON built in a pipe was unreadable | `compare.js` keeps only the base64 characters. Write files from Node, not through a PowerShell pipe |
 | LAN address did not answer | From the PC on Wi-Fi the GX LAN address and `venus.local` timed out | Use the Tailscale host |
 | Large pushes stall | Hundreds of KB from the PC to the GX take minutes | Small files by `scp`, everything else downloaded by the GX |
-| Waiting after the deploy | The automations showed `no outdoor value yet; defrost now or < 15 min ago` | Normal: the outdoor average starts empty and no samples are taken during a defrost and 15 minutes after it. Check again later |
+| Waiting after the deploy | The automations show `settling after restart` or a defrost hold | With fresh, clear readings the outdoor average is seeded and the controller settles for 2 minutes. During defrost, recovery or a restart without trustworthy telemetry, the longer hold protects against a falsely warm outdoor reading. |
 | Page names | An older live flow may still have the source label appended | The current stamper strips legacy suffixes; check that page names are plain and look for the version badge in the header |
 
 ## What was done on 14 Nov 2026

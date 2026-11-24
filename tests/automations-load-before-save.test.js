@@ -3,17 +3,15 @@
 // control OFF). A motion visit saved the settings before 'load' arrived and overwrote the real file.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
-const { loadNode, ROOT } = require('./harness');
+const { loadNode, readSource } = require('./harness');
 const MIN = 60000;
 const NOW = new Date(2026, 10, 20, 0, 36).getTime();
 
 // Run the node's On Start code against its context, as Node-RED does after a deploy.
 function onStart(node) {
-    const code = fs.readFileSync(path.join(ROOT, '40 Heat pump automations.init.js'), 'utf8');
-    vm.runInNewContext(code, { context: node.context, Date: { now: () => NOW } });
+    const code = readSource('40 Heat pump automations.init.js');
+    vm.runInNewContext(code, { context: node.context, flow: node.flow, Date: { now: () => NOW } });
 }
 function hpDps(t) {
     return {

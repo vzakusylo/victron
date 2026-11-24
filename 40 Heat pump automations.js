@@ -140,13 +140,15 @@
 // d#233: heating, DHW and idle curve points use the defrost-held DP 103 average; DP 125 is fixed (withdraws d#195).
 //    At compressor capacity with non-falling supply, don't warn about lag or increase heating demand.
 //    Apply both owner coefficients through the paced queue; save the baseline after both are confirmed.
+// d#237: with fresh non-defrost readings and no recent defrost, seed DP 103 at restart and settle for 2 min.
+//    Keep the real defrost quiet/recovery hold; without reliable readings, keep the full startup hold.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
 // ==========================
 
 const CONFIG_PATH = '/data/home/nodered/grid-control-config/heat-pump-automations.json';
-const FRESH_MS = 5 * 60 * 1000;
+// #include lib/heat-pump/defrost-reading.js
 const LOG_MAX = 150;
 const MODES = ['off', 'dry', 'live'];
 const HOLD = 3;
@@ -157,8 +159,7 @@ const FLAG_MAX_MS = 10 * 60 * 1000;
 const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
 const VERIFY_MS = 15 * 1000;
 const STALE_MS = 60 * 1000;
-const DEFROST_QUIET_MIN = 15;
-const MIN = 60 * 1000;
+const RESTART_SETTLE_MIN = 2;
 const S = 1000;
 
 // ---- step helpers ---------------------------------------------------------
@@ -173,14 +174,6 @@ const wait = (ms) => ({ delay: ms, text: 'wait ' + (ms >= MIN ? ms / MIN + ' min
 const note = (text) => ({ note: text, text: 'notify: ' + text });
 
 const n = (v) => Number(v);
-function dhwMeasurement(value) {
-    return value === null || value === undefined || value === '' || typeof value === 'boolean' ? NaN : n(value);
-}
-function defrostReading(hp) {
-    const fan = dhwMeasurement(hp['116']), hz = dhwMeasurement(hp['115']);
-    if (!Number.isFinite(fan) || fan < 0 || !Number.isFinite(hz) || hz < 0) return null;
-    return fan === 0 && hz > 30;
-}
 const between = (v, a, b) => n(v) >= a && n(v) <= b;
 const hpTxt = (h) => 'set ' + h['125'] + ', supply ' + h['102'] + ', tank ' + h['108'] + ', outdoor ' + h['103'] + ', fan ' + h['116'] + ', ' + h['115'] + ' Hz';
 const rel = (d) => (d['1'] === true ? 'ON' : 'OFF');
@@ -285,8 +278,7 @@ function modeOf(id) {
 }
 function dhwCfgNow() { const s = context.get('settings') || settings; return dhwCfg(s.dhw); }
 function ready(role) {
-    const dev = st[role];
-    return !!(dev && dev.state === 'CONNECTED' && dev.lastData && now - dev.lastData <= FRESH_MS);
+    return freshAutomationDevice(st[role], now);
 }
 // One log event: kept in context for the Automations page and appended to the day file
 // LOG_DIR/YYYY-MM-DD.jsonl (output 6) for the Automation log page.
@@ -755,10 +747,16 @@ if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
 // (DP 103) heats up to 30–47 °C and stays high for minutes after it. Rules that start on
 // "outdoor > 1" (B50 on / preheat) must not start then (seen 2026-11-09 11:29 in the cloud).
 const exchangerInCircuit = ready('bypass') && ((st.bypass && st.bypass.dps) || {})['1'] === false;
+let restartSettling = context.get('cleanRestart') && now - context.get('startedAt') < RESTART_SETTLE_MIN * MIN;
 {
     const hpd = (st.hp && st.hp.dps) || {};
     const inDef = ready('hp') ? defrostReading(hpd) : null;
     const wasDef = context.get('inDefrost');
+    if (inDef === null && restartSettling && !wasDef) {
+        context.set('cleanRestart', false);
+        context.set('lastDefrost', context.get('startedAt'));
+        restartSettling = false;
+    }
     if (inDef) context.set('lastDefrost', now);
     // d#169: defrost starts (edge), kept in the settings file for the next-defrost forecast
     // d#170: supply just before the defrost — the recovery ends when the supply is back there (or at the set point)

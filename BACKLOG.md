@@ -156,6 +156,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#183 D-R12 follow-up: heat-pump restart settle (`deploy-restart-settle`, d#237 · i#53). With fresh, clear telemetry and no recent defrost, seed DP 103 and settle for 2 minutes. Keep the 15-minute hold for defrost or unknown startup conditions. The D-Bus pin shipped separately in #180 and was corrected in #181.
+
 #182 D-R13 Auto-deploy WAIT retries (`d-r13-deploy-wait-retry`, d#236 unchanged · i#52): retry eligibility, drift and the window every 15 minutes for up to two hours. Skip a stale run or one superseded by a newer automatic deploy; report window expiry separately from deploy errors. Manual dispatches do not supersede waiting runs. Verified with fake GX and a simulated clock; no live GX access.
 
 #181 D-R12 pin correction (`deploy-pin-0413`, d#236 · i#51): pin both Function nodes and Test GX to `dbus-native-victron@0.4.13`. Deploy run 45482443134 stopped before writing because Node-RED loads 0.4.13 from its user directory, not the unused 0.4.6 copy in `externalModules`. Preflight stays strict.
