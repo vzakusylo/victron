@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-24 | Two whole-flow applies (45437790670 and 45440186849) stopped before writing with `write EPIPE`. The likely cause was Node 20 reusing an admin socket after a gap longer than the 5-second keep-alive timeout. | Disabled socket reuse and added a live-revision guard before any POST retry. |
 | 2026-11-24 | The first automatic whole-flow deploy (45406703938) stopped on drift hidden by the old per-node tool: six input `name`/`onlyChanges` settings and group/flow order | Adopted the GX values into Git, accepted drift already matching the target, and ignored layout order. |
 | 2026-11-24 | The per-node GX deploy planner stopped on new field kinds four times | Replaced the planner with whole-flow deploy behind a drift gate. Replays use both fake and isolated real Node-RED APIs. |
 | 2026-11-24 | Dry run 45352055641 stopped on an unnamed `socket hang up` | GX admin API reads now retry transient failures, and final failures name the request; writes are not retried |

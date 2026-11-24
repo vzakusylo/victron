@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { isBuiltin, builtinModules } = require('module');
+const { isDeepStrictEqual } = require('util');
 const flow = require('./whole-flow.js');
 const { verifyHealth } = require('./verify.js');
 const api = require('./admin-api.js')();
@@ -139,11 +140,39 @@ function restoreTools(replaced) {
     }
 }
 
-const revFrom = text => {
-    const { rev } = JSON.parse(text);
+const parseFlowState = text => {
+    const state = JSON.parse(text);
+    const { rev } = state;
     if (typeof rev !== 'string' || !rev) fail('Node-RED did not return a revision.');
-    return rev;
+    return state;
 };
+
+async function submitTarget(target, originalRev) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return { reply: await post(target, originalRev) };
+        } catch (error) {
+            const cause = error.cause;
+            if (cause?.beforeResponse &&
+                (cause.code === 'EPIPE' || cause.code === 'ECONNRESET' || cause.message === 'socket hang up')) {
+                let live;
+                try { live = parseFlowState(await api('GET', '/flows')); }
+                catch (readError) { console.error('Cannot determine flow state: ' + readError.message); }
+                if (live && live.rev !== originalRev) {
+                    console.error('api verify     : POST /flows (live rev changed after ' + cause.message + ')');
+                    return { observed: live };
+                }
+                if (live && attempt === 1) {
+                    console.error(`api retry      : POST /flows (live rev unchanged, attempt 2/2: ${cause.message})`);
+                    continue;
+                }
+            }
+            if (attempt === 1 || !cause) throw error;
+            throw Object.assign(new Error(`POST /flows failed after 2 attempts: ${cause.message}`, { cause }),
+                { status: error.status, retried: true });
+        }
+    }
+}
 
 async function apply(target, original, originalText, label, jobs, sameDeployment) {
     const timestamp = new Date().toISOString().replace(/[-:.]/g, '');
@@ -156,7 +185,7 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
     console.log('backup          : ' + backup);
 
     const replaced = [];
-    let reply;
+    let reply, observed;
     try {
         replaceTools(jobs, backup, replaced);
     } catch (error) {
@@ -177,16 +206,20 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
         return;
     }
     try {
-        reply = await post(target, original.rev);
+        ({ reply, observed } = await submitTarget(target, original.rev));
     } catch (error) {
-        if (error.status === 409) {
+        // A conflict on the retry does not establish whether the first POST landed.
+        if (error.status === 409 && !error.retried) {
             restoreTools(replaced);
             fail('the live flow changed during the deploy');
+        }
+        if (error.status === 409 && !replaced.length) {
+            console.error('The first POST may have landed; check the live revision before deploying again.');
         }
         if (replaced.length) {
             // A transport failure can come after Node-RED accepted the flow.
             let liveRev;
-            try { liveRev = revFrom(await api('GET', '/flows')); }
+            try { liveRev = parseFlowState(await api('GET', '/flows')).rev; }
             catch (readError) { console.error('Cannot determine flow state: ' + readError.message); }
             if (liveRev === original.rev) restoreTools(replaced);
             else console.error('Flow state after the failed step is uncertain; tool files left as replaced. Check ' + backup);
@@ -194,16 +227,15 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
         throw error;
     }
 
-    let deployedRev;
+    let deployedRev, expectedRev;
     try {
-        deployedRev = revFrom(reply);
-        if (deployedRev === original.rev) {
-            deployedRev = undefined;
-            fail('Node-RED did not return a new revision.');
-        }
+        expectedRev = observed ? observed.rev : parseFlowState(reply).rev;
+        if (expectedRev === original.rev) fail('Node-RED did not return a new revision.');
+        // Without a POST response, only roll back a snapshot that exactly matches our target.
+        if (!observed || isDeepStrictEqual(observed.flows, target)) deployedRev = expectedRev;
         await new Promise(resolve => setTimeout(resolve, 4000));
         const after = JSON.parse(await api('GET', '/flows'));
-        if (after.rev !== deployedRev) fail('Live revision does not match the deployed revision.');
+        if (after.rev !== expectedRev) fail('Live revision does not match the deployed revision.');
         flow.checkDrift(flow.fingerprints(target), flow.fingerprints(after.flows), 'the stamped target', { logEqual: false });
         if (flow.versionTab(after.flows).label !== label) fail('The stamped version label does not match.');
         await verifyHealth(after);
@@ -217,11 +249,12 @@ async function apply(target, original, originalText, label, jobs, sameDeployment
                 console.error('ROLLBACK FAILED: ' + rollbackError.message + '; backup: ' + backup);
             }
         } else {
-            console.error('ROLLBACK NOT ATTEMPTED: no confirmed deployment revision; backup: ' + backup);
+            const reason = observed ? 'observed flow does not exactly match the target' : 'no confirmed deployment revision';
+            console.error('ROLLBACK NOT ATTEMPTED: ' + reason + '; backup: ' + backup);
         }
         fail('VERIFY FAILED: ' + error.message);
     }
-    console.log('DEPLOYED        : ' + label + ' (rev ' + deployedRev.slice(0, 12) + ')');
+    console.log('DEPLOYED        : ' + label + ' (rev ' + expectedRev.slice(0, 12) + ')');
     console.log('Now run tools/gx/verify.js, and again after 15-20 minutes.');
 }
 

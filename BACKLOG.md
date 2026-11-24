@@ -149,6 +149,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#177 D-R11 Admin API keep-alive EPIPE (`deploy-no-keepalive`, d#232 unchanged · i#47): use fresh connections for all GX admin requests. On a pre-response reset, retry the whole-flow POST once only if the live revision is unchanged; otherwise verify without reposting. Fake-GX replay covers the 1 MiB POST, retry, and verification paths; no live GX access.
+
 - #176 R6: consolidated live GX runner guidance and archived the three handoffs (i#46, d#232 unchanged).
 
 #175 G6 follow-up (`grid-g6-split`, d#232 · i#45): move the remaining grid decision stage and bookkeeping tick assembly into node-local includes, leaving `01` as loop wiring without changing behavior.
