@@ -415,7 +415,9 @@ test('UI stop is immediate without confirmation and the command bridge preserves
     const messages = [];
     const scope = { msg: { payload: { dhwChart: { cfg: {}, shower: { enabled: true } } } },
         $watch() {}, $on() {}, send: msg => messages.push(msg) };
-    new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {});
+    new Function('scope', 'document', 'confirm', 'setTimeout', 'clearTimeout', source)(
+        scope, new EventTarget(), () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {}
+    );
     scope.hpShowerForce(false);
     assert.deepEqual(messages[0], { topic: 'ui', payload: { action: 'dhwShowerForce', on: false } });
     const bridge = loadNode('37 Heat pump command.js');
@@ -430,7 +432,7 @@ test('lost shower commands time out independently of model changes, allow retry,
         const scope = { msg: { payload: { dhwChart: { shower: { enabled: !on, minDeficitC: 1 } } } },
             $watch: (name, fn) => watchers.set(name, fn), $on: (name, fn) => handlers.set(name, fn),
             $apply: fn => fn(), send: msg => messages.push(msg) };
-        new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => true,
+        new Function('scope', 'document', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, new EventTarget(), () => true,
             (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, id => cleared.push(id));
         scope.hpShowerForce(on);
         assert.equal(scope.hp.showerSent, on);
@@ -462,7 +464,9 @@ test('the operator can disable new forced starts while a safety restoration is w
     const messages = [];
     const scope = { msg: { payload: { dhwChart: { shower: { enabled: true, state: 'stopping' } } } },
         $watch() {}, $on() {}, send: msg => messages.push(msg) };
-    new Function('scope', 'confirm', 'setTimeout', 'clearTimeout', source)(scope, () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {});
+    new Function('scope', 'document', 'confirm', 'setTimeout', 'clearTimeout', source)(
+        scope, new EventTarget(), () => { throw new Error('Stop must not ask for confirmation'); }, () => 1, () => {}
+    );
     scope.hpShowerForce(false);
     assert.equal(messages[0].payload.on, false);
 });

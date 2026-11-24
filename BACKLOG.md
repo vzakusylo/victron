@@ -95,6 +95,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
+| HP-C2 | Curve slider back (queued) | In progress: `hp-curve-slider`. Restore the P23 slider with stored P24 and verify the shared owner-curve queue and refusals. |
 | D-R12 | Deploy restart side-effects | Open. Pin `dbus-native-victron@0.4.6` in the `libs` of `e4766632305fb432` and `bmswd-fn-01`. On 24 Nov, deploy installed `latest` and modified nodes including the grid controller stopped for 46 s. Decide whether to retain but shorten the 15-min restart defrost quiet period or remove it. |
 | HP-M3 | Mode change attribution | Open; depends on HP-M2 stage 1. Tag each DP 2 / P22–P24 / DP 121 write with the stage 1 writer labels. Log and mail any change unexplained by a pending local write as “changed outside Node-RED (app / cloud / pump)”, with old → new value and time. Mismatch mail names the requesting writer and last writer to change the value. Sources: `investigate-mode-mail` (22 Nov), HP-P1. |
 | HP-M2 | Single writer with leases for HP mode + curve; stage 2 (mode), then stage 3 (curve and owner control) | Open; next after HP-M3. One dispatcher for DP 2 / P22–P24 / DP 121 SETs with priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline. Use versioned, bounded leases, generation checks at dequeue and verify, one P22–P24 group and a composed warm-up / band / boost request. Stage 3: curve setting (`hp-curve-model`), which replaced the P23 slider, moves into the single dispatcher. |
