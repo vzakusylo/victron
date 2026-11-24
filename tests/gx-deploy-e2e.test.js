@@ -149,7 +149,9 @@ async function harness(t, opts = {}) {
     if (opts.modulePin) {
         const installed = path.join(nodeRedDir, 'externalModules', 'node_modules', 'gx-test-pinned');
         fs.mkdirSync(installed, { recursive: true });
-        fs.writeFileSync(path.join(installed, 'package.json'), JSON.stringify({ name: 'gx-test-pinned', version: opts.modulePin }));
+        fs.writeFileSync(path.join(installed, 'package.json'), JSON.stringify({
+            name: 'gx-test-pinned', version: opts.modulePin, exports: './index.js'
+        }));
         fs.writeFileSync(path.join(installed, 'index.js'), 'module.exports = {};');
     }
     fs.writeFileSync(path.join(nodeRedDir, 'flows.json'), JSON.stringify(original));

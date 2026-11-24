@@ -63,10 +63,23 @@ function preflightModules(nodes) {
             catch { fail(id + '.libs: module ' + name + ' is not available to Node-RED on the GX'); }
         }
         if (version) {
-            let installed;
-            try { ({ version: installed } = require(require.resolve(name + '/package.json', { paths }))); }
-            catch (error) { fail(id + '.libs: cannot read installed version of ' + name + ': ' + error.message); }
-            if (installed !== version) fail(id + '.libs: expected ' + name + '@' + version + ', found ' + (installed ?? 'no version'));
+            // Read the manifest of the resolved copy even if package exports hide it.
+            let dir = path.dirname(resolved);
+            let manifest;
+            while (true) {
+                const file = path.join(dir, 'package.json');
+                if (fs.existsSync(file)) {
+                    try { manifest = JSON.parse(fs.readFileSync(file, 'utf8')); }
+                    catch (error) { fail(id + '.libs: cannot read installed version of ' + name + ': ' + error.message); }
+                    if (manifest?.name === name) break;
+                }
+                const parent = path.dirname(dir);
+                if (parent === dir) fail(id + '.libs: no package manifest for ' + name + ' at ' + resolved);
+                dir = parent;
+            }
+            if (manifest.version !== version) {
+                fail(id + '.libs: expected ' + name + '@' + version + ', found ' + (manifest.version ?? 'no version'));
+            }
         }
         console.log('module ' + name + (version ? '@' + version : '') + ' : ' + resolved);
     }
