@@ -57,13 +57,14 @@ test('a clean restart seeds the outdoor curve and resumes heating evaluation aft
     c.tick(NOW - 10 * S, { 103: -3 });
     c.tick(NOW);
     c.restart(NOW);
-    c.tick(NOW);
+    c.node.run({ topic: 'tick' }, { now: NOW + S });
     const view = () => c.node.flow.get('dhwView');
     assert.equal(view().outAvg, -2, 'seed with the current DP 103, not the pre-restart average');
+    assert.deepEqual(c.node.context.get('dhw').outS, [[NOW, -2]], 'do not count the cached reading again on the first tick');
     assert.match(view().heat.why, /settling after restart/);
     assert.match(c.node.context.get('dhw').why, /settling after restart/);
     c.tick(NOW + 2 * MIN - S);
-    assert.equal(c.heat().paused, NOW);
+    assert.equal(c.heat().paused, NOW + S);
     c.tick(NOW + 2 * MIN);
     assert.equal(c.heat().paused, 0);
     assert.equal(c.heat().target, 36);
