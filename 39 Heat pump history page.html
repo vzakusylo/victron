@@ -41,7 +41,7 @@
 .hph-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: 3px; }
 .hph details summary { cursor: pointer; font-size: 13px; opacity: .85; margin: 6px 0; }
 .hph-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 10px; }
-.hph-days .day { border-radius: 14px; padding: 3px 10px; font-size: 12.5px; background: rgba(127,127,127,.14); cursor: pointer; border: 1px solid transparent; }
+.hph-days .day { border-radius: 14px; padding: 3px 10px; color: inherit; font: inherit; font-size: 12.5px; background: rgba(127,127,127,.14); cursor: pointer; border: 1px solid transparent; }
 .hph-days .day:hover { background: rgba(127,127,127,.24); }
 .hph-days .day.sel { background: #1f6feb; color: #fff; }
 .hph-days .day small { opacity: .75; margin-left: 4px; }
@@ -107,11 +107,11 @@
   </div>
 
   <div class="hph-days" ng-if="h.sum && h.sum.days.length">
-    <button type="button" ng-disabled="!hpWeekTarget(1)" ng-click="hpGoWeek(1)">Previous week</button>
+    <button type="button" class="nav" ng-disabled="!hpWeekTarget(1)" ng-click="hpGoWeek(1)">Previous week</button>
     <button class="nav" title="Earlier day" ng-disabled="!hpStep(1)" ng-click="hpLoad(hpStep(1))">‹</button>
     <button type="button" ng-repeat="d in h.chips track by d.day" class="day" ng-class="{sel: d.day == h.sel}" ng-attr-aria-pressed="{{d.day == h.sel}}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></button>
     <button class="nav" title="Later day" ng-disabled="!hpStep(-1)" ng-click="hpLoad(hpStep(-1))">›</button>
-    <button type="button" ng-disabled="!hpWeekTarget(-1)" ng-click="hpGoWeek(-1)">Next week</button>
+    <button type="button" class="nav" ng-disabled="!hpWeekTarget(-1)" ng-click="hpGoWeek(-1)">Next week</button>
   </div>
 
   <div ng-if="h.day && h.day.empty"><h4>{{h.day.day}}</h4><div class="hph-sub">No data for this day.</div></div>
