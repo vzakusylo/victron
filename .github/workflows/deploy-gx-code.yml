@@ -30,10 +30,6 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: deploy-gx-code
-  cancel-in-progress: false
-
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -70,11 +66,18 @@ jobs:
           export MASTER_SHA="$(git rev-parse origin/master)"
           node tools/gx/deploy-gate.js
 
+      - name: Eligible for GX deployment
+        if: steps.gate.outputs.run == 'true'
+        run: echo "This run can enter the deploy queue."
+
   deploy:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: ${{ github.event_name == 'workflow_run' && 180 || 60 }}
+    concurrency:
+      group: deploy-gx-code
+      cancel-in-progress: false
     environment: ${{ github.event_name == 'workflow_run' && 'victron-gx-auto' || 'victron-gx' }}
     env:
       AUTO: ${{ github.event_name == 'workflow_run' }}
@@ -84,11 +87,20 @@ jobs:
       OVERWRITE_DRIFT: ${{ github.event_name == 'workflow_dispatch' && inputs.overwrite_drift }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/checkout@v7
         if: env.AUTO == 'true'
         with:
+          ref: ${{ github.sha }}
           path: .gate
           fetch-depth: 0
-          sparse-checkout: tools/gx/deploy-gate.js
+          # A previously green target may predate the retry-aware runner.
+          sparse-checkout: |
+            scripts/gx-deploy.ps1
+            tools/gx/deploy-gate.js
           sparse-checkout-cone-mode: false
 
       - name: Recheck the selected green commit
@@ -109,12 +121,6 @@ jobs:
           git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
           export MASTER_SHA="$(git rev-parse origin/master)"
           node tools/gx/deploy-gate.js
-
-      - uses: actions/checkout@v7
-        if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
-        with:
-          ref: ${{ needs.gate.outputs.sha }}
-          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         if: env.AUTO != 'true' || steps.recheck.outputs.run == 'true'
@@ -179,26 +185,41 @@ jobs:
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
           TMPDIR: ${{ runner.temp }}
+          GH_TOKEN: ${{ github.token }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+          PINNED_SHA: ${{ needs.gate.outputs.sha }}
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $runFolder = Join-Path $env:RUNNER_TEMP "gx-deploy-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           "run_folder=$runFolder" >> $env:GITHUB_OUTPUT
           $arguments = @(
-            '-NoProfile', '-File', './scripts/gx-deploy.ps1',
+            '-NoProfile', '-File', ($env:AUTO -eq 'true' ? './.gate/scripts/gx-deploy.ps1' : './scripts/gx-deploy.ps1'),
             '-GxHost', $env:GX_SSH_HOST,
             '-SshKey', "$HOME/.ssh/key",
-            '-WaitWindowMin', '30',
             '-Commit', $env:DEPLOY_SHA,
             '-RunDirectory', $runFolder
           )
+          if ($env:AUTO -eq 'true') { $arguments += '-AutoRetry' }
+          else { $arguments += '-WaitWindowMin', '30' }
           if ($env:MODE -eq 'apply') { $arguments += '-Apply' }
           if ($env:AUTO -ne 'true' -and $env:OVERWRITE_DRIFT -eq 'true') { $arguments += '-OverwriteDrift' }
           & pwsh @arguments
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          if ($env:AUTO -eq 'true') {
+            if ($code -eq 75) { "result=skipped" >> $env:GITHUB_OUTPUT; exit 0 }
+            if ($code -eq 78) { "result=window-closed" >> $env:GITHUB_OUTPUT }
+          }
+          exit $code
 
       # Mail failures are warnings only; dry runs and failed applies send nothing.
       - name: Send deploy mail
-        if: steps.deploy.outcome == 'success' && env.MODE == 'apply'
+        if: steps.deploy.outcome == 'success' && env.MODE == 'apply' && steps.deploy.outputs.result != 'skipped'
         continue-on-error: true
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
@@ -224,10 +245,10 @@ jobs:
           echo "deploy mail: sent" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare public deployment summary
-        if: always() && steps.deploy.outputs.run_folder != ''
+        if: always() && steps.deploy.outputs.run_folder != '' && steps.deploy.outputs.result != 'window-closed'
         env:
           RUN_FOLDER: ${{ steps.deploy.outputs.run_folder }}
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outputs.result == 'skipped' && 'skipped' || steps.deploy.outcome }}
         shell: pwsh
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'gx-deploy-public-summary.json'
@@ -237,7 +258,7 @@ jobs:
           $summary >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload deploy reports
-        if: always() && steps.deploy.outputs.run_folder != ''
+        if: always() && steps.deploy.outputs.run_folder != '' && steps.deploy.outputs.result != 'window-closed'
         uses: actions/upload-artifact@v7
         with:
           name: gx-deploy-reports-${{ github.run_id }}

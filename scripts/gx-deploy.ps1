@@ -13,13 +13,15 @@
 # the commit, never from the work tree, and the GX downloads the files by SHA and checks their SHA-256.
 # All output is kept in a run folder under the system temp directory (printed at the start).
 #
-# Exit code: 0 done / nothing to do, 1 stopped by a check (nothing changed), 2 failed after a change started.
+# Exit code: 0 done / nothing to do, 1 stopped by a check (nothing changed), 2 failed after a change started,
+# 75 automatic deploy superseded, 78 automatic deploy window never opened.
 param(
     [string]$GxHost,
     [string]$SshKey,
     [string]$Commit = 'origin/master',
     [switch]$Apply,
     [int]$WaitWindowMin = 0,
+    [switch]$AutoRetry,
     [switch]$OverwriteDrift,
     [switch]$UseWorkTreeScripts,
     [string]$RunDirectory,
@@ -41,6 +43,9 @@ $stepList = @(
 if ($Steps) { $stepList | ForEach-Object { Write-Output $_ }; return }
 if (-not $GxHost -or -not $SshKey) { throw 'GxHost and SshKey are required (see the header of this script).' }
 if ($GxHost -notmatch '^[A-Za-z0-9_.-]+@[A-Za-z0-9._-]+$') { throw 'GxHost must look like root@<host>.' }
+if ($AutoRetry -and (-not $Apply -or $OverwriteDrift -or $WaitWindowMin -ne 0)) {
+    throw 'AutoRetry requires Apply without OverwriteDrift or WaitWindowMin.'
+}
 
 # Scripts that run on the GX and are kept there in /data/home/nodered/tools (a tool that is equal is skipped).
 # The secret loader (victron-secrets.js, reload-victron-secrets.js) belongs to the secret workflow, not here.
@@ -105,6 +110,23 @@ function Invoke-OnGx([string]$Script, [string]$Arguments) {
 }
 function Save([string]$Name, [string]$Text) { [IO.File]::WriteAllText((Join-Path $run $Name), $Text + "`n") }
 
+function Assert-AutoGate([switch]$Retry) {
+    Invoke-Git fetch --quiet --no-tags origin '+refs/heads/master:refs/remotes/origin/master' | Out-Null
+    $env:MASTER_SHA = (Invoke-Git rev-parse origin/master).Trim()
+    Push-Location $root
+    try {
+        & node tools/gx/deploy-gate.js ($Retry ? '--retry' : '--before-apply')
+        if ($LASTEXITCODE -eq 75) { exit 75 }
+        if ($LASTEXITCODE -ne 0) { throw 'Could not recheck automatic deploy eligibility.' }
+    } finally { Pop-Location }
+}
+
+function Read-Window {
+    $window = Invoke-OnGx 'tools\gx\window.js' '--for deploy'
+    Write-Host $window.Text
+    return $window
+}
+
 Write-Host "run folder: $run"
 Write-Host ('mode: ' + ($Apply ? 'APPLY' : 'dry run (add -Apply to deploy)'))
 
@@ -123,38 +145,67 @@ foreach ($file in $scripts) {
 }
 Write-Host "commit $sha, $($tools.Count) tool file(s) to keep in step with it$($UseWorkTreeScripts ? ' (scripts from the WORK TREE)' : '')"
 
-Step '2/8 snapshot of the live flow'
-$live = Invoke-OnGx 'tools\gx\live-snapshot.js' '--drift'
-if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
-Save 'live-before.b64' $live.Text
+function Update-Plan {
+    Step '2/8 snapshot of the live flow'
+    $live = Invoke-OnGx 'tools\gx\live-snapshot.js' '--drift'
+    if ($live.Code -ne 0 -or -not $live.Text) { Stop-Run 'the live flow could not be read: SSH to the GX failed (is Tailscale connected on this PC?) or Node-RED is not running.' }
+    Save 'live-before.b64' $live.Text
 
-Step '3/8 compare and 4/8 plan'
-$planFlags = @()
-if ($OverwriteDrift) { $planFlags += '--overwrite-drift' }
-$planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --summary (Join-Path $run 'summary-before.json') --tools ($tools -join ',') @planFlags 2>&1
-$planCode = $LASTEXITCODE
-Save 'plan-output.txt' ($planOutput -join "`n")
-if ($planCode -ne 0) {
-    $detail = $planOutput -join "`n"
-    if ($detail -match '\(drift\):') {
-        Stop-Run $detail 'The live flow differs from its recorded deployment.' `
-            'Review the drift in Deploy from master. Keep wanted changes in Git, or rerun manually with overwrite_drift after confirming the differences can be replaced.'
+    Step '3/8 compare and 4/8 plan'
+    $planFlags = @()
+    if ($OverwriteDrift) { $planFlags += '--overwrite-drift' }
+    $planOutput = & node (Join-Path $run 'tools\gx\compare.js') (Join-Path $run 'live-before.b64') --commit $sha --plan (Join-Path $run 'plan.json') --summary (Join-Path $run 'summary-before.json') --tools ($tools -join ',') @planFlags 2>&1
+    $planCode = $LASTEXITCODE
+    Save 'plan-output.txt' ($planOutput -join "`n")
+    if ($planCode -ne 0) {
+        $detail = $planOutput -join "`n"
+        if ($detail -match '\(drift\):') {
+            Stop-Run $detail 'The live flow differs from its recorded deployment.' `
+                'Review the drift in Deploy from master. Keep wanted changes in Git, or rerun manually with overwrite_drift after confirming the differences can be replaced.'
+        }
+        Stop-Run "the plan could not be written: $detail"
     }
-    Stop-Run "the plan could not be written: $detail"
+    $planOutput | ForEach-Object { Write-Host $_ }
 }
-$planOutput | ForEach-Object { Write-Host $_ }
 
-Step '5/8 window'
-$deadline = (Get-Date).AddMinutes($WaitWindowMin)
+$autoDeadline = $null
+$probeDelay = [TimeSpan]::FromMinutes(15)
 do {
-    $window = Invoke-OnGx 'tools\gx\window.js' '--for deploy'
-    Write-Host $window.Text
-    if ($window.Code -eq 0 -or -not $Apply -or (Get-Date) -ge $deadline) { break }
-    Start-Sleep -Seconds 60
+    Update-Plan
+    Step '5/8 window'
+    if (-not $AutoRetry) {
+        $deadline = (Get-Date).AddMinutes($WaitWindowMin)
+        do {
+            $window = Read-Window
+            if ($window.Code -eq 0 -or -not $Apply -or (Get-Date) -ge $deadline) { break }
+            Start-Sleep -Seconds 60
+        } while ($true)
+        Save 'window.txt' $window.Text
+        if ($window.Code -gt 1) { Stop-Run 'the state of the automations could not be read.' }
+        if ($window.Code -ne 0 -and $Apply) { Stop-Run 'not a safe moment (see above). Run again later or pass -WaitWindowMin <minutes>.' }
+        break
+    }
+
+    $window = Read-Window
+    Save 'window.txt' $window.Text
+    if ($window.Code -eq 0) { break }
+    if ($window.Code -ne 1 -or $window.Text -notmatch '^WAIT for deploy \(') {
+        Stop-Run 'the state of the automations could not be read.'
+    }
+    $now = Get-Date
+    if ($null -eq $autoDeadline) { $autoDeadline = $now.AddHours(2) }
+    if ($now -ge $autoDeadline) {
+        $message = 'Not deployed: window never opened within 2 hours.'
+        Write-Host "::notice::$message"
+        if ($env:GITHUB_STEP_SUMMARY) { "## $message" >> $env:GITHUB_STEP_SUMMARY }
+        exit 78
+    }
+    $delay = $autoDeadline - $now
+    if ($delay -gt $probeDelay) { $delay = $probeDelay }
+    Write-Host "Window is closed; rechecking eligibility, drift and window after $delay."
+    Start-Sleep -Duration $delay
+    Assert-AutoGate -Retry
 } while ($true)
-Save 'window.txt' $window.Text
-if ($window.Code -gt 1) { Stop-Run 'the state of the automations could not be read.' }
-if ($window.Code -ne 0 -and $Apply) { Stop-Run 'not a safe moment (see above). Run again later or pass -WaitWindowMin <minutes>.' }
 
 Step '6/8 dry run on the GX'
 $remote = (& ssh @ssh $GxHost 'umask 077; mktemp -d /tmp/gx-deploy.XXXXXX').Trim()
@@ -175,6 +226,7 @@ try {
         Write-Host 'skipped (dry run). Read the output above, then run again with -Apply.'
         Write-Host "run folder: $run"; exit 0
     }
+    if ($AutoRetry) { Assert-AutoGate -Retry:($null -ne $autoDeadline) }
     $changed = $true
     $out = & ssh @ssh $GxHost "DRY=0 node $remote/deploy.js $remote/plan.json 2>&1"
     $code = $LASTEXITCODE

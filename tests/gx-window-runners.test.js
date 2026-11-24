@@ -154,9 +154,9 @@ test('public deploy report excludes live code, labels, identifiers and arbitrary
     assert.throws(() => publicSummary(null, { commit, mode: 'apply', outcome: 'success', version: 'unknown' }), /version label/);
 });
 
-test('runner uploads the whole-flow drift and API helpers with the dry-run scripts', (t) => {
-    const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
-    if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
+test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manual behavior', async (t) => {
+    const pwsh = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' });
+    if (pwsh.error || pwsh.status !== 0) { t.skip('pwsh is not available here'); return; }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gx-runner-add-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 27 });
@@ -171,23 +171,65 @@ test('runner uploads the whole-flow drift and API helpers with the dry-run scrip
         base, rev: 'test-revision', label: versionTab(flows).label, fingerprints: fingerprints(flows)
     })).toString('base64');
     fs.writeFileSync(snapshotFile, before);
-    const run = path.join(dir, 'run');
-    const result = spawnSync('pwsh', ['-NoProfile', '-Command', `
+    const invoke = (mode) => {
+        const run = path.join(dir, mode);
+        const summary = path.join(dir, `${mode}.md`);
+        const result = spawnSync('pwsh', ['-NoProfile', '-Command', `
         $realGit = (Get-Command git -CommandType Application).Source | Select-Object -First 1
+        $realNode = (Get-Command node -CommandType Application).Source | Select-Object -First 1
         $ErrorActionPreference = 'Stop'
+        $global:now = [datetime]'2026-11-24T12:00:00Z'
+        $global:snapshots = 0
+        function Get-Date { return $global:now }
+        function Start-Sleep([timespan]$Duration, [int]$Seconds) {
+            if ($Seconds -eq 20) { return }
+            if ($Duration.TotalMinutes -ne 15) { throw "Unexpected sleep: $Duration / $Seconds" }
+            $global:now = $global:now.Add($Duration)
+            Write-Host 'probe: sleep 15'
+        }
         function git {
-            # Only the two remote preflight probes are mocked; blobs still come from HEAD.
             if ($args[2] -eq 'fetch') { $global:LASTEXITCODE = 0; return }
             if ($args[2] -eq 'branch') { $global:LASTEXITCODE = 0; return 'origin/test' }
+            if ($args[2] -eq 'rev-parse' -and $args[3] -eq 'origin/master') {
+                $global:LASTEXITCODE = 0; return $env:GX_TEST_SHA
+            }
             & $realGit @args
+        }
+        function node {
+            if ($args[0] -eq 'tools/gx/deploy-gate.js') {
+                Write-Host "probe: gate $($args[1])"
+                $global:LASTEXITCODE = $env:GX_TEST_MODE -eq 'superseded' ? 75 : 0
+                return
+            }
+            Write-Host 'probe: compare'
+            if ($env:GX_TEST_MODE -eq 'drift' -and $global:snapshots -gt 1) {
+                $global:LASTEXITCODE = 1; return 'STOPPED (drift): flow changed during the wait'
+            }
+            & $realNode @args
         }
         function ssh {
             $global:LASTEXITCODE = 0
             switch -Wildcard ($args[-1]) {
-                '*node - --drift' { return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT }
-                '*node - --for deploy' { return 'SAFE for deploy' }
+                '*node - --drift' {
+                    $global:snapshots++
+                    Write-Host 'probe: snapshot'
+                    return Get-Content -Raw -LiteralPath $env:GX_TEST_SNAPSHOT
+                }
+                '*node - --for deploy' {
+                    Write-Host 'probe: window'
+                    if ($env:GX_TEST_MODE -in 'window-error', 'failure-output') {
+                        $global:LASTEXITCODE = $env:GX_TEST_MODE -eq 'window-error' ? 3 : 1
+                        return 'WINDOW ERROR: read failed'
+                    }
+                    if ($env:GX_TEST_MODE -eq 'dry' -or ($env:GX_TEST_MODE -eq 'opens' -and $global:snapshots -gt 1)) {
+                        return 'SAFE for deploy'
+                    }
+                    $global:LASTEXITCODE = 1
+                    return 'WAIT for deploy (defrost)'
+                }
                 '*mktemp*' { return '/tmp/gx-deploy.Test' }
                 'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
+                'DRY=0 node /tmp/gx-deploy.Test/deploy.js*' { Write-Host 'probe: apply'; return 'NOTHING TO DO: test' }
                 'rm -f /tmp/gx-deploy.Test/*' { return }
                 default { throw "Unexpected SSH arguments: $args" }
             }
@@ -200,17 +242,47 @@ test('runner uploads the whole-flow drift and API helpers with the dry-run scrip
             }
             $global:LASTEXITCODE = 0
         }
-        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -RunDirectory $env:GX_TEST_RUN
+        $mode = $env:GX_TEST_MODE
+        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -RunDirectory $env:GX_TEST_RUN -Apply:($mode -ne 'dry') -AutoRetry:($mode -notin 'dry', 'manual')
         exit $LASTEXITCODE
-    `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: snapshotFile,
-        GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run } });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.deepEqual(fs.readFileSync(path.join(run, helper)), fs.readFileSync(path.join(ROOT, helper)));
-    const adminHelper = 'tools/gx/admin-api.js';
-    assert.deepEqual(fs.readFileSync(path.join(run, adminHelper)), fs.readFileSync(path.join(ROOT, adminHelper)));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).base.sha, base);
-    assert.match(result.stdout, /DRY RUN - nothing changed/);
+        `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: snapshotFile,
+            GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run,
+            GX_TEST_MODE: mode, GX_TEST_SHA: base, GITHUB_STEP_SUMMARY: summary } });
+        assert.ifError(result.error);
+        const trace = [...result.stdout.matchAll(/^probe: (.+)$/gm)].map(([, step]) => step);
+        return { ...result, trace, run, summary };
+    };
+    const probe = ['snapshot', 'compare', 'window'];
+    const retry = ['sleep 15', 'gate --retry'];
+    await t.test('manual dry run uploads the plan and all helpers without applying', () => {
+        const { run, status, stdout, stderr, trace } = invoke('dry');
+        assert.equal(status, 0, stdout + stderr);
+        assert.deepEqual(trace, probe);
+        for (const file of [helper, 'tools/gx/admin-api.js']) {
+            assert.deepEqual(fs.readFileSync(path.join(run, file)), fs.readFileSync(path.join(ROOT, file)));
+        }
+        assert.equal(JSON.parse(fs.readFileSync(path.join(run, 'plan.json'))).base.sha, base);
+        assert.match(stdout, /DRY RUN - nothing changed/);
+    });
+    for (const [mode, code, expected] of [
+        ['opens', 0, [...probe, ...retry, ...probe, 'gate --retry', 'apply']],
+        ['superseded', 75, [...probe, ...retry]],
+        ['drift', 1, [...probe, ...retry, 'snapshot', 'compare']],
+        ['expires', 78, [...probe, ...Array.from({ length: 8 }, () => [...retry, ...probe]).flat()]],
+        ['window-error', 1, probe],
+        ['failure-output', 1, probe],
+        ['manual', 1, probe],
+    ]) {
+        await t.test(mode, () => {
+            const { status, trace, stdout, stderr, summary } = invoke(mode);
+            assert.equal(status, code, stdout + stderr);
+            assert.deepEqual(trace, expected);
+            if (mode === 'expires') {
+                assert.match(fs.readFileSync(summary, 'utf8'), /Not deployed: window never opened within 2 hours/);
+            }
+            if (code !== 0) assert.doesNotMatch(stdout, /DRY RUN - nothing changed/);
+        });
+    }
 });
 
 test('deployment changelog and workflow command use recorded Git commits and report missing baselines', (t) => {

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { decide, eligibleHistory, main } = require('../tools/gx/deploy-gate.js');
+const { decide, eligibleHistory, main, recheck } = require('../tools/gx/deploy-gate.js');
 
 const SHA = 'a'.repeat(40);
 const ok = {
@@ -15,6 +15,28 @@ const ok = {
 
 test('deploys a green push to master that is still the tip', () => {
   assert.deepEqual(decide(ok), { deploy: true, reason: '', sha: SHA });
+});
+
+test('a waiting deploy skips if master moved, even if the pinned green flow is still eligible', () => {
+  const result = recheck({ ...ok, pinnedSha: SHA, masterSha: 'b'.repeat(40) }, {
+    newerDeploy: () => assert.fail('A stale retry must stop before checking the run queue'),
+  }, { retry: true, runId: '10', runNumber: '3' });
+  assert.equal(result.deploy, false);
+  assert.match(result.reason, /Master moved past the waiting commit/);
+});
+
+test('a waiting deploy skips when a newer eligible run reached the deploy queue', () => {
+  const input = { ...ok, pinnedSha: SHA };
+  const phase = { retry: true, runId: '10', runNumber: '3' };
+  assert.equal(recheck(input, { newerDeploy: () => undefined }, phase).deploy, true);
+  const result = recheck(input, {
+    newerDeploy: (repo, id, number) => {
+      assert.deepEqual([repo, id, number], ['o/r', '10', '3']);
+      return '20';
+    },
+  }, phase);
+  assert.equal(result.deploy, false);
+  assert.match(result.reason, /Newer deploy run 20/);
 });
 
 test('selects the newest green master ancestor, but never crosses an untested flow change', t => {
@@ -97,7 +119,9 @@ test('deploy workflow: a sparse checkout never shares the full checkout path in 
     .map(([, name, job]) => [name, job]).filter(([, job]) => /^    steps:$/m.test(job))) {
     const steps = job.split(/^    steps:$/m)[1].split(/(?=^      - )/m);
     const checkouts = steps.filter(step => /^      - uses: actions\/checkout@/.test(step))
-      .map(step => parseYaml(step.trimEnd().replace(/^      /gm, ''))[0].with || {});
+      .map(step => parseYaml(step.trimEnd().replace(
+        /^          sparse-checkout: \|\n(?: {12}[^\n]+\n)+/m, '          sparse-checkout: multiple paths\n'
+      ).replace(/^      /gm, ''))[0].with || {});
     const full = checkouts.filter(options => !options['sparse-checkout']);
     for (const sparse of checkouts.filter(options => options['sparse-checkout'])) {
       const location = options => path.posix.resolve('/', options.path || '.');
@@ -108,6 +132,8 @@ test('deploy workflow: a sparse checkout never shares the full checkout path in 
       assert.ok(pinned && !pinned.path, 'the pinned full checkout must provide the deploy scripts at the workspace root');
       const recheck = steps.find(step => /^        id: recheck$/m.test(step));
       const [gate] = checkouts.filter(options => options['sparse-checkout']);
+      assert.ok(checkouts.indexOf(pinned) < checkouts.indexOf(gate),
+        'the full checkout must not clean the isolated gate checkout');
       assert.ok(gate?.path && recheck?.includes(`        working-directory: ${gate.path}\n`),
         'the recheck must run its Git and Node commands in the isolated checkout');
     }
@@ -134,7 +160,7 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {
   const step = deploy.split('- name: Send deploy mail')[1].split('\n      - name:')[0];
   assert.ok(deploy.indexOf('- name: Deploy from master') < deploy.indexOf('- name: Send deploy mail'));
-  assert.match(step, /if: steps\.deploy\.outcome == 'success' && env\.MODE == 'apply'/);
+  assert.match(step, /if: steps\.deploy\.outcome == 'success' && env\.MODE == 'apply' && steps\.deploy\.outputs\.result != 'skipped'/);
   assert.match(step, /continue-on-error: true/);
   assert.match(step, /node \/data\/home\/nodered\/tools\/send-mail\.js/);
   assert.match(step, /::warning::deploy mail: failed/);
