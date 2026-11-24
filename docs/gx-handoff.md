@@ -77,7 +77,7 @@ The steps (`-Steps` prints them):
 5 window      no DHW cycle, no running rule sequence, no defrost (read-only)
 6 dry run     all checks of tools/gx/deploy.js on the GX, nothing changed
 7 deploy      only with -Apply: backup, tool files, POST, read back
-8 verify      label, log and automations; deploy.js has already verified the full flow
+8 verify      informational health report (label, log and automations); deploy.js already verified the flow
 ```
 
 Why it gives the same result every time:
