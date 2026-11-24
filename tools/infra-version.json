@@ -1,5 +1,5 @@
 {
-  "i": 44,
+  "i": 45,
   "changes": [
     {
       "i": 1,
@@ -264,6 +264,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Deploy: accept adopted drift and ignore order"
+    },
+    {
+      "i": 45,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "G6 grid split"
     }
   ]
 }
