@@ -107,9 +107,11 @@
   </div>
 
   <div class="hph-days" ng-if="h.sum && h.sum.days.length">
+    <button type="button" ng-disabled="!hpWeekTarget(1)" ng-click="hpGoWeek(1)">Previous week</button>
     <button class="nav" title="Earlier day" ng-disabled="!hpStep(1)" ng-click="hpLoad(hpStep(1))">‹</button>
-    <span ng-repeat="d in h.sum.days.slice().reverse()" class="day" ng-class="{sel: d.day == h.sel}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></span>
+    <button type="button" ng-repeat="d in h.chips track by d.day" class="day" ng-class="{sel: d.day == h.sel}" ng-attr-aria-pressed="{{d.day == h.sel}}" ng-click="hpLoad(d.day)" title="{{d.day}}: outdoor avg {{d.outdoor ? d.outdoor.avg : '—'}} °C, compressor {{d.runH}} h">{{hpDayLabel(d)}}<small ng-if="d.outdoor">{{d.outdoor.avg}}°</small></button>
     <button class="nav" title="Later day" ng-disabled="!hpStep(-1)" ng-click="hpLoad(hpStep(-1))">›</button>
+    <button type="button" ng-disabled="!hpWeekTarget(-1)" ng-click="hpGoWeek(-1)">Next week</button>
   </div>
 
   <div ng-if="h.day && h.day.empty"><h4>{{h.day.day}}</h4><div class="hph-sub">No data for this day.</div></div>
@@ -240,7 +242,8 @@
 
 <script>
 (function (scope) {
-    scope.h = { sum: null, day: null, sel: null, loading: false, hide: {} };
+    scope.h = { sum: null, day: null, sel: null, loading: false, hide: {}, chips: [] };
+    var weeks = [], weekIndex = -1;
     try { scope.h.hide = JSON.parse(localStorage.getItem('hphHide') || '{}') || {}; } catch (e) { scope.h.hide = {}; }
     // hover / tap on a chart: values of the visible series at that 2-min bucket (d#136)
     var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -293,6 +296,25 @@
         for (var i = 0; i < d.length; i++) if (d[i].day === scope.h.sel) return d[i + dir] ? d[i + dir].day : null;
         return null;
     };
+    function monday(day) {
+        // The recorder's day is a calendar date, not an instant in the browser's time zone.
+        var date = new Date(day + 'T00:00:00Z');
+        date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+        return date.getTime();
+    }
+    function showWeek(day) {
+        var start = day ? monday(day) : null;
+        weekIndex = weeks.findIndex(function (week) { return week.monday === start; });
+        scope.h.chips = weekIndex < 0 ? [] : weeks[weekIndex].days.slice().reverse();
+    }
+    scope.hpWeekTarget = function (dir) {
+        var week = weekIndex < 0 ? null : weeks[weekIndex + dir];
+        return week ? week.days[0].day : null;
+    };
+    scope.hpGoWeek = function (dir) {
+        var target = scope.hpWeekTarget(dir);
+        if (target) scope.hpLoad(target);
+    };
     scope.hpDayLabel = function (d) {
         if (d.today) return 'Today';
         var p = d.day.split('-'), dt = new Date(+p[0], +p[1] - 1, +p[2]);
@@ -303,14 +325,27 @@
         var p = m.payload;
         if (p.kind === 'summary') {
             scope.h.sum = p;
-            if (!scope.h.sel && p.days.length) scope.hpLoad(p.days[0].day);
-        } else if (p.kind === 'day' && (!scope.h.sel || p.day === scope.h.sel)) {
+            weeks = [];
+            p.days.forEach(function (d) {
+                var start = monday(d.day), week = weeks[weeks.length - 1];
+                if (!week || week.monday !== start) weeks.push(week = { monday: start, days: [] });
+                week.days.push(d);
+            });
+            if (p.days.some(function (d) { return d.day === scope.h.sel; })) showWeek(scope.h.sel);
+            else if (p.days.length) scope.hpLoad(p.days[0].day);
+            else {
+                scope.h.sel = scope.h.day = null;
+                scope.h.loading = false;
+                showWeek(null);
+            }
+        } else if (p.kind === 'day' && p.day === scope.h.sel) {
             scope.h.day = p;
             scope.h.loading = false;
         }
     });
     scope.hpLoad = function (day) {
         scope.h.sel = day;
+        showWeek(day);
         scope.h.loading = true;
         scope.send({ topic: 'day', payload: { day: day } });
     };
