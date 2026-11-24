@@ -13,6 +13,7 @@
 //   dc-power (informational), pv-charger-power, manual-discharge, manual-discharge-stop-voltage,
 //   grid-control-tick (scheduled decisions); other topics are ignored.
 //   d#231: translate the adopted GX input names (and the unnamed voltage node's default topic) to these topics.
+//   d#232: move the decision stage and bookkeeping tick assembly into lib/grid includes.
 //
 // Logic:
 // - Restoration: the BMS consumed Ah is the deficit to refill, less the Ah today's solar forecast is
