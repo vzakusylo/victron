@@ -340,6 +340,25 @@ svc -u /service/node-red-venus
 
 Tool files: the previous copies are in the same backup directory; `cp -p <backup>/<name>.js /data/home/nodered/tools/`.
 
+### Recovering a missing, split, or local deployment record
+
+`overwrite_drift` cannot repair the record. Do not copy a SHA into the live tab or infer one from the `d#` label.
+Re-establish a complete Git baseline as a separate, owner-approved recovery in a safe window:
+
+1. Make a private [device backup](backup-restore.md) first. Review any live-only changes and preserve
+   wanted changes in Git before replacing the flow.
+2. Prefer restoring a known-good backup whose `dashboard` and `automations` both record the same
+   full Git SHA, an ancestor of the intended target. Restore its matching flow and credentials together
+   using [Rollback](#rollback). If there is no suitable backup, prepare a reviewed, Test GX-green
+   Git baseline offline: run `prepareFlows` from `tools/victron-secrets.js` on that commit's `flows.json`,
+   then stamp the prepared file with `tools/deploy-version.js`, passing the same full SHA to
+   `--dashboard` and `--automations`. Install the prepared flow while Node-RED is stopped, preserving
+   GX file ownership and permissions. Keep compatible credentials and file secrets on the GX;
+   recover any missing credentials privately before resuming normal operation.
+3. Restart Node-RED, check device health and the recorded SHA, then run a fresh dry run with
+   drift override **off**. Resume normal deployment only when the drift gate confirms the restored
+   baseline.
+
 ## Traps met on 14 Nov
 
 | Trap | What happened | Rule |
