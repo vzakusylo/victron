@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { readSource, loadHeatPumpState } = require('./harness');
+const { readSource, loadHeatPumpState, loadNode } = require('./harness');
 
 const ROOT = path.join(__dirname, '..');
 const FILES = ['35 Heat pump page.html', '39 Heat pump history page.html'];
@@ -14,7 +14,7 @@ test('heating chart shows the confirmed asymmetric band and live readings only a
     const html = readSource(FILES[0]);
     const watchers = {};
     const scope = { $watch: (key, fn) => { watchers[key] = fn; }, $on() {} };
-    new Function('scope', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope);
+    new Function('scope', 'document', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope, new EventTarget());
     const chart = { target: 34.5, reported: 36, supply: 32, svg: { now: { x: 100, yTarget: 90, yReported: 84, ySupply: 100 } } };
     function update(curveChart, cfg) {
         scope.msg = { payload: { curveChart, heatCtl: { cfg } } };
@@ -61,7 +61,7 @@ test('heating editor previews both coefficients against the stored owner curve',
     assert.equal(chart.differsFromPump, true);
     const html = readSource(FILES[0]);
     const scope = { $watch() {}, $on() {}, hpStatic: { curveChart: chart }, msg: { payload: { curveChart: chart } } };
-    new Function('scope', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope);
+    new Function('scope', 'document', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope, new EventTarget());
     scope.hpCurveReset();
     assert.equal(scope.hpCurveChanged(), false);
     Object.assign(scope.hp, { p23: 40, p24: 9 });
@@ -75,7 +75,9 @@ test('heating editor displays the unconfirmed result without replacing the edit'
     const html = readSource(FILES[0]);
     const watchers = {}, messages = [];
     const scope = { $watch: (key, fn) => { watchers[key] = fn; }, $on() {}, send: msg => messages.push(msg) };
-    new Function('scope', 'confirm', 'setTimeout', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope, () => true, () => {});
+    new Function('scope', 'document', 'confirm', 'setTimeout', html.match(/<script>([\s\S]+?)<\/script>/)[1])(
+        scope, new EventTarget(), () => true, () => {}
+    );
     scope.msg = { payload: { controls: { curve: true }, curveChart: { p23: 38, p24: 4 } } };
     watchers['msg.payload'](scope.msg.payload);
     Object.assign(scope.hp, { p23: 40, p24: 9, dirty: true });
@@ -86,6 +88,85 @@ test('heating editor displays the unconfirmed result without replacing the edit'
     assert.equal(scope.hp.curveSent, null);
     assert.match(scope.hp.curveMessage, /not confirmed/);
     assert.deepStrictEqual([scope.hp.p23, scope.hp.p24], [40, 9]);
+});
+
+test('Colder / Warmer previews on input and queues one owner P23 change on release', () => {
+    const now = Date.UTC(2026, 10, 24, 18);
+    const state = loadHeatPumpState();
+    state.flow.set('dhwView', { at: now, outAvg: -9, heatCurve: { p23: 30, p24: 4 } });
+    const chart = state.run({ topic: 'hp', payload: { data: { dps: { 103: 8, 132: '1', 133: 20, 134: 12 } } } }, { now }).result[0].payload.curveChart;
+    const html = readSource(FILES[0]);
+    const watchers = {}, messages = [], listeners = {};
+    const document = { addEventListener: (key, fn) => { listeners[key] = fn; } };
+    const scope = {
+        $id: 42, $watch: (key, fn) => { watchers[key] = fn; }, $on() {}, $evalAsync: fn => fn(),
+        send: msg => messages.push(msg)
+    };
+    new Function('scope', 'document', 'setTimeout', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope, document, () => {});
+    scope.msg = { payload: { controls: { curve: true }, curveChart: chart } };
+    watchers['msg.hpStatic']({ curveChart: chart });
+    watchers['msg.payload'](scope.msg.payload);
+    const slider = parseElements(html).find(el => el.tag === 'input' && el.attrs['aria-label'] === 'Heating curve P23: Colder to Warmer');
+    assert.ok(slider, 'P23 slider is present');
+    assert.deepStrictEqual([slider.attrs.min, slider.attrs.max, slider.attrs.step, slider.attrs['ng-model']], ['0', '40', '1', 'hp.p23']);
+    assert.equal(scope.hp.p23, 30);
+    scope.hp.p24 = 9; // unsaved Advanced edit must not affect the quick adjustment
+    for (const p23 of [32, 31]) {
+        scope.hp.p23 = p23;
+        assert.equal(slider.attrs['ng-change'], 'hpEditCurveSlider()');
+        scope.hpEditCurveSlider();
+        assert.deepStrictEqual(messages, []);
+        assert.notEqual(scope.hpPreviewLine(), chart.svg.line);
+    }
+    assert.equal(scope.hpCurveOutdoorPreview(), 'at -9 °C the set point goes 35.6 → 36.0 °C');
+    chart.outdoor = null;
+    assert.equal(scope.hpCurveOutdoorPreview(), 'no outdoor value');
+    chart.outdoor = -9;
+
+    const release = (valueAsNumber = 31) => listeners.change({ target: { id: scope.hpCurveSliderId, valueAsNumber } });
+    release(30);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'unchanged release clears the draft');
+    scope.hp.p23 = 31;
+    scope.hpEditCurveSlider();
+    scope.msg.payload.controls = { curve: false, curveReason: 'DHW cycle running' };
+    release();
+    assert.deepStrictEqual(messages, []);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'blocked release clears the draft');
+    scope.msg.payload.controls.curve = true;
+    scope.hp.p23 = 31;
+    scope.hpEditCurveSlider();
+    scope.msg.payload.controls.curve = false;
+    watchers['msg.payload'](scope.msg.payload);
+    assert.deepStrictEqual([scope.hp.p23, scope.hp.dirty], [30, false], 'disabled mid-drag resets even without a native change');
+    scope.hp.p24 = 9;
+    scope.hpEditAdvancedCurve();
+    watchers['msg.payload'](scope.msg.payload);
+    assert.deepStrictEqual([scope.hp.p24, scope.hp.dirty], [9, true], 'disabled slider leaves the Advanced draft alone');
+    scope.msg.payload.controls.curve = true;
+    release();
+    assert.ok(scope.hp.curveSent);
+    release();
+    assert.deepStrictEqual(messages, [{ topic: 'curve', payload: { p23: 31, p24: 4, requestId: scope.hp.curveSent } }]);
+    const forwarded = loadNode('37 Heat pump command.js').run(messages[0], { now }).result;
+    assert.deepStrictEqual(forwarded, [null, null, null, { topic: 'ui', payload: { action: 'ownerCurve', ...messages[0].payload } }]);
+    Object.assign(chart, { p23: 31, target: 36, ownerCurveResult: { requestId: scope.hp.curveSent, text: 'Heating curve confirmed.', ok: true } });
+    watchers['msg.payload'](scope.msg.payload);
+    assert.equal(scope.hp.curveSent, null);
+    assert.match(scope.hp.curveMessage, /confirmed/);
+    assert.equal(scope.hpCurveChanged(), false);
+
+    const key = { key: 'ArrowRight' };
+    assert.equal(slider.attrs['ng-keydown'], 'hpCurveSliderKeyDown($event)');
+    assert.equal(slider.attrs['ng-keyup'], 'hpCurveSliderKeyUp($event)');
+    for (const p23 of [32, 33, 34]) {
+        scope.hpCurveSliderKeyDown(key);
+        scope.hp.p23 = p23;
+        scope.hpEditCurveSlider();
+        release(p23); // Chromium emits native change on each keyboard repeat.
+    }
+    assert.equal(messages.length, 1, 'held key only updates the preview');
+    scope.hpCurveSliderKeyUp(key);
+    assert.deepStrictEqual(messages.slice(1), [{ topic: 'curve', payload: { p23: 34, p24: 4, requestId: scope.hp.curveSent } }]);
 });
 
 test('history day chips start on the newest week and page between available weeks only', () => {
@@ -136,7 +217,7 @@ test('history day chips start on the newest week and page between available week
 test('boiler curve edits preview against the static frame after a live update', () => {
     const html = fs.readFileSync(path.join(ROOT, FILES[0]), 'utf8');
     const scope = { $watch() {}, $on() {} };
-    vm.runInNewContext(html.match(/<script>([\s\S]+?)<\/script>/)[1], { scope: scope });
+    vm.runInNewContext(html.match(/<script>([\s\S]+?)<\/script>/)[1], { scope: scope, document: new EventTarget() });
     scope.msg = { payload: { dhwChart: { svg: { now: null } } } };
     scope.hp.dhw = { curve: [[0, 50], [10, 40]], frostLimit: 0 };
     assert.strictEqual(scope.hpDhwPreviewLine(), '');

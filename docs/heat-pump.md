@@ -97,16 +97,17 @@ Still an estimate: it assumes DP 112 is the unit's input current. Once the SA1 m
 
 If the meter uses other DPs, the Power tile shows "—". The page then lists the raw meter DPs, so the map in `meterReading()` can be extended. The value counts as fresh for 5 min.
 
-**Controls.** Both pass through `Heat pump command` (`37`) and require browser confirmation:
+**Controls.** These pass through `Heat pump command` (`37`). Advanced Apply and the bypass button ask for browser confirmation.
 
 | Control | Page | Sent | Checks |
 |---|---|---|---|
-| Heating curve setting (d#233, replaces the P23 slider) | Edit P23 and P24 under the chart; dashed preview and before → after values at −20, −10, −5, 0, +5 and +10 °C | `37` forwards one owner-baseline group to `40`, which sends DP 133/134 in one batch SET with a 5-second write gap | Whole numbers: P23 0…40, P24 1…30; P22 on; no DHW cycle or 10-minute post-DHW window |
+| Colder ↔ Warmer | Move P23 under the heating chart without changing stored P24. The dashed curve and before → after set point at the 10-minute outdoor average update while adjusting. | Release the slider or adjustment key to queue both coefficients as one owner-baseline batch; both must be confirmed. | Same checks as Advanced; requires a stored owner curve. |
+| Advanced heating curve | Edit P23 and P24 under the chart; dashed preview and before → after values at −20, −10, −5, 0, +5 and +10 °C | Apply queues the same owner-baseline group: `37` forwards to `40`, which sends DP 133/134 in one batch SET with a 5-second write gap. | Whole numbers: P23 0…40, P24 1…30; P22 on; no DHW cycle, 10-minute post-DHW window or pending curve apply. |
 | Bypass | *Turn bypass ON / OFF* button | `{"operation":"SET","dps":1,"set":true/false}` to `Off Heating exchange` | boolean |
 
 Each +1 °C of P23 raises the unclamped curve by P24 / 10 °C (0.4 °C with P24 = 4). P24 sets the slope; Apply does not change P22. The chart shows the stored owner curve and lists the pump's current P23/P24 separately when they differ.
 
-Manual writes require the target device to be CONNECTED with data ≤ 5 minutes old and are logged. Local control OFF stops automation, not the owner's manual Apply. The owner curve yields to higher-priority automation, including DHW. The controller saves it only after both coefficients have fresh matching readbacks. If confirmation fails, the page reports it and the baseline is unchanged; check the current pump values and apply again.
+Manual writes require the target device to be CONNECTED with data ≤ 5 minutes old and are logged. Local control OFF stops automation, not manual curve changes. The owner curve yields to higher-priority automation, including DHW. The controller saves it only after both coefficients have fresh matching readbacks. If confirmation fails, the page reports it and the baseline is unchanged; check the current pump values before retrying.
 
 A Tuya cloud scene that also switches the bypass (the DF… scenes) can switch it back. Disable those scenes to keep manual control.
 

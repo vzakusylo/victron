@@ -1,5 +1,5 @@
 {
-  "i": 48,
+  "i": 49,
   "changes": [
     {
       "i": 1,
@@ -288,6 +288,12 @@
       "date": "2026-11-24",
       "pr": null,
       "what": "Follow the heat pump curve at the sensor average"
+    },
+    {
+      "i": 49,
+      "date": "2026-11-24",
+      "pr": null,
+      "what": "Restore queued heating curve slider"
     }
   ]
 }

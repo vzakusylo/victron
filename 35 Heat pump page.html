@@ -2,8 +2,8 @@
   35 Heat pump page.html
   Source of the ui_template "Heat pump page" (Heat Pump dashboard tab).
   Sync rule: keep in sync with the `format` of that ui_template in flows.json (Sync-35).
-  Shows the state built by "Heat pump state" (34). Two controls send commands through
-  "Heat pump command" (37), each after a confirm dialog:
+  Shows the state built by "Heat pump state" (34). Controls send commands through
+  "Heat pump command" (37):
     {topic:'curve',  payload:{p23,p24,requestId}}  — apply the owner heating curve
     {topic:'bypass', payload:{on}}   — heat exchanger bypass relay on / off
     {topic:'ui', payload:{action:'mode', id:'dhw', mode}} — DHW controller Off / Test / On (d#138)
@@ -216,18 +216,31 @@
           <span ng-if="hpCurveChanged()"><i class="sw pt-supply"></i>edited curve (not applied)</span>
         </div>
         <div class="hpw-ctl">
-          <span class="big">Heating curve setting</span>
-          <label>P23 <input type="number" min="0" max="40" step="1" required ng-model="hp.p23"
-                 ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
-          <label>P24 <input type="number" min="1" max="30" step="1" required ng-model="hp.p24"
-                 ng-change="hp.dirty = true" ng-disabled="hp.curveSent !== null"></label>
-          <button class="go" ng-disabled="!msg.payload.controls.curve || !hpCurveValid() || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
-          <button ng-if="hp.dirty && hp.curveSent === null" ng-click="hpCurveReset()">Reset</button>
+          <span class="lbl">Colder</span>
+          <input type="range" min="0" max="40" step="1" aria-label="Heating curve P23: Colder to Warmer"
+                 ng-attr-id="{{hpCurveSliderId}}" ng-model="hp.p23" ng-change="hpEditCurveSlider()"
+                 ng-keydown="hpCurveSliderKeyDown($event)" ng-keyup="hpCurveSliderKeyUp($event)" ng-blur="hpCurveSliderBlur()"
+                 ng-disabled="!hpCurveSliderEnabled()">
+          <span class="lbl">Warmer</span>
+          <span class="big">P23 {{hp.p23}} °C</span>
+          <span class="lbl">{{hpCurveOutdoorPreview()}}</span>
+          <span class="lbl" ng-if="!msg.payload.curveChart.ownerStored && !msg.payload.controls.curveReason">Use Advanced to save an owner curve before using the slider.</span>
           <span class="lbl" ng-if="hp.curveSent !== null">queued; waiting for both coefficients to be confirmed…</span>
           <span class="lbl" ng-if="hp.curveSent === null && msg.payload.controls.curveReason">{{msg.payload.controls.curveReason}}</span>
-          <span class="lbl" ng-if="!hpCurveValid()">Use whole numbers: P23 0–40, P24 1–30.</span>
           <span class="lbl" ng-if="hp.curveMessage" role="status">{{hp.curveMessage}}</span>
         </div>
+        <details>
+          <summary>Advanced: P23 and P24</summary>
+          <div class="hpw-ctl">
+            <label>P23 <input type="number" min="0" max="40" step="1" required ng-model="hp.p23"
+                   ng-change="hpEditAdvancedCurve()" ng-disabled="hp.curveSent !== null"></label>
+            <label>P24 <input type="number" min="1" max="30" step="1" required ng-model="hp.p24"
+                   ng-change="hpEditAdvancedCurve()" ng-disabled="hp.curveSent !== null"></label>
+            <button class="go" ng-disabled="!msg.payload.controls.curve || !hpCurveValid() || hp.curveSent !== null" ng-click="hpApplyCurve()">Apply</button>
+            <button ng-if="hp.dirty && hp.curveSent === null" ng-click="hpCurveReset()">Reset</button>
+            <span class="lbl" ng-if="!hpCurveValid()">Use whole numbers: P23 0–40, P24 1–30.</span>
+          </div>
+        </details>
         <table class="hpw-curve-table">
           <tr><th>Outdoor °C</th><td ng-repeat="r in hpStatic.curveChart.table" class="num">{{r.out}}</td></tr>
           <tr><th>Set point °C<br>before → after</th><td ng-repeat="r in hpStatic.curveChart.table" class="num">{{r.set}}<span ng-if="hpCurveValid()"> → {{hpCurvePreviewAt(r.out)}}</span></td></tr>
@@ -459,6 +472,7 @@
     }
     scope.$on('$destroy', function () {
         Object.keys(pending).forEach(function (key) { clearTimeout(pending[key]); });
+        document.removeEventListener('change', commitCurveSlider);
     });
     // DHW controller (d#138, moved here from the Automations tab)
     scope.hp.dhw = null; scope.hp.dhwDirty = false; scope.hp.dhwModeSent = null; scope.hp.dhwSaved = false;
@@ -598,6 +612,7 @@
         scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });
     };
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
+    var sliderEditing = false, sliderKey = null, sliderKeyValue = null;
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }
     function updateCurvePlot(payload) {
         var c = payload && payload.curveChart;
@@ -642,7 +657,7 @@
                 scope.hp.curveMessage = result.text;
                 if (result.ok) scope.hp.dirty = false;
             }
-            if (!scope.hp.dirty && scope.hp.curveSent === null) scope.hpCurveReset();
+            if (scope.hp.curveSent === null && (!scope.hp.dirty || (sliderEditing && !scope.hpCurveSliderEnabled()))) scope.hpCurveReset();
         }
         var b = m.summary && m.summary.bypassOn;
         if (b === scope.hp.bypassSent) scope.hp.bypassSent = null;
@@ -650,6 +665,8 @@
     scope.hpCurveReset = function () {
         var c = cc();
         if (!c) return;
+        sliderEditing = false;
+        sliderKey = sliderKeyValue = null;
         scope.hp.p23 = c.p23; scope.hp.p24 = c.p24; scope.hp.dirty = false;
     };
     scope.hpCurveValid = function () { return validOwnerCurve(scope.hp.p23, scope.hp.p24); };
@@ -659,6 +676,14 @@
     };
     scope.hpCurvePreviewAt = function (outdoor) {
         return scope.hpCurveValid() ? Math.round(heatCurveAt(scope.hp.p23, scope.hp.p24, outdoor) * 10) / 10 : null;
+    };
+    scope.hpCurveOutdoorPreview = function () {
+        var c = cc();
+        if (!c || !Number.isFinite(c.outdoor) || !Number.isFinite(c.target)) return 'no outdoor value';
+        var after = scope.hpCurvePreviewAt(c.outdoor);
+        if (after === null) return '';
+        return 'at ' + c.outdoor + ' °C the set point goes '
+            + c.target.toFixed(1) + ' → ' + after.toFixed(1) + ' °C';
     };
     scope.hpPreviewLine = function () {
         var s = scope.hpStatic && scope.hpStatic.curveChart && scope.hpStatic.curveChart.svg;
@@ -673,15 +698,70 @@
         }
         return pts.join(' ');
     };
-    scope.hpApplyCurve = function () {
-        var c = cc();
-        if (!c || !scope.msg.payload.controls.curve || !scope.hpCurveValid() || scope.hp.curveSent !== null) return;
-        if (!confirm('Apply heating curve P23 ' + scope.hp.p23 + ' / P24 ' + scope.hp.p24 + '?')) return;
+    function canSubmitCurve() {
+        return !!cc() && scope.msg.payload.controls.curve && scope.hp.curveSent === null;
+    }
+    function submitCurve(p23, p24) {
         var requestId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
         scope.hp.curveMessage = '';
         awaitAck('curveSent', requestId);
-        scope.send({ topic: 'curve', payload: { p23: scope.hp.p23, p24: scope.hp.p24, requestId: requestId } });
+        scope.send({ topic: 'curve', payload: { p23: p23, p24: p24, requestId: requestId } });
+    }
+    scope.hpApplyCurve = function () {
+        if (!canSubmitCurve() || !scope.hpCurveValid()) return;
+        if (!confirm('Apply heating curve P23 ' + scope.hp.p23 + ' / P24 ' + scope.hp.p24 + '?')) return;
+        submitCurve(scope.hp.p23, scope.hp.p24);
     };
+    scope.hpCurveSliderEnabled = function () {
+        var c = cc();
+        return !!c && c.ownerStored && validOwnerCurve(c.p23, c.p24) && canSubmitCurve();
+    };
+    scope.hpEditCurveSlider = function () {
+        var c = cc();
+        if (!c || !c.ownerStored) return;
+        scope.hp.p24 = c.p24;
+        scope.hp.dirty = true;
+        sliderEditing = true;
+    };
+    scope.hpEditAdvancedCurve = function () {
+        scope.hp.dirty = true;
+        sliderEditing = false;
+    };
+    scope.hpCurveSliderId = 'hp-curve-slider-' + scope.$id;
+    function releaseCurveSlider(p23) {
+        var c = cc();
+        if (scope.hp.curveSent !== null) return;
+        if (!scope.hpCurveSliderEnabled() || !validOwnerCurve(p23, c.p24) || p23 === c.p23) {
+            scope.hpCurveReset();
+            return;
+        }
+        scope.hp.p23 = p23;
+        scope.hpEditCurveSlider();
+        sliderEditing = false;
+        submitCurve(p23, c.p24);
+    }
+    scope.hpCurveSliderKeyDown = function (event) {
+        if (sliderKey === null && /^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key)) sliderKey = event.key;
+    };
+    scope.hpCurveSliderKeyUp = function (event) {
+        if (event.key !== sliderKey) return;
+        var p23 = sliderKeyValue;
+        sliderKey = sliderKeyValue = null;
+        if (p23 !== null) releaseCurveSlider(p23);
+    };
+    scope.hpCurveSliderBlur = function () {
+        if (sliderKey === null) return;
+        sliderKey = sliderKeyValue = null;
+        if (scope.hp.curveSent === null) scope.hpCurveReset();
+    };
+    function commitCurveSlider(event) {
+        if (event.target.id !== scope.hpCurveSliderId) return;
+        var p23 = event.target.valueAsNumber;
+        if (sliderKey !== null) sliderKeyValue = p23;
+        else scope.$evalAsync(function () { releaseCurveSlider(p23); });
+    }
+    // Angular updates the preview on input; native change commits a drag on release.
+    document.addEventListener('change', commitCurveSlider);
     scope.hpBypass = function (on) {
         if (!confirm('Turn the heat exchanger bypass ' + (on ? 'ON (exchanger bypassed)' : 'OFF') + '?')) return;
         awaitAck('bypassSent', on);
