@@ -150,6 +150,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#175 G6 follow-up (`grid-g6-split`, d#232 · i#45): move the remaining grid decision stage and bookkeeping tick assembly into node-local includes, leaving `01` as loop wiring without changing behavior.
+
 #174 D-R10 Adopt live GX input settings (`adopt-gx-inputs`, d#231 · i#44): adopt the six input names and periodic reporting settings, and translate their emitted topics to the controller's existing topics. Both deploy gates accept drift already matching the target and ignore layout order. Offline replay of run 45406703938 accepts 12 fields and reports no changes for the six inputs; no live GX access.
 
 #173 D-R9 Whole-flow deploy (`deploy-whole-flow`, d#230 unchanged · i#43): replace the per-node opt-ins (D1, D-R2–D-R6 and P-D1) with a recorded Git baseline drift gate and revision-guarded whole-flow deployment. Use deterministic Tuya file-secret references for both commits. Fake API tests and an isolated Node-RED replay cover d#217 → d#230; no live GX access.
