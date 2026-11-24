@@ -140,6 +140,20 @@ test('with the GX kick settings a supply stuck below the curve gets Smart for ab
     assert.equal(mode === 'mute' || c.node.context.get('kick').phase === 'smart', true, 'never left in Smart outside a kick');
 });
 
+test('bypass ON remains the visible kick blocker after the startup quiet period', () => {
+    const c = heating({ cfg: { bandDown: 5, kickMin: 3, kickSec: 60 } });
+    c.node.context.set('lastDefrost', NOW);
+    c.node.context.set('startedAt', NOW);
+    const supply = { 102: 33, 101: 30, 125: 36 };
+    c.tick(NOW + 14 * MIN, supply, false, true);
+    assert.match(c.node.flow.get('dhwView').heat.why, /defrost < 15 min ago/);
+    for (let i = 0; i <= 24; i++) c.tick(NOW + 15 * MIN + i * 10 * S, supply, false, true);
+    const view = c.node.flow.get('dhwView');
+    assert.match(view.heat.why, /bypass ON/);
+    assert.equal(view.outHeld, true, 'the recovery hold still protects outdoor sampling');
+    assert.deepEqual(c.writes, []);
+});
+
 test('a running DHW cycle does not qualify for a stuck-supply kick', () => {
     const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
     for (let i = 0; i < 30; i++) c.tick(NOW + i * 10 * S, { 108: 49 });
