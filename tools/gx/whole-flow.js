@@ -39,7 +39,8 @@ function wholeFlowTools() {
             const fields = Object.fromEntries(Object.keys(node).sort()
                 .filter(key => key !== 'x' && key !== 'y')
                 .map(key => {
-                    const value = node[key];
+                    const value = node.type === 'group' && key === 'nodes' && Array.isArray(node.nodes)
+                        ? [...node.nodes].sort() : node[key];
                     return [key, hash(stable(normalizeCode && code.has(key) && typeof value === 'string'
                         ? value.replace(/\r\n/g, '\n').trimEnd() : value))];
                 }));
@@ -68,31 +69,39 @@ function wholeFlowTools() {
         return { added, removed, changed };
     }
 
-    function checkDrift(base, live, sha, overwrite, logEqual = true) {
+    function checkDrift(base, live, sha, { overwrite = false, target, logEqual = true } = {}) {
         const { added, removed, changed } = differences(base, live);
-        const lines = [...added.map(id => [id, '(added)']), ...removed.map(id => [id, '(missing)']),
-            ...changed.flatMap(({ id, fields }) => fields.map(field => [id, field]))];
-        if (base.length === live.length && !added.length && !removed.length &&
-            base.some(({ id }, index) => id !== live[index].id)) {
-            lines.push(['(flow)', 'node-order']);
-        }
-        if (!lines.length) {
+        if (!added.length && !removed.length && !changed.length) {
             if (logEqual) console.log('drift gate      : live flow equals ' + sha);
             return true;
         }
-        const detail = `live flow differs from ${sha} (drift):\n` +
-            lines.slice(0, 20).map(pair => pair.map(value => String(value).replace(/[^\w.()-]/g, '?')).join(' ')).join('\n');
+        const deploy = target && differences(live, target);
+        const targetAdds = new Set(deploy?.added);
+        const targetRemoves = new Set(deploy?.removed);
+        const targetEdits = new Map(deploy?.changed.map(({ id, fields }) => [id, new Set(fields)]));
+        const blocked = [];
+        const note = (id, field, adopted) => {
+            const line = [id, field].map(value => String(value).replace(/[^\w.()-]/g, '?')).join(' ');
+            if (adopted) console.log('adopted drift  : ' + line);
+            else blocked.push(line);
+        };
+        for (const id of added) note(id, '(added)', deploy && !targetRemoves.has(id) && !targetEdits.has(id));
+        for (const id of removed) note(id, '(missing)', deploy && !targetAdds.has(id));
+        for (const { id, fields } of changed) {
+            for (const field of fields) note(id, field, deploy && !targetRemoves.has(id) && !targetEdits.get(id)?.has(field));
+        }
+        if (!blocked.length) return true;
+        const detail = `live flow differs from ${sha} (drift):\n` + blocked.slice(0, 20).join('\n');
         if (!overwrite) throw new Error(detail);
         console.log('overwrite drift : ' + detail);
         return false;
     }
 
-    function report(before, after) {
-        const { added, removed, changed } = differences(fingerprints(before), fingerprints(after));
-        const nodes = new Map([...before, ...after].map(node => [node.id, node]));
+    function report({ added, removed, changed }, definitions) {
+        const nodes = new Map(definitions.map(node => [node.id, node]));
         const describe = id => {
             const node = nodes.get(id);
-            return `${id} (${node.type} ${JSON.stringify(node.name || node.label || '')})`;
+            return node ? `${id} (${node.type} ${JSON.stringify(node.name || node.label || '')})` : id;
         };
         console.log(`nodes added     : ${added.length}`);
         for (const id of added) console.log('  + ' + describe(id));

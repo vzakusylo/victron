@@ -12,6 +12,7 @@
 //   battery-voltage, battery-consumed-ah, grid-power (signed, negative = export), ac-load-power,
 //   dc-power (informational), pv-charger-power, manual-discharge, manual-discharge-stop-voltage,
 //   grid-control-tick (scheduled decisions); other topics are ignored.
+//   d#231: translate the adopted GX input names (and the unnamed voltage node's default topic) to these topics.
 //
 // Logic:
 // - Restoration: the BMS consumed Ah is the deficit to refill, less the Ah today's solar forecast is

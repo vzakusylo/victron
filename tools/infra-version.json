@@ -263,7 +263,7 @@
       "i": 44,
       "date": "2026-11-24",
       "pr": null,
-      "what": "G6 grid split"
+      "what": "Deploy: accept adopted drift and ignore order"
     }
   ]
 }

@@ -143,7 +143,7 @@ test('cadence coalesces sensor bursts, but a CT step over 1 kW runs immediately'
     assert.deepEqual(run(1), run(100));
 });
 
-test('one 2 s inject and six named Victron inputs feed the controller directly', () => {
+test('one 2 s inject and six periodic Victron inputs feed the controller directly', () => {
     const flows = require('../flows.json');
     const id = 'e4766632305fb432';
     const upstream = flows.filter(node => node.wires?.flat().includes(id));
@@ -151,10 +151,35 @@ test('one 2 s inject and six named Victron inputs feed the controller directly',
     assert.deepEqual(injects.filter(node => node.repeat || node.crontab).map(node => [node.topic, node.repeat]), [
         ['grid-control-tick', '2']
     ]);
-    assert.deepEqual(upstream.filter(node => node.type.startsWith('victron-input-') && node.onlyChanges)
-        .map(node => node.name).sort(), [
-        'ac-load-power', 'battery-consumed-ah', 'battery-voltage', 'dc-power', 'grid-power', 'pv-charger-power'
+    const inputs = upstream.filter(node => node.type.startsWith('victron-input-'));
+    assert.deepEqual(inputs.map(node => node.name).sort(), [
+        '', 'AC Loads power', 'Battery SmartShunt consumed Ah', 'DC System Power', 'GRID CT import power', 'PV Charger Power'
     ]);
+    assert.ok(inputs.every(node => node.onlyChanges === false));
+    const readings = {
+        '07c74490cafdc55a': ['batteryVoltage', 53, 53],
+        '0ee582b64b26e2e7': ['batteryConsumedAh', -200, 200],
+        '751d13b6d943e5e5': ['gridPowerW', 1000, 1000],
+        '11e303e775ec959c': ['acLoadPowerW', 1500, 1500],
+        'dc7f2a1c3e8b09c4': ['dcPowerW', -100, -100],
+        'pv-charger-input-01': ['pvChargerPowerW', 450, 450]
+    };
+    const { control } = loadGrid();
+    const now = new Date('2026-11-12T23:00:00+01:00');
+    const emittedTopic = node => node.name || `${node.serviceObj.name} - ${node.pathObj.name}`;
+    for (const node of inputs) {
+        const [key, payload, expected] = readings[node.id];
+        control.run({ topic: emittedTopic(node), payload }, { now });
+        assert.equal(control.context.get(key), expected, `${node.id} (${emittedTopic(node)})`);
+    }
+    const voltage = inputs.find(node => node.id === '07c74490cafdc55a');
+    control.run({ topic: emittedTopic({ ...voltage, serviceObj: { name: 'Renamed SmartShunt' } }), payload: 54 }, { now });
+    assert.equal(control.context.get('batteryVoltage'), 54);
+    assert.ok(control.run({ topic: 'grid-control-tick' }, { now }).result[7].tick.decision);
+    const ct = inputs.find(node => node.id === '751d13b6d943e5e5');
+    const { result } = control.run({ topic: emittedTopic(ct), payload: 2001 }, { now });
+    assert.equal(result[7].topic, 'grid-power');
+    assert.equal(result[7].tick.gridPowerSignedW, 2001);
 });
 
 test('the split is an additive deployment, preserving old wires and consumer destinations', () => {

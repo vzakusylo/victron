@@ -227,17 +227,22 @@ STATUS: WARN
 ## Reading the comparison report
 
 The **drift gate** compares the live flow to its recorded Git baseline. A match prints the full baseline SHA.
-Drift stops with up to 20 `node-id field` entries, no old or new values. The `d#` label alone is not evidence
-of a match. Keep diagnostic snapshots and reports out of Git and public artifacts.
+The order of nodes in the flow and of members within layout groups is ignored; a membership change is still
+drift. If a drifted field already matches the target, the gate prints `adopted drift  : <id> <field>` and lets
+it through. A live-only addition must also exist with matching fields in the target; a live removal must also
+be absent from the target. Other drift stops the deploy with up to 20 `node-id field` entries, no old or new
+values, unless the manual drift override is approved. The `d#` label alone is not evidence of a match.
+Keep diagnostic snapshots and reports out of Git and public artifacts.
 
-The **Git change report** compares baseline to target. It lists added/removed nodes and the top-level fields
-that changed per node, such as `hp-page-template-01 (ui_template "..."): resendOnRefresh, storeOutMessages`.
-Those are for review, not opt-ins. `nodes restarted` is an estimate of direct changes; Node-RED can also
-restart dependants. Structural changes are reviewed in the PR and tested by Test GX.
+The **planner and dry-run change reports** compare live to target. They list added/removed nodes and the
+top-level fields the deploy would change, such as `hp-page-template-01 (ui_template "..."): resendOnRefresh, storeOutMessages`.
+Adopted fields aren't listed as changes. These reports are for review, not opt-ins. `nodes restarted` is an
+estimate of direct changes; Node-RED can also restart dependants. Structural changes are reviewed in the PR
+and tested by Test GX.
 
-After building the synthetic image, `node tools/test-gx/check-deploy-whole-flow.js` replays d#217 to d#230
-in a network-isolated Node-RED container and checks flow readback, dummy credentials, unchanged node
-instances and stale-revision rejection.
+After building the synthetic image, `node tools/test-gx/check-deploy-whole-flow.js` replays the d#217 to d#230
+topology change with the adopted input settings in a network-isolated Node-RED container. It checks adopted
+drift, flow readback, dummy credentials, unchanged node instances and stale-revision rejection.
 
 ## GitHub Actions
 
@@ -306,9 +311,10 @@ Dry runs, skipped (gate) runs and failed applies send nothing. A mail problem ne
 1. Both commits and all downloaded files match the plan. `dashboard` and `automations` must record the
    same full Git SHA, and the planner requires it to be a readable ancestor of the target.
 2. The live revision still matches the snapshot. The drift gate compares against the stamped, Tuya-prepared
-   baseline. It sorts object keys, ignores only top-level `x` and `y`, and normalizes CRLF and end-of-field
-   whitespace in `func`, `initialize`, `finalize`, `format` and `command`. It retains groups, wiring,
-   settings, metadata and array order.
+   baseline and uses the prepared target to identify adopted drift. It sorts object keys, ignores top-level
+   `x` and `y`, and normalizes CRLF and end-of-field whitespace in `func`, `initialize`, `finalize`, `format`
+   and `command`. Groups, wiring, settings and metadata still count; array order is significant except for
+   the top-level flow and each layout group's `nodes`.
 3. There is no running DHW cycle. Preflight checks every target `libs` declaration, without installing
    modules, and runs `node --check` on the tool files.
 4. On apply, save `flows.json`, `flows_cred.json` and the API response, then replace the planned tools.

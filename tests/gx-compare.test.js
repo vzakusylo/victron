@@ -1,9 +1,69 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync, spawnSync } = require('node:child_process');
 const { snapshot } = require('../tools/gx/live-snapshot.js');
 const { diffSnapshots } = require('../tools/gx/compare.js');
-const { fingerprints, differences, recordedBase } = require('../tools/gx/whole-flow.js');
+const { fingerprints, differences, checkDrift, report, recordedBase } = require('../tools/gx/whole-flow.js');
+const { incidentLive, assertAdoptedInputsReport } = require('../tools/test-gx/deploy-drift-fixture.js');
+const { ROOT } = require('./harness');
+
+const hashes = fingerprints;
+const logLines = mock => mock.mock.calls.map(call => call.arguments[0]);
+
+test('onlyChanges drift is accepted only when the target adopts it', t => {
+    const log = t.mock.method(console, 'log', () => {});
+    const [base, live] = [true, false].map(onlyChanges => hashes([{ id: 'input', onlyChanges }]));
+    assert.equal(checkDrift(base, live, 'base', { target: live }), true);
+    assert.deepEqual(logLines(log), ['adopted drift  : input onlyChanges']);
+    assert.throws(() => checkDrift(base, live, 'base', { target: base }), /drift\):\ninput onlyChanges$/);
+    assert.throws(() => checkDrift(base, live, 'base', { target: [] }), /drift\):\ninput onlyChanges$/);
+});
+
+test('node drift requires an identical addition or a matching removal in the target', t => {
+    const log = t.mock.method(console, 'log', () => {});
+    const base = hashes([{ id: 'old' }]);
+    const live = hashes([{ id: 'new', name: 'live' }]);
+    assert.equal(checkDrift(base, live, 'base', { target: live }), true);
+    assert.deepEqual(logLines(log), ['adopted drift  : new (added)', 'adopted drift  : old (missing)']);
+    const target = hashes([{ id: 'new', name: 'target' }, { id: 'old' }]);
+    assert.throws(() => checkDrift(base, live, 'base', { target }), /new \(added\)\nold \(missing\)$/);
+});
+
+test('group member order is ignored, but membership changes are drift', t => {
+    t.mock.method(console, 'log', () => {});
+    const group = (...nodes) => hashes([{ id: 'g', type: 'group', nodes }]);
+    const base = group('a', 'b');
+    assert.equal(checkDrift(base, group('b', 'a'), 'base'), true);
+    assert.throws(() => checkDrift(base, group('a', 'b', 'c'), 'base'), /drift\):\ng nodes$/);
+    assert.throws(() => checkDrift(base, group('a'), 'base'), /drift\):\ng nodes$/);
+    assert.throws(() => checkDrift(base, group('a', 'b', 'b'), 'base'), /drift\):\ng nodes$/);
+});
+
+test('flow node order is ignored', t => {
+    t.mock.method(console, 'log', () => {});
+    const nodes = [{ id: 'a' }, { id: 'b' }];
+    assert.equal(checkDrift(hashes(nodes), hashes(nodes.reverse()), 'base'), true);
+});
+
+test('incident replay accepts twelve adopted fields and reports no work on the six inputs', t => {
+    const ref = '0c1b770';
+    const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 24 });
+    if (git('rev-parse', '--is-shallow-repository').toString().trim() === 'true' &&
+        spawnSync('git', ['cat-file', '-e', `${ref}^{commit}`], { cwd: ROOT }).status !== 0) {
+        return t.skip('historical replay requires the full Git history (covered by Check and Test GX)');
+    }
+    const base = JSON.parse(git('show', `${ref}:flows.json`));
+    const live = incidentLive(base);
+    const target = require('../flows.json');
+    const log = t.mock.method(console, 'log', () => {});
+    const targetHashes = hashes(target);
+    assert.equal(checkDrift(hashes(base), hashes(live), ref, { target: targetHashes }), true);
+    report(differences(hashes(live), targetHashes), [...base, ...target]);
+    const lines = logLines(log);
+    assertAdoptedInputsReport(lines.join('\n'));
+    t.diagnostic(lines.filter(line => /^adopted drift|^nodes (added|removed|changed)/.test(line)).join('\n'));
+});
 
 test('diagnostic comparison still separates code, trailing whitespace, modules and config', () => {
     const base = [
