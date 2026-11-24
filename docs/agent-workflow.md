@@ -37,11 +37,10 @@ This page is the single description of the Claude / Copilot loop. It does not re
 | [Herdr workflow guide](herdr-workflow.md) | How to organize any project over Herdr |
 | [`BACKLOG.md`](../BACKLOG.md) | **All tasks, plans, test plans, open PRs, deploy state and progress** (the one task file) |
 | [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) | Copilot's kickoff rule, Test GX access-scope checklist, short version of the rules below and the report template |
-| [Test GX handoff](test-gx-handoff-2026-11-16.md) | §3 permission register (approved scopes), §11 isolated PR review procedure, §13 next-agent checklist |
 | [Development & deployment](development.md) | `NN *.js` ↔ `flows.json` sync, `d#` version, checks before a deploy |
 | [Test GX](test-gx.md) | Test GX build, emulator API, Known limitations |
 
-If a rule here and the permission register disagree, the stricter one applies. In particular, register entry 9 ("updating master") covers fast-forwarding a local `master` after a merge; it does not allow pushing commits directly to `master`.
+The [historical Test GX handoff](archive/test-gx-handoff-2026-11-16.md) records approvals for that task only. It does not grant standing permissions.
 
 ## Loop
 
@@ -134,7 +133,7 @@ Branch: <where to work>, <where to commit>, <when to open the PR>, <next branch>
    Keep auto-merge paused while any review thread remains unresolved.
 5. Production `flows.json` and `NN *.js` are not changed in Test GX work. A bug found by a scenario is marked `expected_fail`; its fix gets its own PR.
 6. Real backups, substitution maps and keys stay outside the repository and the Docker image.
-7. Live-GX access, pushing to master, deleting remote branches and removing Docker data volumes need an explicit owner request (see the [permission register](test-gx-handoff-2026-11-16.md#3-permission-register-explicitly-answered-individually)). Local Test GX calls (`/set`, `/fail`, `/reset`) and everything else in a task run without asking.
+7. Live-GX access, deleting remote branches and removing Docker data volumes need an explicit owner request. Never push directly to `master`. Local Test GX calls (`/set`, `/fail`, `/reset`) within the assigned task do not require a separate request.
 8. Repository code, docs and commits are in English.
 9. Keep reports short: branch, SHA, PR, `d#` and `i#`, test count, what was not checked.
 10. Tasks and plans live only in [`BACKLOG.md`](../BACKLOG.md): a new task is added there before its branch, set to

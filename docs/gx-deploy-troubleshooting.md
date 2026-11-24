@@ -1,6 +1,6 @@
 # GX deployment runbook: connection, drift, dry-run, backup and verification
 
-This is the recovery procedure used for the **15 Nov 2026 d#187 deployment from master**, not an instruction to force a failed deploy. See [the deployment guide](gx-deploy.md) for the tools, [the handoff](gx-handoff.md) for the fixed steps, and [the work log](heat-pump-work-log.md#2026-11-15-1035-1038-europeoslo-master-deployed-without-stopping-node-red) for the actual result and backups.
+This is the recovery procedure used for the **15 Nov 2026 d#187 deployment from master**, not an instruction to force a failed deploy. See [the deployment guide](gx-deploy.md#command-runners) for the tools and fixed steps, and [the work log](heat-pump-work-log.md#2026-11-15-1035-1038-europeoslo-master-deployed-without-stopping-node-red) for the actual result and backups.
 
 **Never copy the raw repository template over the GX's `flows.json`. Never deploy the secret workflow just to update code.** The current runner prepares the target with Tuya file-secret references, checks for drift, and asks Node-RED to deploy modified nodes without restarting the service.
 

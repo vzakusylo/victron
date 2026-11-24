@@ -82,7 +82,7 @@ test('window: every state in which a redeploy or a stop would interrupt somethin
     }
 });
 
-test('runners: the step lists are fixed and the handoff document quotes them exactly', (t) => {
+test('runners: the step lists are fixed and the deployment guide quotes them exactly', (t) => {
     const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], { encoding: 'utf8' });
     if (probe.error || probe.status !== 0) { t.skip('pwsh is not available here'); return; }
     const steps = (script) => {
@@ -95,8 +95,20 @@ test('runners: the step lists are fixed and the handoff document quotes them exa
         ['1 preflight', '2 snapshot', '3 compare', '4 plan', '5 window', '6 dry', '7 deploy', '8 verify']);
     assert.deepEqual(install.map((line) => line.split(/\s+/).slice(0, 2).join(' ')),
         ['1 preflight', '2 sync', '3 check', '4 window', '5 dispatch', '6 approve', '7 compare', '8 start']);
-    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'gx-handoff.md'), 'utf8').replace(/\r\n/g, '\n');
-    for (const line of deploy.concat(install)) assert.ok(doc.includes(line), 'docs/gx-handoff.md does not quote: ' + line);
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'gx-deploy.md'), 'utf8').replace(/\r\n/g, '\n');
+    for (const line of deploy.concat(install)) assert.ok(doc.includes(line), 'docs/gx-deploy.md does not quote: ' + line);
+});
+
+test('GX runner help references existing documentation outside the archive', () => {
+    for (const script of ['gx-deploy.ps1', 'gx-secrets-install.ps1']) {
+        const source = fs.readFileSync(path.join(ROOT, 'scripts', script), 'utf8');
+        const match = source.match(/^#.*\bSee (docs\/[a-z0-9/-]+\.md)\./m);
+        assert.ok(match, `${script} must point to a deployment guide`);
+        const [, target] = match;
+        assert.ok(!target.startsWith('docs/archive/'), `${script} points to historical instructions`);
+        assert.ok(fs.statSync(path.join(ROOT, target), { throwIfNoEntry: false })?.isFile(),
+            `${script} points to missing file ${target}`);
+    }
 });
 
 test('runners: without -Apply / with -DryRun nothing can change, and bad hosts are refused before any connection', (t) => {

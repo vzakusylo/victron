@@ -1,5 +1,7 @@
 # Accumulator tank sensor: diagnosis and recovery
 
+> Historical record only. See [Heat pump](../heat-pump.md) for current documentation.
+
 Date: 2026-11-14. Documentation-only handoff for [PR #28](https://github.com/vzakusylo/victron/pull/28).
 
 ## Outcome
@@ -69,7 +71,7 @@ the original `t` (Unix milliseconds) with the current time. A cached value is no
 fresh just because it is printed again when the reader restarts. Check battery
 contacts and Wi-Fi before re-pairing; re-pairing can change the local key.
 
-Related sources: [local sensor reader](../tools/tuya-local-sensors.js),
-[local sensor node](../46%20Heat%20pump%20local%20sensors.js),
-[cloud sensor node](../44%20Heat%20pump%20cloud%20sensors.js),
-[heat pump documentation](heat-pump.md), [work log](heat-pump-work-log.md).
+Related sources: [local sensor reader](../../tools/tuya-local-sensors.js),
+[local sensor node](../../46%20Heat%20pump%20local%20sensors.js),
+[cloud sensor node](../../44%20Heat%20pump%20cloud%20sensors.js),
+[heat pump documentation](../heat-pump.md), [work log](../heat-pump-work-log.md).

@@ -147,7 +147,7 @@ Recommended workflow when editing the logic:
    node --test "tests/*.test.js"
    ```
    The same two commands run on every pull request (`.github/workflows/check.yml`).
-4. deploy with `scripts/gx-deploy.ps1` (dry run first, then `-Apply`), see [GX deployment handoff](gx-handoff.md#operation-a-deploy-code). It runs the scripts in `tools/gx/` in a fixed order: snapshot, compare, plan, window, dry run, deploy, verify ([details](gx-deploy.md)). They do what the rest of this step describes.
+4. deploy with `scripts/gx-deploy.ps1` (dry run first, then `-Apply`), see [GX deploy command](gx-deploy.md#deploy-code). It runs the scripts in `tools/gx/` in a fixed order: snapshot, compare, plan, window, dry run, deploy, verify ([details](gx-deploy.md)). They do what the rest of this step describes.
    The deploy runner verifies the live flow against its recorded Git baseline,
    checks the safe window and saves `flows.json`, `flows_cred.json` and the
    original API response. It posts the whole target flow with the Git stamp,

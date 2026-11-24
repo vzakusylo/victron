@@ -1,12 +1,14 @@
 # GX deployment handoff (14–15 Nov 2026)
 
-> Everything that was done to the Cerbo GX and to the deployment tooling on 14–15 Nov 2026, the scripts that came out of it, and how to repeat each operation with one command. Read this first; [Deploying to the Cerbo GX](gx-deploy.md) explains the single scripts, [SECRETS.md](../scripts/SECRETS.md) the secrets.
+> Historical record only. Use the [current GX deployment guide](../gx-deploy.md) for operations.
 
-The [Victron GX connector](victron-gx-connector.md) documents interfaces and signals.
+> Everything that was done to the Cerbo GX and to the deployment tooling on 14–15 Nov 2026, the scripts that came out of it, and how to repeat each operation with one command. Read this first; [Deploying to the Cerbo GX](../gx-deploy.md) explains the single scripts, [SECRETS.md](../../scripts/SECRETS.md) the secrets.
+
+The [Victron GX connector](../victron-gx-connector.md) documents interfaces and signals.
 
 For the later d#187 deployment, connection recovery, version/code mismatches,
 reviewed topology migration, pinned dry-run/apply, backups and verification,
-see the [GX deployment troubleshooting runbook](gx-deploy-troubleshooting.md).
+see the [GX deployment troubleshooting runbook](../gx-deploy-troubleshooting.md).
 The state table below is the historical 01:30 handoff, not a live status report.
 
 ## Contents
@@ -90,7 +92,7 @@ Why it gives the same result every time:
 
 Exit code: 0 done or nothing to do, 1 stopped by a check before any change, 2 failed after the deploy started (read `deploy.txt` in the run folder; it names the backup).
 
-After `-Apply`: run operation C again 15–20 minutes later, and add a row to the [work log](heat-pump-work-log.md). What restarts and how to roll back: [gx-deploy.md](gx-deploy.md#what-the-deploy-script-checks).
+After `-Apply`: run operation C again 15–20 minutes later, and add a row to the [work log](../heat-pump-work-log.md). What restarts and how to roll back: [gx-deploy.md](../gx-deploy.md#what-the-deploy-script-checks).
 
 An explicitly owner-requested deployment without commit/push uses
 `tools/gx/deploy-local.js`, not the normal commit runner. Prepare against a fresh
@@ -139,7 +141,7 @@ pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key         
 git fetch; pwsh -NoProfile -File .\scripts\gx-monitor.ps1 -GxHost $gx -SshKey $key -Drift   # + live code vs origin/master
 ```
 
-`STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2. Levels and limits: [gx-deploy.md](gx-deploy.md#monitoring). Is this a good moment to deploy or to stop Node-RED:
+`STATUS: OK / WARN / FAIL`, exit code 0 / 1 / 2. Levels and limits: [gx-deploy.md](../gx-deploy.md#monitoring). Is this a good moment to deploy or to stop Node-RED:
 
 ```powershell
 Get-Content -Raw tools\gx\window.js,tools\gx\admin-api.js | ssh -i $key $gx "tr -d '\r' | node - --for stop"
@@ -153,7 +155,7 @@ pwsh -NoProfile -File .\scripts\setup-ci-access.ps1 -GxHost $gx -SshKey $key    
 pwsh -NoProfile -File .\scripts\setup-ci-access.ps1 -GxHost $gx -SshKey $key -Rotate -SkipTailscale   # new CI key
 ```
 
-The two Tailscale values come from the admin console (Settings → Trust credentials → OAuth client, scope *Auth Keys* write, tag `tag:ci`); the tailnet policy needs `"tagOwners": { "tag:ci": ["autogroup:admin"] }`. Details, checks and the maintenance table: [SECRETS.md](../scripts/SECRETS.md#access-secrets-add-check-maintain). A rotated key or a new Tailscale client is proven only by operation B.
+The two Tailscale values come from the admin console (Settings → Trust credentials → OAuth client, scope *Auth Keys* write, tag `tag:ci`); the tailnet policy needs `"tagOwners": { "tag:ci": ["autogroup:admin"] }`. Details, checks and the maintenance table: [SECRETS.md](../../scripts/SECRETS.md#access-secrets-add-check-maintain). A rotated key or a new Tailscale client is proven only by operation B.
 
 ## Every script, and why it exists
 
@@ -161,38 +163,38 @@ The two Tailscale values come from the admin console (Settings → Trust credent
 
 | Script | What it does | Why |
 |---|---|---|
-| [`scripts/gx-deploy.ps1`](../scripts/gx-deploy.ps1) | Operation A: the eight deploy steps in a fixed order, dry run by default | The steps were done by hand on 14–15 Nov; a skipped step (compare, window, read-back) is how a deploy goes wrong |
-| [`scripts/gx-secrets-install.ps1`](../scripts/gx-secrets-install.ps1) | Operation B: sync, check, window, stop, install, compare, start | The order matters (sync before install, dispatch before stop) and Node-RED must come back in every case |
-| [`scripts/gx-monitor.ps1`](../scripts/gx-monitor.ps1) | Operation C: runs the monitor over SSH, `-Drift`, `-Watch`, `-Json` | One command instead of piping scripts by hand |
-| [`scripts/setup-ci-access.ps1`](../scripts/setup-ci-access.ps1) | Operation D: CI key, its line on the GX, five `gh secret set` without printing a value | Credentials are created by the owner, and never typed into a chat or a file |
-| [`scripts/sync-secrets.ps1`](../scripts/sync-secrets.ps1) | GX → GitHub: collects the 11 private files and uploads them | GitHub must hold what the GX runs before an install |
+| [`scripts/gx-deploy.ps1`](../../scripts/gx-deploy.ps1) | Operation A: the eight deploy steps in a fixed order, dry run by default | The steps were done by hand on 14–15 Nov; a skipped step (compare, window, read-back) is how a deploy goes wrong |
+| [`scripts/gx-secrets-install.ps1`](../../scripts/gx-secrets-install.ps1) | Operation B: sync, check, window, stop, install, compare, start | The order matters (sync before install, dispatch before stop) and Node-RED must come back in every case |
+| [`scripts/gx-monitor.ps1`](../../scripts/gx-monitor.ps1) | Operation C: runs the monitor over SSH, `-Drift`, `-Watch`, `-Json` | One command instead of piping scripts by hand |
+| [`scripts/setup-ci-access.ps1`](../../scripts/setup-ci-access.ps1) | Operation D: CI key, its line on the GX, five `gh secret set` without printing a value | Credentials are created by the owner, and never typed into a chat or a file |
+| [`scripts/sync-secrets.ps1`](../../scripts/sync-secrets.ps1) | GX → GitHub: collects the 11 private files and uploads them | GitHub must hold what the GX runs before an install |
 
 **Scripts that run on the GX** — started by the runners; read-only admin scripts can also be piped by hand with their shared helper (`Get-Content -Raw <file>,tools\gx\admin-api.js | ssh … "tr -d '\r' | node -"`). Since d#181 they are also installed in `/data/home/nodered/tools/gx/`.
 
 | Script | What it does | Why |
 |---|---|---|
-| [`tools/gx/live-snapshot.js`](../tools/gx/live-snapshot.js) | Reads the live flow from the admin API; prints the code of every node, a hash of its other properties, the label and the revision (gzip + base64, ~300 KB) | The repository file is a template; only the GX knows what really runs. Hashes instead of settings: no Tuya IDs or keys leave the GX |
-| [`tools/gx/window.js`](../tools/gx/window.js) | Says `SAFE` or `WAIT` with reasons: DHW cycle, rule sequence, queued writes, defrost flag, defrost now, valve, bypass, fault; with `--for stop` also "next defrost due" | A redeployed automations node loses its context; a stopped Node-RED does not switch the bypass in a defrost |
-| [`tools/gx/deploy.js`](../tools/gx/deploy.js) | Executes a plan: download by SHA, hash check, revision check, DHW check, patch of the planned code fields, source label, backup, tool files, POST, read-back; dry run unless `DRY=0` | The only script that changes the flow; it refuses instead of guessing |
-| [`tools/gx/verify.js`](../tools/gx/verify.js) | After a deploy: label, recorded commits, DHW state and wait reason, master switch, log errors since the deploy | A quick look right after step 7 |
-| [`tools/gx/monitor.js`](../tools/gx/monitor.js) | Health at any time, judged OK / WARN / FAIL | The same checks every time, with an exit code |
-| [`scripts/install-gx-secrets.sh`](../scripts/install-gx-secrets.sh) | Run by the workflow: refuses a running Node-RED, keeps the previous files, installs 7 files and 2 helpers, checks, rolls back | Private files are written only with Node-RED stopped, and never through a symlink |
-| [`tools/victron-secrets.js`](../tools/victron-secrets.js), [`tools/reload-victron-secrets.js`](../tools/reload-victron-secrets.js) | Loaded by `settings-user.js` at start: turns the private files into the environment the Tuya nodes reference; `check` validates them | The flow holds references, not keys |
+| [`tools/gx/live-snapshot.js`](../../tools/gx/live-snapshot.js) | Reads the live flow from the admin API; prints the code of every node, a hash of its other properties, the label and the revision (gzip + base64, ~300 KB) | The repository file is a template; only the GX knows what really runs. Hashes instead of settings: no Tuya IDs or keys leave the GX |
+| [`tools/gx/window.js`](../../tools/gx/window.js) | Says `SAFE` or `WAIT` with reasons: DHW cycle, rule sequence, queued writes, defrost flag, defrost now, valve, bypass, fault; with `--for stop` also "next defrost due" | A redeployed automations node loses its context; a stopped Node-RED does not switch the bypass in a defrost |
+| [`tools/gx/deploy.js`](../../tools/gx/deploy.js) | Executes a plan: download by SHA, hash check, revision check, DHW check, patch of the planned code fields, source label, backup, tool files, POST, read-back; dry run unless `DRY=0` | The only script that changes the flow; it refuses instead of guessing |
+| [`tools/gx/verify.js`](../../tools/gx/verify.js) | After a deploy: label, recorded commits, DHW state and wait reason, master switch, log errors since the deploy | A quick look right after step 7 |
+| [`tools/gx/monitor.js`](../../tools/gx/monitor.js) | Health at any time, judged OK / WARN / FAIL | The same checks every time, with an exit code |
+| [`scripts/install-gx-secrets.sh`](../../scripts/install-gx-secrets.sh) | Run by the workflow: refuses a running Node-RED, keeps the previous files, installs 7 files and 2 helpers, checks, rolls back | Private files are written only with Node-RED stopped, and never through a symlink |
+| [`tools/victron-secrets.js`](../../tools/victron-secrets.js), [`tools/reload-victron-secrets.js`](../../tools/reload-victron-secrets.js) | Loaded by `settings-user.js` at start: turns the private files into the environment the Tuya nodes reference; `check` validates them | The flow holds references, not keys |
 
 **Scripts that run on the PC inside a runner.**
 
 | Script | What it does | Why |
 |---|---|---|
-| [`tools/gx/compare.js`](../tools/gx/compare.js) | Snapshot vs a commit: `code`, `trailing`, `config`, added / removed nodes; `--show`, `--history`, `--summary`, `--plan` | Separates what a deploy changes from editor noise and from the secret references |
-| [`tools/deploy-version.js`](../tools/deploy-version.js) | Adds ` [git <sha12>]` to the tab and the dashboard pages and stores the full SHA in the tab `info` | The dashboard shows which commit runs |
-| [`tools/flows.js`](../tools/flows.js) | `sync` numbered sources → `flows.json` (+1 on `d#`), `check` | The numbered files are the source |
+| [`tools/gx/compare.js`](../../tools/gx/compare.js) | Snapshot vs a commit: `code`, `trailing`, `config`, added / removed nodes; `--show`, `--history`, `--summary`, `--plan` | Separates what a deploy changes from editor noise and from the secret references |
+| [`tools/deploy-version.js`](../../tools/deploy-version.js) | Adds ` [git <sha12>]` to the tab and the dashboard pages and stores the full SHA in the tab `info` | The dashboard shows which commit runs |
+| [`tools/flows.js`](../../tools/flows.js) | `sync` numbered sources → `flows.json` (+1 on `d#`), `check` | The numbered files are the source |
 
 **GitHub.**
 
 | File | What it does |
 |---|---|
-| [`.github/workflows/check.yml`](../.github/workflows/check.yml) | On every pull request and push to `master`: `flows.js check`, all Node tests (Linux), the PowerShell tests (Windows) |
-| [`.github/workflows/deploy-victron.yml`](../.github/workflows/deploy-victron.yml) | Manual only: `check` rebuilds and validates the private files; `install` also joins the tailnet and runs the installer on the GX. Waits for the reviewer of `victron-gx` |
+| [`.github/workflows/check.yml`](../../.github/workflows/check.yml) | On every pull request and push to `master`: `flows.js check`, all Node tests (Linux), the PowerShell tests (Windows) |
+| [`.github/workflows/deploy-victron.yml`](../../.github/workflows/deploy-victron.yml) | Manual only: `check` rebuilds and validates the private files; `install` also joins the tailnet and runs the installer on the GX. Waits for the reviewer of `victron-gx` |
 
 ## What was done, in order
 

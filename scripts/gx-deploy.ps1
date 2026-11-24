@@ -1,5 +1,5 @@
 # Requires PowerShell 7. The whole code deploy to the Cerbo GX as one fixed sequence of steps.
-# Default is a DRY RUN that changes nothing on the GX; add -Apply to deploy. See docs/gx-handoff.md.
+# Default is a DRY RUN that changes nothing on the GX; add -Apply to deploy. See docs/gx-deploy.md.
 #
 #   pwsh -NoProfile -File .\scripts\gx-deploy.ps1 -GxHost 'root@<gx-tailscale-host>' -SshKey "$HOME\.ssh\<gx-key-file>"
 #   ... -Apply                      really deploy (after reading the dry-run output)

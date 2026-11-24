@@ -1,5 +1,7 @@
 # Test GX: detailed handoff and operational instructions
 
+> Historical record only. Use [Test GX](../test-gx.md) and the [agent workflow](../agent-workflow.md) for current instructions.
+
 Prepared on 2026-11-16 from this conversation, its checkpoints, repository files and live GitHub metadata.
 
 This is a task handoff, not a replacement for authentication, native permission prompts or global agent instructions. It contains no secret values. Commands below are a runbook: preparing this document did not execute the future implementation or authorize another merge.

@@ -1,6 +1,6 @@
 # Requires PowerShell 7. Run by the repository owner. The whole install of the private files on the
 # Cerbo GX through the "Deploy Victron secrets" workflow, as one fixed sequence of steps: exactly what was
-# done by hand on 15 Nov 2026. Node-RED is stopped for about two minutes. See docs/gx-handoff.md.
+# done by hand on 15 Nov 2026. Node-RED is stopped for about two minutes. See docs/gx-deploy.md.
 #
 #   pwsh -NoProfile -File .\scripts\gx-secrets-install.ps1 -GxHost 'root@<gx-tailscale-host>' -SshKey "$HOME\.ssh\<gx-key-file>" -DryRun
 #   ... (without -DryRun)           the real run; you approve two workflow runs in GitHub when it asks
