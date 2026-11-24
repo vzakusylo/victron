@@ -10,6 +10,48 @@ const ROOT = path.join(__dirname, '..');
 const FILES = ['35 Heat pump page.html', '39 Heat pump history page.html'];
 const ATTRS = ['cx', 'cy', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'd', 'points', 'width', 'height'];
 
+test('heating chart shows the confirmed asymmetric band and live readings only at valid marker points', () => {
+    const html = readSource(FILES[0]);
+    const watchers = {};
+    const scope = { $watch: (key, fn) => { watchers[key] = fn; }, $on() {} };
+    new Function('scope', html.match(/<script>([\s\S]+?)<\/script>/)[1])(scope);
+    const chart = { target: 34.5, reported: 36, supply: 32, svg: { now: { x: 100, yTarget: 90, yReported: 84, ySupply: 100 } } };
+    function update(curveChart, cfg) {
+        scope.msg = { payload: { curveChart, heatCtl: { cfg } } };
+        watchers['msg.payload'](scope.msg.payload);
+    }
+    watchers['msg.hpStatic']({ curveChart: { svg: {
+        viewBox: '0 0 700 260', top: 12, bottom: 212, yMin: 20, yMax: 60, line: '44,12 590,212'
+    } } });
+    update(chart, { bandDown: 1.5, bandUp: 3 });
+    assert.match(html, /class="band-low"[^>]+hpCurvePlot\.lowShift/);
+    assert.match(html, /class="band-high"[^>]+hpCurvePlot\.highShift/);
+    assert.equal(scope.hpCurvePlot.lowShift, 7.5);
+    assert.equal(scope.hpCurvePlot.highShift, -15);
+    assert.ok(scope.hpCurvePlot.top <= -3 && scope.hpCurvePlot.bottom >= 219.5);
+    assert.equal(scope.hpCurvePlot.viewBox, '0 -15 700 283');
+    assert.deepStrictEqual(scope.hpCurvePlot.markers.map(p => [p.label, p.value, p.y]), [
+        ['Curve target now', 34.5, 139.5], ['Reported heating set (DP 125)', 36, 132], ['Supply now', 32, 152]
+    ]);
+    assert.match(html, /<title>\{\{point\.label\}\}: \{\{point\.value\}\} °C<\/title>/);
+    update({ ...chart, supply: null, svg: { now: { ...chart.svg.now, ySupply: null } } }, { bandDown: 0, bandUp: 2 });
+    assert.equal(scope.hpCurvePlot.lowShift, 0);
+    assert.equal(scope.hpCurvePlot.highShift, -10);
+    assert.equal(scope.hpCurvePlot.markers.length, 2);
+    update({ ...chart, supply: 66 }, { bandDown: 0, bandUp: 2 });
+    assert.equal(scope.hpCurvePlot.markers.at(-1).y, -18);
+    assert.ok(scope.hpCurvePlot.top <= -18);
+    update({ ...chart, target: null, svg: { now: null } }, { bandDown: 1.5, bandUp: 3 });
+    assert.deepStrictEqual(scope.hpCurvePlot.markers, []);
+    assert.equal(scope.hpCurvePlot.lowShift, 7.5);
+    update({ ...chart, target: null, svg: { now: null } });
+    assert.deepStrictEqual(scope.hpCurvePlot.markers, []);
+    assert.equal(scope.hpCurvePlot.lowShift, null);
+    assert.equal(scope.hpCurvePlot.highShift, null);
+    update(null);
+    assert.equal(scope.hpCurvePlot, null);
+});
+
 test('history day chips start on the newest week and page between available weeks only', () => {
     const html = readSource(FILES[1]);
     const messages = [];
@@ -71,6 +113,8 @@ test('boiler curve edits preview against the static frame after a live update', 
 // Paths that can never be null/undefined once the element renders (regex on the dotted path -> reason).
 const ALLOW = [
     [/^[tepr]\.(x|y|w)$/, 'ng-repeat items built with numeric coordinates by the producer (ticks, events, motion points)'],
+    [/^point\.y$/, 'marker list only includes finite coordinates and readings'],
+    [/^hpCurvePlot\.(top|bottom)$/, 'required chart plot supplies both edges from its static SVG frame'],
     [/^hpStatic\.(curveChart|dhwChart)\.svg\.(left|right|top|bottom|line|startLine|supplyLine)$/, 'static geometry is built as a unit; chart wrappers require the static part'],
     [/^msg\.payload\.(curveChart|dhwChart)\.svg\.now\.x$/, 'now.x is numeric whenever the "now" object exists (parent ng-if on now)'],
     [/^h\.day\.chart\.(left|right|t1|b2|evTop|evH)$/, 'static chart geometry set with chart'],

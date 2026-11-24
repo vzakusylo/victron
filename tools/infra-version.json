@@ -1,5 +1,5 @@
 {
-  "i": 39,
+  "i": 40,
   "changes": [
     {
       "i": 1,
@@ -234,6 +234,12 @@
       "date": "2026-11-24",
       "pr": 169,
       "what": "H10 history week navigation"
+    },
+    {
+      "i": 40,
+      "date": "2026-11-24",
+      "pr": 170,
+      "what": "H1/H6 curve chart"
     }
   ]
 }
