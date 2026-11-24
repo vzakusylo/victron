@@ -164,7 +164,7 @@ test('a combined plan rechecks verified removals and applies reviewed wires and 
         assert.match(missing.stderr, /ABORT: sender\.libs: module gx-test-module is not available to Node-RED on the GX/);
         assert.equal(live.rev, 'r1');
         assert.equal(fs.readdirSync(nr).some(name => name.startsWith('backup-')), false);
-        const fixture = path.join(nr, 'node_modules', 'gx-test-module');
+        const fixture = path.join(nr, 'externalModules', 'node_modules', 'gx-test-module');
         fs.mkdirSync(fixture, { recursive: true });
         fs.writeFileSync(path.join(fixture, 'index.js'), 'throw new Error("only resolve, do not load");');
         saveSettings(false);

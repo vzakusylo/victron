@@ -25,7 +25,8 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
-const { isBuiltin } = require('module');
+const { isBuiltin, builtinModules } = require('module');
+const isCoreModule = isBuiltin || (name => builtinModules.includes(name.replace(/^node:/, '')));
 const { additionPlan, describe, recordedCommit, removalPlan, cleanTopology } = require('./node-additions.js');
 
 const HOME = process.env.VICTRON_HOME || '/data/home/nodered';
@@ -34,6 +35,7 @@ const API_PORT = Number(process.env.VICTRON_API_PORT) || 1880;
 const RAW_BASE = process.env.VICTRON_RAW_BASE || 'https://raw.githubusercontent.com';
 const NODE_RED_DIR = path.join(HOME, '.node-red');
 // Venus OS service settings, including settings-user.js, as documented in scripts/SECRETS.md.
+// Loading this trusted service file executes its initialization, as Node-RED does.
 const NODE_RED_SETTINGS = process.env.VICTRON_NODE_RED_SETTINGS || '/usr/lib/node_modules/node-red/venus-settings.js';
 const DRY = process.env.DRY !== '0';
 const SCOPES = ['dashboard', 'automations'];
@@ -59,7 +61,7 @@ function preflightModules(nodes) {
         if (!Array.isArray(node.libs)) fail(node.id + '.libs: expected a module list.');
         for (const entry of node.libs) {
             const name = entry?.module;
-            if (typeof name !== 'string' || (!isBuiltin(name) && !/^(?:@[\w-]+\/)?[\w-][\w.-]*$/.test(name))) {
+            if (typeof name !== 'string' || (!isCoreModule(name) && !/^(?:@[\w-]+\/)?[\w-][\w.-]*$/.test(name))) {
                 fail(node.id + '.libs: invalid module name.');
             }
             if (!modules.has(name)) modules.set(name, node.id);
@@ -70,10 +72,11 @@ function preflightModules(nodes) {
     try { settings = require(NODE_RED_SETTINGS); }
     catch { fail('Cannot load Node-RED service settings at ' + NODE_RED_SETTINGS + '.'); }
     if (settings.functionExternalModules === false) fail('Node-RED functionExternalModules is disabled on the GX.');
-    const paths = [settings.userDir || NODE_RED_DIR, path.dirname(NODE_RED_SETTINGS)];
+    const userDir = settings.userDir || NODE_RED_DIR;
+    const paths = [userDir, path.join(userDir, 'externalModules'), path.dirname(NODE_RED_SETTINGS)];
     for (const [name, id] of modules) {
         let resolved = 'builtin';
-        if (!isBuiltin(name)) {
+        if (!isCoreModule(name)) {
             try { resolved = require.resolve(name, { paths }); }
             catch { fail(id + '.libs: module ' + name + ' is not available to Node-RED on the GX'); }
         }
