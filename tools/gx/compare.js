@@ -82,9 +82,10 @@ function writePlan(live, commit, file, summary, tools, overwriteDrift) {
         live: { label: live.label, rev: live.rev, source: { dashboard: live.base, automations: live.base } },
         repo: { label, commit }
     }) + '\n');
+    const targetHashes = flow.fingerprints(flow.prepared(after, commit, prepareFlows, stampDeployment));
     flow.checkDrift(flow.fingerprints(flow.prepared(before, live.base, prepareFlows, stampDeployment)),
-        live.fingerprints, live.base, overwriteDrift);
-    flow.report(before, after);
+        live.fingerprints, live.base, { overwrite: overwriteDrift, target: targetHashes });
+    flow.report(flow.differences(live.fingerprints, targetHashes), [...before, ...after]);
     const plan = {
         repo: 'vzakusylo/victron', sha: commit, expectRev: live.rev, overwriteDrift,
         base: { sha: live.base, flowsSha256: sha256(base) },

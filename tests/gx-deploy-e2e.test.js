@@ -56,6 +56,10 @@ async function harness(t, opts = {}) {
     original[4].y = 23;
     original[4].func += '\r\n';
     if (opts.drift) original[4].g = 'private-group-value';
+    if (opts.adopt) {
+        original[4].onlyChanges = target[4].onlyChanges = false;
+        original.reverse();
+    }
     const expected = prepared(target, sha, prepareFlows, stampDeployment);
     const data = (file) => fs.readFileSync(path.join(ROOT, 'tools', file));
     const stamp = data('deploy-version.js'), prepare = data('victron-secrets.js');
@@ -145,6 +149,15 @@ test('dry run warns that a removed broker may need credential recovery', { skip:
     assert.equal(fs.readdirSync(h.nodeRedDir).length, 2);
 });
 
+test('GX dry run accepts adopted drift and omits the adopted field from changes', { skip: !curlAvailable }, async t => {
+    const h = await harness(t, { adopt: true });
+    const result = await h.deploy('1');
+    assert.match(result.stdout, /^adopted drift +: hpa-fn-01 onlyChanges$/m);
+    assert.doesNotMatch(result.stdout, /^ +hpa-fn-01 /m);
+    assert.match(result.stdout, /DRY RUN - nothing changed/, result.stderr);
+    assert.equal(h.posts.length, 0);
+});
+
 test('drift reports only ID and changed field, writes no backup, and the explicit override works', { skip: !curlAvailable }, async t => {
     const refused = await harness(t, { drift: true });
     const stop = await refused.deploy();
@@ -205,7 +218,7 @@ test('a verification health read failure rolls back with the accepted revision',
     assert.deepEqual(h.posts[1].payload, { rev: 'rev-1', flows: h.original });
 });
 
-test('planner reports the historical Git diff and rejects live drift before writing a plan', async t => {
+test('planner reports live-to-target changes, accepts adopted drift and rejects other drift', async t => {
     const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
     const refs = ['0c1b770', 'c933b9c534fc2faacc909b495d2b4f7f29f2db6b'];
     if (git('rev-parse', '--is-shallow-repository') === 'true' &&
@@ -233,7 +246,15 @@ test('planner reports the historical Git diff and rejects live drift before writ
     assert.match(report.stdout, /hp-page-template-01 \(ui_template "[^"]*"\): .*resendOnRefresh, storeOutMessages/);
     assert.equal(JSON.parse(fs.readFileSync(plan)).expectRev, 'planner-rev');
     fs.unlinkSync(plan);
-    expected.find(node => node.id === 'hp-page-template-01').storeOutMessages = 'private-value';
+    const template = expected.find(node => node.id === 'hp-page-template-01');
+    template.storeOutMessages = false;
+    expected.reverse();
+    const adopted = await planRun();
+    assert.match(adopted.stdout, /^adopted drift +: hp-page-template-01 storeOutMessages$/m);
+    assert.match(adopted.stdout, /^ +hp-page-template-01 .*resendOnRefresh$/m);
+    assert.equal(JSON.parse(fs.readFileSync(plan)).expectRev, 'planner-rev');
+    fs.unlinkSync(plan);
+    template.storeOutMessages = 'private-value';
     const refused = await planRun();
     assert.match(refused.stderr, /ABORT: live flow differs from [a-f0-9]{40} \(drift\):\r?\nhp-page-template-01 storeOutMessages/);
     assert.doesNotMatch(refused.stderr, /private-value/);

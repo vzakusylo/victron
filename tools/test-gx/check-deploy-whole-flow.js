@@ -8,6 +8,7 @@ const http = require('node:http');
 const { execFileSync, execFile } = require('node:child_process');
 const { promisify, isDeepStrictEqual } = require('node:util');
 const { once } = require('node:events');
+const { adoptInputs, incidentLive, assertAdoptedInputsReport } = require('./deploy-drift-fixture');
 
 const BASE = '0c1b770';
 // origin/master at the time of the incident; pinned so the regression stays reproducible.
@@ -25,7 +26,8 @@ function host() {
     try {
         const base = git('rev-parse', `${BASE}^{commit}`).toString().trim();
         fs.writeFileSync(path.join(dir, 'base.json'), git('show', `${base}:flows.json`));
-        fs.writeFileSync(path.join(dir, 'target.json'), git('show', `${TARGET}:flows.json`));
+        // Keep the historical topology stable while the fake raw server serves the adopted input fields.
+        fs.writeFileSync(path.join(dir, 'target.json'), JSON.stringify(adoptInputs(JSON.parse(git('show', `${TARGET}:flows.json`)))));
         fs.writeFileSync(path.join(dir, 'base-sha'), base);
         for (const file of ['deploy-version.js', 'victron-secrets.js']) {
             fs.writeFileSync(path.join(dir, file), git('show', `${TARGET}:tools/${file}`));
@@ -34,6 +36,7 @@ function host() {
         for (const file of ['deploy.js', 'verify.js', 'admin-api.js', 'whole-flow.js']) {
             fs.copyFileSync(path.join(root, 'tools', 'gx', file), path.join(dir, file));
         }
+        fs.copyFileSync(path.join(__dirname, 'deploy-drift-fixture.js'), path.join(dir, 'deploy-drift-fixture.js'));
         fs.copyFileSync(__filename, path.join(dir, 'check.js'));
         const tag = process.env.TEST_GX_TAG || 'fixture-synthetic';
         execFileSync('docker', ['run', '--rm', '--network', 'none',
@@ -57,7 +60,7 @@ async function container() {
     const digest = file => createHash('sha256').update(input(file)).digest('hex');
     const home = '/data/home/nodered', userDir = path.join(home, '.node-red');
     const settingsFile = path.join(userDir, 'settings.js');
-    const previous = prepared(base, baseSha, prepareFlows, stampDeployment);
+    const previous = prepared(incidentLive(base), baseSha, prepareFlows, stampDeployment);
     const expected = prepared(target, TARGET, prepareFlows, stampDeployment);
     assert.ok(previous.some(node => node.id === BROKER && node.type === 'mqtt-broker'));
     fs.writeFileSync(path.join(userDir, 'flows.json'), JSON.stringify(previous));
@@ -111,7 +114,7 @@ async function container() {
         });
         const dry = (await deploy('1')).stdout;
         console.log(dry.trim());
-        assert.match(dry, /drift gate +: live flow equals 0c1b770/);
+        assertAdoptedInputsReport(dry);
         assert.match(dry, /nodes added +: 8/);
         assert.match(dry, /nodes removed +: 2/);
         assert.match(dry, /hp-page-template-01 .*resendOnRefresh, storeOutMessages/);

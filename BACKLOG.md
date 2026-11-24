@@ -150,6 +150,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#174 D-R10 Adopt live GX input settings (`adopt-gx-inputs`, d#231 · i#44): adopt the six input names and periodic reporting settings, and translate their emitted topics to the controller's existing topics. Both deploy gates accept drift already matching the target and ignore layout order. Offline replay of run 45406703938 accepts 12 fields and reports no changes for the six inputs; no live GX access.
+
 #173 D-R9 Whole-flow deploy (`deploy-whole-flow`, d#230 unchanged · i#43): replace the per-node opt-ins (D1, D-R2–D-R6 and P-D1) with a recorded Git baseline drift gate and revision-guarded whole-flow deployment. Use deterministic Tuya file-secret references for both commits. Fake API tests and an isolated Node-RED replay cover d#217 → d#230; no live GX access.
 
 #172 D-R8 Admin API read retries (`deploy-api-retry`, d#230 unchanged · i#42): retry transient Node-RED GET failures with a deadline and name the failed request. The fake GX replay verifies recovery and exhaustion, HTTP status handling, and that POST is attempted once with the existing rollback behavior.
