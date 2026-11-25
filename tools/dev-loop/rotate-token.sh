@@ -142,7 +142,11 @@ if [[ -x "$home/venv/bin/python" && -f "$home/config.toml" ]]; then
   if systemctl --user is-active --quiet victron-loop-web.service; then
     systemctl --user restart victron-loop-web.service || fail "Token installed, but restarting the dashboard failed."
   fi
-  if ! result="$(cd "$home" && ./venv/bin/python -m victron_loop.main --config config.toml run-once --dry-run 2>&1)"; then
+  status=0
+  result="$(cd "$home" && ./venv/bin/python -m victron_loop.main --config config.toml run-once --dry-run 2>&1)" || status=$?
+  if [[ "$status" == 2 && "$result" == *"another run is in progress"* ]]; then
+    fail "Token installed, but the smoke test was blocked by an active loop run. Run a dry tick after it finishes."
+  elif (( status != 0 )); then
     fail "Token installed, but the loop dry run failed. See the loop's run log."
   fi
   if [[ "$result" =~ token-missing|token-invalid|gh-observation-error ]]; then
