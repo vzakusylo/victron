@@ -1,5 +1,5 @@
 {
-  "i": 56,
+  "i": 57,
   "changes": [
     {
       "i": 1,
@@ -336,6 +336,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "HP-M2 stage 3"
+    },
+    {
+      "i": 57,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Protect the saved owner heating curve"
     }
   ]
 }

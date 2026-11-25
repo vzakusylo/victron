@@ -477,6 +477,8 @@ test('invalid saved curve is replaced only by in-range live heating values', () 
     assert.equal(c.node.context.get('settings').heatCurve, null);
     c.tick(NOW + 10 * S, { 133: 39, 134: 5 }, true);
     assert.equal(c.node.context.get('settings').heatCurve, null, 'valve must be on heating');
+    c.tick(NOW + 15 * S, { 133: 39, 134: 5 }, null);
+    assert.equal(c.node.context.get('settings').heatCurve, null, 'an unknown valve position cannot establish the baseline');
     c.tick(NOW + 20 * S, { 133: 39, 134: 5 });
     assert.deepEqual(c.node.context.get('settings').heatCurve, { p23: 39, p24: 5, at: NOW + 20 * S });
     assert.deepEqual(c.writes, []);
