@@ -77,6 +77,7 @@ def load_config(config_path: Path) -> LoopConfig:
         model_tiers_file=Path(data.get("model_tiers_file", "~/victron-loop/repo/tools/herdr/models.json")).expanduser(),
         web_bind=data.get("web_bind", "127.0.0.1:8790"),
         web_hosts=tuple(web_hosts),
+        copilot_bin=data.get("copilot_bin"),
         web_token_file=Path(data["web_token_file"]).expanduser() if data.get("web_token_file") else None,
     )
 

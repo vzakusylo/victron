@@ -173,6 +173,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#199 AUTO1-PATH (`auto1-loop-path`, d#250 unchanged · i#69): resolve the Copilot CLI
+under Omarchy systemd and report a missing executable once.
+
 #198 AUTO1-TIMER (`auto1-loop-timer`, d#250 unchanged · i#68): fix dashboard timer status
 and bus diagnostics, add scoped token rotation and expiry warnings, and document Omarchy setup.
 

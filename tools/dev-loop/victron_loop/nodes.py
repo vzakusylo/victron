@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -31,6 +32,16 @@ def default_clock() -> float:
     return time.time()
 
 
+def _copilot_path(state: dict[str, Any], cfg: LoopConfig) -> str | None:
+    candidate = cfg.copilot_bin or shutil.which("copilot") or "~/.local/bin/copilot"
+    executable = shutil.which(os.path.normpath(os.path.expanduser(candidate)))
+    if not executable:
+        _enqueue_notification(state, "copilot-missing", "cli", f"Copilot executable not found: {candidate}")
+        return None
+    _resolve_notification(state, "copilot-missing", "cli")
+    return os.path.abspath(executable)
+
+
 @dataclass
 class LoopConfig:
     repo: str
@@ -45,6 +56,7 @@ class LoopConfig:
     model_tiers_file: Path = Path.home() / "victron-loop" / "repo" / "tools" / "herdr" / "models.json"
     clock: Callable[[], float] = default_clock
     picker_tier: str = "review"
+    copilot_bin: str | None = None
     web_bind: str = ""
     web_hosts: tuple[str, ...] = ("omarchy",)
     web_token_file: Path | None = None
@@ -289,7 +301,8 @@ def _safe_branch(row_id: str, candidate: str) -> str:
 
 
 def _pick_llm(
-    cfg: LoopConfig, row: dict[str, str], backlog_text: str, models_json_text: str, copilot_runner: Callable[..., Any]
+    cfg: LoopConfig, row: dict[str, str], backlog_text: str, models_json_text: str,
+    copilot_runner: Callable[..., Any], executable: str,
 ) -> dict[str, str]:
     model, effort = _tier_model_effort_from_text(models_json_text, cfg.picker_tier)
     prompt = (
@@ -301,7 +314,7 @@ def _pick_llm(
         "and report must end with Branch: <name>."
     )
     out = copilot_runner(
-        ["copilot", "-p", prompt, "--model", model, "--reasoning-effort", effort],
+        [executable, "-p", prompt, "--model", model, "--reasoning-effort", effort],
         check=True,
         capture_output=True,
         text=True,
@@ -378,8 +391,12 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
             "brief": "Dry run stub brief.",
         }
         return state
+    executable = _copilot_path(state, cfg)
+    if not executable:
+        state["pick"] = {"reason": "copilot-missing"}
+        return state
     try:
-        pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner)
+        pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner, executable)
         if pick["row_id"] != row["row_id"]:
             raise ValueError("picker returned a different row")
         if state.get("owner_note"):
@@ -445,6 +462,10 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
     if cfg.dry_run:
         state["active_worker"] = None
         return state
+    executable = _copilot_path(state, cfg)
+    if not executable:
+        state["pick"] = {"reason": "copilot-missing"}
+        return state
     _ensure_repo(cfg)
     worktree = cfg.loop_home / "worktrees" / branch
     brief_name = f".copilot-brief-{branch}.md"
@@ -457,7 +478,7 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
     model, effort = _tier_model_effort(cfg.model_tiers_file, pick.get("tier", "standard"))
     prompt = f"Read {brief_name} and do all of it."
     command = (
-        f"copilot -p {shlex.quote(prompt)} --allow-all --model {shlex.quote(model)} "
+        f"{shlex.quote(executable)} -p {shlex.quote(prompt)} --allow-all --model {shlex.quote(model)} "
         f"--reasoning-effort {shlex.quote(effort)} > {shlex.quote(str(log_path))} 2>&1"
     )
     pid = _spawn_copilot(worktree, command)
@@ -487,9 +508,12 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
 
 
 def _retry_worker(state: dict[str, Any], cfg: LoopConfig, worker: dict[str, Any], text: str) -> None:
+    executable = _copilot_path(state, cfg)
+    if not executable:
+        return
     model, effort = _tier_model_effort(cfg.model_tiers_file, worker.get("tier", "standard"))
     cmd = (
-        f"copilot -p {shlex.quote(text)} --allow-all --model {shlex.quote(model)} "
+        f"{shlex.quote(executable)} -p {shlex.quote(text)} --allow-all --model {shlex.quote(model)} "
         f"--reasoning-effort {shlex.quote(effort)} >> {shlex.quote(worker['log_path'])} 2>&1"
     )
     worker["pid"] = _spawn_copilot(Path(worker["worktree"]), cmd)
@@ -668,8 +692,10 @@ def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True
     if observed is not None and not observed.get("errors"):
         for condition in ("token-missing", "token-invalid"):
             sent.pop(f"{condition}:github", None)
-    for key in state.pop("resolved_notification_keys", []):
+    for key in state.get("resolved_notification_keys", []):
         sent.pop(key, None)
+    if "resolved_notification_keys" in state:
+        state["resolved_notification_keys"] = []
     queue = state.pop("pending_notifications", [])
     for item in queue:
         key = f"{item['condition']}:{item['subject_id']}"
