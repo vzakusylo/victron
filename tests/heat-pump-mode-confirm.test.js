@@ -10,7 +10,16 @@ const setMessages = call => call.sent.map(m => m[1]?.payload).filter(p => p?.dps
 function fixture(settings = {}) {
     const file = '40 Heat pump automations.js';
     const heat = loadNode(file, readSource(file).replace("if (msg.topic === 'load')",
-        "if (msg.topic === 'test-pump') { pump(); return null; }\nif (msg.topic === 'load')"));
+        `if (msg.topic === 'test-pump') {
+            if (msg.item) {
+                const q = context.get('queue') || [];
+                q.push(msg.writer ? tagWrite(msg.item, msg.writer, now) : msg.item);
+                context.set('queue', q);
+            }
+            if (!msg.defer) pump();
+            return null;
+        }
+        if (msg.topic === 'load')`));
     const state = loadNode('34 Heat pump state.js', undefined, heat.flow);
     const alerts = loadNode('47 Heat pump alerts.js', undefined, heat.flow);
     heat.run({ topic: 'load', payload: JSON.stringify({ master: true,
@@ -19,10 +28,13 @@ function fixture(settings = {}) {
     heat.flow.set('localSensors', { acc: START, plate: START });
     const observe = (dps, now, role = 'hp') => state.run({ topic: role, payload: { data: { dps } } }, { now });
     const tick = now => heat.run({ topic: 'tick' }, { now });
-    const enqueue = (now, options = {}) => {
-        heat.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'heat', run: `run:${now}`,
-            text: 'mode Silent', ...options }]);
-        const call = heat.run({ topic: 'test-pump' }, { now });
+    const pump = now => heat.run({ topic: 'test-pump' }, { now });
+    const enqueue = (now, options = {}, defer = false) => {
+        const { raw, ...fields } = options;
+        const item = { role: 'hp', dps: 2, set: 'mute', rule: 'heat', run: `run:${now}`,
+            text: 'mode Silent', ...fields };
+        const writer = !raw && (item.shadow?.writer || (item.protection ? 'protection' : item.rule));
+        const call = heat.run({ topic: 'test-pump', item, writer, defer }, { now });
         call.timers.find(t => t.ms === 1500)?.cb();
         return call;
     };
@@ -36,7 +48,7 @@ function fixture(settings = {}) {
         alerts.run({ event }, { now: now + CHECK });
         return event;
     }
-    return { heat, state, alerts, observe, tick, enqueue, verify, mail };
+    return { heat, state, alerts, observe, tick, enqueue, pump, verify, mail };
 }
 
 test('mode verify uses only post-SET DP 2 and marks an older generation superseded', () => {
@@ -58,6 +70,80 @@ test('mode verify uses only post-SET DP 2 and marks an older generation supersed
     assert.equal(before.modeCheck.outcome, 'superseded');
     assert.equal(after.modeCheck.outcome, 'confirmed');
     assert.ok(after.modeCheck.sendId > before.modeCheck.sendId);
+});
+
+test('only the highest live mode request dispatches, regardless of FIFO position', () => {
+    const writers = ['owner', 'heat', 'kick', 'recovery', 'dhw', 'protection'];
+    for (const [i, lower] of writers.entries()) {
+        for (const higher of writers.slice(i + 1)) {
+            for (const order of [[lower, higher], [higher, lower]]) {
+                const f = fixture();
+                for (const [j, writer] of order.entries()) {
+                    f.enqueue(START + j * 1000, { set: writer === higher ? 'mute' : 'smart',
+                        shadow: { writer } }, true);
+                }
+                const call = f.pump(START + 2000);
+                assert.deepEqual(setMessages(call).map(write => write.set), ['mute'], order.join(' → '));
+                assert.equal(f.heat.flow.get('hpWriteAttribution').dps[2].pending[0].writer, higher);
+                call.timers.find(timer => timer.ms === 1500).cb();
+                assert.deepEqual(setMessages(call).map(write => write.set), ['mute']);
+                assert.equal(f.heat.context.get('queue').length, 0);
+            }
+        }
+    }
+});
+
+test('lease expiry allows a fresh lower request, not replay of expired or denied intents', () => {
+    const f = fixture();
+    f.enqueue(START, { shadow: { writer: 'dhw' } }, true);
+    f.enqueue(START + MIN - 1, { set: 'smart' }, true);
+    const expired = f.pump(START + MIN);
+    assert.deepEqual(setMessages(expired), []);
+    assert.deepEqual(expired.sent.flatMap(m => m[5]?.event?.text || []),
+        ['mode Silent dropped (expired lease)', 'mode Silent dropped (lower priority at enqueue)']);
+    const fresh = f.enqueue(START + MIN, { set: 'smart' });
+    assert.deepEqual(setMessages(fresh).map(write => write.set), ['smart']);
+});
+
+test('a newer queued generation supersedes verification before it dispatches', () => {
+    const f = fixture();
+    f.observe({ 2: 'smart' }, START);
+    const old = f.enqueue(START + 1000);
+    const nextAt = START + 2000;
+    f.enqueue(nextAt, { set: 'strong', rule: 'dhw' }, true);
+    const stale = f.verify(old, START + 1000);
+    assert.equal(stale.modeCheck.outcome, 'superseded');
+    assert.ok(!f.heat.context.get('modeRetry'));
+    assert.equal(f.mail(START + 3 * MIN), null);
+    const sentAt = START + 17000;
+    const next = f.pump(sentAt);
+    assert.deepEqual(setMessages(next).map(write => write.set), ['strong']);
+    f.observe({ 2: 'strong' }, sentAt + 1000);
+    assert.equal(f.verify(next, sentAt).modeCheck.outcome, 'confirmed');
+});
+
+test('switching a controller off invalidates its queued lease and immediately releases priority', () => {
+    const f = fixture();
+    f.enqueue(START, { rule: 'dhw', set: 'strong' }, true);
+    f.heat.run({ topic: 'ui', payload: { action: 'mode', id: 'dhw', mode: 'off' } }, { now: START + 1000 });
+    const fresh = f.enqueue(START + 2000);
+    assert.deepEqual(setMessages(fresh).map(write => write.set), ['mute']);
+});
+
+test('an ineligible queued winner releases its lease without blocking the next request', () => {
+    const f = fixture();
+    f.enqueue(START, { rule: 'df_exchange_off', shadow: { writer: 'recovery' } }, true);
+    assert.deepEqual(setMessages(f.pump(START + 1000)), []);
+    f.heat.context.set('pumping', false);
+    assert.deepEqual(setMessages(f.enqueue(START + 3000)).map(write => write.set), ['mute']);
+});
+
+test('an unknown mode writer is rejected with a specific reason and cannot reserve a lease', () => {
+    const f = fixture();
+    const denied = f.enqueue(START, { shadow: { writer: 'unknown-writer' } });
+    assert.deepEqual(setMessages(denied), []);
+    assert.match(denied.sent[0][5].event.text, /dropped \(unknown writer\)/);
+    assert.deepEqual(setMessages(f.enqueue(START + 1000)).map(write => write.set), ['mute']);
 });
 
 const externalEvents = call => call.sent.map(m => m[5]?.event).filter(e => e?.rule === 'hp_external_change');
@@ -114,7 +200,7 @@ test('mismatch mail names the requesting writer and the last observed writer, no
     f.observe({ 2: 'smart' }, START);
     f.enqueue(START + 1000, { set: 'strong', shadow: { writer: 'protection' } });
     f.observe({ 2: 'strong' }, START + 2000);
-    const t = START + 4000;
+    const t = START + MIN + 1000;
     const call = f.enqueue(t, { shadow: { writer: 'kick' } });
     f.observe({ 2: 'strong' }, t + 1000);
     assert.equal(f.verify(call, t).modeCheck.outcome, 'fresh mismatch');
@@ -125,7 +211,7 @@ test('mismatch mail names the requesting writer and the last observed writer, no
 test('queued and expired SETs cannot explain reported changes', () => {
     const f = fixture();
     f.observe({ 2: 'smart' }, START);
-    f.heat.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'heat', text: 'mode Silent' }]);
+    f.enqueue(START, { set: 'mute' }, true);
     f.observe({ 2: 'mute' }, START + 1000);
     const sentAt = START + 2000;
     f.enqueue(sentAt, { set: 'smart' });
@@ -136,7 +222,7 @@ test('queued and expired SETs cannot explain reported changes', () => {
 
 test('untagged writes use the rule label rather than a guessed recovery writer', () => {
     const f = fixture();
-    const call = f.enqueue(START + 1000, { rule: 'future-rule', force: true });
+    const call = f.enqueue(START + 1000, { dps: 121, set: 4, rule: 'future-rule', force: true, raw: true });
     const tag = call.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
     assert.equal(tag?.writer, 'future-rule');
 });
