@@ -138,6 +138,7 @@ def snapshot(cfg: LoopConfig, store: StateStore, node: str = "") -> dict:
         "worker": worker, "last_worker_status": (state.get("last_worker") or {}).get("status"),
         "pr": state.get("worker_pr") or next(iter(observed.get("open_prs", [])), None),
         "test_gx": observed.get("test_gx"), "deploy": observed.get("deploy"), "health": observed.get("deploy_health"),
+        "deploy_lookup": observed.get("deploy_lookup"),
         "errors": observed.get("errors", {}),
         "phase": state.get("phase", "idle"), "phases": PHASES,
         "budget": {"used": state.get("daily_counts", {}).get(_today(cfg.clock), 0), "cap": cfg.max_worker_runs_per_day},
@@ -325,7 +326,13 @@ def render(data: dict, csrf: str) -> str:
         ("Post-deploy health", "deploy-jobs", data["deploy"], data["health"]),
     ):
         error = errors.get(key)
-        workflow_rows.append((label, status("error" if error else value, run), show(error, "—")))
+        detail = error
+        if key == "deploy" and not error:
+            detail = {
+                "deploy-all-skipped": "Every recent deployment was skipped.",
+                "deploy-no-runs": "No deployment runs were found.",
+            }.get(data["deploy_lookup"])
+        workflow_rows.append((label, status("error" if error else value, run), show(detail, "—")))
     last = data["last_run"] or {}
     last_text = f"{show(local_time(last.get('at'), data['now']))} — {show(last.get('result'))}" if last else "No run recorded"
     if last.get("dry_run"):

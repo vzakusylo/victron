@@ -136,12 +136,16 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
         break
     else:
         deploy = None
+    deploy_lookup = None
+    if not deploy and "deploy" not in errors:
+        deploy_lookup = "deploy-all-skipped" if deploy_runs else "deploy-no-runs"
     state["observed"] = {
         "open_prs": open_prs,
         "test_gx": test_gx_runs[0] if test_gx_runs else None,
         "deploy": deploy,
         "deploy_applied": deploy_applied,
         "deploy_health": deploy_health,
+        "deploy_lookup": deploy_lookup,
         "errors": errors,
     }
     if deploy and not errors and deploy_health not in {None, "pending", "skipped", "success"}:
@@ -307,6 +311,9 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
         return state
     if observed.get("deploy_health") == "pending":
         state["pick"] = {"reason": "deploy-pending"}
+        return state
+    if observed.get("deploy_lookup"):
+        state["pick"] = {"reason": observed["deploy_lookup"]}
         return state
     if not observed.get("deploy_applied") or observed.get("deploy_health") != "success":
         state["pick"] = {"reason": "deploy-not-healthy"}

@@ -52,6 +52,9 @@ def test_check_state_recorded_runs_show_pending_then_applied(tmp_path):
     assert observed["deploy_applied"] and observed["deploy_health"] == "success"
     fixtures["45635100399"]["jobs"][0]["steps"][0]["conclusion"] = "skipped"
     assert not check_state({}, cfg, gh)["observed"]["deploy_applied"]
+    fixtures["deploy-gx-code.yml"].pop()
+    skipped = check_state({}, cfg, gh)
+    assert pick_task(skipped, cfg, tmp_path / "BACKLOG.md")["pick"]["reason"] == "deploy-all-skipped"
 
 
 def test_gh_failure_blocks_picking_and_notifies_once(tmp_path, monkeypatch):
