@@ -29,7 +29,9 @@ def test_herdr_launch_commands_and_brief(tmp_path, monkeypatch):
 
     monkeypatch.setattr(herdr.subprocess, "check_output", launch)
     monkeypatch.setattr(herdr.subprocess, "Popen", detached)
-    assert herdr.start(repo, "fix", "standard", "A brief", log)["agent"] == "w-fix"
+    assert herdr.start(repo, "fix", "standard", "A brief", log) == {
+        "agent": "w-fix", "worktree": str(worktree), "model": "gpt-x",
+    }
     assert calls == [
         [*prefix, "new", "fix", "-Repo", str(repo), "-Base", "origin/master", "-Tier", "standard", "-Json"],
         [*prefix, "send", "fix", "Read .copilot-brief-fix.md and do all of it."],
@@ -82,12 +84,15 @@ def test_herdr_retry_and_close_after_merge(tmp_path, monkeypatch):
     state = {"active_worker": worker}
     calls = []
     monkeypatch.setattr(herdr, "status", lambda _: "done")
-    monkeypatch.setattr(herdr, "send", lambda *args: calls.append(args))
+    monkeypatch.setattr(herdr, "send", lambda *args, **kwargs: calls.append((args, kwargs)))
     monkeypatch.setattr(herdr.subprocess, "run", lambda cmd, **_: calls.append(cmd))
     monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _: True)
     failing = SimpleNamespace(list_prs=lambda *_args, **_kw: [{"reviewDecision": "CHANGES_REQUESTED"}])
     nodes.watch_pr(state, cfg, failing)
-    assert calls == [(tmp_path, "fix", "PR checks/review failed. Fix and continue.", Path(worker["log_path"]))]
+    assert calls == [
+        ((tmp_path, "fix", "PR checks/review failed. Fix and continue.", Path(worker["log_path"])),
+         {"failure_file": tmp_path / "fix.retry-failed"}),
+    ]
     assert worker["retry_count"] == 1
     merged = SimpleNamespace(list_prs=lambda pr_state, **_: [{"number": 2}] if pr_state == "merged" else [])
     nodes.watch_pr(state, cfg, merged)
@@ -95,6 +100,22 @@ def test_herdr_retry_and_close_after_merge(tmp_path, monkeypatch):
     assert calls[1][-3:] == ["close", "fix", "-IfPresent"]
     assert len(calls) == 2 and worker["herdr_closed"]
     assert not brief.exists()
+
+
+def test_herdr_reports_detached_retry_failure(tmp_path, monkeypatch):
+    log = tmp_path / "fix.log"
+    failure_file = tmp_path / "fix.retry-failed"
+    captured = []
+    monkeypatch.setattr(herdr.subprocess, "Popen", lambda cmd, **_: captured.append(cmd))
+    herdr.send(tmp_path, "fix", "fix the checks", log, failure_file=failure_file)
+    assert captured[0][-2:] == ["-PromptFailureFile", str(failure_file)]
+    failure_file.write_text("failed", encoding="utf-8")
+    cfg = nodes.LoopConfig(repo="test/repo", dry_run=False)
+    worker = {"branch": "fix", "agent": "w-fix", "backend": "herdr", "retry_failure_file": str(failure_file)}
+    state = {"active_worker": worker}
+    monkeypatch.setattr(herdr, "status", lambda _: "working")
+    nodes.watch_pr(state, cfg, SimpleNamespace(list_prs=lambda *_args, **_kwargs: []))
+    assert state["pending_notifications"][0]["condition"] == "herdr-retry-failed"
 
 
 def test_merged_worker_already_closed_by_owner_reaches_done(tmp_path, monkeypatch):

@@ -561,7 +561,10 @@ def _record_worker(state: dict, cfg: LoopConfig, pick: dict, worker: dict) -> di
 
 def _retry_worker(state: dict[str, Any], cfg: LoopConfig, worker: dict[str, Any], text: str) -> None:
     if worker.get("backend") == "herdr":
-        herdr.send(cfg.repo_path, worker["branch"], text, Path(worker["log_path"]))
+        log_path = Path(worker["log_path"])
+        failure_file = log_path.with_suffix(".retry-failed")
+        herdr.send(cfg.repo_path, worker["branch"], text, log_path, failure_file=failure_file)
+        worker["retry_failure_file"] = str(failure_file)
         worker["retry_count"] = int(worker.get("retry_count", 0)) + 1
         worker["status_since"] = int(cfg.clock())
         return
@@ -653,6 +656,9 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
         return state
     is_herdr = worker.get("backend") == "herdr"
     if is_herdr and not worker.get("herdr_closed"):
+        if (failure_file := worker.get("retry_failure_file")) and Path(failure_file).exists():
+            _enqueue_notification(state, "herdr-retry-failed", worker["branch"],
+                                  f"Herdr retry prompt failed or timed out for {worker['branch']}; check the worker log")
         status = herdr.status(worker["agent"])
         if status != worker.get("status"):
             if not (status in {"idle", "done"} and worker.get("status") in {"idle", "done"}):

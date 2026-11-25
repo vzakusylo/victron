@@ -23,7 +23,8 @@ param(
   [int]$Lines = 120,
   [int]$TimeoutMin = 30,
   [switch]$Json,
-  [switch]$IfPresent
+  [switch]$IfPresent,
+  [string]$PromptFailureFile
 )
 $ErrorActionPreference = 'Stop'
 
@@ -70,7 +71,12 @@ switch ($Action) {
   }
   'send' {
     if (-not $Text) { throw "Prompt text required." }
-    Invoke-Herdr agent prompt $agent $Text --wait --until idle --until blocked --until done --timeout $timeoutMs
+    try {
+      Invoke-Herdr agent prompt $agent $Text --wait --until idle --until blocked --until done --timeout $timeoutMs
+    } catch {
+      if ($PromptFailureFile) { [IO.File]::WriteAllText($PromptFailureFile, 'failed') }
+      throw
+    }
     Invoke-Herdr agent read $agent --source recent-unwrapped --lines $Lines
   }
   'read' { Invoke-Herdr agent read $agent --source recent-unwrapped --lines $Lines }

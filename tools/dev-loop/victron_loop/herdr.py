@@ -21,10 +21,14 @@ def running() -> bool:
         return False
 
 
-def send(repo: Path, branch: str, text: str, log: Path) -> None:
+def send(repo: Path, branch: str, text: str, log: Path, *, failure_file: Path | None = None) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
+    command = task(repo, "send", branch, text)
+    if failure_file is not None:
+        failure_file.unlink(missing_ok=True)
+        command.extend(["-PromptFailureFile", str(failure_file)])
     with log.open("ab") as output:
-        subprocess.Popen(task(repo, "send", branch, text), stdin=subprocess.DEVNULL,
+        subprocess.Popen(command, stdin=subprocess.DEVNULL,
                          stdout=output, stderr=subprocess.STDOUT, **background_options())
 
 
