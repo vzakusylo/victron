@@ -12,9 +12,10 @@
 // - msg.notification.type  : 0=warning / 1=alarm  (optional, defaults to 0)
 // - msg.notification.title : override title string (optional, defaults to "Day / Night Grid Control")
 // Output (1):
-// - output 1 -> { title, message, type } notification object for the VRM notification node
+// - output 1 -> tab-separated type, title and message for the configured /Notifications/Inject output.
 // Change notes:
 // 1. Initial version.
+// 2. d#244: configure the custom output's string pathObj and prevent a msg.path override.
 // ==========================
 const defaultTitle = "Day / Night Grid Control";
 
@@ -53,4 +54,5 @@ const safeMessage = String(rawMessage)
     .slice(0, 500);
 
 msg.payload = `${normalizeType(rawType)}\t${safeTitle}\t${safeMessage}`;
+delete msg.path;
 return msg;

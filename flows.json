@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#243 Day / Night Grid Control",
+    "label": "d#244 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -1932,7 +1932,7 @@
     "type": "function",
     "z": "995ac4ed6222a706",
     "name": "Format GX notification",
-    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `03 Format GX notification.js` and the embedded `func` for \"Format GX notification\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - Normalises and formats an incoming VRM notification message for the GX display node.\n// - Accepts numeric or string type codes (0/warning = warning, 1/alarm = alarm).\n// Input:\n// - msg.payload            : notification message string (or msg.notification.message)\n// - msg.notification.type  : 0=warning / 1=alarm  (optional, defaults to 0)\n// - msg.notification.title : override title string (optional, defaults to \"Day / Night Grid Control\")\n// Output (1):\n// - output 1 -> { title, message, type } notification object for the VRM notification node\n// Change notes:\n// 1. Initial version.\n// ==========================\nconst defaultTitle = \"Day / Night Grid Control\";\n\nfunction normalizeType(value) {\n    if (value === 0 || value === \"0\" || value === \"warning\") {\n        return 0;\n    }\n\n    if (value === 1 || value === \"1\" || value === \"alarm\") {\n        return 1;\n    }\n\n    return 2;\n}\n\nconst title = msg.title || (msg.notification && msg.notification.title) || defaultTitle;\nconst rawType = msg.type !== undefined\n    ? msg.type\n    : (msg.notification && (msg.notification.type !== undefined ? msg.notification.type : msg.notification.level));\nconst rawMessage = (msg.notification && msg.notification.message) || msg.payload;\n\nif (rawMessage === undefined || rawMessage === null || rawMessage === \"\") {\n    return null;\n}\n\nconst safeTitle = String(title)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 100);\n\nconst safeMessage = String(rawMessage)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 500);\n\nmsg.payload = `${normalizeType(rawType)}\\t${safeTitle}\\t${safeMessage}`;\nreturn msg;",
+    "func": "// ==========================\n// LOGIC SUMMARY / CHANGE NOTES\n// ==========================\n// Sync rule:\n// - `03 Format GX notification.js` and the embedded `func` for \"Format GX notification\"\n//   in `flows.json` must always stay synchronized.\n// Purpose:\n// - Normalises and formats an incoming VRM notification message for the GX display node.\n// - Accepts numeric or string type codes (0/warning = warning, 1/alarm = alarm).\n// Input:\n// - msg.payload            : notification message string (or msg.notification.message)\n// - msg.notification.type  : 0=warning / 1=alarm  (optional, defaults to 0)\n// - msg.notification.title : override title string (optional, defaults to \"Day / Night Grid Control\")\n// Output (1):\n// - output 1 -> tab-separated type, title and message for the configured /Notifications/Inject output.\n// Change notes:\n// 1. Initial version.\n// 2. d#244: configure the custom output's string pathObj and prevent a msg.path override.\n// ==========================\nconst defaultTitle = \"Day / Night Grid Control\";\n\nfunction normalizeType(value) {\n    if (value === 0 || value === \"0\" || value === \"warning\") {\n        return 0;\n    }\n\n    if (value === 1 || value === \"1\" || value === \"alarm\") {\n        return 1;\n    }\n\n    return 2;\n}\n\nconst title = msg.title || (msg.notification && msg.notification.title) || defaultTitle;\nconst rawType = msg.type !== undefined\n    ? msg.type\n    : (msg.notification && (msg.notification.type !== undefined ? msg.notification.type : msg.notification.level));\nconst rawMessage = (msg.notification && msg.notification.message) || msg.payload;\n\nif (rawMessage === undefined || rawMessage === null || rawMessage === \"\") {\n    return null;\n}\n\nconst safeTitle = String(title)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 100);\n\nconst safeMessage = String(rawMessage)\n    .replace(/\\t/g, \" \")\n    .replace(/[\\r\\n]/g, \" \")\n    .trim()\n    .slice(0, 500);\n\nmsg.payload = `${normalizeType(rawType)}\\t${safeTitle}\\t${safeMessage}`;\ndelete msg.path;\nreturn msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -1957,6 +1957,13 @@
     "serviceObj": {
       "service": "com.victronenergy.system/0",
       "name": "com.victronenergy.system (0)"
+    },
+    "pathObj": {
+      "path": "/Notifications/Inject",
+      "type": "string",
+      "name": "Inject notification",
+      "mode": "output",
+      "disabled": false
     },
     "initial": "",
     "name": "GX notification output",

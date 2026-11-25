@@ -65,7 +65,7 @@ function ownedErrors(entries, check, owned) {
     for (const { line } of entries) {
         const match = pattern.exec(line);
         if (!match) continue;
-        const nodes = owned.filter(n => n.labels.includes(match[1]));
+        const nodes = owned.filter(n => (!check.node || n.id === check.node) && n.labels.includes(match[1]));
         if (!nodes.length) continue;
         if (nodes.every(node => warningSources.some(rule => rule.node === node.id && rule.pattern.test(match[2])))) warnings++;
         else failures++;
@@ -126,7 +126,7 @@ const conditions = {
     },
     ownedErrors(check, [log], state) {
         const { failures, warnings } = ownedErrors(log.entries, check, state.owned);
-        const counts = `${failures} owned error(s), ${warnings} meter reachability warning(s)`;
+        const counts = check.node ? `${failures} node error(s)` : `${failures} owned error(s), ${warnings} meter reachability warning(s)`;
         if (!log.covered) return failed(check, `${counts}; log does not cover the full deploy window`);
         return failures ? failed(check, counts) : warnings ? { level: 'WARN', detail: counts } : ok(counts);
     },
@@ -266,7 +266,8 @@ function validate(config) {
             (check.condition === 'ownerCurve' && !minutes(check.deviceMaxAgeMin)) ||
             (check.condition === 'confirmed' && !minutes(check.holdMin)) ||
             (['confirmed', 'ownedErrors'].includes(check.condition) && !check.pattern) ||
-            (check.condition === 'ownedErrors' && !Array.isArray(check.warningSources)) ||
+            (check.condition === 'ownedErrors' && (!Array.isArray(check.warningSources) ||
+                (check.node !== undefined && !/^[\w.-]+$/.test(check.node)))) ||
             (check.condition === 'equals' && !Object.hasOwn(check, 'expected')) ||
             (check.condition === 'stoppedTime' && !minutes(check.limitMin)) ||
             (check.condition === 'startCount' && !minutes(check.limit))) throw new Error(`Invalid health check: ${check.id}`);

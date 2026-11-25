@@ -160,6 +160,11 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#190 D-R15 GX notification output (`d-r14-post-deploy-monitor`, d#244 · i#60): restore the custom output's
+missing string `pathObj`; palette v1.6.31 dereferenced `pathObj.disabled` on every incoming alert. The grid
+feedback alarm is consistent with the 15-minute cadence but the log excerpt does not identify the sender.
+D-R14 now reports new notification-output errors as their own check. No live GX access.
+
 #190 D-R14 Post-deploy health (`d-r14-post-deploy-monitor`, d#243 · i#60): configurable checks every five
 minutes for one hour after a Deploy GX code apply; saved health history and a read-only Health page. A final
 failure turns the deploy job red and is included in its mail. Verified with fake GX readings and a simulated

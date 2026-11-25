@@ -94,6 +94,16 @@ test('only new owned-node errors count and only the meter reachability exception
     assert.equal(check('node-errors', [logStats(config, rows.slice(2), startedAt, now)]).level, 'FAIL');
 });
 
+test('notification health fails only on new errors from the GX notification output', () => {
+    const error = "[error] [victron-output-custom:GX notification output] TypeError: Cannot read properties of undefined (reading 'disabled')";
+    const rows = [baseline, { ...baseline, line: error }, event(1, '[error] [function:Heat pump automations] unrelated')];
+    const sample = () => check('gx-notification', [logStats(config, rows, startedAt, now)]);
+    assert.equal(sample().level, 'OK');
+    rows.push(event(2, error));
+    assert.equal(sample().level, 'FAIL');
+    assert.equal(sample().detail, '1 node error(s)');
+});
+
 test('downtime includes the interval through Started flows and sums repeated restarts', () => {
     const rows = [baseline, lifecycle(1, 'Stopping flows'), lifecycle(2, 'Starting flows'), lifecycle(3, 'Started flows')];
     assert.equal(check('downtime', [logStats(config, rows, startedAt, now)]).level, 'OK');
