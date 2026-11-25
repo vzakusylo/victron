@@ -3,6 +3,8 @@ Description=Victron dev loop control page
 After=network-online.target
 
 [Service]
+Environment=XDG_RUNTIME_DIR=%t
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
 Nice=10
 CPUWeight=10
 MemoryMax=100M

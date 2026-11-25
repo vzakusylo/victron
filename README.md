@@ -21,6 +21,9 @@ A Node-RED controller for a Victron ESS on a Cerbo GX (Venus OS) that keeps hour
 
 ## Documentation
 
+For the Omarchy dev loop, see [setup and operation](docs/dev-loop.md) and
+[GitHub token setup and rotation](docs/dev-loop-token.md).
+
 | Topic | What's inside |
 |---|---|
 | [Backlog](BACKLOG.md) | **all tasks, plans, test plans, open PRs, deploy state and progress** (the one task file) |

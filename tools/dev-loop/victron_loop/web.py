@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .control import ROW_ACTIONS, apply_control, read_plan
+from .gh import read_token, token_details
 from .nodes import LoopConfig, _pid_alive, _today
 from .state import LockBusyError, StateStore
 
@@ -40,19 +41,60 @@ def tail(path: Path, limit: int) -> list[str]:
         return []
 
 
-def timer_times() -> dict[str, str]:
+def timer_times(now: float | None = None) -> dict[str, str]:
+    unit = "victron-loop.timer"
+    command = ["systemctl", "--user", "--no-pager"]
+    options = {"text": True, "timeout": 5, "stderr": subprocess.PIPE}
+    unknown = {"timer_next": "Unknown", "timer_last": "Unknown"}
+
+    def error_text(exc: Exception) -> str:
+        message = getattr(exc, "stderr", None)
+        return message.strip() if isinstance(message, str) and message.strip() else str(exc)
+
+    def from_property(value: str | None) -> str | None:
+        if not value:
+            return None
+        match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value)
+        return local_time(int(datetime.fromisoformat(match[0]).timestamp()), now) if match else value
+
     try:
         output = subprocess.check_output(
-            ["systemctl", "--user", "list-timers", "--no-legend", "--no-pager", "victron-loop.timer"],
-            text=True, timeout=5, stderr=subprocess.DEVNULL,
+            [*command, "show", unit, "-p", "NextElapseUSecRealtime", "-p", "LastTriggerUSec",
+             "-p", "ActiveState"], **options,
         )
-    except (OSError, subprocess.SubprocessError):
-        return {"timer_next": "Unknown", "timer_last": "Unknown"}
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {**unknown, "timer_error": error_text(exc)}
+    fields = {}
     for line in output.splitlines():
-        columns = re.split(r"\s{2,}", line.strip())
-        if len(columns) >= 5 and columns[-2] == "victron-loop.timer":
-            return {"timer_next": columns[0], "timer_last": columns[2]}
-    return {"timer_next": "Not scheduled", "timer_last": "Not recorded"}
+        key, separator, value = line.partition("=")
+        if separator and value.strip() not in {"", "n/a", "-"}:
+            fields[key] = value.strip()
+    next_time = from_property(fields.get("NextElapseUSecRealtime"))
+    last_time = from_property(fields.get("LastTriggerUSec"))
+    state = {"timer_state": fields.get("ActiveState", "unknown")}
+    if next_time or state["timer_state"] != "active":
+        return {**state, "timer_next": next_time or "Not scheduled", "timer_last": last_time or "Not recorded"}
+
+    # OnBootSec/OnUnitActiveSec are monotonic: only list-timers gives their next wall-clock time.
+    try:
+        data = json.loads(subprocess.check_output(
+            [*command, "list-timers", "--all", "--output=json", unit], **options,
+        ))
+        if not isinstance(data, list):
+            raise ValueError("systemctl did not return a timer list")
+        timer = next((entry for entry in data if isinstance(entry, dict) and entry.get("unit") == unit), {})
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        return {**state, **unknown, "timer_last": last_time or "Unknown", "timer_error": error_text(exc)}
+
+    def from_microseconds(key: str, missing: str) -> str:
+        value = timer.get(key)
+        return local_time(value // 1_000_000, now) if isinstance(value, int) and 0 < value < 2**64 - 1 else missing
+
+    return {
+        **state,
+        "timer_next": from_microseconds("next", "Not scheduled"),
+        "timer_last": last_time or from_microseconds("last", "Not recorded"),
+    }
 
 
 def event_details(entry: dict) -> str:
@@ -132,9 +174,14 @@ def snapshot(cfg: LoopConfig, store: StateStore, node: str = "") -> dict:
         elif not recorded and latest.get("ts", 0) > (last_run or {}).get("at", 0):
             last_run = {"at": latest["ts"], "result": latest.get("result"), "dry_run": True}
             observed = latest.get("observed", observed)
+    now = int(cfg.clock())
+    token = token_details(cfg.token_file, now, cfg.allow_gh_login_fallback)
+    if observed.get("token_error") == "token-invalid" and token["status"] == "ok":
+        token["status"] = "invalid"
     return {
-        "paused": state.get("paused", False), "last_run": last_run, **timer_times(),
-        "now": int(cfg.clock()),
+        "paused": state.get("paused", False), "last_run": last_run, **timer_times(now),
+        "now": now,
+        "token_status": token,
         "worker": worker, "last_worker_status": (state.get("last_worker") or {}).get("status"),
         "pr": state.get("worker_pr") or next(iter(observed.get("open_prs", [])), None),
         "test_gx": observed.get("test_gx"), "deploy": observed.get("deploy"), "health": observed.get("deploy_health"),
@@ -255,7 +302,7 @@ setInterval(() => {
 """
 
 
-def local_time(ts: int | None, now: int | None = None) -> str:
+def local_time(ts: int | None, now: float | None = None) -> str:
     if ts is None:
         return "Not recorded"
     try:
@@ -263,7 +310,8 @@ def local_time(ts: int | None, now: int | None = None) -> str:
     except (OSError, OverflowError, ValueError):
         return "Invalid timestamp"
     if now is not None:
-        text += f" ({max(0, now - ts) // 60} min ago)"
+        minutes = int(abs(now - ts) // 60)
+        text += f" (in {minutes} min)" if ts > now else f" ({minutes} min ago)"
     return text
 
 
@@ -337,6 +385,11 @@ def render(data: dict, csrf: str) -> str:
     last_text = f"{show(local_time(last.get('at'), data['now']))} — {show(last.get('result'))}" if last else "No run recorded"
     if last.get("dry_run"):
         last_text += " (dry run)"
+    token = data["token_status"]
+    token_state = token["status"]
+    if token_state == "ok" and (days := token.get("expires_in_days")) is not None:
+        token_state = f"expires in {days} days" if days > 0 else "expires today" if days == 0 else "expired"
+    rotated = token.get("token_rotated_at")
     next_row = plan["next"]
     reasons = sorted({row["reason"] for row in plan["skipped"]})
     next_text = (f"{show(next_row['row_id'])}: {show(next_row['task'])}" if next_row else
@@ -361,6 +414,9 @@ def render(data: dict, csrf: str) -> str:
  data-result="{show(last.get('result'), 'Unknown')}">
 <p>{phase}</p><p>Budget: {data["budget"]["used"]}/{data["budget"]["cap"]}</p>
 <p>Last run: {last_text} · Last timer: {show(data["timer_last"])} · Next timer: {show(data["timer_next"])}</p>
+<p>Timer: {show(data.get("timer_state"))} {show(data.get("timer_error"), "")}</p>
+<p>GitHub loop token: {show(token_state)} · Last rotation: {show(rotated, "Not recorded")}
+{show(" — Could not read expiry metadata" if token.get("metadata_error") else "", "")}</p>
 <h2>Worker and PR</h2>{worker_view}<div>{pr_view}</div><p>{show(errors.get("open-prs"), "")}</p>
 <h2>Master Test GX, deploy and health</h2>{table(("Workflow", "Status", "Details"), workflow_rows)}
 <h2>Next task</h2><p>{next_text} · Pinned: {show(data["pinned_row"], "None")}</p>
@@ -392,8 +448,11 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
     if cfg.web_token_file and not re.fullmatch(r"[a-zA-Z0-9._~-]{16,}", token):
         raise ValueError("web_token_file must contain a URL-safe token of at least 16 characters")
     private = [token] if token else []
-    if cfg.token_file and cfg.token_file.is_file():
-        private.append(cfg.token_file.read_text(encoding="utf-8").strip())
+    try:
+        private.append(read_token(cfg.token_file))
+    except (OSError, UnicodeError):
+        # The status endpoint reports an unreadable token without exposing its contents.
+        pass
     csrf = secrets.token_urlsafe(32)
 
     def redact(value):

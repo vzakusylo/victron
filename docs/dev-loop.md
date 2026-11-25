@@ -19,7 +19,7 @@
 ## Runtime layout
 
 - Config: `~/victron-loop/config.toml`
-- GitHub token file: `~/victron-loop/token` (if present, exported as `GH_TOKEN` for `gh`)
+- GitHub token file: `~/victron-loop/token` (passed as `GH_TOKEN` to the loop's `gh` calls; no fallback by default)
 - Venv: `~/victron-loop/venv`
 - State: `${XDG_STATE_HOME:-~/.local/state}/victron-loop/state.json`
 - Decision log: `${XDG_STATE_HOME:-~/.local/state}/victron-loop/decisions.jsonl`
@@ -87,13 +87,32 @@ Over SSH, the equivalent CLI commands are `pause`, `resume`, `approve <row>`,
 `skip <row>`, `unskip <row>`, `pin <row>`, and `note "<text>"`.
 
 
-## Owner setup on Omarchy
+## One-time setup on Omarchy
 
-Run once from the PC (interactive; the token is asked for hidden and saved to `~/victron-loop/token`, mode 600):
+Create a **fine-grained** token in GitHub Settings → Developer settings →
+Personal access tokens → Fine-grained tokens. Select only `vzakusylo/victron`,
+choose 90 days, and grant **Contents** and **Pull requests** read/write,
+**Actions** read, and **Workflows** read/write. **Metadata** read is automatic.
+Keep the token ready to paste into the hidden prompt; do not put it in a command.
+
+From the PC:
 
 ```bash
-scp tools/dev-loop/setup-omarchy.sh omarchy:setup-omarchy.sh
+scp tools/dev-loop/setup-omarchy.sh tools/dev-loop/rotate-token.sh omarchy:~/
 ssh -t omarchy 'bash ~/setup-omarchy.sh'
 ```
-It checks the self-hosted runner (Omarchy needs a runner registered to this repo, `actions-runner-victron.service`), the fine-grained token, the Copilot CLI login and the loop install/timer. Re-run with `ssh -t omarchy 'bash ~/setup-omarchy.sh --live'` to set `dry_run = false`. The control page runs on `web_bind` in `config.toml` (Omarchy: `<tailnet-ip>:8790`; 8787 is used by another app).
+
+Setup checks `actions-runner-victron.service`, calls `rotate-token.sh` to
+validate and save `~/victron-loop/token` with mode 600, and checks the Copilot
+login, loop installation, and timer. If the loop isn't installed, dispatch
+`victron-langchain-dev-dashboard` with `dry_run_only` off. After checking the
+dry-run log, enable live mode:
+
+```bash
+ssh -t omarchy 'bash ~/setup-omarchy.sh --live'
+```
+
+This sets `dry_run = false` in `~/victron-loop/config.toml`. The page uses
+`web_bind` from that file. See [Loop token maintenance](dev-loop-token.md) for
+rotation, rollback, and troubleshooting.
 

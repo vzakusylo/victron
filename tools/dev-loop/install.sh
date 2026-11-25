@@ -19,6 +19,10 @@ rsync -a --delete \
   --exclude "venv" \
   --exclude "config.toml" \
   --exclude "token" \
+  --exclude "token.prev" \
+  --exclude "token.meta" \
+  --exclude ".token-rotation.lock" \
+  --exclude ".token-rotation.*" \
   --exclude "logs" \
   --exclude "worktrees" \
   --exclude "repo" \

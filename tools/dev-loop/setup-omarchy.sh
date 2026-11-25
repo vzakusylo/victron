@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # One-time owner setup of the AUTO1 dev loop on the Omarchy box.
 # Run ON Omarchy in an interactive terminal (it asks for the token; it is never echoed or logged):
-#   scp tools/dev-loop/setup-omarchy.sh omarchy:setup-omarchy.sh
+#   scp tools/dev-loop/setup-omarchy.sh tools/dev-loop/rotate-token.sh omarchy:~/
 #   ssh -t omarchy 'bash ~/setup-omarchy.sh'         # checks + token
 #   ssh -t omarchy 'bash ~/setup-omarchy.sh --live'  # also switch dry_run off
 # Steps: 1 runner service, 2 fine-grained token, 3 Copilot CLI login, 4 loop install / timer, 5 optional --live.
 # Safe to re-run. Never prints the token. Changes only ~/victron-loop/{token,config.toml}.
 set -euo pipefail
 
-REPO="vzakusylo/victron"
 HOME_DIR="${HOME}/victron-loop"
-TOKEN_FILE="${HOME_DIR}/token"
 CONFIG="${HOME_DIR}/config.toml"
 LIVE=0
 RUNNER_UNIT="actions-runner-victron.service"
@@ -32,35 +30,15 @@ if command -v loginctl >/dev/null && [[ "$(loginctl show-user "$USER" -p Linger 
   warn "linger is off: user units stop when you log out. Enable with: sudo loginctl enable-linger $USER"
 fi
 
-echo "2. Fine-grained GitHub token for the loop (${REPO} only)"
-mkdir -p "${HOME_DIR}"
-if [[ -s "${TOKEN_FILE}" ]] && GH_TOKEN="$(cat "${TOKEN_FILE}")" gh api "repos/${REPO}" --silent 2>/dev/null; then
-  ok "existing ${TOKEN_FILE} works"
-else
-  cat <<EOF
-  Create the token in a browser (signed in as the repo owner):
-    https://github.com/settings/personal-access-tokens/new?name=victron-dev-loop&description=AUTO1+dev+loop+on+Omarchy&target_name=vzakusylo&expires_in=90&contents=write&pull_requests=write&actions=read&workflows=write
-  Check before Generate:
-    - Repository access: Only select repositories -> ${REPO}
-    - Permissions: Contents RW, Pull requests RW, Actions R, Workflows RW, Metadata R (auto)
-    - Expiration: 90 days (the loop notifies when it starts failing auth)
-EOF
-  if ! read -r -s -p "  Paste the token (input hidden): " TOKEN </dev/tty; then
-    fail "an interactive terminal is required to enter the token; run the copied script with ssh -t"
-    exit 1
-  fi
-  echo
-  [[ "${TOKEN}" == github_pat_* ]] || warn "token does not start with github_pat_ (fine-grained tokens do)"
-  if GH_TOKEN="${TOKEN}" gh api "repos/${REPO}" --silent; then
-    umask 077; printf '%s' "${TOKEN}" > "${TOKEN_FILE}"; chmod 600 "${TOKEN_FILE}"
-    ok "token saved to ${TOKEN_FILE} (600)"
-  else
-    fail "token cannot read ${REPO}; nothing saved"; exit 1
-  fi
-  unset TOKEN
+echo "2. Fine-grained GitHub token for the loop (vzakusylo/victron only)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+rotate="$script_dir/rotate-token.sh"
+if [[ ! -f "$rotate" ]]; then rotate="$HOME/rotate-token.sh"; fi
+if [[ ! -f "$rotate" ]]; then
+  fail "rotate-token.sh is missing; copy both setup-omarchy.sh and rotate-token.sh to Omarchy."
+  exit 1
 fi
-GH_TOKEN="$(cat "${TOKEN_FILE}")" gh api "repos/${REPO}/pulls?state=open" --silent && ok "pull requests readable" || fail "pull requests not readable"
-GH_TOKEN="$(cat "${TOKEN_FILE}")" gh api "repos/${REPO}/actions/runs?per_page=1" --silent && ok "Actions readable" || fail "Actions not readable"
+bash "$rotate" --ensure
 
 echo "3. Copilot CLI (workers run 'copilot' here)"
 if command -v copilot >/dev/null; then

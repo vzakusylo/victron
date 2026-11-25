@@ -18,5 +18,5 @@ def test_setup_requires_a_terminal_for_initial_token(tmp_path):
         timeout=10,
     )
     assert result.returncode == 1
-    assert "an interactive terminal is required" in result.stdout
+    assert "An interactive terminal is required" in result.stderr
     assert not (tmp_path / "victron-loop" / "token").exists()
