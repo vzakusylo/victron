@@ -1,3 +1,5 @@
+// #libs [{"var":"fs","module":"fs"},{"var":"zlib","module":"zlib"}]
+// #bypass-exec ["Read heat pump history"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -6,9 +8,9 @@
 //   in `flows.json` must always stay synchronized.
 // Purpose:
 // - Turns the recorder files (format "hp1", see 36) read by the exec node
-//   "Read heat pump history" into day statistics and a day chart for the history page (39).
+//   the recorder's hour files into day statistics and a day chart for the history page (39).
 // Input:
-// - msg.payload = stdout of the exec node: `#day YYYY-MM-DD [cached]` markers, each followed
+// - The parser takes `#day YYYY-MM-DD [cached]` markers, each followed
 //   by the decompressed hour files of that day (hp1 sections)
 // - Output 2 (only for a day request that carries msg.utcp, from the UTCP server 62): the day's event lane, back to 62.
 // - msg.topic = 'summary' (last 14 days) | 'day' (one day, msg.day)
@@ -61,6 +63,12 @@
 // 3. d#132: Accumulator (`atemp`) and Exchange plate (`xtemp`) cloud sensors on the day chart
 //    (a series is shown only when the day has data for it).
 // ==========================
+// #include lib/history/lines.js
+
+const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
+const MOTION_DIR = '/data/home/nodered/grid-control-logs/sensor-events';
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HISTORY_DAYS = 14;
 
 // mv / ma (d#162) = SA1 meter voltage / current, decoded from its raw DP 6 (column `m6`)
 const KEYS = ['101', '102', '103', '108', '112', '114', '115', '116', 'v1', 'b1', 'pw', '125', 'atemp', 'xtemp', '15', 'mv', 'ma'];
@@ -98,7 +106,8 @@ function r1(v) { return v === null || !Number.isFinite(v) ? null : Math.round(v 
 function r2(v) { return v === null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100; }
 
 // ---- parse --------------------------------------------------------------
-function parse(text) {
+const motionId = (flow.get('bathroomMotion') || {}).id || flow.get('motionSensorId');
+function* parseHistory() {
     const days = {};
     const order = [];
     let day = null;
@@ -109,7 +118,7 @@ function parse(text) {
     let meterState = 'U';
     let motionSection = false;
     let sectionStart = false, idlCode = 0;   // d#206: new recorder section, idle cause code (column `idl`)
-    for (const line of String(text).split(/\r?\n/)) {
+    for (let line = yield; line !== undefined; line = yield) {
         if (!line) continue;
         if (line.startsWith('#day ')) {
             const parts = line.split(' ');
@@ -128,7 +137,8 @@ function parse(text) {
             try {
                 const report = JSON.parse(line);
                 if (!report || !Number.isFinite(report.t) || report.t <= 0 || typeof report.id !== 'string') throw new Error('bad report');
-                days[day].motion.push(report);
+                if (report.id === motionId && ['local', 'cloud report'].includes(report.source)
+                    && report.dps && ['pir', 'none'].includes(report.dps['101'])) days[day].motion.push(report);
             } catch (e) { days[day].motionErrors++; }
             continue;
         }
@@ -416,18 +426,15 @@ function utcpOr(out) {
     if (!msg.utcp) return out;
     const p = out.payload;
     return [null, { utcpPhase: 'day', utcpDay: msg.day, utcpTool: msg.utcp, utcpMin: msg.utcpMin, req: msg.req, res: msg.res,
-        payload: p.empty ? { empty: true } : { events: p.chart.events, legend: p.chart.eventLegend } }];
+        payload: p.error ? { error: p.error } : p.empty ? { empty: true } : { events: p.chart.events, legend: p.chart.eventLegend } }];
 }
 
 // ---- main ---------------------------------------------------------------
-const text = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : String(msg.payload || '');
-const parsed = parse(text);
 const nowD = new Date();
 const today = nowD.getFullYear() + '-' + pad(nowD.getMonth() + 1) + '-' + pad(nowD.getDate());
 const cache = flow.get('hpDayCache2') || {};
 
-if (msg.topic === 'day') {
-    const d = parsed.days[msg.day];
+function renderDay(d) {
     if (!d || !d.rows.length) {
         node.status({ fill: 'yellow', shape: 'ring', text: 'no data for ' + msg.day });
         return utcpOr({ topic: 'hpHistory', payload: { kind: 'day', day: msg.day, empty: true } });
@@ -437,10 +444,8 @@ if (msg.topic === 'day') {
     flow.set('hpDayCache2', cache);
     node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + d.rows.length + ' samples' });
     const c = chart(d.rows, msg.day === today ? flow.get('dhwView') : null);
-    const motionId = (flow.get('bathroomMotion') || {}).id || flow.get('motionSensorId');
     const seen = new Set();
-    const events = d.motion.filter((r) => r.id === motionId && ['local', 'cloud report'].includes(r.source)
-        && r.dps && ['pir', 'none'].includes(r.dps['101'])).sort((a, b) => a.t - b.t).flatMap((r) => {
+    const events = d.motion.sort((a, b) => a.t - b.t).flatMap((r) => {
         const dt = new Date(r.t);
         const day = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
         const key = r.t + ':' + r.dps['101'];
@@ -456,19 +461,70 @@ if (msg.topic === 'day') {
     return utcpOr({ topic: 'hpHistory', payload: { kind: 'day', day: msg.day, stats: s.stats, hourly: s.hourly, chart: c } });
 }
 
-// summary
-const days = parsed.order.map((day) => {
-    const d = parsed.days[day];
-    let s = d.cached ? cache[day] : null;
+function summarizeDay(day, d, cached) {
+    let s = cached ? cache[day] : null;
     if (!s) {
-        s = stats(d.rows).stats;
-        if (day < today && d.rows.length) cache[day] = s;
+        const rows = d?.rows || [];
+        s = stats(rows).stats;
+        if (day < today && rows.length) cache[day] = s;
     }
     return Object.assign({ day, today: day === today }, s || {});
-}).reverse();
-const keep = Object.keys(cache).sort().slice(-CACHE_DAYS);
-const trimmed = {};
-keep.forEach((k) => { trimmed[k] = cache[k]; });
-flow.set('hpDayCache2', trimmed);
-node.status({ fill: 'green', shape: 'dot', text: 'summary: ' + days.length + ' days' });
-return { topic: 'hpHistory', payload: { kind: 'summary', days } };
+}
+
+function renderSummary(days) {
+    const merged = { ...flow.get('hpDayCache2'), ...cache };
+    const trimmed = {};
+    for (const key of Object.keys(merged).sort().slice(-CACHE_DAYS)) trimmed[key] = merged[key];
+    flow.set('hpDayCache2', trimmed);
+    node.status({ fill: 'green', shape: 'dot', text: 'summary: ' + days.length + ' days' });
+    return { topic: 'hpHistory', payload: { kind: 'summary', days: days.reverse() } };
+}
+
+async function readDay(day, includeMotion) {
+    const parser = parseHistory();
+    parser.next();
+    parser.next('#day ' + day);
+    const path = BASE_DIR + '/' + day;
+    const names = (await historyNames(path)).filter(e => e.isFile() && !e.name.startsWith('.') && /\.csv(?:\.gz)?$/.test(e.name))
+        .map(e => e.name).sort();
+    for (const name of names) {
+        const file = await openHistoryFile(path + '/' + name);
+        const inflate = name.endsWith('.gz') ? () => zlib.createGunzip() : undefined;
+        for await (const { line } of historyLines(file, inflate)) parser.next(line.replace(/\r$/, ''));
+    }
+    if (includeMotion && names.length) {
+        const file = await openHistoryFile(`${MOTION_DIR}/${day}.jsonl`);
+        parser.next(file ? '#motion available' : '#motion missing');
+        for await (const { line } of historyLines(file)) parser.next(line.replace(/\r$/, ''));
+    }
+    return parser.next().value.days[day];
+}
+
+async function readHistory() {
+    if (msg.topic === 'day') return renderDay(await readDay(msg.day, !msg.utcp));
+    const names = (await historyNames(BASE_DIR)).filter(e => e.isDirectory() && DAY_RE.test(e.name))
+        .map(e => e.name).sort().slice(-HISTORY_DAYS);
+    const days = [];
+    for (const day of names) {
+        const cached = day < today && Object.hasOwn(cache, day);
+        days.push(summarizeDay(day, cached ? null : await readDay(day, false), cached));
+    }
+    return renderSummary(days);
+}
+
+if ((msg.topic !== 'day' && msg.topic !== 'summary') || (msg.topic === 'day' && !DAY_RE.test(msg.day))) {
+    node.warn('Heat pump history: invalid request');
+    return null;
+}
+if (typeof msg.payload === 'string' || Buffer.isBuffer(msg.payload)) {
+    const parser = parseHistory();
+    parser.next();
+    for (const line of String(msg.payload).split(/\r?\n/)) parser.next(line);
+    const { days, order } = parser.next().value;
+    return msg.topic === 'day' ? renderDay(days[msg.day])
+        : renderSummary(order.map(day => summarizeDay(day, days[day], days[day].cached)));
+}
+return readHistory().catch(error => {
+    node.error('Heat pump history: ' + error.message, msg);
+    return msg.utcp ? utcpOr({ payload: { error: 'Could not read heat pump history' } }) : null;
+});

@@ -102,7 +102,7 @@ test('UTCP control: one control call per 10 s', () => {
     assert.equal(status(call(node, 'POST', 'force_boiler_run', { confirm: true }, { dt: 11000 })), 200);
 });
 
-test('UTCP read tools: routed to the exec nodes, answers shaped from their output', () => {
+test('UTCP read tools: route the bounded log and the heat-pump day and shape their replies', () => {
     const node = server();
     let r = call(node, 'POST', 'get_automation_log', { lines: 2, day: '2026-11-21' });
     assert.match(r[2].payload, /tail -n 2 .*2026-11-21\.jsonl/);
@@ -115,6 +115,9 @@ test('UTCP read tools: routed to the exec nodes, answers shaped from their outpu
     r = call(node, 'POST', 'get_idle_periods', { day: '2026-11-21', minMinutes: 5 });
     assert.equal(r[3].topic, 'day');
     assert.equal(r[3].day, '2026-11-21');
+    assert.equal(r[3].payload, undefined);
+    const unavailable = node.run({ utcpPhase: 'day', utcpDay: r[3].day, payload: { error: 'Could not read heat pump history' } }, { now: NOW });
+    assert.equal(status(unavailable.result), 500);
     const events = [
         { kind: 'idle', from: '10:20', to: '10:35', min: 15, tip: 'Idle: below restart level' },
         { kind: 'idle', from: '11:00', to: '11:03', min: 3, tip: 'Idle: defrost' },

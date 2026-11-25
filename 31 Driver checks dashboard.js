@@ -1,3 +1,4 @@
+// #no-template-replay ["Driver checks"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

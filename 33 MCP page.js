@@ -1,3 +1,4 @@
+// #no-template-replay ["MCP page"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

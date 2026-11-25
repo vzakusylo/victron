@@ -156,7 +156,7 @@ test('month history restores today and the month peaks, and is requested once', 
     const c = controller({ start: at(11, 12, 13, 5) });
     const request = c.first.result[6];
     assert.equal(request.topic, 'tariff-history');
-    assert.match(request.payload, /energy-2026-11\.csv/);
+    assert.equal(request.monthKey, '2026-11');
     assert.equal(c.step({ topic: 'grid-power', payload: 1000 }).result[6], null, 'not requested again within a minute');
     const history = [
         'hour,grid_wh,ac_wh,sol_wh,bill_wh,peak_w,setpoint_w,season,min',

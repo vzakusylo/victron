@@ -75,12 +75,9 @@ return {
         gridSupportMode: settings.gridSupportMode,
         adaptiveGridSupportW: watts(trace.adaptiveGridSupportW),
         plannedGridSupportW: watts(trace.plannedGridSupportW),
-        gridSupportLowSunBlocked: Boolean(trace.gridSupportLowSunBlocked),
         exportGuardStatus: settings.exportGuardEnabled ? (exportGuard.active ? 'Compensating' : 'Watching') : 'Disabled',
-        exportGuardActive: Boolean(exportGuard.active),
         exportGuardBoostW: watts(exportGuard.boostW),
         gridPowerSignedW: Math.round(Number(trace.gridPowerSignedW) || 0),
-        solarGenerationW: watts(trace.solarGenerationW),
         remainingForecastAh: Number.isFinite(remainingForecastAh) ? remainingForecastAh.toFixed(1) : '0.0',
         batteryRemainingAh: Number.isFinite(batteryRemainingAh) ? batteryRemainingAh.toFixed(1) : 'n/a'
     }

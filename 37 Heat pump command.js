@@ -18,7 +18,7 @@
 // Output (4):
 // - output 1 -> unused (owner curve uses node 40's heat-pump queue)
 // - output 2 -> Tuya node "Off Heating exchange"  { operation: 'SET', dps: 1, set }
-// - output 3 -> exec "Read heat pump history" (`sh -c <payload>`), msg.topic / msg.day kept
+// - output 3 -> "Build heat pump history" (38), msg.topic / msg.day kept
 // - output 4 -> "Heat pump automations" (40), msg.topic 'ui'
 // Safety:
 // - A command is refused while the target device is not CONNECTED with fresh data (≤ 5 min).
@@ -33,9 +33,6 @@
 // 5. d#233: route the two-coefficient owner curve via node 40.
 // ==========================
 
-const BASE_DIR = '/data/home/nodered/grid-control-logs/heatpump';
-const MOTION_DIR = '/data/home/nodered/grid-control-logs/sensor-events';
-const HISTORY_DAYS = 14;
 const MIN_GAP_MS = 5000;
 const FRESH_MS = 5 * 60 * 1000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,9 +59,6 @@ function refuse(text) {
     return null;
 }
 
-// Shell snippet: print every hour file of day folder $d in hour order (gz or plain)
-const CAT_DAY = 'for f in $(ls $d | sort); do case $f in *.csv.gz) gzip -dc $d/$f;; *.csv) cat $d/$f;; esac; done';
-
 switch (msg.topic) {
 case 'curve':
     return [null, null, null, { topic: 'ui', payload: { action: 'ownerCurve', p23: p.p23, p24: p.p24, requestId: p.requestId } }];
@@ -77,24 +71,14 @@ case 'bypass': {
     return [null, { payload: { operation: 'SET', dps: 1, set: p.on } }, null];
 }
 case 'summary': {
-    // Days already summarised (finished days only) are not read again
-    const cache = flow.get('hpDayCache2') || {};
-    const cached = Object.keys(cache).filter((d) => DAY_RE.test(d));
-    const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; '
-        + 'for d in $(ls | grep -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" | sort | tail -n ' + HISTORY_DAYS + '); do '
-        + 'case " ' + cached.join(' ') + ' " in *" $d "*) echo "#day $d cached";; '
-        + '*) echo "#day $d"; ' + CAT_DAY + ';; esac; done';
     node.status({ fill: 'grey', shape: 'dot', text: 'reading summary' });
-    return [null, null, { topic: 'summary', payload: "'" + script + "'" }];
+    return [null, null, { topic: 'summary' }];
 }
 case 'day': {
     const day = String(p.day || '');
     if (!DAY_RE.test(day)) return refuse('bad day ' + day);
-    const script = 'cd ' + BASE_DIR + ' 2>/dev/null || exit 0; d=' + day + '; [ -d $d ] || exit 0; echo "#day $d"; ' + CAT_DAY
-        + '; echo; if [ -f ' + MOTION_DIR + '/' + day + '.jsonl ]; then echo "#motion available"; cat '
-        + MOTION_DIR + '/' + day + '.jsonl; else echo "#motion missing"; fi';
     node.status({ fill: 'grey', shape: 'dot', text: 'reading ' + day });
-    return [null, null, { topic: 'day', day, payload: "'" + script + "'" }];
+    return [null, null, { topic: 'day', day }];
 }
 case 'ui': {
     if (p.action === 'dhwShowerForce') {

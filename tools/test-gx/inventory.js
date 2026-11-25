@@ -75,7 +75,7 @@ const SENSOR_SCRIPT = /tuya-[\w-]+\.js/;
 const MAIL_SCRIPT = /send-mail\.js/;
 // Scripts and shell tools that only touch files under /data/home/nodered; anything else is not classified and fails the check.
 const LOCAL_TOOLS = new Set(['sensor-history', 'heatpump-decode', 'elvenett-statistics', 'victron-secrets', 'reload-victron-secrets']);
-const LOCAL_SHELL = /\b(cat|find|mkdir|tar|gzip|zcat|ls)\b/;
+const LOCAL_SHELL = /\b(cat|find|mkdir|tar|gzip|zcat|ls)\b|['"]tail -n /;
 // dbus-send is a local D-Bus call that bypasses the dbus -y / python pair parsing, so it cannot be checked against the emulator: treated as unclassified.
 const NETWORK_CMD = /\b(curl|wget|ssh|scp|nc)\s+(-\S+\s+)*['"]?(https?:\/\/|[\w.-]+:\d+)|\bmosquitto_(pub|sub)\b|\bdbus-send\b|\burlopen\b|\bhttp\.client\b|\bnode\s+-e\b|\bfetch\(/;
 const withoutComments = (s) => s.replace(/^\s*\/\/.*$/gm, '');

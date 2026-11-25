@@ -1,3 +1,6 @@
+// #libs [{"var":"fs","module":"fs"}]
+// #no-template-replay ["Payback page"]
+// #bypass-exec ["Read payback data"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -9,7 +12,7 @@
 //   controller) has saved since the first hour of energy history, split into peak shaving
 //   (kapasitetsledd), solar and battery time shift, and how much is left until the equipment
 //   cost is paid back.
-// Data (read by the exec node "Read payback data", `sh -c <payload>`):
+// Data (energy history is streamed):
 // - grid-control-logs/energy-YYYY-MM.csv: hour,grid_wh,ac_wh,sol_wh,bill_wh,peak_w,setpoint_w,season,min
 //   (hour = local time "YYYY-MM-DD HH")
 // - grid-control-logs/energy-YYYY-MM-DD.log (legacy, before the CSV): "YYYY-MM-DD HH:00 | Grid …Wh | AC …Wh | Sol …Wh"
@@ -30,14 +33,14 @@
 // Input (msg.topic):
 // - 'ui'   (page 49) payload { action: 'open' | 'refresh' | 'save', settings }
 // - 'tick' (inject, hourly) -> read the data again
-// - 'read' (exec stdout)    -> parse, compute, send the model
 // Output (3):
 // - output 1 -> ui_template "Payback page", msg.payload = model
-// - output 2 -> exec node "Read payback data"
+// - output 2 -> unused
 // - output 3 -> file node "Write payback settings" (msg.filename, msg.payload JSON)
 // Change notes:
 // 1. Initial version (d#148).
 // ==========================
+// #include lib/history/lines.js
 
 const LOG_DIR = '/data/home/nodered/grid-control-logs';
 const CFG_FILE = '/data/home/nodered/grid-control-config/payback.json';
@@ -63,22 +66,10 @@ const DEFAULTS = {
     tierPrices: [160, 233, 331, 496, 638, 803, 1133, 1511, 1894, 2275]   // NOK/month
 };
 
-function shellQuote(script) { return "'" + String(script).replace(/'/g, "'\\''") + "'"; }
 const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const r0 = (x) => Math.round(x);
 const r1 = (x) => Math.round(x * 10) / 10;
 const r2 = (x) => Math.round(x * 100) / 100;
-
-function readCmd() {
-    return shellQuote([
-        'cd ' + LOG_DIR + ' || exit 0',
-        'echo "@@CFG"; cat ' + CFG_FILE + ' 2>/dev/null; echo',
-        'echo "@@ELV"; if [ -f ' + ELVENETT_FILE + ' ]; then cat ' + ELVENETT_FILE + '; fi; echo',
-        'for f in energy-????-??.csv; do [ -f "$f" ] && { echo "@@CSV $f"; cat "$f"; }; done',
-        'for f in energy-????-??-??.log; do [ -f "$f" ] && { echo "@@LOG $f"; cat "$f"; }; done',
-        'echo "@@END"'
-    ].join('\n'));
-}
 
 // Validates settings from the page or the file; anything missing or invalid falls back to the default.
 function cleanSettings(s) {
@@ -102,27 +93,19 @@ function cleanSettings(s) {
     return out;
 }
 
-// stdout -> { cfg, hours: { 'YYYY-MM-DD HH': { grid, ac, sol, bill|null } } }
-function parse(text) {
-    const hours = {};
-    let cfg = null, mode = '', cfgText = '', elvenettText = '', elvenett = null, error = '';
-    for (const line of String(text || '').split(/\r?\n/)) {
-        if (line.startsWith('@@')) {
-            mode = line.slice(2, 5);
-            continue;
-        }
-        if (mode === 'CFG') { cfgText += line; continue; }
-        if (mode === 'ELV') { elvenettText += line; continue; }
-        if (mode === 'CSV') {
-            const p = line.split(',');
-            if (!/^\d{4}-\d{2}-\d{2} \d{2}(?:[+-]\d{4})?$/.test(p[0] || '')) continue;
-            hours[p[0]] = { grid: num(p[1], 0), ac: num(p[2], 0), sol: num(p[3], 0), bill: p[4] === undefined || p[4] === '' ? null : num(p[4], null), csv: true };
-        }
-        else if (mode === 'LOG') {
-            const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}):\d{2} \| Grid (-?\d+)Wh \| AC (-?\d+)Wh \| Sol (-?\d+)Wh/);
-            if (m && !(hours[m[1]] && hours[m[1]].csv)) hours[m[1]] = { grid: Number(m[2]), ac: Number(m[3]), sol: Number(m[4]), bill: null };
-        }
+function parseEnergyLine(hours, line, mode) {
+    if (mode === 'CSV') {
+        const p = line.split(',');
+        if (!/^\d{4}-\d{2}-\d{2} \d{2}(?:[+-]\d{4})?$/.test(p[0] || '')) return;
+        hours[p[0]] = { grid: num(p[1], 0), ac: num(p[2], 0), sol: num(p[3], 0), bill: p[4] === undefined || p[4] === '' ? null : num(p[4], null), csv: true };
+    } else if (mode === 'LOG') {
+        const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}):\d{2} \| Grid (-?\d+)Wh \| AC (-?\d+)Wh \| Sol (-?\d+)Wh/);
+        if (m && !hours[m[1]]?.csv) hours[m[1]] = { grid: Number(m[2]), ac: Number(m[3]), sol: Number(m[4]), bill: null };
     }
+}
+
+function parseSettings(hours, cfgText, elvenettText) {
+    let cfg = null, elvenett = null, error = '';
     if (cfgText.trim()) {
         try { cfg = JSON.parse(cfgText); } catch (e) { cfg = null; }
     }
@@ -159,6 +142,26 @@ function parse(text) {
         }
     }
     return { cfg, hours, elvenett, error };
+}
+
+async function readOptionalJson(filename) {
+    const file = await openHistoryFile(filename);
+    if (!file) return '';
+    try { return await file.readFile('utf8'); }
+    finally { await file.close(); }
+}
+
+async function readPayback() {
+    const hours = {};
+    const names = (await historyNames(LOG_DIR)).filter(e => e.isFile()).map(e => e.name).sort();
+    for (const [mode, pattern] of [['CSV', /^energy-....-..\.csv$/], ['LOG', /^energy-....-..-..\.log$/]]) {
+        for (const name of names.filter(name => pattern.test(name))) {
+            for await (const { line } of historyLines(await openHistoryFile(`${LOG_DIR}/${name}`))) {
+                parseEnergyLine(hours, line.replace(/\r$/, ''), mode);
+            }
+        }
+    }
+    return parseSettings(hours, await readOptionalJson(CFG_FILE), await readOptionalJson(ELVENETT_FILE));
 }
 
 function tierOf(kw, st) {
@@ -262,8 +265,7 @@ function model(st, nowTs, error) {
 const nowTs = Date.now();
 const action = msg.topic === 'ui' && msg.payload ? String(msg.payload.action || 'open') : '';
 
-if (msg.topic === 'read') {
-    const p = parse(msg.payload);
+function publish(p) {
     context.set('hours', p.hours);
     context.set('elvenett', p.elvenett);
     context.set('elvenettError', p.error);
@@ -271,6 +273,18 @@ if (msg.topic === 'read') {
     context.set('settings', st);
     node.status({ fill: 'green', shape: 'dot', text: Object.keys(p.hours).length + ' h of data, ' + new Date(nowTs).toTimeString().slice(0, 5) });
     return [model(st, nowTs), null, null];
+}
+
+if (msg.topic === 'read') {
+    const hours = {};
+    let mode = '', cfg = '', elvenett = '';
+    for (const line of String(msg.payload || '').split(/\r?\n/)) {
+        if (line.startsWith('@@')) mode = line.slice(2, 5);
+        else if (mode === 'CFG') cfg += line;
+        else if (mode === 'ELV') elvenett += line;
+        else parseEnergyLine(hours, line, mode);
+    }
+    return publish(parseSettings(hours, cfg, elvenett));
 }
 
 if (action === 'save') {
@@ -287,4 +301,10 @@ if (action === 'reset') {
 
 // 'open' / 'refresh' / 'tick': show what is cached, then read the files again
 const st = context.get('settings');
-return [st ? model(st, nowTs) : null, { topic: 'read', payload: readCmd() }, null];
+if (st) node.send([model(st, nowTs), null, null]);
+if (context.get('reading')) return null;
+context.set('reading', true);
+return readPayback().then(publish).catch(error => {
+    node.error('Payback history: ' + error.message, msg);
+    return [model(st || cleanSettings(DEFAULTS), nowTs, 'Could not read payback history'), null, null];
+}).finally(() => context.set('reading', false));

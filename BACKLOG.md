@@ -52,10 +52,55 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 
 | ID | Phase | Task | State |
 |---|---|---|---|
-| NR8 | B perf | Memory: `storeOutMessages` on 20 templates (65 KB heat pump page), day-file reads via `sh`; measure RSS, trim | open |
+| NR8 | B perf | Memory: `storeOutMessages` on dashboard templates, day-file reads via `sh`; measure RSS, trim | In progress: `nr8-memory` (local d#252; PR slot held by #201) |
 | P-R1 | process | After-the-fact review of #103: done 22 Nov, OK with Low findings (no weakened expectations, tick gate only in the fixture, wall time ~67 → ~14 min). Follow-ups T-R1a..c | done |
 | P-A1 | process | Owner approval page on the GX: a dashboard page (owner login) with expiring, per-action approvals Claude/CI can read but not set: e.g. "run NR1 baseline (read-only, 15 min)", "deploy d#N", "UTCP control writes". Each approval: one action, scope, expiry (default 1 h), audit log + mail; default off; no secrets on the page; never grants shell / key access. Design first (threat model), then build with tests | open |
 | P-H1 | process | "Herdr server" scheduled task fails at start (0xC000013A, 21 + 22 Nov); Herdr now runs only in a Claude Code terminal tab. Make the task start the server reliably (hidden, no console to close), test after a logoff / reboot | open |
+
+**NR8 inventory (d#251, synthetic Test GX).** Sizes are UTF-8 bytes of the last Dashboard wire
+message's `msg` object, not heap sizes or live GX measurements. Dashboard 3.6.6 stores browser-produced
+messages with `storeOutMessages` and replays backend messages with `resendOnRefresh`; it still keeps the
+latest backend payload in `currentValues` with both flags off. NR4 already disabled both on the
+Heat Pump page (historically ~65 KB), raw data and heat-pump history.
+
+| Template previously storing messages | Fixture bytes | Replay |
+|---|---:|---|
+| Hourly loads table copy | 1896 | Off; grid trace or connect |
+| Root files navigator | 1870 | Keep; connect-only refresh, omit unused selection fields |
+| Selected root file contents | 139 | Keep; connect-only refresh and selected preview |
+| Analytics KPI panel | 1279 | Off; grid trace |
+| Analytics hourly table | 215 | Off; grid trace |
+| High-voltage settings editor | 1271 | Keep; connect/save, omit unused diagnostic fields |
+| Analytics diagnostics | 533 | Off; grid trace |
+| Analytics pending metrics | 481 | Off; grid trace |
+| Controller constants editor | 4654 | Keep; connect/save, field definitions are rendered |
+| Backup manager | 1350 | Keep; on-demand results and archive list |
+| Device status | 7851 | Off; requests on page open |
+| Driver checks | 4209 | Off; requests on page open |
+| MCP page | 1436 | Off; requests on page open |
+| Automations page | 3473 | Off; requests on page open and ticks every 10 s |
+| Automation log page | 1179 | Off; requests on page open and keeps its potentially large model out of `currentValues` |
+| Payback page | 1286 | Off; requests on page open |
+| Devices page | 3902 | Off; requests on page open |
+| Air quality page | 9224 | Off; requests on page open (including historical days) |
+
+| Former shell history reader | Size and new read scope |
+|---|---|
+| Selected energy day (18) | Legacy log: up to 25 hourly records (~1.2 KiB at the documented row size); monthly CSV: 672–745 hourly records (~29–33 KiB). Stream and keep only selected-day rows; keep raw preview and CSV precedence. |
+| Month energy restore (63/68) | One monthly CSV plus matching legacy day logs. Stream in legacy-then-CSV order without touching controller node `01`. |
+| Heat-pump history (37/38/62) | One 30 s sample per row, nominally 120/hour and 2880/day. Fixture: 1064 bytes compressed for the scenario hour; active partial file 1145 bytes plain. Summary used to concatenate up to 14 days; now processes one uncached day at a time. Optional motion JSONL size varies with event count; no motion fixture file in this run. |
+| Automation log (42) | Fixture: 3215 bytes for the scenario day and 694 bytes for the startup day; no size cap per day. Stream selected day and cache archived line counts for up to 90 listed days. |
+| Payback (48) | All retained monthly CSVs and legacy day logs (grows with retention); stream rows into the existing hourly model and read the two JSON settings/statistics files separately. |
+
+The UTCP automation-log endpoint already requests a bounded `tail`; the Files explorer previews arbitrary
+files (512 KiB for plain files) and is not a history builder. Neither was changed.
+
+**NR8 RSS check (synthetic Test GX).** The same Heat Pump idle/recovery scenario passed on d#251
+and d#252. For each run, 12 Node-RED `VmRSS` samples were taken one second apart, starting 10 seconds
+after scenario container recreation. Baseline mean/peak: 180.55/184.94 MiB; candidate: 182.48/186.77 MiB.
+This short run did not show lower steady RSS; it does not represent live retention or large archived
+histories. Live measurement is deferred to the owner's NR1 sampler. Edge verified on-open data and
+selective replay on the synthetic Dashboard; controller node `01` was unchanged.
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|

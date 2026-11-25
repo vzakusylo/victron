@@ -14,6 +14,9 @@
 //   "NN Name.html"     -> ui_template "Name" (or "Name" without a trailing " page"), property `format`
 // A leading `// #libs <JSON array>` in "NN Name.js" sets `libs` on every Function
 // node matched by that source name, just like `func`, without changing its code.
+// `// #no-template-replay <JSON array of names>` opts directly wired templates out of replay.
+// `// #bypass-exec ["name"]` removes an obsolete read-only exec feeding this function.
+// `// #replace-exec true` converts a same-named exec with only stdout wired to a Function.
 // Sources are embedded with LF line endings and without trailing blank lines, whatever the
 // checkout uses, so the same source always gives the same flows.json.
 'use strict';
@@ -45,11 +48,25 @@ function listSources() {
         const kind = m[3];
         let text = normalize(fs.readFileSync(path.join(ROOT, file), 'utf8'));
         let libs;
-        const declaration = kind === '.js' && /^\/\/ #libs\b([^\n]*)\n?/.exec(text);
-        if (declaration) {
-            try { libs = JSON.parse(declaration[1]); }
-            catch (error) { throw new Error(file + ': invalid #libs JSON: ' + error.message, { cause: error }); }
-            if (!Array.isArray(libs)) throw new Error(file + ': #libs must be a JSON array.');
+        let noReplay = [];
+        let bypassExec = [];
+        let replaceExec = false;
+        let declaration;
+        const seen = new Set();
+        while (kind === '.js' && (declaration = /^\/\/ #(libs|no-template-replay|bypass-exec|replace-exec)\b([^\n]*)\n?/.exec(text))) {
+            const [, key, json] = declaration;
+            if (seen.has(key)) throw new Error(file + ': repeated #' + key + ' declaration.');
+            seen.add(key);
+            let value;
+            try { value = JSON.parse(json); }
+            catch (error) { throw new Error(file + ': invalid #' + key + ' JSON: ' + error.message, { cause: error }); }
+            if (key === 'replace-exec' ? value !== true : !Array.isArray(value)) {
+                throw new Error(file + ': #' + key + (key === 'replace-exec' ? ' must be true.' : ' must be a JSON array.'));
+            }
+            if (key === 'libs') libs = value;
+            else if (key === 'no-template-replay') noReplay = value;
+            else if (key === 'bypass-exec') bypassExec = value;
+            else replaceExec = true;
             text = text.slice(declaration[0].length);
         }
         return {
@@ -60,7 +77,10 @@ function listSources() {
             prop: kind === '.html' ? 'format' : (kind === '.init.js' ? 'initialize' : 'func'),
             // `// #include lib/…js` lines are replaced by the file's text (tools/includes.js)
             text: normalize(expand(text, ROOT)),
-            libs
+            libs,
+            noReplay,
+            bypassExec,
+            replaceExec
         };
     }).filter(Boolean).sort((a, b) => a.file.localeCompare(b.file));
 }
@@ -79,6 +99,38 @@ function nodesFor(flows, source) {
 function readFlows() {
     const raw = fs.readFileSync(FLOWS, 'utf8');
     return { raw, flows: JSON.parse(raw), eol: raw.includes('\r\n') ? '\r\n' : '\n' };
+}
+
+function replayTemplates(flows, node, source) {
+    const destinations = new Set((node.wires || []).flat());
+    return source.noReplay.map(name => {
+        const matches = flows.filter(n => n.type === 'ui_template' && n.name === name && destinations.has(n.id));
+        if (matches.length !== 1) throw new Error(source.file + ': expected one directly wired template named ' + JSON.stringify(name));
+        return matches[0];
+    });
+}
+
+function bypassExecs(flows, node, source, checkOnly = false) {
+    let removed = 0;
+    for (const name of source.bypassExec) {
+        const index = flows.findIndex(n => n.type === 'exec' && n.name === name);
+        if (index < 0) continue;
+        if (checkOnly) return true;
+        const exec = flows[index];
+        if (exec.wires.flat().some(id => id !== node.id) || !exec.wires[0].includes(node.id)) {
+            throw new Error(source.file + ': cannot bypass ' + name + ' with other destinations');
+        }
+        for (const n of flows) {
+            n.wires?.forEach((out, i) => {
+                if (out.includes(exec.id)) n.wires[i] = [...new Set(out.flatMap(id => id !== exec.id ? [id] : n.id === node.id ? [] : [node.id]))];
+            });
+            if (n.nodes?.includes(exec.id)) n.nodes = n.nodes.filter(id => id !== exec.id);
+        }
+        flows.splice(index, 1);
+        removed++;
+        console.log('SYNCED    ' + source.file + ' -> bypass ' + name);
+    }
+    return removed;
 }
 
 function serialize(flows, eol) {
@@ -105,12 +157,31 @@ function cmdSync(args) {
     for (const source of listSources()) {
         if (only.length && !only.includes(source.number)) continue;
         const nodes = nodesFor(flows, source);
+        if (source.replaceExec && !nodes.length) {
+            const matches = flows.filter(n => n.type === 'exec' && n.name === source.name);
+            if (matches.length !== 1 || matches[0].wires.slice(1).some(out => out.length)) {
+                throw new Error(source.file + ': expected one same-named exec with only stdout wired');
+            }
+            const old = matches[0];
+            const { command, addpay, append, useSpawn, timer, oldrc, ...layout } = old;
+            const replacement = { ...layout, type: 'function', outputs: 1, wires: [old.wires[0]] };
+            flows[flows.indexOf(old)] = replacement;
+            nodes.push(replacement);
+        }
         if (!nodes.length) {
             console.error('NO NODE   ' + source.file + ' (expected ' + source.type + ' "' + source.name + '")');
             process.exitCode = 1;
             continue;
         }
         for (const node of nodes) {
+            changed += bypassExecs(flows, node, source);
+            for (const template of replayTemplates(flows, node, source)) {
+                if (template.storeOutMessages === false && template.resendOnRefresh === false) continue;
+                template.storeOutMessages = false;
+                template.resendOnRefresh = false;
+                changed++;
+                console.log('SYNCED    ' + source.file + ' -> ' + template.name + ' (dashboard replay)');
+            }
             const codeChanged = node[source.prop] !== source.text;
             const libsChanged = source.libs !== undefined && !isDeepStrictEqual(node.libs, source.libs);
             if (!codeChanged && !libsChanged) continue;
@@ -159,6 +230,12 @@ function cmdCheck() {
         const nodes = nodesFor(flows, source);
         if (!nodes.length) problems.push(source.file + ': no ' + source.type + ' node named "' + source.name + '"');
         for (const node of nodes) {
+            if (bypassExecs(flows, node, source, true)) problems.push(source.file + ': obsolete read exec still present - run: node tools/flows.js sync');
+            for (const template of replayTemplates(flows, node, source)) {
+                if (template.storeOutMessages !== false || template.resendOnRefresh !== false) {
+                    problems.push(source.file + ': dashboard replay enabled on "' + template.name + '" - run: node tools/flows.js sync');
+                }
+            }
             if (node[source.prop] !== source.text) problems.push(source.file + ': differs from node "' + node.name + '" (' + source.prop + ') - run: node tools/flows.js sync');
             if (source.libs !== undefined && !isDeepStrictEqual(node.libs, source.libs)) {
                 problems.push(source.file + ': differs from node "' + node.name + '" (libs) - run: node tools/flows.js sync');

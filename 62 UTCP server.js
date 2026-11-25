@@ -29,7 +29,7 @@
 // - 1 -> "UTCP HTTP response"
 // - 2 -> "Heat pump automations" (40): `ui` messages of the control tools and their "UTCP: …" log notes
 // - 3 -> exec "UTCP read automation log" (tail of the day file); its stdout comes back to this node
-// - 4 -> exec "Read heat pump history" (the dashboard's day reader) -> "Build heat pump history" (38), whose second
+// - 4 -> "Build heat pump history" (38), whose second
 //        output (msg.utcp set) comes back to this node with the idle periods / event lane of the day
 // Change notes:
 // 1. Initial version (H14).
@@ -39,7 +39,6 @@
 
 const MANUAL_VERSION = '1.0.0';
 const LOG_DIR = '/data/home/nodered/grid-control-logs/automations';
-const HIST_DIR = '/data/home/nodered/grid-control-logs/heatpump';
 const CONTROL_GAP_MS = 10 * 1000;
 const LOG_LINES_DEFAULT = 50;
 const LOG_LINES_MAX = 200;
@@ -48,7 +47,6 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MODE_TO_UI = { off: 'off', test: 'dry', on: 'live' };
 const MODE_TEXT = { off: 'Off', test: 'Test', on: 'On' };
 // Shell snippet: print every hour file of day folder $d in hour order (gz or plain), as "Heat pump command" (37) does
-const CAT_DAY = 'for f in $(ls $d | sort); do case $f in *.csv.gz) gzip -dc $d/$f;; *.csv) cat $d/$f;; esac; done';
 
 const pad = (v) => String(v).padStart(2, '0');
 const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
@@ -181,6 +179,7 @@ if (msg.utcpPhase === 'log') {
 }
 if (msg.utcpPhase === 'day') {
     const d = msg.payload || {};
+    if (d.error) return respond(500, { day: msg.utcpDay, error: d.error });
     if (d.empty) return respond(200, { day: msg.utcpDay, available: false, note: 'No heat pump records for this day.' });
     if (msg.utcpTool === 'get_event_lane') {
         const segments = d.events.map((e) => ({ kind: e.kind, from: e.from, to: e.to, minutes: e.min, tooltip: e.tip || e.kind }));
@@ -244,5 +243,5 @@ const min = args.minMinutes === undefined ? 1 : Number(args.minMinutes);
 if (!Number.isFinite(min) || min < 0) return respond(400, { error: 'minMinutes must be a number ≥ 0' });
 msg.utcpPhase = 'day-request'; msg.utcpDay = day; msg.utcpTool = tool.name; msg.utcpMin = min;
 msg.utcp = tool.name; msg.topic = 'day'; msg.day = day;
-msg.payload = "'cd " + HIST_DIR + ' 2>/dev/null || exit 0; d=' + day + '; [ -d $d ] || exit 0; echo "#day $d"; ' + CAT_DAY + "'";
+delete msg.payload;
 return [null, null, null, msg];

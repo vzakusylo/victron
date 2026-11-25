@@ -1,3 +1,4 @@
+// #libs [{"var":"fs","module":"fs"}]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -11,15 +12,17 @@
 // - msg.payload : selected date string ('YYYY-MM-DD') or null/undefined for today
 // Flow context read:
 // - `dailySummary` -> today's completed summary (used as fallback)
-// Output (1):
-// - output 1 -> resolved summary payload { dateKey, hours } for the dashboard table
+// Output:
+// - both loading and resolved file messages go to "Build dashboard hourly widgets"
 // Change notes:
 // 1. Initial version.
 // 2. The command is single-quoted for the exec node, which now runs `sh -c <payload>`
 //    (before, `-c` was appended after the payload, so `sh` tried to open a script named `cat`
 //    and only the energy-*.log fallback ran).
 // 3. Also prints the selected day's rows from the monthly `energy-YYYY-MM.csv`.
+// 4. Stream only the selected legacy file and the matching rows of the monthly CSV.
 // ==========================
+// #include lib/history/lines.js
 function todayKeyFromDate(date) {
     return [
         date.getFullYear(),
@@ -65,22 +68,17 @@ flow.set('dashboardSelectedDate', selectedDate);
 const summaryFileName = '/data/home/nodered/grid-control-logs/summary-' + selectedDate + '.log';
 const energyFileName = '/data/home/nodered/grid-control-logs/energy-' + selectedDate + '.log';
 const monthCsvFileName = '/data/home/nodered/grid-control-logs/energy-' + selectedDate.substring(0, 7) + '.csv';
-// Legacy daily file first, then the day's rows from the monthly CSV (later rows win per hour).
-const shellCommand = '{ cat "' + summaryFileName + '" 2>/dev/null || cat "' + energyFileName + '" 2>/dev/null; }; grep "^' + selectedDate + ' " "' + monthCsvFileName + '" 2>/dev/null; true';
+const selection = { dateKey: selectedDate, summaryFileName, energyFileName };
+node.send([null, { ...selection, topic: 'selected-day-summary-loading', payload: '' }]);
 
-return [
-    {
-        topic: 'selected-day-summary-file',
-        dateKey: selectedDate,
-        payload: "'" + shellCommand.replace(/'/g, "'\\''") + "'",
-        summaryFileName,
-        energyFileName
-    },
-    {
-        topic: 'selected-day-summary-loading',
-        dateKey: selectedDate,
-        payload: '',
-        summaryFileName,
-        energyFileName
+async function readSummary() {
+    const legacy = await openHistoryFile(summaryFileName) || await openHistoryFile(energyFileName);
+    let payload = '';
+    for await (const { line, newline } of historyLines(legacy)) payload += line + (newline ? '\n' : '');
+    for await (const { line } of historyLines(await openHistoryFile(monthCsvFileName))) {
+        if (line.startsWith(selectedDate + ' ')) payload += line + '\n';
     }
-];
+    if (flow.get('dashboardSelectedDate') !== selectedDate) return null;
+    return [{ ...selection, topic: 'selected-day-summary-file', payload }, null];
+}
+return readSummary().catch(error => { node.error('Selected energy day: ' + error.message, msg); return null; });

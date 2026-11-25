@@ -1,3 +1,5 @@
+// #no-template-replay ["Hourly loads table copy"]
+// #bypass-exec ["Read selected summary file"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

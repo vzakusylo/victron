@@ -8,7 +8,7 @@
 // Input:
 // - topic `hourly-energy` (controller output 5), msg.payload =
 //   { hourKey: 'YYYY-MM-DD HH', gridWh, acWh, solarWh } -> add / replace that hour
-// - topic `tariff-history` (exec "Read month energy history", string payload = the month's
+// - topic `tariff-history` ("Read month energy history", string payload = the month's
 //   energy files) -> restore today's hours after a restart or redeploy; hours already
 //   counted live are kept
 // Flow context write:

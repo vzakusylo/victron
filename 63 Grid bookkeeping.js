@@ -8,12 +8,7 @@ const TARIFF_HISTORY_TOPIC = "tariff-history";
 const TARIFF_HISTORY_RETRY_MS = 60000;
 const QUIET_TOPICS = ["grid-control-tick", "grid-power"];
 const TRACE_MIN_INTERVAL_MS = 5000;
-const ENERGY_LOG_DIR = "/data/home/nodered/grid-control-logs";
 
-function buildEnergyHistoryCommand(monthKey) {
-    const script = 'cd "' + ENERGY_LOG_DIR + '" 2>/dev/null && cat energy-' + monthKey + '-*.log energy-' + monthKey + '.csv 2>/dev/null; true';
-    return "'" + script.replace(/'/g, "'\\''") + "'";
-}
 
 if (!msg.tick) {
     if (msg.topic === TARIFF_HISTORY_TOPIC && typeof msg.payload === "string") {
@@ -308,7 +303,7 @@ let tariffHistoryRequestMsg = null;
 
 if (tariffHistoryState.monthKey !== monthKey
     && nowTs - (Number(tariffHistoryState.requestedAt) || 0) >= TARIFF_HISTORY_RETRY_MS) {
-    tariffHistoryRequestMsg = { topic: TARIFF_HISTORY_TOPIC, payload: buildEnergyHistoryCommand(monthKey) };
+    tariffHistoryRequestMsg = { topic: TARIFF_HISTORY_TOPIC, monthKey };
     context.set("tariffHistoryState", { monthKey: "", requestedAt: nowTs });
 }
 
