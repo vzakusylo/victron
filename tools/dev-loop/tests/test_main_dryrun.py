@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import victron_loop.main as main_mod
 from victron_loop.main import main
+from victron_loop.state import StateStore
 
 
 def test_dry_run_state_file_unchanged(tmp_path: Path, monkeypatch):
@@ -60,7 +62,8 @@ model_tiers_file = "missing-models.json"
             return []
 
         def view_run_jobs(self, run_id):
-            return [{"steps": [{"name": "Monitor post-deploy health", "conclusion": "success"}]}]
+            return [{"steps": [{"name": "Deploy from master", "conclusion": "success"},
+                               {"name": "Monitor post-deploy health", "conclusion": "success"}]}]
 
     monkeypatch.setattr(main_mod, "GhCli", FakeGh)
     monkeypatch.chdir(tmp_path)
@@ -69,6 +72,9 @@ model_tiers_file = "missing-models.json"
     assert code == 0
     assert state_file.read_bytes() == before
     assert (state_dir / "dry-run.jsonl").exists()
+    observed = json.loads((state_dir / "dry-run.jsonl").read_text())["observed"]
+    assert observed["test_gx"]["databaseId"] == 2
+    assert observed["deploy_applied"] and observed["deploy_health"] == "success"
 
 
 def test_main_reads_backlog_from_repo_path(tmp_path: Path, monkeypatch, capsys):
@@ -116,7 +122,8 @@ model_tiers_file = "missing-models.json"
             return []
 
         def view_run_jobs(self, run_id):
-            return [{"steps": [{"name": "Monitor post-deploy health", "conclusion": "success"}]}]
+            return [{"steps": [{"name": "Deploy from master", "conclusion": "success"},
+                               {"name": "Monitor post-deploy health", "conclusion": "success"}]}]
 
     monkeypatch.setattr(main_mod, "GhCli", FakeGh)
     monkeypatch.chdir(tmp_path)
@@ -126,4 +133,33 @@ model_tiers_file = "missing-models.json"
     assert code == 0
     assert "RGOOD" in out
     assert "RBAD" not in out
+
+
+def test_timer_command_records_dry_run_completion_and_output(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(main_mod, "load_config", lambda _: main_mod.LoopConfig(repo="test/repo"))
+
+    def tick(*_):
+        print("timer output")
+        print("timer diagnostic", file=sys.stderr)
+        return "deploy-pending"
+
+    monkeypatch.setattr(main_mod, "run_tick", tick)
+    assert main(["--config", "config.toml", "run-once"]) == 0
+    store = StateStore.open()
+    run = store.last_run()
+    assert run["result"] == "deploy-pending" and run["dry_run"] is True
+    assert store.run_logs()[0].stem == run["id"]
+    assert store.run_logs()[0].read_text(encoding="utf-8") == "timer output\ntimer diagnostic\n"
+    captured = capsys.readouterr()
+    assert captured.out == "timer output\n" and captured.err == "timer diagnostic\n"
+    assert main(["status"]) == 0
+    assert json.loads(capsys.readouterr().out)["last_run"] == run
+
+
+def test_run_logs_keep_last_fifty(tmp_path):
+    store = StateStore.open(tmp_path)
+    for index in range(52):
+        store.record_run({"id": f"{index:019d}", "result": "idle"}, "output")
+    assert [int(path.stem) for path in store.run_logs()] == list(range(51, 1, -1))
 

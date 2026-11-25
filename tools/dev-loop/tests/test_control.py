@@ -72,7 +72,8 @@ class HealthyGh:
         return [{"databaseId": 1}]
 
     def view_run_jobs(self, _):
-        return [{"steps": [{"name": "Monitor post-deploy health", "conclusion": "success"}]}]
+        return [{"steps": [{"name": "Deploy from master", "conclusion": "success"},
+                           {"name": "Monitor post-deploy health", "conclusion": "success"}]}]
 
 
 def test_stop_requires_confirmation_and_marks_stopped(tmp_path, monkeypatch):
@@ -108,20 +109,35 @@ def test_stop_preserves_unverified_live_group(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("with_token", [False, True])
 def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
-    cfg = LoopConfig(repo="test/repo", web_bind="127.0.0.1:0", token_file=None)
+    cfg = LoopConfig(repo="test/repo", web_bind="127.0.0.1:0", token_file=None,
+                     web_hosts=("omarchy", "omarchy.example-tailnet.ts.net"))
     if with_token:
         cfg.web_token_file = tmp_path / "web-token"
         cfg.web_token_file.write_text("test-only-token-1234", encoding="utf-8")
     store = StateStore.open(tmp_path)
-    monkeypatch.setattr(web, "next_timer", lambda: "unknown")
+    monkeypatch.setattr(web, "timer_times", lambda: {"timer_last": "09:00", "timer_next": "09:10"})
+    store.append_dry_run({"result": "gh-observation-error", "observed": {
+        "test_gx": {"databaseId": 2}, "deploy_health": "pending", "errors": {"deploy": "HTTP 403"}
+    }})
+    store.record_run({"id": "1234567890123456789", "at": 1, "result": "idle"}, "old\n")
+    store.record_run({"id": "1234567890123456790", "at": 2, "result": "idle", "dry_run": True},
+                     "first\n\x1b[31mERROR\x1b[0m ghp_fake_secret_token\nlast\n")
+    unit_status = "inactive"
+    commands = []
 
     def git(cmd, **_):
+        if cmd[:3] == ["systemctl", "--user", "show"]:
+            return unit_status
+        if cmd[0] == "journalctl":
+            commands.append(cmd)
+            return "first\nnewest\n"
         if cmd[-2:] == ["rev-parse", "origin/master"]:
             return "commit123\n"
         assert cmd[-2:] == ["show", "commit123:BACKLOG.md"]
         return BACKLOG
 
     monkeypatch.setattr(control.subprocess, "check_output", git)
+    monkeypatch.setattr(control.subprocess, "run", lambda cmd, **_: commands.append(cmd))
     with web.make_server(cfg, store) as server:
         thread = Thread(target=server.serve_forever)
         thread.start()
@@ -153,18 +169,50 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
                 auth["Cookie"] = cookie.split(";", 1)[0]
             assert request("POST", "/api/pause")[0] == 403
             assert request("GET", "/api/status", {"Host": "invalid"})[0] == 403
+            for name in cfg.web_hosts:
+                assert request("GET", "/", {"Host": f"{name}:{server.server_port}"})[0] == 200
+            assert request("GET", "/", {"Host": f"unknown:{server.server_port}"})[0] == 403
+            assert request("GET", "/", {"Host": "omarchy:1"})[0] == 403
             status, body, csrf = request("GET", "/api/status")
             data = json.loads(body)
             assert status == 200 and csrf
             assert data["plan"]["next"]["row_id"] == "A"
             assert data["plan"]["commit"] == "commit123"
+            assert data["test_gx"]["databaseId"] == 2 and data["health"] == "pending"
+            assert data["errors"] == {"deploy": "HTTP 403"}
+            assert data["timer_last"] == "09:00" and data["timer_next"] == "09:10"
             assert data["budget"] == {"used": 0, "cap": 3}
             assert data["worker"] is None and data["phase"] == "idle"
             status, body, _ = request("GET", "/")
             assert status == 200 and b"Next task" in body and b"Save note" in body
+            assert b"null" not in body and b"{" not in body
+            assert b"No active worker" in body and b"No open PR" in body and b"None sent" in body
+            assert b'aria-current="step"' in body and b"HTTP 403" in body
+            assert request("GET", "/dashboard.js")[0] == 200
+            assert request("GET", "/api/logs?source=unknown")[0] == 400
+            assert request("GET", "/api/logs?source=..%2Ftoken")[0] == 400
+            assert request("GET", "/api/logs?source=loop&lines=501")[0] == 400
+            code, logs, _ = request("GET", "/api/logs?source=last-run&lines=1&q=error")
+            assert code == 200 and json.loads(logs)["lines"] == ["ERROR [redacted]"]
+            code, logs, _ = request("GET", "/api/logs?source=runners")
+            assert code == 200 and json.loads(logs)["lines"] == ["newest", "first"]
+            assert commands[-1] == ["journalctl", "--user", "-u", "actions-runner-victron.service",
+                                    "-n", "500", "-o", "short-iso", "--no-pager"]
             assert request("POST", "/api/pause", {"X-CSRF-Token": csrf, "Host": "invalid"})[0] == 403
-            assert request("POST", "/api/pause", {"X-CSRF-Token": csrf, "Content-Type": "application/json"})[0] == 200
-            assert store.load()["paused"]
+            headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
+            code, body, _ = request("POST", "/api/pause", headers)
+            assert code == 200 and json.loads(body) == {"ok": True, "message": "Paused", "paused": True}
+            code, body, _ = request("POST", "/api/resume", headers)
+            assert code == 200 and json.loads(body) == {"ok": True, "message": "Resumed", "paused": False}
+            code, body, _ = request("POST", "/api/resume", headers)
+            assert code == 200 and json.loads(body)["message"] == "Already running"
+            code, body, _ = request("POST", "/api/run-now", headers)
+            assert code == 200 and json.loads(body)["message"] == "Run started"
+            assert commands[-1] == ["systemctl", "--user", "start", "--no-block", "victron-loop.service"]
+            unit_status = "activating"
+            code, body, _ = request("POST", "/api/run-now", headers)
+            assert code == 409 and "already active" in json.loads(body)["message"]
+            assert not store.load()["paused"]
         finally:
             server.shutdown()
             thread.join()
@@ -175,3 +223,12 @@ def test_web_rejects_non_tailnet_bind(tmp_path, host):
     cfg = LoopConfig(repo="test/repo", web_bind=f"{host}:0", token_file=None)
     with pytest.raises(ValueError, match="Tailscale IPv4 or loopback"):
         web.make_server(cfg, StateStore.open(tmp_path))
+
+
+def test_timer_times_reads_last_and_next(monkeypatch):
+    output = ("Wed 2026-11-25 19:10:00 CET  4min left  Wed 2026-11-25 19:00:00 CET  6min ago"
+              "  victron-loop.timer  victron-loop.service\n")
+    monkeypatch.setattr(web.subprocess, "check_output", lambda *_, **__: output)
+    assert web.timer_times() == {
+        "timer_next": "Wed 2026-11-25 19:10:00 CET", "timer_last": "Wed 2026-11-25 19:00:00 CET",
+    }

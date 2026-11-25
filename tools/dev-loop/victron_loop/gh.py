@@ -12,7 +12,9 @@ JsonRunner = Callable[[list[str], dict[str, str] | None], str]
 
 
 def _default_runner(cmd: list[str], env: dict[str, str] | None) -> str:
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+    out = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+    if out.returncode:
+        raise RuntimeError(f"gh {' '.join(cmd[1:3])} exited {out.returncode}: {out.stderr.strip()}")
     return out.stdout
 
 
@@ -46,6 +48,8 @@ class GhCli:
         if head_branch:
             args.extend(["--head", head_branch])
         data = self._run_json(args)
+        if not isinstance(data, list):
+            raise ValueError("gh pr list did not return a PR list")
         return data
 
     def get_pr(self, number: int) -> dict[str, Any]:
@@ -75,13 +79,17 @@ class GhCli:
                 "databaseId,headSha,status,conclusion,url,name,workflowName,createdAt,updatedAt,event",
             ]
         )
+        if not isinstance(data, list):
+            raise ValueError("gh run list did not return a workflow run list")
         return data
 
     def view_run_jobs(self, run_id: int) -> list[dict[str, Any]]:
         data = self._run_json(
             ["run", "view", str(run_id), "--json", "jobs"]
         )
-        return data.get("jobs", [])
+        if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+            raise ValueError("gh run view did not return a jobs list")
+        return data["jobs"]
 
     def list_pr_files(self, number: int) -> list[str]:
         data = self._run_json(["pr", "view", str(number), "--json", "files"])

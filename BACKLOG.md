@@ -173,6 +173,10 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#197 AUTO1-FIX (`auto1-omarchy-setup`, d#250 unchanged · i#67): add the Omarchy installer,
+fix loop status and backlog selection, allow configured MagicDNS hosts, and ship the dashboard
+deploy workflow, control feedback, timer status, redacted logs, and readable status display.
+
 #196 T1-GRID-FLAGS (`t1-grid-flags`, d#250 · i#66): report only selected fixed HV support and force-charge flags without changing control outputs.
 
 #194 AUTO2 (`auto2-loop-control`, d#248 unchanged · i#64): add the Omarchy dev loop

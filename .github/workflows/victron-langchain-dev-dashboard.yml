@@ -1,0 +1,90 @@
+name: victron-langchain-dev-dashboard
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run_only:
+        description: Run the checked-out loop without installing or restarting services
+        type: boolean
+        default: true
+  push:
+    branches: [master]
+    paths:
+      - "tools/dev-loop/**"
+      - ".github/workflows/victron-langchain-dev-dashboard.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-loop-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, omarchy]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install loop and refresh systemd units
+        id: install
+        if: github.event_name == 'push' || !inputs.dry_run_only
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          existing=false
+          if [[ -f "$HOME/victron-loop/.enabled-once" ]]; then existing=true; fi
+          bash tools/dev-loop/install.sh
+          if systemctl --user is-enabled --quiet victron-loop-web.service; then
+            if [[ "$existing" == true ]]; then
+              systemctl --user restart victron-loop-web.service
+            fi
+            echo "dashboard_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dashboard is disabled; leaving it disabled."
+          fi
+      - name: Dry-run the loop in isolated state
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/victron-loop-state-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cd "$HOME/victron-loop"
+          tmp_config="$(mktemp "$RUNNER_TEMP/victron-loop-config.XXXXXX")"
+          trap 'rm -f -- "$tmp_config"' EXIT
+          {
+            printf 'dry_run = true\n'
+            sed -E '/^[[:space:]]*dry_run[[:space:]]*=/d' config.toml
+          } > "$tmp_config"
+          PYTHONPATH="$GITHUB_WORKSPACE/tools/dev-loop" ./venv/bin/python -m victron_loop.main \
+            --config "$tmp_config" run-once --dry-run > "$GITHUB_WORKSPACE/dev-loop-dry-run.log" 2>&1
+      - name: Upload dry-run log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dev-loop-dry-run-log
+          path: dev-loop-dry-run.log
+          retention-days: 14
+      - name: Smoke test enabled dashboard
+        if: steps.install.outputs.dashboard_enabled == 'true'
+        run: |
+          set -euo pipefail
+          cd "$HOME/victron-loop"
+          bind="$(./venv/bin/python -c 'import tomllib; print(tomllib.load(open("config.toml", "rb")).get("web_bind", "127.0.0.1:8790"))')"
+          for attempt in {1..10}; do
+            if status="$(curl -fsS --noproxy '*' --max-time 5 -H "Host: $bind" "http://$bind/api/status")"; then
+              printf '%s\n' "$status" | ./venv/bin/python -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          last = data.get("last_run") or {}
+          print("### Dashboard smoke test")
+          print("- Paused:", data["paused"])
+          print("- Phase:", data["phase"])
+          print("- Last result:", last.get("result") or "No run recorded")
+          ' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [[ "$attempt" != 10 ]]; then sleep 3; fi
+          done
+          echo "Dashboard did not answer the status probe." >&2
+          exit 1

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any, TypedDict
 
-from langgraph.graph import END, StateGraph
+from langchain_core._api.deprecation import LangChainPendingDeprecationWarning
+
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The default value of `allowed_objects` will change.*",
+        category=LangChainPendingDeprecationWarning,
+    )
+    from langgraph.graph import END, StateGraph
 
 from .gh import GhCli
 from .nodes import LoopConfig, check_state, notify, pick_task, start_worker, watch_pr

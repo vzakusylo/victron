@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -65,6 +66,29 @@ class StateStore:
 
     def append_dry_run(self, payload: dict[str, Any]) -> None:
         self._append_jsonl(self.dry_run_file, payload)
+
+    def last_run(self) -> dict[str, Any] | None:
+        try:
+            return json.loads((self.root / "last-run.json").read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+
+    def run_logs(self) -> list[Path]:
+        return sorted(
+            (path for path in (self.root / "runs").glob("*.log")
+             if re.fullmatch(r"\d{19}\.log", path.name)),
+            reverse=True,
+        )
+
+    def record_run(self, run: dict[str, Any], output: str) -> None:
+        directory = self.root / "runs"
+        directory.mkdir(mode=0o700, exist_ok=True)
+        with NamedTemporaryFile("w", delete=False, dir=directory, encoding="utf-8") as temp:
+            temp.write(output)
+        os.replace(temp.name, directory / f"{run['id']}.log")
+        _atomic_write_json(self.root / "last-run.json", run)
+        for path in self.run_logs()[50:]:
+            path.unlink()
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
