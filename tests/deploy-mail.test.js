@@ -48,9 +48,10 @@ test('the mail identifies an enabled drift override', () => {
 test('a failed post-deploy check is visible in the subject and body of the deploy mail', () => {
     const { subject, text } = buildMail({ ...base, health: { status: 'FAIL', checks: [
         { level: 'FAIL', name: 'Outdoor average recovered', detail: 'No fresh outdoor average' }
-    ] } });
+    ], curveChanges: [{ oslo: '2026-11-25 12:00:00', dp: 133, old: 24, new: 40, writer: 'heating controller' }] } });
     assert.match(subject, /health FAIL$/);
     assert.match(text, /Post-deploy health: FAIL\n  FAIL Outdoor average recovered: No fresh outdoor average/);
+    assert.match(text, /P23 · 24 → 40 · heating controller/);
 });
 
 test('empty commit list and unknown previous version', () => {

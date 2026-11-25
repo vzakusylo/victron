@@ -1,3 +1,5 @@
+// #libs [{"var":"fs","module":"fs"}]
+// d#247: persistent curve history, timed standby, opt-in Er03 retries and gentle heating limits.
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -352,6 +354,8 @@ function send(out, m) {
 // #include lib/heat-pump/arbiter-shadow.js
 // #include lib/heat-pump/write-dispatcher.js
 // #include lib/heat-pump/write-attribution.js
+// #include lib/heat-pump/curve-change-log.js
+// #include lib/heat-pump/operator-controls.js
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
 // against the value the device reports (ok / fail in the log, like the Smart Life log).
@@ -384,6 +388,16 @@ function pump(allowOwner = false) {
         ((dp === '133' && !inCurveRange(item.set, P23_MIN, P23_MAX)) ||
          (dp === '134' && !inCurveRange(item.set, P24_MIN, P24_MAX)));
     const heatCurveWrite = !owner && item.rule === HEAT_ID && item.role === 'hp' && (dp === '133' || dp === '134');
+    const cfgNow = context.get('settings') || settings;
+    const devices = flow.get('heatPump') || {};
+    const paused = pauseHolding(at, cfgNow, devices.hp);
+    const pauseDps = devices.hp?.dps || {};
+    const pausedWrite = item.pauseCurve ? ((item.pauseCurve === 'standby') !== paused ||
+        !freshAutomationDevice(devices.valve, at) || !freshAutomationDevice(devices.bypass, at) ||
+        devices.valve.dps['1'] !== false || devices.bypass.dps['1'] !== false ||
+        defrostReading(pauseDps) !== false || pauseDps['1'] !== true || !heatCurveEnabled(pauseDps['132']) ||
+        dhwMeasurement(pauseDps['134']) !== cfgNow.heatCurve?.p24 || (context.get('dhw') || {}).state !== 'HEATING')
+        : paused && item.rule === HEAT_ID && !item.protection && !item.force;
     let unsafeHeatCurve = false;
     if (heatCurveWrite) {
         const cfg = context.get('settings'), hc = cfg?.heatCurve;
@@ -393,7 +407,11 @@ function pump(allowOwner = false) {
             (dp === '134' ? item.set > Math.min(p24, hc.p24)
                 : item.set > heatingP23Limit(hc, cfg.heat?.maxCurveOffset) || (p24 !== hc.p24 && item.set > p23));
     }
-    if (unsafeHeatCurve) {
+    if (pausedWrite) {
+        logEvent({ kind: 'step', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+            text: item.text + ' dropped: pause or circuit state changed' });
+        if (heatCurveWrite) cancelWriteLease('curve', lease => lease.generation === item.modeGeneration);
+    } else if (unsafeHeatCurve) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
             text: item.text + ' refused: no safe heating curve write against current read-back' });
         cancelWriteLease('curve', lease => lease.generation === item.modeGeneration);
@@ -539,6 +557,7 @@ const FAULT_TEXT = { Er03: 'water flow failure' };
 // #include lib/heat-pump/idle.js
 
 function ownerCurveBlock(devices, at) {
+    if (pauseRequested() || settings.pauseStandby) return 'resume the heat pump before editing the curve';
     const d = context.get('dhw') || {};
     return heatCurveWriteBlock(devices.hp, devices.valve?.dps?.['1'] === true, d.state, dhwLastEnd(d), at);
 }
@@ -586,7 +605,12 @@ function ownerCurveTick() {
         pump(true);
         return;
     }
+    const old = settings.heatCurve;
     settings.heatCurve = { p23: request.p23, p24: request.p24, at: now };
+    if (old?.p23 !== request.p23 || old?.p24 !== request.p24) {
+        hpCurveLog.append(now, 'owner curve', old ? { p23: old.p23, p24: old.p24 } : null,
+            { p23: request.p23, p24: request.p24 }, 'owner (dashboard)');
+    }
     const h = heatState();
     h.boost = 0; h.warmApplied = 0; h.warmDeltaApplied = 0; h.curveCmd = null;
     h.p23At = 0; h.curvePartial = false; h.curveReplan = false; h.samples = []; h.offSince = 0; h.offWarned = false;
@@ -606,7 +630,11 @@ if (msg.topic === 'load') {
         settings = { master: s.master === true, modes: {}, dhw: dhwCfg(s.dhw),
             heatCurve: validCurve ? curve : null,
             dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(heatMigrate(s.heat)), dhwLastDone: Number(s.dhwLastDone) || 0,
-            dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || '') } : null,
+            dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || ''),
+                ...((s.dhwBlock.retryable === true || /^fault Er03\b/.test(s.dhwBlock.why)) && { retryable: true }) } : null,
+            retryCount: Number.isInteger(s.retryCount) && s.retryCount > 0 ? s.retryCount : 0,
+            pauseUntil: Number.isFinite(s.pauseUntil) ? s.pauseUntil : 0,
+            pauseStandby: s.pauseStandby === true,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
@@ -757,8 +785,12 @@ if (msg.topic === 'ui') {
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object') {
+        const oldMaxHz = settings.heat?.maxHz || 0;
         const before = JSON.stringify(settings.heat || heatCfg({}));
         settings.heat = heatCfg(p.cfg, settings.heat);
+        if (settings.heat.maxHz !== oldMaxHz) {
+            const h = heatState(); h.gentleHotSince = null; context.set('heat', h);
+        }
         persist();
         const after = JSON.stringify(settings.heat);
         logEvent({ kind: 'setting', rule: HEAT_ID, cloud: HEAT_NAME, text: before === after ? 'settings unchanged (values out of range are ignored)' : 'settings saved: ' + after });
@@ -768,8 +800,31 @@ if (msg.topic === 'ui') {
     if (p.action === 'dhwResume') {
         const b = settings.dhwBlock;
         settings.dhwBlock = null;
+        settings.retryCount = 0;
         persist();
         logEvent({ kind: 'setting', rule: DHW_ID, cloud: DHW_NAME, text: 'DHW allowed again' + (b ? ' (blocked since ' + new Date(b.at).toTimeString().slice(0, 5) + ': ' + b.why + ')' : '') });
+        publishView();
+        return [{ payload: model() }, null, saveMsg(), null, null, null];
+    }
+    if (p.action === 'hpPause' || p.action === 'hpResume') {
+        const duration = p.minutes;
+        if (p.action === 'hpPause' && (!Number.isInteger(duration) || duration < 1 || duration > 1440)) {
+            node.warn('Heat pump pause: duration must be 1–1440 whole minutes'); return null;
+        }
+        if (context.get('settingsLoaded') === false || (p.action === 'hpPause' && !settings.master)) {
+            node.warn('Heat pump pause: load settings and enable local control first'); return null;
+        }
+        const old = settings.pauseUntil || null;
+        settings.pauseUntil = p.action === 'hpPause' ? now + duration * MIN : 0;
+        if (settings.pauseUntil && context.get('ownerCurveRequest')) {
+            settings.pauseUntil = old || 0;
+            node.warn('Heat pump pause: wait for the pending owner curve confirmation'); return null;
+        }
+        if (old !== (settings.pauseUntil || null)) {
+            hpCurveLog.append(now, 'pause until', old ? new Date(old).toISOString() : null,
+                settings.pauseUntil ? new Date(settings.pauseUntil).toISOString() : null, 'owner (pause)');
+        }
+        persist();
         publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }

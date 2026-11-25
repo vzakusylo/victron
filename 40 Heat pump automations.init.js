@@ -1,3 +1,5 @@
+// #include lib/heat-pump/curve-change-log.js
+hpCurveLog.view(Date.now());
 // On Start (d#131): reload the settings file if the context came back empty; a new node instance
 // has no timers, so drop running sequences and queued writes.
 context.set('needLoad', context.get('settings') === undefined);

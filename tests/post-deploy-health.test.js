@@ -162,10 +162,13 @@ test('log timestamps and coverage survive a multilog rotation', (t) => {
 test('remote samples collect configured GETs and D-Bus values, persist bounded history and omit request IDs from output', async (t) => {
     const file = path.join(temporary(t), 'health.json');
     const calls = [];
+    const change = { time: new Date(now - 1000).toISOString(), oslo: '2026-11-25 12:00:00',
+        dp: 133, old: 24, new: 40, writer: 'heating controller' };
     const readings = {
         '/context/node/hpa-fn-01/dhw': { tickAt: now - 1000 },
         '/context/node/hpa-fn-01/heat': {},
-        '/context/flow/target-tab/dhwView': { ...view, ownerCurveResult: { ok: false, text: 'did not confirm', requestId: 'private-id' } },
+        '/context/flow/target-tab/dhwView': { ...view, recentCurveChanges: [change],
+            ownerCurveResult: { ok: false, text: 'did not confirm', requestId: 'private-id' } },
         '/context/flow/target-tab/heatPump': { hp },
         '/context/flow/target-tab/bmsWatchdogState': { status: 'ok', checkedAt: new Date(now - MIN).toISOString() }
     };
@@ -181,12 +184,14 @@ test('remote samples collect configured GETs and D-Bus values, persist bounded h
     const first = await sampleRemote(config, deploy, owned, false, options);
     assert.equal(calls.length, 5);
     assert.equal(first.status, 'WAIT');
+    assert.deepEqual(first.curveChanges, [change]);
     assert.equal(first.checks.some(c => c.level === 'FAIL' || c.key !== undefined), false);
     await sampleRemote(config, deploy, owned, true, options);
     await sampleRemote({ ...config, historyLimit: 2 }, { ...deploy, id: '2-1' }, owned, false, options);
     await sampleRemote({ ...config, historyLimit: 2 }, { ...deploy, id: '3-1' }, owned, false, options);
     const history = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.deepEqual(history.deploys.map(d => d.id), ['3-1', '2-1']);
+    assert.deepEqual(history.deploys[0].samples[0].curveChanges, [change]);
     assert.doesNotMatch(JSON.stringify(history), /private-id|target-tab/);
 });
 

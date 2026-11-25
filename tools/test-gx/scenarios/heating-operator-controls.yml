@@ -1,0 +1,87 @@
+- name: "Owner pause enters standby and resume restores the heating curve"
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"live","heat":"live"},"heat":{"kickMin":0,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.15: 0
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 33.2
+      tuya.pump.dps.103: 5
+      tuya.pump.dps.108: 50
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 33
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      heating: {"action":"hpPause","minutes":30}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 0
+            applied: true
+        view:
+          - path: "pauseStandby"
+            equals: true
+          - path: "recentCurveChanges.0.writer"
+            equals: "owner (pause)"
+    - when: 25m
+      heating: {"action":"hpResume"}
+      settle: "2m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 38
+            applied: true
+        view:
+          - path: "pauseStandby"
+            equals: false
+          - path: "recentCurveChanges.0.writer"
+            equals: "restore"
+
+- name: "Gentle heating holds for three minutes before lowering P23"
+  faketime: "@2026-11-16 20:00:00 x60"
+  settings: {"master":true,"modes":{"dhw":"off","heat":"live"},"heat":{"kickMin":0,"maxBoost":0,"maxHz":60,"maxP23Step":1,"gentleStepMin":5,"preferSilent":true},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
+  initial:
+    inputs:
+      tuya.pump.dps.1: true
+      tuya.pump.dps.2: "mute"
+      tuya.pump.dps.15: 0
+      tuya.pump.dps.101: 31
+      tuya.pump.dps.102: 33.2
+      tuya.pump.dps.103: 5
+      tuya.pump.dps.108: 50
+      tuya.pump.dps.115: 50
+      tuya.pump.dps.116: 596
+      tuya.pump.dps.125: 33
+      tuya.pump.dps.132: "1"
+      tuya.pump.dps.133: 38
+      tuya.pump.dps.134: 4
+  steps:
+    - when: 20m
+      inputs:
+        tuya.pump.dps.115: 70
+      settle: "2m"
+      expect:
+        writes: []
+    - when: 24m
+      settle: "1m"
+      expect:
+        writes:
+          - device: "pump"
+            operation: "SET"
+            dps: "133"
+            value: 37
+            applied: true
+        view:
+          - path: "recentCurveChanges.0.writer"
+            equals: "heating controller"

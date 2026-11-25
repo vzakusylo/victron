@@ -14,7 +14,7 @@ test('heat pump state merges partial DPs and publishes the model on the first ou
     const model = gx.flow.get('heatPumpModel');
     assert.deepEqual(result, [{ payload: model }, null, null]);
     assert.deepEqual(Object.keys(model), ['updated', 'readOnly', 'controls', 'devices', 'summary', 'curveChart',
-        'dhwChart', 'heatCtl', 'status', 'items', 'unknown']);
+        'curveChanges', 'pause', 'dhwChart', 'heatCtl', 'status', 'items', 'unknown']);
     assert.deepEqual(model.devices.map(device => device.role), ['hp', 'valve', 'bypass', 'meter', 'acc', 'plate']);
     const { supply, ret, tank, compressorPowerW, mode, workMode, faults, defrostSign } = model.summary;
     assert.deepEqual({ supply, ret, tank, compressorPowerW, mode, workMode, faults, defrostSign }, {
