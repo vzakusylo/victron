@@ -99,7 +99,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
 | G3-DAILY | Reset the feedback notice count at the Oslo day boundary | G3 | in progress (`g3-daily` / #195) | The dashboard currently shows a cumulative context count, not the daily count in the G3 plan. |
 | G3-TRACKING | Detect sustained physical import divergence separately from command read-back | G3 | open | The current read-back confirms the command paths, not sustained physical tracking; define the detection threshold before enabling alarms. |
-| T1-GRID-LEAP | Correct the next-season preview for a Feb 29 switch | T1 | in progress: `t1-grid-leap` | A valid Feb 29 setting can display March 1 before the leap year even though control switches February 29. |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -172,6 +171,9 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#200 T1-GRID-LEAP (`t1-grid-leap`, d#251 · i#70): preview February 29 in leap years and March 1
+in non-leap years without changing tariff season control.
 
 #199 AUTO1-PATH (`auto1-loop-path`, d#250 unchanged · i#69): resolve the Copilot CLI
 under Omarchy systemd and report a missing executable once.
