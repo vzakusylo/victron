@@ -31,6 +31,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
 | #191 | `hp-l1-curve-change-log` | HP-L1, HP-P1, HP-R1, HP-G1, T1 heating/boiler, B1 | Await review and required checks; keep auto-merge paused until feedback is addressed. |
+| #195 | `g3-daily` | G3-DAILY | Rebased on master; checks pending. |
 
 ## 2. Deploy
 
@@ -96,7 +97,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
-| G3-DAILY | Reset the feedback notice count at the Oslo day boundary | G3 | in progress (`g3-daily`) | The dashboard currently shows a cumulative context count, not the daily count in the G3 plan. |
+| G3-DAILY | Reset the feedback notice count at the Oslo day boundary | G3 | in progress (`g3-daily` / #195) | The dashboard currently shows a cumulative context count, not the daily count in the G3 plan. |
 | G3-TRACKING | Detect sustained physical import divergence separately from command read-back | G3 | open | The current read-back confirms the command paths, not sustained physical tracking; define the detection threshold before enabling alarms. |
 | T1-GRID-LEAP | Correct the next-season preview for a Feb 29 switch | T1 | open | A valid Feb 29 setting can display March 1 before the leap year even though control switches February 29. |
 | T1-GRID-FLAGS | Align fixed HV support and force-charge flags with the selected decision | T1 | open | Without CT, `GS` can show an unapplied cap; when manual discharge wins, `FC` can still show a force charge. Targets are unchanged by these flags. |
