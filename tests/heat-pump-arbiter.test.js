@@ -163,3 +163,29 @@ test('DHW deploy recovery sends P22, P24, and P23 in order under one curve gener
     step(call, 1500, 1);
     assert.deepEqual(setters(call), [set(132, '1'), set(134, 7), set(133, 39)]);
 });
+
+test('a wall-clock jump between paced SETs neither expires nor duplicates a queued curve', () => {
+    const f = fixture();
+    const t = NOW + 20 * MIN;
+    const call = f.warm(t);
+    const lease = f.heat.context.get('hpCurveLease');
+    const later = f.tick(t + 75_000);
+    assert.equal(f.heat.context.get('hpCurveLease').generation, lease.generation);
+    assert.deepEqual(setters(call).concat(setters(later)), [set(134, 9), set(133, 40)]);
+});
+
+test('elapsed-time expiry drops an undelivered curve tail, not a newer generation', () => {
+    const f = fixture();
+    const t = NOW + 20 * MIN;
+    const old = f.warm(t);
+    const expired = old.timers.find(timer => timer.ms === MIN);
+    assert.ok(expired, 'an automatic curve claim has a finite elapsed-time deadline');
+    expired.cb();
+    f.tick(t + 1000);
+    const replacement = f.heat.context.get('hpCurveLease');
+    assert.ok(replacement.generation > 1);
+    expired.cb();
+    assert.deepEqual(f.heat.context.get('hpCurveLease'), replacement);
+    step(old, 1500);
+    assert.match(old.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 40/);
+});

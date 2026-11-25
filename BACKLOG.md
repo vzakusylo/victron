@@ -154,7 +154,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-#186 HP-M2 stage 3 (`hp-m2-curve-owner`, d#240 · i#56): enforce a shared P22–P24 lease and an independent DP 121 lease. Keep automatic curve SETs paced and ordered under one generation, compose warm-up / band / boost against the owner's curve, and confirm both owner Apply coefficients under the same live lease before saving them.
+#186 HP-M2 stage 3 (`hp-m2-curve-owner`, d#240 · i#56): enforce a shared P22–P24 lease and an independent DP 121 lease. Keep automatic curve SETs paced and ordered under one generation, compose warm-up / band / boost against the owner's curve, and confirm both owner Apply coefficients under the same live lease before saving them. Automatic curve leases use elapsed time so a wall-clock jump cannot split a queued curve group.
 
 #185 HP-M2 stage 2 (`hp-m2-mode-writer`, d#239 · i#55): enforce DP 2 writer priority (protection > DHW > recovery > kick > heat > owner) with bounded leases and generation checks at dequeue and verification. Rejected requests are not replayed; a kick that never sent Smart cannot restore Silent. Curve and hysteresis enforcement remain stage 3.
 

@@ -337,7 +337,7 @@ test('lost measurements abort a forced cycle without sending stale boiler writes
     tick();
     const run = node.context.get('dhw').run;
     node.context.get('queue').push({ run, rule: 'dhw', role: 'valve', dps: 1, set: true, text: 'old valve ON' });
-    tick(NOW + 10000, { 108: null, 116: null }, false, true);
+    const stopped = tick(NOW + 10000, { 108: null, 116: null }, false, true);
     assert.equal(node.context.get('dhw').state, 'HEATING');
     assert.equal(node.context.get('settings').dhwBlock, null);
     assert.equal(node.context.get('settings').modes.dhw, 'live');
@@ -348,6 +348,7 @@ test('lost measurements abort a forced cycle without sending stale boiler writes
     assert.ok(!node.context.get('queue').some(e => e.role === 'bypass' && e.set === false));
     node.run({ topic: 'ui', payload: { action: 'dhwShowerForce', on: false } }, { now: NOW + 11000 });
     const resumeAt = NOW + 60 * MIN + 10000;
+    stopped.timers.find(timer => timer.ms === MIN).cb();
     for (let i = 0; i < 8 && node.context.get('dhw').state === 'HEATING'; i++) tick(resumeAt + i * 10000, { 108: 46 });
     assert.equal(node.context.get('dhw').state, 'STOP', 'ordinary DHW resumes after its normal interval without a manual reset');
     assert.equal(node.context.get('dhw').showerStart, null);
