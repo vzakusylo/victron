@@ -130,6 +130,22 @@ test('switching a controller off invalidates its queued lease and immediately re
     assert.deepEqual(setMessages(fresh).map(write => write.set), ['mute']);
 });
 
+test('an ineligible queued winner releases its lease without blocking the next request', () => {
+    const f = fixture();
+    f.enqueue(START, { rule: 'df_exchange_off', shadow: { writer: 'recovery' } }, true);
+    assert.deepEqual(setMessages(f.pump(START + 1000)), []);
+    f.heat.context.set('pumping', false);
+    assert.deepEqual(setMessages(f.enqueue(START + 3000)).map(write => write.set), ['mute']);
+});
+
+test('an unknown mode writer is rejected with a specific reason and cannot reserve a lease', () => {
+    const f = fixture();
+    const denied = f.enqueue(START, { shadow: { writer: 'unknown-writer' } });
+    assert.deepEqual(setMessages(denied), []);
+    assert.match(denied.sent[0][5].event.text, /dropped \(unknown writer\)/);
+    assert.deepEqual(setMessages(f.enqueue(START + 1000)).map(write => write.set), ['mute']);
+});
+
 const externalEvents = call => call.sent.map(m => m[5]?.event).filter(e => e?.rule === 'hp_external_change');
 
 test('Node 16-compatible telemetry reaches the controller and credits the latest matching SET', () => {

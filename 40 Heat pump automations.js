@@ -373,6 +373,8 @@ function pump(allowOwner = false) {
     if (!item) return;
     context.set('pumping', true); context.set('pumpAt', at);
     context.set('queue', q);
+    const modeItem = isModeWrite(item);
+    let dispatched = false;
     const dp = String(item.dps);
     const invalidCurveWrite = owner ? !validOwnerCurve(item.curveGroup[133], item.curveGroup[134]) : item.role === 'hp' &&
         ((dp === '133' && !inCurveRange(item.set, P23_MIN, P23_MAX)) ||
@@ -385,13 +387,17 @@ function pump(allowOwner = false) {
     } else if (!owner && !item.force && modeOf(item.rule) !== 'live') {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (rule no longer On)' });
     } else if (owner || ((context.get('settings') || {}).master && !modeBlocked(item))) {
-        const verifyMode = !owner && isModeWrite(item) ? startModeVerification(item) : null;
+        const verifyMode = modeItem ? startModeVerification(item) : null;
         shadowCheck(item, 'dequeue', Date.now());
         const attribution = hpAttribution.sent(item, at, owner
             ? context.get('ownerCurveRequest').at + OWNER_CURVE_TIMEOUT_MS : at + VERIFY_MS);
         send(OUT[item.role], { payload: owner ? { operation: 'SET', multiple: true, data: item.curveGroup }
             : { operation: 'SET', dps: item.dps, set: item.set } });
-        if (verifyMode) context.set('lastKickSmartRun', item.intent === 'kick' && item.set === 'smart' ? item.run : null);
+        dispatched = true;
+        if (modeItem) {
+            context.set('lastKickSmartRun', item.intent === 'kick' && item.set === 'smart' ? item.run : null);
+            if (item.heatStep) recordHeatModeStep(item, at);
+        }
         if (attribution) logEvent({ kind: 'dispatch', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
             ...attribution, text: `${item.text} — dispatched by ${attribution.writer}` });
         if (item.role === 'hp') context.set('lastHpWrite', at);
@@ -416,6 +422,7 @@ function pump(allowOwner = false) {
     } else if (!(context.get('settings') || {}).master) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
+    if (modeItem && !dispatched) cancelModeLease(lease => lease.generation === item.modeGeneration);
     setTimeout(() => { context.set('pumping', false); pump(); }, owner ? OWNER_CURVE_GAP_MS : WRITE_GAP_MS);
 }
 function endSeq(rule) { const all = context.get('seqs') || {}; delete all[rule.id]; context.set('seqs', all); }

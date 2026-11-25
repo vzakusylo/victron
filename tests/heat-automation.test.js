@@ -218,6 +218,45 @@ test('a redeployed heating controller collects a full window before its first an
     assert.ok(c.heat().samples.length < 20, 'the window starts again after a step');
 });
 
+test('a heating mode step denied by DHW keeps its samples and retries when the lease expires', () => {
+    const c = heating({ cfg: { ...GX_HEAT, kickMin: 0 } });
+    const lowSupply = { 102: 33, 101: 31, 2: 'mute' };
+    for (let i = 0; i < 54; i++) c.tick(NOW + i * 10 * S, lowSupply);
+    const expiry = NOW + 10 * MIN;
+    c.node.context.set('hpModeLease', { writer: 'dhw', priority: 4, generation: 1, until: expiry });
+    c.tick(NOW + 9 * MIN, lowSupply);
+    assert.match(c.heat().why, /mode held by a higher writer/);
+    assert.equal(c.heat().lastStep, 0);
+    assert.equal(c.heat().modeCmd, null);
+    assert.ok(c.heat().samples.length > 20);
+    assert.deepEqual(c.writes, []);
+    c.tick(expiry, lowSupply);
+    assert.deepEqual(c.writes.map(w => [w.dps, w.set]), [[2, 'smart']]);
+    assert.equal(c.heat().lastStep, expiry);
+    assert.deepEqual(c.heat().samples, []);
+});
+
+test('a heating mode step superseded in the queue does not consume its cooldown', () => {
+    const c = heating({ cfg: { ...GX_HEAT, kickMin: 0 } });
+    const lowSupply = { 102: 33, 101: 31, 2: 'mute' };
+    for (let i = 0; i < 54; i++) c.tick(NOW + i * 10 * S, lowSupply);
+    const queuedAt = NOW + 9 * MIN;
+    c.node.context.set('pumping', true);
+    c.node.context.set('pumpAt', queuedAt);
+    c.tick(queuedAt, lowSupply);
+    const queued = c.node.context.get('queue').find(w => w.dps === 2);
+    assert.equal(queued?.set, 'smart');
+    assert.equal(c.heat().lastStep, 0);
+    const expiry = queuedAt + MIN;
+    c.node.context.set('hpModeLease', { writer: 'dhw', priority: 4, generation: queued.modeGeneration + 1, until: expiry });
+    c.node.context.set('pumping', false);
+    c.tick(queuedAt + S, lowSupply);
+    assert.deepEqual(c.writes, []);
+    assert.equal(c.heat().lastStep, 0);
+    c.tick(expiry, lowSupply);
+    assert.deepEqual(c.writes.map(w => [w.dps, w.set]), [[2, 'smart']]);
+});
+
 test('with the GX kick settings a supply stuck below the curve gets Smart for about a minute, at most every 2 min', () => {
     // kickMin 1 / kickSec 60 as saved on the GX; supply flat 3 °C below the curve, inside a wide band (no step)
     const c = heating({ cfg: Object.assign({}, GX_HEAT, { lagUp: undefined, bandDown: 5 }) });
