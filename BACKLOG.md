@@ -95,7 +95,9 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
-| H16 | Heat pump idle follow-ups (found by H0) | Open. (1) Done in #165. (2) Check why the stored owner curve may have been polluted (P23 27 vs 33). (3) A forced boiler cycle stopped after 7 min with “forced cycle safety stop pending”. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
+| H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) In progress: `h16-owner-curve-boiler-stop`. Reproduced saved P23/P24 33/5 being overwritten by 27/5 after the DHW settling window on #186. Fix: only bootstrap a missing baseline from pump readings; only a confirmed owner Apply replaces a saved baseline. (3) Blocked: the seven-minute stop warning does not identify the failing input; see below. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
+
+**H16(3), forced boiler stop:** `lib/heat-pump/dhw-tick.js` (`showerMeasurementsOk` and `showerSafetyStopRequested`) latches on one tick with an unavailable/stale HP, valve or bypass, or an invalid tank, cycle DP or relay reading. It cancels old-run writes immediately and waits for devices to become available before restoring heating. `lib/heat-pump/kick.js` yields to pending or active DHW and writes only DP 2, which this guard does not validate. A reported fan speed of zero is valid and does not by itself cause this stop. To identify the seven-minute incident, obtain the timestamped device connection states and `lastData`, raw HP DPs 15, 101–104, 108, 112, 115–116, 132–134, and valve/bypass DP 1 at the first warning tick. If that snapshot was not retained, add first-trigger diagnostics before changing the safety policy. No stop behavior was changed.
 
 ## 4. Review follow-ups (deferred Low / Nit)
 

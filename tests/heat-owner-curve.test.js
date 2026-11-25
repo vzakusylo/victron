@@ -10,12 +10,12 @@ const pair = { p23: 40, p24: 9, requestId: 'owner-edit' };
 const sets = call => call.sent.flatMap(m => m[1]?.payload?.operation === 'SET' ? [m[1].payload] : []);
 const groupSet = { operation: 'SET', multiple: true, data: { 133: 40, 134: 9 } };
 
-function fixture({ liveDhw = false, lastEnd = NOW - 60 * MIN } = {}) {
+function fixture({ liveDhw = false, lastEnd = NOW - 60 * MIN, heatCurve = OLD } = {}) {
     const node = loadNode('40 Heat pump automations.js');
     const command = loadNode('37 Heat pump command.js', undefined, node.flow);
     node.run({ topic: 'load', payload: JSON.stringify({
         master: liveDhw, modes: { heat: 'off', dhw: liveDhw ? 'live' : 'off' },
-        heatCurve: OLD, dhwLastEnd: lastEnd, dhw: { showerForce: false }
+        heatCurve, dhwLastEnd: lastEnd, dhw: { showerForce: false }
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
     const dps = { 1: true, 2: 'mute', 15: 0, 101: 31, 102: 36, 103: -2, 108: 50, 112: 3, 115: 60, 116: 550,
@@ -39,6 +39,17 @@ function fixture({ liveDhw = false, lastEnd = NOW - 60 * MIN } = {}) {
     }
     return { node, apply, tick, chart, settings: () => node.context.get('settings').heatCurve };
 }
+
+test('a remaining boiler P23 after the restore window cannot replace the saved owner curve', () => {
+    const heatCurve = { p23: 33, p24: 5, at: NOW - 60 * MIN };
+    const f = fixture({ liveDhw: true, lastEnd: NOW, heatCurve });
+    const partialRestore = { over: { 133: 27, 134: 5 } };
+    f.tick(NOW + MIN, partialRestore);
+    const later = f.tick(NOW + 3 * MIN, partialRestore);
+    assert.deepEqual(f.settings(), heatCurve);
+    assert.ok(!later.sent.some(m => m[2]?.filename), 'do not persist unclassified pump readback as an owner setting');
+    assert.equal(f.chart(NOW + 3 * MIN).differsFromPump, true);
+});
 
 test('Apply queues one low-priority batch; both fresh readbacks save the owner curve', () => {
     const f = fixture();
