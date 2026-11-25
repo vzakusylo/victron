@@ -22,7 +22,18 @@ jobs:
         env:
           XDG_STATE_HOME: ${{ runner.temp }}/victron-loop-state
         run: |
-          ~/victron-loop/venv/bin/python -m victron_loop.main --config ~/victron-loop/config.toml run-once --dry-run > dev-loop-dry-run.log
+          cp ~/victron-loop/config.toml ~/victron-loop/config.ci-dryrun.toml
+          python - <<'PY'
+          from pathlib import Path
+          cfg = Path.home() / "victron-loop" / "config.ci-dryrun.toml"
+          text = cfg.read_text(encoding="utf-8")
+          if "dry_run" in text:
+              text = text.replace("dry_run = false", "dry_run = true")
+          else:
+              text += "\ndry_run = true\n"
+          cfg.write_text(text, encoding="utf-8")
+          PY
+          ~/victron-loop/venv/bin/python -m victron_loop.main --config ~/victron-loop/config.ci-dryrun.toml run-once > dev-loop-dry-run.log
       - name: Upload dry-run log
         uses: actions/upload-artifact@v7
         with:

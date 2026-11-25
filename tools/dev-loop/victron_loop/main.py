@@ -60,8 +60,6 @@ def main(argv: list[str] | None = None) -> int:
         cfg.dry_run = True
     gh = GhCli(repo=cfg.repo, token_file=cfg.token_file)
     backlog_path = cfg.repo_path / "BACKLOG.md"
-    if not backlog_path.exists():
-        backlog_path = Path("BACKLOG.md")
     try:
         with store.lock():
             state = store.load()

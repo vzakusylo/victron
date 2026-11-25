@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from victron_loop.nodes import LoopConfig, notify, parse_backlog, pick_task
+from victron_loop.nodes import LoopConfig, notify, parse_backlog, pick_task, requires_owner_approval
 
 
 def fixed_clock():
@@ -28,6 +28,13 @@ def test_parse_backlog_allowed_sections_only():
 """
     rows = parse_backlog(text)
     assert [r["row_id"] for r in rows] == ["R1", "R3", "P1"]
+
+
+def test_requires_owner_approval_allowlist_and_production_block():
+    safe = {"row_id": "R1", "task": "Docs update", "state": "open", "notes": "README only", "section": "Process and repo"}
+    risky = {"row_id": "B1", "task": "Battery setpoint tune", "state": "open", "notes": "DVCC", "section": "Production backlog"}
+    assert requires_owner_approval(safe) is False
+    assert requires_owner_approval(risky) is True
 
 
 def test_pick_task_skips_hard_needs_owner_go(tmp_path: Path):

@@ -83,3 +83,16 @@ class GhCli:
         )
         return data.get("jobs", [])
 
+    def list_pr_files(self, number: int) -> list[str]:
+        data = self._run_json(["pr", "view", str(number), "--json", "files"])
+        return [item.get("path", "") for item in data.get("files", []) if item.get("path")]
+
+    def disable_pr_auto_merge(self, number: int) -> None:
+        cmd = ["gh", "pr", "merge", str(number), "--disable-auto", "--repo", self.repo]
+        env = None
+        if self.token_file and self.token_file.exists():
+            token = self.token_file.read_text(encoding="utf-8").strip()
+            env = os.environ.copy()
+            env["GH_TOKEN"] = token
+        self.runner(cmd, env)
+

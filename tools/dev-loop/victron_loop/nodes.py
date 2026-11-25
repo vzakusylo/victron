@@ -14,11 +14,15 @@ from .gh import GhCli
 HARD_RE = re.compile(r"(heat pump|grid|bms|deploy|live control)", re.IGNORECASE)
 BRANCH_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 SKIP_RE = re.compile(r"(done|blocked|in progress|owner|decision|waiting)", re.IGNORECASE)
-ROW_SECTIONS = {
-    "Production backlog",
-    "Process and repo",
-    "Approved follow-up queue after HP-C1 (2026-11-24, in priority order)",
-}
+LIVE_CONTROL_RE = re.compile(
+    r"(battery|charge|dvcc|setpoint|tariff|multiplus|grid|bms|heat pump|dhw|boiler|curve|deploy|flows\.json|\bNN\s|\blib/)",
+    re.IGNORECASE,
+)
+SAFE_SECTION_RE = re.compile(r"(process and repo|review follow-ups|test gx plan)", re.IGNORECASE)
+SECTION_ALLOW_RE = re.compile(
+    r"(production backlog|process and repo|review follow-ups|test gx plan|approved follow-up queue)",
+    re.IGNORECASE,
+)
 
 
 def default_clock() -> float:
@@ -93,11 +97,11 @@ def parse_backlog(backlog_text: str) -> list[dict[str, str]]:
     section = ""
     in_table = False
     for line in backlog_text.splitlines():
-        if line.startswith("### "):
-            section = line[4:].strip()
+        if line.startswith("## ") or line.startswith("### "):
+            section = line.lstrip("#").strip()
             in_table = False
             continue
-        if section not in ROW_SECTIONS:
+        if not SECTION_ALLOW_RE.search(section):
             continue
         if line.startswith("| ID ") or line.startswith("| # ") or line.startswith("| PR "):
             in_table = True
@@ -125,6 +129,15 @@ def is_skippable(row: dict[str, str], failed_rows: set[str]) -> bool:
 
 def is_hard(row: dict[str, str]) -> bool:
     return HARD_RE.search(" ".join([row["row_id"], row["task"], row["notes"]])) is not None
+
+
+def requires_owner_approval(row: dict[str, str]) -> bool:
+    combined = " ".join([row["row_id"], row["task"], row["notes"]])
+    if LIVE_CONTROL_RE.search(combined):
+        return True
+    if SAFE_SECTION_RE.search(row.get("section", "")):
+        return False
+    return True
 
 
 def _safe_branch(row_id: str, candidate: str) -> str:
@@ -188,7 +201,7 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
         return state
 
     for row in rows:
-        if is_hard(row) and row["row_id"] not in approved:
+        if requires_owner_approval(row) and row["row_id"] not in approved:
             _enqueue_notification(state, "needs-owner-go", row["row_id"], f"Task {row['row_id']} needs owner go")
             continue
         if cfg.dry_run:
@@ -320,6 +333,27 @@ def _check_rollup_failing(rollup: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _is_run_for_or_after_merge(cfg: LoopConfig, merge_sha: str, run_sha: str) -> bool:
+    if run_sha == merge_sha:
+        return True
+    if not run_sha:
+        return False
+    cmd = ["git", "-C", str(cfg.repo_path), "merge-base", "--is-ancestor", merge_sha, run_sha]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    return result.returncode == 0
+
+
+def _touches_protected_paths(paths: list[str]) -> bool:
+    for path in paths:
+        if path == "flows.json":
+            return True
+        if path.startswith("lib/"):
+            return True
+        if re.match(r"^\d{2}\s.+\.(js|html)$", path):
+            return True
+    return False
+
+
 def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
     worker = state.get("active_worker")
     if not worker:
@@ -328,6 +362,18 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
     open_prs = gh.list_prs("open", head_branch=worker["branch"])
     if open_prs:
         pr = open_prs[0]
+        row_id = str(worker.get("row_id") or "")
+        approved = set(state.get("approved", []))
+        if pr.get("number") and row_id and row_id not in approved:
+            files = gh.list_pr_files(int(pr["number"]))
+            if _touches_protected_paths(files):
+                gh.disable_pr_auto_merge(int(pr["number"]))
+                _enqueue_notification(
+                    state,
+                    "unapproved-live-control-pr",
+                    str(pr["number"]),
+                    f"PR #{pr['number']} touches live-control files without approval",
+                )
         if pr.get("reviewDecision") == "CHANGES_REQUESTED" or _check_rollup_failing(pr.get("statusCheckRollup", [])):
             if int(worker.get("retry_count", 0)) == 0 and not cfg.dry_run:
                 _retry_worker(state, cfg, worker, "PR checks/review failed. Fix and continue.")
@@ -348,9 +394,18 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
             return state
         test_runs = gh.list_runs("test-gx.yml", cfg.branch, 5)
         deploy_runs = gh.list_runs("deploy-gx-code.yml", cfg.branch, 5)
-        test_ok = any(r.get("conclusion") == "success" and str(r.get("headSha")) >= merge_sha for r in test_runs)
+        test_ok = any(
+            r.get("conclusion") == "success" and _is_run_for_or_after_merge(cfg, merge_sha, str(r.get("headSha") or ""))
+            for r in test_runs
+        )
         deploy_ok_run = next(
-            (r for r in deploy_runs if r.get("conclusion") == "success" and str(r.get("headSha")) >= merge_sha), None
+            (
+                r
+                for r in deploy_runs
+                if r.get("conclusion") == "success"
+                and _is_run_for_or_after_merge(cfg, merge_sha, str(r.get("headSha") or ""))
+            ),
+            None,
         )
         health_ok = False
         if deploy_ok_run:
@@ -363,8 +418,6 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
             state["active_worker"] = None
         return state
 
-    if _check_worker_idle(state, cfg, worker):
-        return state
     if worker.get("pid") and not _pid_alive(int(worker["pid"])):
         if int(worker.get("retry_count", 0)) == 0 and not cfg.dry_run:
             _retry_worker(state, cfg, worker, "Worker exited before opening PR. Continue.")
@@ -375,6 +428,9 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
             state["failed_rows"] = sorted(failed)
             _enqueue_notification(state, "worker-failed", worker["branch"], f"Worker failed twice for {worker['branch']}")
             state["active_worker"] = None
+        return state
+    if _check_worker_idle(state, cfg, worker):
+        return state
     return state
 
 

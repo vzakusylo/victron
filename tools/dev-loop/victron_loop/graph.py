@@ -14,7 +14,10 @@ class LoopState(TypedDict, total=False):
     pick: dict[str, Any]
     active_worker: dict[str, Any] | None
     approved: list[str]
+    failed_rows: list[str]
     notifications_sent: dict[str, int]
+    pending_notifications: list[dict[str, str]]
+    resolved_notification_keys: list[str]
     daily_counts: dict[str, int]
     last_summary_date: str | None
 

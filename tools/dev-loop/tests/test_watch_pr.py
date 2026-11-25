@@ -17,6 +17,7 @@ class FakeGh:
         self._test_runs = test_runs or []
         self._deploy_runs = deploy_runs or []
         self._health = health
+        self.disabled_auto = []
 
     def list_prs(self, state="open", head_branch=None):
         if state == "open":
@@ -32,6 +33,12 @@ class FakeGh:
 
     def view_run_jobs(self, run_id):
         return [{"steps": [{"name": "Monitor post-deploy health", "conclusion": self._health}]}]
+
+    def list_pr_files(self, number):
+        return []
+
+    def disable_pr_auto_merge(self, number):
+        self.disabled_auto.append(number)
 
 
 def test_watch_pr_second_failure_marks_failed():
@@ -97,7 +104,7 @@ def test_watch_pr_changes_requested_retries_once(monkeypatch):
     assert state["active_worker"]["retry_count"] == 1
 
 
-def test_watch_pr_success_after_merge_clears_worker():
+def test_watch_pr_success_after_merge_clears_worker(monkeypatch):
     cfg = LoopConfig(repo="vzakusylo/victron", dry_run=True, clock=fixed_clock)
     state = {"active_worker": {"branch": "b1", "row_id": "R1", "retry_count": 0, "worktree": "/tmp/x", "log_path": "/tmp/x.log"}}
     gh = FakeGh(
@@ -106,6 +113,7 @@ def test_watch_pr_success_after_merge_clears_worker():
         deploy_runs=[{"databaseId": 1, "headSha": "b", "conclusion": "success"}],
         health="success",
     )
+    monkeypatch.setattr(nodes, "_is_run_for_or_after_merge", lambda _cfg, _m, _r: True)
     watch_pr(state, cfg, gh)
     assert state["active_worker"] is None
 
@@ -121,4 +129,71 @@ def test_watch_pr_idle_for_30_minutes_notifies(tmp_path: Path):
     gh = FakeGh()
     watch_pr(state, cfg, gh)
     assert state["pending_notifications"][0]["condition"] == "worker-idle"
+
+
+def test_watch_pr_unapproved_live_control_disables_auto_merge():
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=True, clock=fixed_clock)
+    state = {"approved": [], "active_worker": {"branch": "b1", "row_id": "R1", "retry_count": 0, "worktree": "/tmp/x", "log_path": "/tmp/x.log"}}
+
+    class FilesGh(FakeGh):
+        def list_pr_files(self, number):
+            return ["flows.json"]
+
+    gh = FilesGh(open_prs=[{"number": 10, "reviewDecision": "APPROVED", "statusCheckRollup": []}])
+    watch_pr(state, cfg, gh)
+    assert gh.disabled_auto == [10]
+    assert state["pending_notifications"][0]["condition"] == "unapproved-live-control-pr"
+
+
+def test_watch_pr_uses_merge_base_not_string_compare(monkeypatch):
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=True, clock=fixed_clock)
+    state = {"active_worker": {"branch": "b1", "row_id": "R1", "retry_count": 0, "worktree": "/tmp/x", "log_path": "/tmp/x.log"}}
+    gh = FakeGh(
+        merged_prs=[{"mergeCommit": {"oid": "ffff"}}],
+        test_runs=[{"headSha": "0001", "conclusion": "success"}],
+        deploy_runs=[{"databaseId": 1, "headSha": "0001", "conclusion": "success"}],
+        health="success",
+    )
+    monkeypatch.setattr(nodes, "_is_run_for_or_after_merge", lambda *_args, **_kwargs: True)
+    watch_pr(state, cfg, gh)
+    assert state["active_worker"] is None
+
+
+def test_is_run_for_or_after_merge_uses_git_ancestor_check(monkeypatch, tmp_path: Path):
+    cfg = LoopConfig(repo="vzakusylo/victron", repo_path=tmp_path, dry_run=True, clock=fixed_clock)
+
+    class Result:
+        returncode = 0
+
+    calls = {}
+
+    def fake_run(cmd, **_kwargs):
+        calls["cmd"] = cmd
+        return Result()
+
+    monkeypatch.setattr(nodes.subprocess, "run", fake_run)
+    assert nodes._is_run_for_or_after_merge(cfg, "ffff", "0001") is True
+    assert "merge-base" in calls["cmd"]
+
+
+def test_watch_pr_checks_dead_pid_before_idle(monkeypatch, tmp_path: Path):
+    log = tmp_path / "worker.log"
+    log.write_text("x", encoding="utf-8")
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock)
+    state = {
+        "active_worker": {
+            "branch": "b1",
+            "row_id": "R1",
+            "retry_count": 0,
+            "tier": "standard",
+            "pid": 4321,
+            "worktree": str(tmp_path),
+            "log_path": str(log),
+            "last_log_mtime": int(log.stat().st_mtime),
+        }
+    }
+    monkeypatch.setattr(nodes, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(nodes, "_retry_worker", lambda _s, _c, w, _t: w.update({"retry_count": 1}))
+    watch_pr(state, cfg, FakeGh())
+    assert state["active_worker"]["retry_count"] == 1
 

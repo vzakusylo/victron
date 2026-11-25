@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${HOME}/victron-loop"
 SRC="${SCRIPT_DIR}"
+ENABLE_MARKER="${TARGET}/.enabled-once"
+
+if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
 
 mkdir -p "${TARGET}"
 rsync -a --delete \
@@ -38,5 +43,8 @@ mkdir -p "${HOME}/.config/systemd/user"
 install -m 0644 "${TARGET}/systemd/victron-loop.service" "${HOME}/.config/systemd/user/victron-loop.service"
 install -m 0644 "${TARGET}/systemd/victron-loop.timer" "${HOME}/.config/systemd/user/victron-loop.timer"
 systemctl --user daemon-reload
-systemctl --user enable --now victron-loop.timer
+if [[ ! -f "${ENABLE_MARKER}" ]]; then
+  systemctl --user enable --now victron-loop.timer
+  touch "${ENABLE_MARKER}"
+fi
 
