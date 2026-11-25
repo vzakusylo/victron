@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-time owner setup of the AUTO1 dev loop on the Omarchy box.
 # Run ON Omarchy in an interactive terminal (it asks for the token; it is never echoed or logged):
-#   ssh -t omarchy 'bash -s' < tools/dev-loop/setup-omarchy.sh            # checks + token
-#   ssh -t omarchy 'bash -s -- --live' < tools/dev-loop/setup-omarchy.sh  # also switch dry_run off
+#   scp tools/dev-loop/setup-omarchy.sh omarchy:setup-omarchy.sh
+#   ssh -t omarchy 'bash ~/setup-omarchy.sh'         # checks + token
+#   ssh -t omarchy 'bash ~/setup-omarchy.sh --live'  # also switch dry_run off
 # Steps: 1 runner service, 2 fine-grained token, 3 Copilot CLI login, 4 loop install / timer, 5 optional --live.
 # Safe to re-run. Never prints the token. Changes only ~/victron-loop/{token,config.toml}.
 set -euo pipefail
@@ -44,7 +45,11 @@ else
     - Permissions: Contents RW, Pull requests RW, Actions R, Workflows RW, Metadata R (auto)
     - Expiration: 90 days (the loop notifies when it starts failing auth)
 EOF
-  read -r -s -p "  Paste the token (input hidden): " TOKEN; echo
+  if ! read -r -s -p "  Paste the token (input hidden): " TOKEN </dev/tty; then
+    fail "an interactive terminal is required to enter the token; run the copied script with ssh -t"
+    exit 1
+  fi
+  echo
   [[ "${TOKEN}" == github_pat_* ]] || warn "token does not start with github_pat_ (fine-grained tokens do)"
   if GH_TOKEN="${TOKEN}" gh api "repos/${REPO}" --silent; then
     umask 077; printf '%s' "${TOKEN}" > "${TOKEN_FILE}"; chmod 600 "${TOKEN_FILE}"
@@ -59,7 +64,7 @@ GH_TOKEN="$(cat "${TOKEN_FILE}")" gh api "repos/${REPO}/actions/runs?per_page=1"
 
 echo "3. Copilot CLI (workers run 'copilot' here)"
 if command -v copilot >/dev/null; then
-  if timeout 120 nice -n 19 copilot -p "Reply with the single word: ready" 2>&1 | grep -qi ready; then
+  if timeout 120 nice -n 19 copilot -p "Reply with the single word: ready" </dev/null 2>&1 | grep -qi ready; then
     ok "copilot answers"
   else
     fail "copilot did not answer; run 'copilot' once interactively and log in (/login)"

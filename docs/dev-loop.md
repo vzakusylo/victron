@@ -87,7 +87,8 @@ Over SSH, the equivalent CLI commands are `pause`, `resume`, `approve <row>`,
 Run once from the PC (interactive; the token is asked for hidden and saved to `~/victron-loop/token`, mode 600):
 
 ```bash
-ssh -t omarchy 'bash -s' < tools/dev-loop/setup-omarchy.sh
+scp tools/dev-loop/setup-omarchy.sh omarchy:setup-omarchy.sh
+ssh -t omarchy 'bash ~/setup-omarchy.sh'
 ```
-It checks the self-hosted runner (Omarchy needs a runner registered to this repo, `actions-runner-victron.service`), the fine-grained token, the Copilot CLI login and the loop install/timer. Re-run with `--live` (`bash -s -- --live`) to set `dry_run = false`. The control page runs on `web_bind` in `config.toml` (Omarchy: `<tailnet-ip>:8790`; 8787 is used by another app).
+It checks the self-hosted runner (Omarchy needs a runner registered to this repo, `actions-runner-victron.service`), the fine-grained token, the Copilot CLI login and the loop install/timer. Re-run with `ssh -t omarchy 'bash ~/setup-omarchy.sh --live'` to set `dry_run = false`. The control page runs on `web_bind` in `config.toml` (Omarchy: `<tailnet-ip>:8790`; 8787 is used by another app).
 
