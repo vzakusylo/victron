@@ -30,6 +30,7 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 | PR | Branch | Task | State / next step |
 |---|---|---|---|
+| #191 | `hp-l1-curve-change-log` | HP-L1, HP-P1, HP-R1, HP-G1, T1 heating/boiler, B1 | Await review and required checks; keep auto-merge paused until feedback is addressed. |
 
 ## 2. Deploy
 
@@ -57,7 +58,18 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
-| T1 | Unit-test coverage of the control logic | 1–2 | Grid slice covered in #188. Heating, then boiler: list decisions, add missing tests and document any remaining gaps. |
+| T1 | Unit-test coverage of the control logic | 1–2 | Grid slice covered in #188. Heating and boiler slices done in #191 (`d#247`); decision inventory and remaining gaps below. |
+
+| T1 slice | Curve decisions and coverage |
+|---|---|
+| Heating: reference and holds | Validate and retain owner P23/P24; use the defrost-held DP 103 average, never DP 125, for the clamped point; hold on missing data, defrost and DHW, and restore only the owning writer's settings. See `heat-owner-curve`, `heat-sensor-curve`, `heat-defrost-outdoor`, and `heat-pump-arbiter` unit tests. |
+| Heating: follow and restore | Compare supply against the asymmetric band; step Silent/Smart/Powerful (if allowed), then boost; respect step spacing, capacity/current limits and the combined curve cap. Suppress false off-curve alarms and kicks at capacity. Apply, persist, defer and unwind warm-up, band (including DP 121), standby and gentle-heating offsets. See `heat-curve-follow`, `heat-simplify`, `heat-sensor-curve`, `heat-warmup`, `heat-band`, and `heat-automation`. |
+| Boiler: target and start | Base tank and supply targets on the outdoor curve, including the cold cap and frost cutoff. Gate starts on demand, hysteresis, interval, heating priority, defrost and fault/device readiness; force runs may bypass the interval but not safety. Stop the compressor via P23, then wait for the valve before applying the boiler curve. See `dhw-automation`, `dhw-force-run`, `heat-automation`, and Test GX `dhw-schedule` and `dhw-protection`. |
+| Boiler: ramp and finish | Use the held outdoor average to choose P23/P24; increase slope only as needed and cap the ramp with the start/running gaps and rate limits. Cold operation stays Silent; frequency/current/discharge protection cuts the curve or ends the cycle. End or hold for defrost, wait for the fan and sensor on recovery, and restore the owner curve on completion, fault, timeout or cancellation. See `dhw-automation`, `heat-automation`, `heat-pump-arbiter`, and Test GX `dhw-defrost` and `dhw-protection`. |
+
+Remaining gaps: software tests verify commanded limits, not the physical compressor stop/restart temperatures,
+post-defrost water/tank response, or pump firmware's rounding and response to relay/DP timing. Synthetic protection
+scenarios cover frequency/current separately; combined and actual field protection behavior are not proven.
 | B6 | Temperatures page: all sensors, day-by-day paging, motion sensor | 0–1 | Check first: a temperatures page with motion exists since `a4af86d`. |
 | B8 | Battery round-trip efficiency | 0.5–1 | |
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
@@ -100,6 +112,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | State / notes |
 |---|---|---|
 | H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) Done in #187. (3) Blocked: the seven-minute stop warning does not identify the failing input; see below. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
+| AI1 | Monitoring and curve control split by job: no AI model on the GX (owner question, 2026-11-25) | Open. The Cerbo GX (2-core Cortex-A7, ~1 GB RAM shared with Venus OS and Node-RED) cannot run even a ~0.5B model without starving the controller. **Spot problems:** GX, no AI; fixed rules in Node-RED (D-R14 health checks, #190). **Send email:** GX, no AI; existing deploy mail and alerts. **Control the curve:** GX, no AI; owner curve plus the heating controller within fixed limits (HP-B1 caps the uplift); an AI never writes P23/P24. **Explain issues / suggest changes:** off the GX; a scheduled job (PC, Pi or cloud) reads the D-R14 health results and the Node-RED log, mails a plain-language summary daily and after each deploy, and proposes curve changes for the owner to approve. Next: brief for that off-GX job once #190 is merged. |
 
 **H16(3), forced boiler stop:** `lib/heat-pump/dhw-tick.js` (`showerMeasurementsOk` and `showerSafetyStopRequested`) latches on one tick with an unavailable/stale HP, valve or bypass, or an invalid tank, cycle DP or relay reading. It cancels old-run writes immediately and waits for devices to become available before restoring heating. `lib/heat-pump/kick.js` yields to pending or active DHW and writes only DP 2, which this guard does not validate. A reported fan speed of zero is valid and does not by itself cause this stop. To identify the seven-minute incident, obtain the timestamped device connection states and `lastData`, raw HP DPs 15, 101–104, 108, 112, 115–116, 132–134, and valve/bypass DP 1 at the first warning tick. If that snapshot was not retained, add first-trigger diagnostics before changing the safety policy. No stop behavior was changed.
 
@@ -119,7 +132,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | #68 | Nit: `startGap` is the only DHW input with HTML `min` / `max`. |
 | #55 | 2f charging follow-ups: CHG-1 `MaxChargeCurrent` integer type check; restore race in `scenario-controller.js` `restore()`. Check whether #72 / #74 covered them. |
 | #56 | 9f UI follow-ups: page inventory stores the deploy stamp; expected errors bound to `127.0.0.1:1881`. Check whether #72 covered them. |
-| B1 | Remove the `flows-hp-template-parse` entry from `tools/test-gx/ui/expected-errors.json` once the UI run shows it missing. |
 
 ## 5. Test GX plan
 
@@ -159,6 +171,23 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#191 HP-L1 (`hp-l1-curve-change-log`, d#247 · i#61): persistent, rotating P23/P24 and owner curve change history,
+with writer attribution and heating details. The Heat Pump page shows the latest 50 rows and 24-hour writer counts;
+D-R14 and the deploy mail carry the latest five. AI1 remains open for off-GX explanations only.
+
+#191 HP-P1 (d#247 · i#61): timed standby and Resume now, persisted across restart. Active DHW cycles finish normally.
+Freezing or unknown outdoor temperatures and low or unknown tank temperatures override the pause. The tank floor is the
+lowest configured tank target minus hysteresis.
+
+#191 HP-R1 (d#247 · i#61): opt-in Er03 retry, default two attempts after a 30-minute delay and clear fault.
+The attempt count survives restart; an exhausted block still uses the existing alert.
+
+#191 review follow-up: local control can always switch Off. Off cancels standby and any pending restore;
+an unconfirmed automatic restore also times out after two minutes and logs manual recovery instructions.
+
+#191 HP-G1 (d#247 · i#61): opt-in compressor frequency, curve rise, P23 step and spacing limits and Silent preference.
+Sustained high Hz lowers P23 after three minutes. The synthetic Test GX pause and gentle heating scenarios passed.
 
 #190 Copilot worker model tiers (`d-r14-post-deploy-monitor`, d#246 · i#60): checked in the launcher and
 tier definitions; documented low reasoning effort by default, overrides, and the status-bar model check.
@@ -362,20 +391,20 @@ Live or full-stack checks that no unit test or Test GX scenario covers yet. Mark
 | P5 | Oversized core is refused; all-history and full backup keep their existing behavior | Try dated mail with core alone over 18 MiB, then exercise all-history mail and full backup against synthetic data | No e-mail for oversized core; all-history mail keeps whole log tree or refuses it, full backup retains its normal paths | todo |
 | P5f | Dated archive near UTC midnight | Manually send at 23:30 UTC with synthetic sensor events at the UTC and Oslo day boundaries | Attachment includes the first UTC day's sensor-event file and excludes the next day's file | todo |
 | P5f | Mail staging cleanup and bounded repacks | Seed stale mail files, interrupt a send, then retry with oversized optional sets | Stale files are removed, the next send succeeds, final attachment stays within 18 MiB, and omitted paths are listed | todo |
-| P3 | Warm-up raises the house heating for a set time | Heating controller On, supply on the owner curve; press "Warm up" +2 °C for 1 h | Raised P23/P24 written within a minute (not after a 10-min step); followed point = curve + 2; after 1 h P23/P24 back to the owner curve; `heatCurve` unchanged | todo |
-| P3 | Warm-up ends safely | Cancel mid-way; switch the heating controller Off; restart Node-RED during a warm-up; start a DHW cycle during it | Owner curve back after cancel / Off; warm-up resumes after restart until its end time; after the DHW cycle the raised curve is written again | todo |
-| P6 | Heating follows the curve point with a band | Heating controller On; enable band down 0 / up 2; let the supply cycle | DP 121 = 2 (owner value saved), pump curve = point + 2; compressor stops near point + 2 and restarts below the point; no mode / boost step while the supply is inside the band | todo |
-| P6 | Band off restores the owner settings | Turn the band off; switch the controller Off; restart Node-RED with the band on | Owner DP 121 and P23/P24 written back; saved value survives the restart | todo |
+| P3 | Warm-up raises the house heating for a set time | Heating controller On, supply on the owner curve; press "Warm up" +2 °C for 1 h | Raised P23/P24 written within a minute (not after a 10-min step); followed point = curve + 2; after 1 h P23/P24 back to the owner curve; `heatCurve` unchanged | done — `heat-warmup.test.js` |
+| P3 | Warm-up ends safely | Cancel mid-way; switch the heating controller Off; restart Node-RED during a warm-up; start a DHW cycle during it | Owner curve back after cancel / Off; warm-up resumes after restart until its end time; after the DHW cycle the raised curve is written again | done — `heat-warmup.test.js` |
+| P6 | Heating follows the curve point with a band | Heating controller On; enable band down 0 / up 2; let the supply cycle | DP 121 = 2 (owner value saved), pump curve = point + 2; compressor stops near point + 2 and restarts below the point; no mode / boost step while the supply is inside the band | done — `heat-band.test.js` (commanded behavior; physical cycling unverified) |
+| P6 | Band off restores the owner settings | Turn the band off; switch the controller Off; restart Node-RED with the band on | Owner DP 121 and P23/P24 written back; saved value survives the restart | done — `heat-band.test.js` |
 | P2 | Forced boiler run waits for a defrost and then starts first | Press "Force boiler run" during a defrost, with the cycle interval not elapsed and heating lagging its curve | No DHW writes during the defrost; after quiet time and supply recovery the cycle starts (curve P23 0, then valve to the tank) before house heating | todo |
 | P2 | Forced boiler run keeps safety gates | Request with Er fault / DHW block / tank within 1 °C of target; cancel queued and running requests; restart Node-RED while queued | No start while a gate holds; request expires after 3 h; cancel returns to heating; the queued request survives the restart | todo |
 | P4 | Toilet visits are counted once per visit | Local PIR reports at t, t+30 s and t+7 min; restart Node-RED between reports | `dhwUsage.<day>.visits` = 2 in `heat-pump-automations.json`; no extra visit after the restart | todo |
-| P2 | Heating uses the defrost-held sensor average, not fixed DP 125 | P23/P24 40/9, DP 125 at 36 °C, sensor average −9 °C; then inject a defrost spike in DP 103 | Target 60 °C; Heat Pump page says "sensor −9 °C (10-min average)"; average stays at −9 °C until recovery | todo |
-| P2 | Capacity-limited heating is not an off-curve fault | Hold supply at 40 °C against a 60 °C target with compressor at 89 Hz | Capacity-limited status, no off-curve warning, no demand increase from lag, warm-up, band or kick | todo |
-| P2 | DHW boiler ramp follows the held average | Start a boiler cycle and inject a defrost spike in DP 103 | Boiler curve uses the pre-defrost average through recovery; the cycle status cites the sensor average | todo |
+| P2 | Heating uses the defrost-held sensor average, not fixed DP 125 | P23/P24 40/9, DP 125 at 36 °C, sensor average −9 °C; then inject a defrost spike in DP 103 | Target 60 °C; Heat Pump page says "sensor −9 °C (10-min average)"; average stays at −9 °C until recovery | done — `heat-sensor-curve.test.js`, `heat-defrost-outdoor.test.js` |
+| P2 | Capacity-limited heating is not an off-curve fault | Hold supply at 40 °C against a 60 °C target with compressor at 89 Hz | Capacity-limited status, no off-curve warning, no demand increase from lag, warm-up, band or kick | done — `heat-sensor-curve.test.js` |
+| P2 | DHW boiler ramp follows the held average | Start a boiler cycle and inject a defrost spike in DP 103 | Boiler curve uses the pre-defrost average through recovery; the cycle status cites the sensor average | done — `dhw-automation.test.js` |
 | P4 | Hot-water draws are linked to motion | Local motion, then the tank falls 2.5 °C within 3 min; later a 2 °C drop with no motion in the last 15 min | One draw with motion and one without; `dropC` and the hourly bucket updated; Heat Pump page shows the 7-day summary | todo |
 | P5g | Archive mail reports why it stopped | Start a second mail while one runs; stop Node-RED / let the exec time out mid-pack | Second send: "Another data archive mail is running"; interrupted send: "@@ERROR Data archive interrupted", no staging files left in /tmp | todo |
-| B1 | Heat Pump + history pages render with no console errors (null curve point, no plan) | open pages with missing values | no `cy=""` / $parse errors | todo |
-| P7 | Silent follows the curve point | Heating On, Silent; supply stays below point − down for one step interval; then reaches the point | Silent → Smart written; back to Silent once supply ≥ point; no write inside the band | todo |
+| B1 | Heat Pump + history pages render with no console errors (null curve point, no plan) | open pages with missing values | no `cy=""` / $parse errors | done — #191 (`d#247`), Edge regression in `dashboard.spec.js`; no expected errors |
+| P7 | Silent follows the curve point | Heating On, Silent; supply stays below point − down for one step interval; then reaches the point | Silent → Smart written; back to Silent once supply ≥ point; no write inside the band | done — `heat-simplify.test.js` (return threshold is point + half the upper band) |
 | P7 | Band sliders drive the limits | Set down 0.5 / up 2 and Save; supply above point + 2 | Step down (boost first, then mode); live values on the sliders survive a reload | todo |
 | P7 | Boiler gap | A cycle ends at target; demand again 30 min later; then press Force boiler run | No start, log "waits: last cycle ended hh:mm, gap 1 h"; Force run starts at once | todo |
 | P7 | Start DHW after defrost | Option On, tank below target, gap elapsed; a defrost ends | DHW starts at once (valve to the tank), log "start DHW after defrost"; option Off: no start | todo |

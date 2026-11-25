@@ -15,11 +15,11 @@ const NOW = new Date(2026, 10, 14, 20, 10).getTime();
 const GX_HEAT = { lagUp: 1, overC: 0, gapMax: 3, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, kickMin: 1, kickSec: 60 };
 
 function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, modes = {},
-    heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 }, modules } = {}) {
+    heatCurve = { p23: 38, p24: 4, at: NOW - 3600000 }, modules, extra = {} } = {}) {
     const node = loadNode('40 Heat pump automations.js', undefined, undefined, modules);
     const load = node.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: Object.assign({ dhw, heat: 'live', df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' }, modes),
-        heat: cfg, dhw: { showerForce: false }, heatCurve, dhwLastEnd
+        heat: cfg, dhw: { showerForce: false }, heatCurve, dhwLastEnd, ...extra
     }) }, { now: NOW });
     node.context.set('lastDefrost', NOW - 60 * MIN);
     const writes = [];
@@ -51,6 +51,98 @@ function heating({ dhw = 'off', dhwLastEnd = NOW - 5 * 3600000, cfg = GX_HEAT, m
     }
     return { node, load, tick, heat, writes, restart };
 }
+
+test('owner pause stands by, keeps the valve on heating, and restores after settings reload', () => {
+    const c = heating({ dhw: 'live' });
+    const conditions = { 103: 5, 108: 50 };
+    c.tick(NOW, conditions);
+    c.node.run({ topic: 'ui', payload: { action: 'hpPause', minutes: 30 } }, { now: NOW + S });
+    c.tick(NOW + 10 * S, conditions);
+    assert.deepEqual(c.writes.map(({ device, dps, set }) => [device, dps, set]), [['pump', 133, 0]]);
+    const saved = JSON.parse(JSON.stringify(c.node.context.get('settings')));
+    const restarted = heating({ dhw: 'live', extra: saved });
+    restarted.tick(NOW + 2 * MIN, { ...conditions, 133: 0 });
+    assert.equal(restarted.node.flow.get('dhwView').pauseStandby, true);
+    assert.equal(restarted.writes.length, 0);
+    restarted.node.run({ topic: 'ui', payload: { action: 'hpResume' } }, { now: NOW + 3 * MIN });
+    restarted.tick(NOW + 4 * MIN, { ...conditions, 133: 0 });
+    assert.deepEqual(restarted.writes.map(({ device, dps, set }) => [device, dps, set]), [['pump', 133, 38]]);
+});
+
+test('pause does not interrupt an active DHW cycle or take priority over frost or tank protection', () => {
+    const active = heating({ dhw: 'live' });
+    active.tick(NOW - S, { 103: 5, 108: 50 });
+    const d = active.node.context.get('dhw');
+    Object.assign(d, { state: 'VALVE', since: NOW - S, startAt: NOW - 2 * MIN, live: true });
+    active.node.context.get('settings').pauseUntil = NOW + 30 * MIN;
+    active.tick(NOW, { 103: 5, 108: 40, 133: 0, 115: 0 }, true);
+    assert.equal(d.state, 'VALVE');
+    assert.deepEqual(active.writes, []);
+    for (const [values, reason] of [[{ 103: -1, 108: 50 }, 'frost protection'], [{ 103: 5, 108: 27 }, 'tank protection']]) {
+        const c = heating({ extra: { pauseUntil: NOW + 30 * MIN } });
+        c.tick(NOW, values);
+        assert.equal(c.node.flow.get('dhwView').pause.protection, reason);
+        assert.equal(c.writes.length, 0);
+    }
+});
+
+test('local control turns off with an expired pause and an unavailable heating circuit', () => {
+    const c = heating();
+    const conditions = { 103: 5, 108: 50 };
+    const ui = (payload, now) => c.node.run({ topic: 'ui', payload }, { now });
+    c.tick(NOW, conditions);
+    ui({ action: 'hpPause', minutes: 1 }, NOW + S);
+    c.tick(NOW + 10 * S, conditions);
+    assert.deepEqual(c.writes.map(w => w.set), [0]);
+    const afterExpiry = NOW + 2 * MIN;
+    c.tick(afterExpiry, { ...conditions, 1: false, 133: 0 });
+    assert.equal(c.node.flow.get('dhwView').pauseStandby, true);
+    assert.equal(ui({ action: 'master', on: false }, afterExpiry + S).result[0].payload.master, false);
+    assert.equal(c.node.context.get('settings').pauseUntil, 0);
+    assert.equal(c.node.flow.get('dhwView').pauseStandby, false);
+    c.tick(afterExpiry + 10 * S, { ...conditions, 133: 0 });
+    assert.deepEqual(c.writes.map(w => w.set), [0], 'no automatic restore after OFF');
+    ui({ action: 'ownerCurve', requestId: 'restore', p23: 38, p24: 4 }, afterExpiry + 11 * S);
+    assert.equal(c.node.context.get('ownerCurveRequest')?.requestId, 'restore');
+});
+
+test('an unconfirmed standby restore times out even across a settings reload', () => {
+    const c = heating({ extra: { pauseStandby: true, pauseUntil: NOW - 1 } });
+    const unavailable = { 1: false, 103: 5, 108: 50, 133: 0 };
+    c.tick(NOW, unavailable);
+    assert.equal(c.node.flow.get('dhwView').pauseStandby, true);
+    const saved = JSON.parse(JSON.stringify(c.node.context.get('settings')));
+    const restarted = heating({ extra: saved });
+    restarted.tick(NOW + 119 * S, unavailable);
+    assert.equal(restarted.node.flow.get('dhwView').pauseStandby, true);
+    restarted.tick(NOW + 2 * MIN, unavailable);
+    assert.equal(restarted.node.flow.get('dhwView').pauseStandby, false);
+    assert.deepEqual(restarted.writes, []);
+    assert.ok(restarted.node.context.get('log').some(e => /restore timed out.*not confirmed/.test(e.text)));
+});
+
+test('gentle heating waits for sustained high Hz, then uses the configured P23 step and spacing', () => {
+    const c = heating({ cfg: { kickMin: 0, maxHz: 60, maxP23Step: 1, gentleStepMin: 5, preferSilent: true } });
+    for (let i = 0; i < 9; i++) c.tick(NOW + i * 20 * S, { 115: 70 });
+    assert.deepEqual(c.writes, []);
+    c.tick(NOW + 3 * MIN, { 115: 70 });
+    assert.deepEqual(c.writes.map(({ dps, set }) => [dps, set]), [[133, 37]]);
+    const pending = c.node.context.get('queue');
+    assert.equal(pending.length, 0);
+    for (let i = 10; i < 24; i++) c.tick(NOW + i * 20 * S, { 115: 70, 133: 37 });
+    assert.equal(c.writes.length, 1);
+});
+
+test('DHW retries only with clear fault, after the delay, and never past the persisted limit', () => {
+    for (const [elapsed, fault, count, starts] of [[29, 0, 0, false], [31, 1, 0, false], [31, 0, 1, true], [31, 0, 2, false]]) {
+        const c = heating({ dhw: 'live', extra: { dhw: { autoRetry: true, retryMax: 2 },
+            dhwBlock: { at: NOW - elapsed * MIN, retryable: true, why: 'Er03' }, retryCount: count, dhwLastEnd: NOW - elapsed * MIN } });
+        for (let i = 0; i < 4; i++) c.tick(NOW + i * 10 * S, { 15: fault, 103: 5, 108: 33 });
+        const s = c.node.context.get('settings');
+        assert.equal(!s.dhwBlock, starts);
+        assert.equal(s.retryCount, count + Number(starts));
+    }
+});
 
 test('a clean restart seeds the outdoor curve and resumes heating evaluation after two minutes', () => {
     const c = heating({ dhw: 'live' });
@@ -200,7 +292,8 @@ test('heating controller with the GX settings keeps Silent and writes nothing wh
     assert.equal(view.lag, 0);
     assert.equal(view.pumpMode, 'Silent');
     assert.equal(view.boost, 0);
-    assert.deepEqual(view.cfg, { bandDown: 1, bandUp: 0, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, maxCurveOffset: 4, kickMin: 1, kickSec: 60, offCurveC: 1, offCurveMin: 45, band: false },
+    assert.deepEqual(view.cfg, { bandDown: 1, bandUp: 0, stepMin: 12, ampPct: 85, allowPowerful: false, maxBoost: 4, maxCurveOffset: 4, kickMin: 1, kickSec: 60, offCurveC: 1, offCurveMin: 45, band: false,
+        maxHz: 0, maxP23Step: 0, gentleStepMin: 0, preferSilent: false },
         'saved lagUp / overC become the band limits; gapMax is gone; the P6 pump band ships off');
 });
 

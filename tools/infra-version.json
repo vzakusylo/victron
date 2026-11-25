@@ -1,5 +1,5 @@
 {
-  "i": 60,
+  "i": 61,
   "changes": [
     {
       "i": 1,
@@ -360,6 +360,12 @@
       "date": "2026-11-25",
       "pr": 190,
       "what": "Add configuration-driven post-deploy health monitoring; document Copilot model tiers and low effort"
+    },
+    {
+      "i": 61,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Heat pump curve history and operator controls"
     }
   ]
 }

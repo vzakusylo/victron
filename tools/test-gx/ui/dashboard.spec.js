@@ -83,6 +83,59 @@ for (const entry of visible) {
     });
 }
 
+test('Heat Pump charts render missing points and plans without browser errors', async ({ page }) => {
+    const errors = [];
+    const timing = { clicked: false, opening: true };
+    try {
+        const items = await openDashboard(page, errors, timing);
+        timing.clicked = true;
+        await items.filter({ hasText: pageNamePattern('Heat Pump') }).click();
+        await expect(page.getByRole('img', { name: 'Boiler curve' })).toBeVisible();
+        await expect(page.locator('.hph')).toBeAttached();
+        const markers = await page.evaluate(() => {
+            const root = window.angular.element(document.body).injector().get('$rootScope');
+            const scopes = [root];
+            for (const scope of scopes) {
+                for (let child = scope.$$childHead; child; child = child.$$nextSibling) scopes.push(child);
+            }
+            const heat = scopes.find(scope => Object.hasOwn(scope, 'hpCurveReset'));
+            const history = scopes.find(scope => Object.hasOwn(scope, 'hpHover'));
+            function render(now, plan) {
+                root.$apply(() => {
+                    const payload = heat.msg.payload;
+                    heat.msg = { ...heat.msg, payload: { ...payload,
+                        curveChart: { ...payload.curveChart, target: null, svg: { now: null } },
+                        dhwChart: { ...payload.dhwChart, svg: { now } }
+                    } };
+                    history.h.day = { day: '2026-11-25', chart: { t1: 12, b2: 230, plan } };
+                });
+                const coords = (selector, attr) =>
+                    Array.from(document.querySelectorAll(selector), el => el.getAttribute(attr));
+                return {
+                    heat: coords('svg[aria-label="Heating curve"] circle', 'cy'),
+                    boiler: coords('svg[aria-label="Boiler curve"] circle', 'cy'),
+                    target: coords('.hph-svg .plan-target', 'y1'),
+                    projection: coords('.hph-svg .plan-proj', 'y1')
+                };
+            }
+            return [
+                render(null, null),
+                render({ x: 100, yTarget: null, yTank: 0, yWanted: NaN }, { xEnd: 200, yTarget: 0 }),
+                render({ x: 100, yTarget: 0 }, { x0: 0, xEnd: 200, yTarget: 0 }),
+                render({ x: 100, yTarget: 20 }, { x0: 0, xEnd: 200, yTarget: 0, xNow: 100, yNow: 0 })
+            ];
+        });
+        expect(markers).toEqual([
+            { heat: [], boiler: [], target: [], projection: [] },
+            { heat: [], boiler: ['0'], target: [], projection: [] },
+            { heat: [], boiler: ['0'], target: ['0'], projection: [] },
+            { heat: [], boiler: ['20'], target: ['0'], projection: ['0'] }
+        ]);
+    } finally {
+        assertErrors(errors, [], timing);
+    }
+});
+
 test('Grid control displays live status on Protection', async ({ page }) => {
     const items = await openDashboard(page, [], { clicked: false, opening: true });
     await items.filter({ hasText: pageNamePattern('Protection') }).click();

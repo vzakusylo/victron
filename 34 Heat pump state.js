@@ -1,3 +1,4 @@
+// #libs [{"var":"fs","module":"fs"}]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -103,6 +104,7 @@ const CLOUD_STALE_MS = 24 * 3600 * 1000;
 // #include lib/heat-pump/state-dhw-view.js
 
 // #include lib/heat-pump/write-attribution.js
+// #include lib/heat-pump/curve-change-log.js
 
 // ---------------------------------------------------------------------------
 const now = Date.now();
@@ -127,7 +129,7 @@ if (typeof p.state === 'string' && !p.data) {
     // in SECONDS: using it made hp / valve / bypass look stale (d#135 bug, fixed in d#138).
     const at = CLOUD_ROLES.includes(role) && Number.isFinite(p.data.t) && p.data.t > 1e12 && p.data.t <= now ? p.data.t : now;
     if (CLOUD_ROLES.includes(role) && dev.lastData && at < dev.lastData && dev.state === 'CONNECTED') return null;
-    if (role === 'hp') hpAttribution.observe(dps, dev.dps, at);
+    if (role === 'hp') hpAttribution.observe(dps, dev.dps, at, hpCurveLog.append);
     const observed = dev.dpObservedAt || (dev.dpObservedAt = {});
     Object.keys(dps).forEach((k) => {
         dev.dps[k] = dps[k];

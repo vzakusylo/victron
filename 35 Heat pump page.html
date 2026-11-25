@@ -161,6 +161,19 @@
   <div class="hpw-split">
     <section class="hpw-col">
       <div class="hpw-col-title">Heating</div>
+      <div class="hpw-ctl">
+        <label>Pause for
+          <select ng-model="hp.pauseChoice" ng-init="hp.pauseChoice = '30'">
+            <option value="30">30 min</option><option value="60">1 h</option><option value="120">2 h</option>
+            <option value="240">4 h</option><option value="custom">Custom</option>
+          </select>
+        </label>
+        <label ng-if="hp.pauseChoice === 'custom'"><input type="number" min="1" max="1440" step="1" ng-model="hp.pauseMinutes"> min</label>
+        <button ng-click="hpPause(true)" ng-disabled="!msg.payload.heatCtl.master || msg.payload.pause">Pause</button>
+        <button ng-if="msg.payload.pause" ng-click="hpPause(false)">Resume now</button>
+        <span class="lbl" ng-if="msg.payload.pause">{{msg.payload.pause.minutes}} min remaining<span ng-if="msg.payload.pause.protection"> · overridden by {{msg.payload.pause.protection}}</span></span>
+        <span class="lbl">A running DHW cycle finishes normally. Frost and tank protection take priority.</span>
+      </div>
       <div class="hpw-cards hpw-wrap" ng-if="msg.payload.summary">
         <div class="hpw-card"><div class="k">Supply</div><div class="v">{{msg.payload.summary.supply}}<span class="u">°C</span></div></div>
         <div class="hpw-card"><div class="k">Return</div><div class="v">{{msg.payload.summary.ret}}<span class="u">°C</span></div></div>
@@ -203,7 +216,7 @@
           <polyline class="band-high" ng-if="hpCurvePlot.highShift !== null" ng-attr-transform="translate(0 {{hpCurvePlot.highShift}})" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="curve" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="preview" ng-if="hpCurveChanged()" ng-attr-points="{{hpPreviewLine()}}"></polyline>
-          <g ng-if="msg.payload.curveChart.svg.now">
+          <g ng-if="hpFinite(msg.payload.curveChart.svg.now.x)">
             <line class="nowline" ng-attr-x1="{{msg.payload.curveChart.svg.now.x}}" ng-attr-x2="{{msg.payload.curveChart.svg.now.x}}" ng-attr-y1="{{hpCurvePlot.top}}" ng-attr-y2="{{hpCurvePlot.bottom}}"></line>
             <circle ng-repeat="point in hpCurvePlot.markers track by point.css" ng-class="point.css" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{point.y}}" ng-attr-r="{{point.radius}}"><title>{{point.label}}: {{point.value}} °C</title></circle>
           </g>
@@ -280,6 +293,10 @@
               <label><input type="checkbox" ng-model="hp.heat.allowPowerful" ng-change="hp.heatDirty=true"> allow Powerful</label>
               <label title="after the top mode: raise the curve 1 °C per step using only P23">curve boost ≤ +<input type="number" ng-model="hp.heat.maxBoost" ng-change="hp.heatDirty=true"> °C</label>
               <label title="hard limit on warm-up, band offset and boost combined above your curve">total curve rise ≤ +<input type="number" min="0" max="8" step="0.1" ng-model="hp.heat.maxCurveOffset" ng-change="hp.heatDirty=true"> °C</label>
+              <label>gentle heating limit <input type="number" min="0" max="120" ng-model="hp.heat.maxHz" ng-change="hp.heatDirty=true"> Hz (0 = off)</label>
+              <label>max P23 step <input type="number" min="0" max="40" ng-model="hp.heat.maxP23Step" ng-change="hp.heatDirty=true"> (0 = off)</label>
+              <label>min between P23 steps <input type="number" min="0" max="60" ng-model="hp.heat.gentleStepMin" ng-change="hp.heatDirty=true"> min (0 = off)</label>
+              <label><input type="checkbox" ng-model="hp.heat.preferSilent" ng-change="hp.heatDirty=true"> prefer Silent</label>
               <label title="supply flat (≤ 0.5 °C) this long below its point in Silent → Smart for the given seconds, then Silent again; also in DHW cycles. 0 = off">kick if stuck <input type="number" ng-model="hp.heat.kickMin" ng-change="hp.heatDirty=true"> min → Smart <input type="number" ng-model="hp.heat.kickSec" ng-change="hp.heatDirty=true"> s</label>
               <label title="warning in the status line and the Automation log when the 10-min supply average stays more than band down + this below the point for this long">not following the curve: &gt; band down + <input type="number" ng-model="hp.heat.offCurveC" ng-change="hp.heatDirty=true"> °C for <input type="number" ng-model="hp.heat.offCurveMin" ng-change="hp.heatDirty=true"> min</label>
               <label title="The pump itself is set to point + up and its hysteresis (DP 121) to down + up, at least 2 °C. Your hysteresis comes back when this is off or the controller is not On."><input type="checkbox" ng-model="hp.heat.band" ng-change="hp.heatDirty=true"> pump hysteresis follows the band</label>
@@ -289,6 +306,19 @@
           <span class="lbl" style="flex-basis:100%">Outside DHW cycles and defrosts: below the band → Silent → Smart{{msg.payload.heatCtl.cfg.allowPowerful ? ' → Powerful' : ''}} → P23 boost. Warm-up, band offset and boost are capped at +{{msg.payload.heatCtl.cfg.maxCurveOffset}} °C combined. Above the band or at high current → step down (boost first, then mode). One step per {{msg.payload.heatCtl.cfg.stepMin}} min.</span>
         </div>
       </div>
+      <details class="hpw-curve" ng-if="msg.payload.curveChanges">
+        <summary>Curve changes</summary>
+        <p ng-if="msg.payload.curveChanges.error">{{msg.payload.curveChanges.error}}</p>
+        <p>Last 24 h: <span class="hpw-chip" ng-repeat="(writer, count) in msg.payload.curveChanges.counts">{{writer}}: {{count}}</span></p>
+        <p ng-if="!msg.payload.curveChanges.error && !msg.payload.curveChanges.recent.length">No changes recorded yet.</p>
+        <table class="hpw-table" ng-if="msg.payload.curveChanges.recent.length">
+          <tr><th>Time (Oslo)</th><th>Change</th><th>Writer</th><th>Controller details</th></tr>
+          <tr ng-repeat="row in msg.payload.curveChanges.recent track by $index">
+            <td title="{{row.time}}">{{row.oslo}}</td><td>{{row.dp === 133 ? 'P23' : row.dp === 134 ? 'P24' : row.dp}}: {{hpCurveLogValue(row.old)}} → {{hpCurveLogValue(row.new)}}</td>
+            <td>{{row.writer}}</td><td><span ng-if="row.parts">{{row.parts.reason}} · owner {{hpCurveLogValue(row.parts.owner)}} · boost +{{row.parts.boost}} °C · warm-up +{{row.parts.warmUp}} °C · band +{{row.parts.bandOffset}} °C · HP-B1 cap {{row.parts.capApplied ? 'yes' : 'no'}} · outdoor {{row.parts.outdoorAverage}} °C · {{row.parts.dhw}} · defrost {{row.parts.defrost ? 'yes' : 'no'}}</span></td>
+          </tr>
+        </table>
+      </details>
     </section>
     <section class="hpw-col">
       <div class="hpw-col-title">Boiler (DHW tank)</div>
@@ -302,6 +332,14 @@
         <span class="hpw-chip" ng-if="msg.payload.dhwChart" ng-class="{'hpw-warn': msg.payload.dhwChart.state !== 'HEATING', 'hpw-bad': msg.payload.dhwChart.mode !== 'live'}">Controller {{hpModeLabel(msg.payload.dhwChart.mode)}} · {{msg.payload.dhwChart.stateLabel}} since {{msg.payload.dhwChart.since | date:'HH:mm'}}</span>
         <span class="hpw-chip hpw-warn" ng-if="msg.payload.dhwChart.progress !== null">progress {{msg.payload.dhwChart.progress}} % ({{msg.payload.dhwChart.startTank}} → {{msg.payload.dhwChart.target}} °C)</span>
         <span class="hpw-chip hpw-bad" ng-if="msg.payload.dhwChart.blocked">DHW blocked since {{msg.payload.dhwChart.blocked.at | date:'HH:mm'}}: {{msg.payload.dhwChart.blocked.why}} <button ng-click="hpDhwResume()">Allow DHW again</button></span>
+        <span class="hpw-chip" ng-if="msg.payload.dhwChart.cfg">
+          <label><input type="checkbox" ng-checked="msg.payload.dhwChart.cfg.autoRetry" ng-click="hpRetry(!msg.payload.dhwChart.cfg.autoRetry)"> Auto retry</label>
+          <span ng-if="msg.payload.dhwChart.cfg.autoRetry">
+            · up to <input type="number" min="1" max="5" ng-model="hp.retryMax" aria-label="Maximum retries"> retries, wait
+            <input type="number" min="5" max="240" ng-model="hp.retryWait" aria-label="Minutes between retries"> min
+            <button ng-click="hpRetry(true)">Save</button>
+          </span>
+        </span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.planned > 0">next cycle planned {{msg.payload.dhwChart.planned | date:'HH:mm'}} (after a defrost)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.defrost && msg.payload.dhwChart.defrost.next">next defrost ≈ {{msg.payload.dhwChart.defrost.next | date:'HH:mm'}} (every ~{{msg.payload.dhwChart.defrost.intervalMin}} min)</span>
         <span class="hpw-chip" ng-if="msg.payload.dhwChart.nextStart > 0">ordinary start not before {{msg.payload.dhwChart.nextStart | date:'HH:mm'}}</span>
@@ -373,12 +411,12 @@
           <polyline class="dhw-supply" ng-attr-points="{{hpStatic.dhwChart.svg.supplyLine}}"><title>wanted supply during a cycle (target + {{msg.payload.dhwChart.cfg.supplyAdd}} °C, capped)</title></polyline>
           <polyline class="dhw-curve" ng-attr-points="{{hpStatic.dhwChart.svg.line}}"><title>tank target (the boiler curve)</title></polyline>
           <polyline class="preview" ng-if="hp.dhwDirty" ng-attr-points="{{hpDhwPreviewLine()}}"><title>edited curve, not saved</title></polyline>
-          <g ng-if="msg.payload.dhwChart.svg.now">
+          <g ng-if="hpFinite(msg.payload.dhwChart.svg.now.x)">
             <line class="nowline" ng-attr-x1="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-x2="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-y1="{{hpStatic.dhwChart.svg.top}}" ng-attr-y2="{{hpStatic.dhwChart.svg.bottom}}"></line>
-            <circle class="pt-dhw-target" ng-if="msg.payload.dhwChart.svg.now.yTarget !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTarget}}" r="6"><title>target now: {{msg.payload.dhwChart.target}} °C</title></circle>
-            <circle class="pt-tank" ng-if="msg.payload.dhwChart.svg.now.yTank !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTank}}" r="5"><title>tank now: {{msg.payload.dhwChart.tank}} °C</title></circle>
-            <circle class="pt-wanted" ng-if="msg.payload.dhwChart.svg.now.yWanted !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yWanted}}" r="4"></circle>
-            <circle class="pt-supply-now" ng-if="msg.payload.dhwChart.svg.now.ySupply !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.ySupply}}" r="4"></circle>
+            <circle class="pt-dhw-target" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yTarget)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTarget}}" r="6"><title>target now: {{msg.payload.dhwChart.target}} °C</title></circle>
+            <circle class="pt-tank" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yTank)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTank}}" r="5"><title>tank now: {{msg.payload.dhwChart.tank}} °C</title></circle>
+            <circle class="pt-wanted" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yWanted)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yWanted}}" r="4"></circle>
+            <circle class="pt-supply-now" ng-if="hpFinite(msg.payload.dhwChart.svg.now.ySupply)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.ySupply}}" r="4"></circle>
           </g>
         </svg>
         <div class="hpw-legend">
@@ -578,8 +616,9 @@
     scope.hpHeatSave = function () {
         var c = scope.hp.heat;
         if (!c) return;
-        var cfg = { allowPowerful: !!c.allowPowerful, band: !!c.band };
-        ['stepMin', 'ampPct', 'maxBoost', 'maxCurveOffset', 'kickMin', 'kickSec', 'bandDown', 'bandUp', 'offCurveC', 'offCurveMin'].forEach(function (k) { cfg[k] = Number(c[k]); });
+        var cfg = { allowPowerful: !!c.allowPowerful, band: !!c.band, preferSilent: !!c.preferSilent };
+        ['stepMin', 'ampPct', 'maxBoost', 'maxCurveOffset', 'kickMin', 'kickSec', 'bandDown', 'bandUp', 'offCurveC', 'offCurveMin',
+            'maxHz', 'maxP23Step', 'gentleStepMin'].forEach(function (k) { cfg[k] = Number(c[k]); });
         if (!confirm('Save the heating power controller settings?\nValues out of range are ignored.')) return;
         scope.hp.heatDirty = false;
         scope.send({ topic: 'ui', payload: { action: 'heatSet', cfg: cfg } });
@@ -612,6 +651,24 @@
         if (!confirm('Allow DHW cycles again?\nThe last cycle was aborted (Er03 or the 3-way valve switched from outside). Check the valve first.')) return;
         scope.send({ topic: 'ui', payload: { action: 'dhwResume' } });
     };
+    scope.$watch('msg.payload.dhwChart.cfg.retryMax', function (value) { scope.hp.retryMax = value; });
+    scope.$watch('msg.payload.dhwChart.cfg.retryWait', function (value) { scope.hp.retryWait = value; });
+    scope.hpRetry = function (on) {
+        var max = scope.hp.retryMax, wait = scope.hp.retryWait;
+        if (!Number.isInteger(max) || max < 1 || max > 5 || !Number.isInteger(wait) || wait < 5 || wait > 240) {
+            alert('Enter 1–5 retries and a wait of 5–240 whole minutes.'); return;
+        }
+        scope.send({ topic: 'ui', payload: { action: 'dhwRetrySet', on: on, max: max, wait: wait } });
+    };
+    scope.hpPause = function (on) {
+        var minutes = scope.hp.pauseChoice === 'custom' ? scope.hp.pauseMinutes : Number(scope.hp.pauseChoice);
+        if (on && (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440)) { alert('Enter 1–1440 whole minutes.'); return; }
+        scope.send({ topic: 'ui', payload: { action: on ? 'hpPause' : 'hpResume', minutes: minutes } });
+    };
+    scope.hpCurveLogValue = function (value) {
+        return value === null ? '—' : typeof value === 'object' ? 'P23 ' + value.p23 + ' / P24 ' + value.p24 : value;
+    };
+    scope.hpFinite = Number.isFinite;
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
     var sliderEditing = false, sliderKey = null, sliderKeyValue = null;
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }

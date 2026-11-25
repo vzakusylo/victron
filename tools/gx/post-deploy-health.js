@@ -88,6 +88,7 @@ function observedCurve(check, view, hp, state) {
         return { result: failed(check, 'No fresh heating or defrost state') };
     }
     if (view.state !== 'HEATING' || view.outHeld) return { result: { level: 'SKIP', detail: 'DHW or defrost/recovery active' } };
+    if (view.pauseStandby) return { result: { level: 'SKIP', detail: 'Owner pause standby or restore in progress' } };
     const owner = view.heatCurve;
     if (![owner?.p23, owner?.p24].every(Number.isFinite)) return { result: failed(check, 'No stored owner curve') };
     if (hp?.state !== 'CONNECTED' || !fresh(hp.lastData, check.deviceMaxAgeMin, state)) {
@@ -253,7 +254,9 @@ async function sampleRemote(config, deploy, owned, final, options = {}) {
     const results = evaluate(config, values, state, prior);
     // Request IDs are for continuity on the GX only, never for public artifacts.
     const { tab, ...record } = deploy;
-    const latest = { at: state.now, restartedAt: state.restartedAt, status: statusOf(results), checks: results };
+    const recent = values.get('context/flow/dhwView')?.recentCurveChanges;
+    const latest = { at: state.now, restartedAt: state.restartedAt, status: statusOf(results), checks: results,
+        curveChanges: Array.isArray(recent) ? recent.slice(0, 5) : null };
     const current = { ...record, finishedAt: final ? state.now : null, samples: [...samples, latest] };
     const tmp = `${file}.${process.pid}.tmp`;
     try {
@@ -345,7 +348,11 @@ function summary(report) {
     return [`### GX post-deploy health: ${report.version} — ${report.status}`,
         `Apply: ${iso(report.startedAt)} · Last sample: ${iso(latest.at)} · ${report.samples.length} sample(s)`,
         '', '| Check | Result | Detail |', '|---|---|---|',
-        ...latest.checks.map(row => `| ${row.name} | ${row.level} | ${row.detail} |`), ''].join('\n');
+        ...latest.checks.map(row => `| ${row.name} | ${row.level} | ${row.detail} |`), '',
+        'Recent heat pump curve changes (Oslo time):',
+        ...(latest.curveChanges?.length ? latest.curveChanges.map(row =>
+            `- ${row.oslo} · ${typeof row.dp === 'number' ? 'P' + (row.dp - 110) : row.dp} · ${JSON.stringify(row.old)} → ${JSON.stringify(row.new)} · ${row.writer}`)
+            : [latest.curveChanges ? 'None recorded' : 'Unavailable']), ''].join('\n');
 }
 
 async function main(env) {

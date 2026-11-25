@@ -48,6 +48,14 @@ function buildMail(input) {
     if (input.health) {
         lines.push('', `Post-deploy health: ${input.health.status}`);
         for (const check of input.health.checks) lines.push(`  ${check.level} ${scrub(check.name)}: ${scrub(check.detail)}`);
+        if (input.health.curveChanges) {
+            lines.push('Recent heat pump curve changes (Oslo time):');
+            for (const row of input.health.curveChanges) {
+                const dp = typeof row.dp === 'number' ? 'P' + (row.dp - 110) : row.dp;
+                lines.push('  ' + scrub(`${row.oslo} · ${dp} · ${JSON.stringify(row.old)} → ${JSON.stringify(row.new)} · ${row.writer}`));
+            }
+            if (!input.health.curveChanges.length) lines.push('  None recorded');
+        }
     }
     if (input.additions?.length) {
         lines.push('', `Added nodes (${input.additions.length}):`);
@@ -95,6 +103,7 @@ function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
         ? JSON.parse(fs.readFileSync(env.HEALTH_REPORT, 'utf8')) : null;
     const health = env.HEALTH_OUTCOME === 'failure' || report
         ? { status: env.HEALTH_OUTCOME === 'failure' ? 'FAIL' : report.status,
+            curveChanges: report?.samples.at(-1)?.curveChanges,
             checks: report?.finishedAt ? report.samples.at(-1).checks
                 : [{ level: 'FAIL', name: 'Monitor', detail: 'No final health report available' }] }
         : null;

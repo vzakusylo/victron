@@ -262,6 +262,9 @@ function validateScenario(scenario, source = 'scenario') {
                     Object.keys(action).length === 3 ||
                 action.action === 'heatSet' && typeof action.cfg?.band === 'boolean' &&
                     Object.keys(action.cfg).length === 1 && Object.keys(action).length === 2 ||
+                action.action === 'hpPause' && Number.isInteger(action.minutes) && action.minutes >= 1 && action.minutes <= 1440 &&
+                    Object.keys(action).length === 2 ||
+                action.action === 'hpResume' && Object.keys(action).length === 1 ||
                 ['dhwForceRun', 'dhwShowerForce'].includes(action.action) && typeof action.on === 'boolean' &&
                     Object.keys(action).length === 2);
             if (!scenario.settings || !valid) {

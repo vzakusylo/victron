@@ -105,6 +105,17 @@ case 'ui': {
     const okMode = p.action === 'mode' && (p.id === 'dhw' || p.id === 'heat') && ['off', 'dry', 'live'].includes(p.mode);
     const okSet = p.action === 'dhwSet' && p.cfg && typeof p.cfg === 'object' && Array.isArray(p.cfg.curve);
     const okHeat = p.action === 'heatSet' && p.cfg && typeof p.cfg === 'object' && !Array.isArray(p.cfg);
+    if (p.action === 'hpResume') return [null, null, null, { topic: 'ui', payload: { action: p.action } }];
+    if (p.action === 'hpPause') {
+        if (!Number.isInteger(p.minutes) || p.minutes < 1 || p.minutes > 1440) return refuse('pause duration must be 1–1440 whole minutes');
+        return [null, null, null, { topic: 'ui', payload: { action: p.action, minutes: p.minutes } }];
+    }
+    if (p.action === 'dhwRetrySet') {
+        const { on, max, wait } = p;
+        if (typeof on !== 'boolean' || !Number.isInteger(max) || max < 1 || max > 5 ||
+            !Number.isInteger(wait) || wait < 5 || wait > 240) return refuse('invalid DHW retry settings');
+        return [null, null, null, { topic: 'ui', payload: { action: 'dhwSet', cfg: { autoRetry: on, retryMax: max, retryWait: wait } } }];
+    }
     if (p.action === 'dhwResume') { node.status({ fill: 'blue', shape: 'dot', text: 'DHW allowed again' }); return [null, null, null, { topic: 'ui', payload: { action: 'dhwResume' } }]; }   // d#174
     if (!okMode && !okSet && !okHeat) return refuse('ui: only the DHW / heating controller mode / settings');
     const who = (okMode ? p.id : okHeat ? 'heat' : 'dhw') === 'heat' ? 'Heating controller' : 'DHW controller';

@@ -27,19 +27,28 @@ function rig(heat = {}, saved = {}) {
     return { node, dps, tick, writes };
 }
 
-test('fixed DP 125 does not influence the heat target or the page curve point', () => {
+test('heat control and the page keep the averaged curve point through a DP 103 defrost spike, not DP 125', () => {
     const c = rig();
     let dv;
     for (let i = 0; i <= 5; i++) dv = c.tick(i);
-    assert.equal(dv.heat.target, 60);
     const page = loadHeatPumpState();
-    page.flow.set('dhwView', dv);
-    const chart = page.run({ topic: 'hp', payload: { data: { dps: { ...c.dps, 103: -6 } } } },
-        { now: dv.at }).result[0].payload.curveChart;
-    assert.equal(chart.target, 60);
-    assert.equal(chart.sensor, -6);
-    assert.equal(chart.reported, 36);
-    assert.equal(chart.outdoorText, 'sensor -9 °C (10-min average)');
+    function check(view, over, held) {
+        assert.equal(view.heat.target, 60);
+        assert.equal(view.outAvg, -9);
+        assert.equal(view.outHeld, held);
+        page.flow.set('dhwView', view);
+        const chart = page.run({ topic: 'hp', payload: { data: { dps: { ...c.dps, ...over } } } },
+            { now: view.at }).result[0].payload.curveChart;
+        assert.equal(chart.target, 60);
+        assert.equal(chart.sensor, over[103]);
+        assert.equal(chart.reported, 36);
+        assert.equal(chart.outdoorText, 'sensor -9 °C (10-min average)');
+    }
+    check(dv, { 103: -6 }, false);
+    const defrost = { 103: 40, 102: 28, 115: 60, 116: 0 };
+    check(c.tick(6, defrost), defrost, true);
+    const recovery = { ...defrost, 116: 550 };
+    check(c.tick(40, recovery), recovery, true);
 });
 
 test('no outdoor average means no heat target, lag decision or dashboard curve point', () => {
