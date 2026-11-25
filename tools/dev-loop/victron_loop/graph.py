@@ -11,6 +11,7 @@ from .nodes import LoopConfig, check_state, notify, pick_task, start_worker, wat
 
 class LoopState(TypedDict, total=False):
     observed: dict[str, Any]
+    repo_refresh_failed: bool
     pick: dict[str, Any]
     active_worker: dict[str, Any] | None
     approved: list[str]
