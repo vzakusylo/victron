@@ -86,6 +86,26 @@ test('pause does not interrupt an active DHW cycle or take priority over frost o
     }
 });
 
+test('local control cannot turn off during pause or before the owner curve restore is observed', () => {
+    const c = heating();
+    const conditions = { 103: 5, 108: 50 };
+    const ui = (payload, now) => c.node.run({ topic: 'ui', payload }, { now });
+    const off = { action: 'master', on: false };
+    c.tick(NOW, conditions);
+    ui({ action: 'hpPause', minutes: 1 }, NOW + S);
+    c.tick(NOW + 10 * S, conditions);
+    assert.deepEqual(c.writes.map(w => w.set), [0]);
+    const blocked = ui(off, NOW + 20 * S).result[0].payload;
+    assert.equal(blocked.master, true);
+    assert.match(blocked.masterOffBlock, /Resume the heat pump/);
+    const afterExpiry = NOW + 2 * MIN;
+    c.tick(afterExpiry, { ...conditions, 133: 0 });
+    assert.deepEqual(c.writes.map(w => w.set), [0, 38]);
+    assert.match(ui(off, afterExpiry + S).result[0].payload.masterOffBlock, /owner curve to be restored/);
+    c.tick(afterExpiry + 10 * S, conditions);
+    assert.equal(ui(off, afterExpiry + 11 * S).result[0].payload.master, false);
+});
+
 test('gentle heating waits for sustained high Hz, then uses the configured P23 step and spacing', () => {
     const c = heating({ cfg: { kickMin: 0, maxHz: 60, maxP23Step: 1, gentleStepMin: 5, preferSilent: true } });
     for (let i = 0; i < 9; i++) c.tick(NOW + i * 20 * S, { 115: 70 });

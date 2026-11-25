@@ -52,9 +52,11 @@
 
   <div class="hpa-master">
     <span class="big">Local control: {{msg.payload.master ? 'ON' : 'OFF'}}</span>
-    <button ng-class="msg.payload.master ? 'off' : 'on'" ng-click="hpaMaster(!msg.payload.master)">
+    <button ng-class="msg.payload.master ? 'off' : 'on'" ng-click="hpaMaster(!msg.payload.master)"
+            ng-disabled="msg.payload.master && msg.payload.masterOffBlock">
       {{msg.payload.master ? 'Turn OFF all local automations' : 'Turn ON local automations'}}
     </button>
+    <span class="note" role="status" ng-if="msg.payload.master && msg.payload.masterOffBlock">{{msg.payload.masterOffBlock}}</span>
     <span class="note" ng-if="!msg.payload.master">OFF: no local rule writes to a device. Rules set to On or Test are still evaluated and every step is logged as "would …".</span>
     <span class="note" ng-if="msg.payload.master">ON: rules set to <b>On</b> write to the devices (queue, 1.5 s between writes, each write checked 15 s later). Rules in <b>Test</b> only log. Switch the matching Smart Life scene off before a rule goes On. Turning OFF stops running sequences.</span>
   </div>

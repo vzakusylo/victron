@@ -183,6 +183,8 @@ lowest configured tank target minus hysteresis.
 #191 HP-R1 (d#247 · i#61): opt-in Er03 retry, default two attempts after a 30-minute delay and clear fault.
 The attempt count survives restart; an exhausted block still uses the existing alert.
 
+#191 review follow-up: local control cannot switch Off while a pause is active or while its owner curve restore is pending.
+
 #191 HP-G1 (d#247 · i#61): opt-in compressor frequency, curve rise, P23 step and spacing limits and Silent preference.
 Sustained high Hz lowers P23 after three minutes. The synthetic Test GX pause and gentle heating scenarios passed.
 

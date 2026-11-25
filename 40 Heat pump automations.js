@@ -327,6 +327,7 @@ function model() {
         updated: new Date(now).toISOString(),
         updatedMs: now,
         master: !!settings.master,
+        masterOffBlock: masterOffBlock(),
         devices: { hp: dev('hp'), valve: dev('valve'), bypass: dev('bypass') },
         flag: { on: f.on, since: f.since, by: f.by, maxMin: FLAG_MAX_MS / MIN },
         hold: HOLD,
@@ -756,6 +757,11 @@ if (msg.topic === 'ui') {
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'master' && typeof p.on === 'boolean') {
+        const block = !p.on && settings.master && masterOffBlock();
+        if (block) {
+            logEvent({ kind: 'warn', text: block });
+            return [{ payload: model() }, null, null, null, null, null];
+        }
         settings.master = p.on;
         persist();
         if (!p.on) { stopLive('local control OFF'); context.set('queue', []); }
