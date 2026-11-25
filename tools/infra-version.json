@@ -358,8 +358,8 @@
     {
       "i": 60,
       "date": "2026-11-25",
-      "pr": null,
-      "what": "Add configuration-driven post-deploy health monitoring"
+      "pr": 190,
+      "what": "Add configuration-driven post-deploy health monitoring; document Copilot model tiers and low effort"
     }
   ]
 }

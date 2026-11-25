@@ -5,6 +5,7 @@ Tasks themselves are tracked in `BACKLOG.md`; heat pump work in `docs/heat-pump-
 
 | Date (UTC) | Event | Change / outcome |
 |---|---|---|
+| 2026-11-25 | Copilot worker model and reasoning effort are selected by task tier | Checked in the Herdr launcher and tier definitions; documented low effort by default, overrides, and the startup model check in #190. |
 | 2026-11-24 | D-R12 split into the D-Bus pin (#180) and heat-pump startup behavior | Check the module pin independently of the restart policy; only use the short settle when telemetry rules out defrost and the last readings do not show recovery. |
 | 2026-11-24 | Two whole-flow applies (45437790670 and 45440186849) stopped before writing with `write EPIPE`. The likely cause was Node 20 reusing an admin socket after a gap longer than the 5-second keep-alive timeout. | Disabled socket reuse and added a live-revision guard before any POST retry. |
 | 2026-11-24 | The first automatic whole-flow deploy (45406703938) stopped on drift hidden by the old per-node tool: six input `name`/`onlyChanges` settings and group/flow order | Adopted the GX values into Git, accepted drift already matching the target, and ignored layout order. |

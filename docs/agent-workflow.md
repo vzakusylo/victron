@@ -8,16 +8,31 @@
 | Manager / reviewer | Claude (planning chat) | Plans, splits work into branches, checks reports against GitHub (PR, CI, review, commits), gives next steps | Commit, push or open PRs unless the owner asks explicitly |
 | Implementer | Copilot | Writes code, tests and docs on the named branch, pushes, opens the PR, reports back | Push to `master`, open a second PR, change production `flows.json` / `NN *.js` in Test GX work |
 
-Copilot runs with model **`gpt-6.2-sol`** for every new task. The id must be exactly `gpt-6.2-sol`; in an interactive
-session check the status bar or switch with `/model`.
+## Copilot worker tiers
+
+Claude picks a tier per task with `herdr-task.ps1 new <branch> -Tier <tier>`. The repository ships the
+[`tools/herdr/herdr-task.ps1`](../tools/herdr/herdr-task.ps1) launcher and
+[`tools/herdr/models.json`](../tools/herdr/models.json) tier definitions. The owner's `~/.claude/skills/herdr-worker/`
+copy is kept in sync. New workers use low reasoning effort unless the tier specifies otherwise.
+Use `-Model` and `-Effort` to override the tier.
+
+| Tier | Model | Reasoning effort | Use for |
+|---|---|---|---|
+| `small` | `gpt-6-luna` | `low` | Docs and one-file fixes |
+| `standard` (default) | `gpt-6.2-sol` | `low` | Routine implementation |
+| `code` | `gpt-5.3-codex` | `low` | Refactors, CI, and scripts |
+| `hard` | `gpt-6.2-sol` | `medium` | Heat pump, grid, BMS, deploy-gate logic, and unclear debugging |
+| `review` | `claude-sonnet-5` | `low` | Review tasks |
+
+Check that the new worker's status bar shows the intended model. An unknown model ID falls back to Copilot's default.
 
 **Transport: Herdr workers (since 2026-11-21).** Every new Copilot task is started as a Herdr worker, one per
 branch and worktree, so Claude talks to it directly:
 
-| Step | Command (`herdr-task.ps1`, owner's `herdr-worker` skill) |
+| Step | Command (`herdr-task.ps1` from `tools/herdr/` or the owner's `herdr-worker` skill) |
 |---|---|
 | Server up | `herdr status` → `running` (else start `herdr` in its own terminal; do not restart a running server without the owner) |
-| Start | `new <branch> -Base origin/master` (worktree `~\.herdr\worktrees\victron\<branch>`, agent `w-<branch>`, Copilot started with `--allow-all --model gpt-6.2-sol`; without `--allow-all` it blocks on a prompt per command) |
+| Start | From the main checkout: `new <branch> -Repo (Get-Location).Path -Base origin/master -Tier <tier>` (worktree `~\.herdr\worktrees\victron\<branch>`, agent `w-<branch>`, Copilot started with `--allow-all`; without it, a prompt blocks each command) |
 | Check | first `read <branch>` after the brief: if it shows "Do you want to run this command?", the worker lacks `--allow-all`: `close` and `new` again |
 | Task | write `.copilot-brief-<branch>.md` in the worktree, then `send <branch> "Read .copilot-brief-<branch>.md and do all of it."` |
 | Corrections / progress | `send <branch> "<correction or: progress?>"` (waits for idle / blocked and prints the answer) |
@@ -25,8 +40,9 @@ branch and worktree, so Claude talks to it directly:
 | Finish | after the PR merges: `close <branch>` (refuses with uncommitted changes) |
 
 Rules: Claude never commits in a worker's worktree; it answers a worker's question or brings it to the owner, and never
-approves destructive commands on the owner's behalf. Fallback without Herdr: `copilot --allow-all --model gpt-6.2-sol
--i 'Read <brief> and do it'` in a terminal tab (only the owner can type into it).
+approves destructive commands on the owner's behalf. Standard-tier fallback without Herdr:
+`copilot --allow-all --model gpt-6.2-sol --reasoning-effort low -i 'Read <brief> and do it'` in a terminal tab
+(only the owner can type into it).
 
 ## Related documents
 

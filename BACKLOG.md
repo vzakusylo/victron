@@ -160,6 +160,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#190 Copilot worker model tiers (`d-r14-post-deploy-monitor`, d#246 · i#60): checked in the launcher and
+tier definitions; documented low reasoning effort by default, overrides, and the status-bar model check.
+
 #190 HP-B1 Heating curve cap (`d-r14-post-deploy-monitor`, d#246 · i#60): the old limit capped only the
 power boost, not the combined warm-up and band offset. The DHW coefficient solver could round up P23 and
 steepen P24 beyond P23 40. The old calculation used the owner baseline, so a restart did not directly add

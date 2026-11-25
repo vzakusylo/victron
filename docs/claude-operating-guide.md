@@ -32,13 +32,19 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 | Claude (one chat) | Plans, writes briefs, reviews PRs and reports, keeps `BACKLOG.md` and these docs current; implements itself only when the owner asks ("claude implement…", "claude only now") |
 | Copilot (Herdr workers) | Implements on its own branch / worktree, tests, commits, pushes, opens the PR, enables auto-merge after all review threads are resolved, reports |
 
-- **Copilot model**: exactly `gpt-6.2-sol` (`gpt-sol-6.2` is rejected and silently falls back to a default).
-- **Transport**: every new Copilot task is a Herdr worker started by `herdr-task.ps1 new <branch> -Base origin/master`
-  (Copilot with `--allow-all --model gpt-6.2-sol`). Brief file in the worktree, `send` it, `send` corrections or
+- **Copilot model**: Claude picks a [worker tier](agent-workflow.md#copilot-worker-tiers) per task. Reasoning effort
+  is low unless the tier specifies otherwise; `-Model` and `-Effort` override the tier. Check the new worker's
+  status bar shows the intended model; an unknown model ID falls back to Copilot's default.
+- **Transport**: every new Copilot task is a Herdr worker started by
+  [`tools/herdr/herdr-task.ps1`](../tools/herdr/herdr-task.ps1) with
+  `new <branch> -Repo (Get-Location).Path -Base origin/master -Tier <tier>` from the main checkout
+  (Copilot with `--allow-all`). [`tools/herdr/models.json`](../tools/herdr/models.json) defines the model options;
+  the owner's skill copy is kept in sync.
+  Brief file in the worktree, `send` it, `send` corrections or
   "progress?", `read` without interrupting, `wait`, `close` after the merge. After the first `send`, `read`: a
   "Do you want to run this command?" box means the worker lacks `--allow-all` (restart it with `--resume=<session>`).
-- Plain `copilot --allow-all --model gpt-6.2-sol -i '…'` in a terminal tab is the fallback; nobody but the owner can
-  type into it. Never two agents on the same branch / folder.
+- `copilot --allow-all --model gpt-6.2-sol --reasoning-effort low -i '…'` in a terminal tab is the standard-tier
+  fallback; nobody but the owner can type into it. Never two agents on the same branch / folder.
 - Herdr transport: the CLI talks JSON over a local socket to the Herdr server; the server types into the worker's
   terminal and reads its screen; status is inferred (a prompt can report "stalled" for a few seconds after a restart
   although the text arrived).
@@ -46,7 +52,7 @@ stays out of the repository: it lives in the owner's local notes and in `.secret
 
 ### 2a. Conflict check before every new task (and before pushing)
 **Start from the latest master, always.** Every new task (worker, session or my own PR) begins with `git fetch origin`
-and a new branch from it: `git switch -c <branch> origin/master` (or `herdr-task.ps1 new <branch> -Base origin/master`).
+and a new branch from it: `git switch -c <branch> origin/master` (or start the Herdr worker as above).
 A reused worker worktree also switches to a fresh branch from `origin/master`; never start a task on a stale local
 `master` or on the previous task's branch. Every brief and every `send` of a new task says this as its first step.
 

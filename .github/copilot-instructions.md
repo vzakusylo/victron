@@ -54,7 +54,13 @@ Outside the branch:
 
 # Model
 
-Use the model `gpt-6.2-sol` for every task in this repository (start with `copilot --allow-all --model gpt-6.2-sol`). If the session runs on another model, say so in the first line of the report.
+Claude picks a [worker tier](../docs/agent-workflow.md#copilot-worker-tiers) per task with
+`herdr-task.ps1 new <branch> -Tier <tier>` using the [repo launcher](../tools/herdr/herdr-task.ps1) and
+[tier definitions](../tools/herdr/models.json). Reasoning effort is low unless the tier specifies otherwise;
+`-Model` and `-Effort` override the tier. Check the new worker's status bar for the intended model:
+an unknown model ID falls back to Copilot's default. If the session runs on a different model than intended,
+say so in the first line of the report. Standard-tier terminal fallback:
+`copilot --allow-all --model gpt-6.2-sol --reasoning-effort low -i 'Read <brief> and do it'`.
 
 # Herdr workers
 
