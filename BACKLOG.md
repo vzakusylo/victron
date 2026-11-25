@@ -95,7 +95,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
-| HP-M2 | Single writer with leases for HP mode + curve; stage 2 (mode), then stage 3 (curve and owner control) | Open; next after HP-M3. One dispatcher for DP 2 / P22–P24 / DP 121 SETs with priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline. Use versioned, bounded leases, generation checks at dequeue and verify, one P22–P24 group and a composed warm-up / band / boost request. Stage 3: curve setting (`hp-curve-model`), which replaced the P23 slider, moves into the single dispatcher. |
+| HP-M2 | Single writer with leases for HP mode + curve; stage 2 (mode), then stage 3 (curve and owner control) | Stage 2 in progress: `hp-m2-mode-writer`. One dispatcher for DP 2 / P22–P24 / DP 121 SETs with priorities protection > DHW > defrost / recovery > kick > heating controller > owner baseline. Use versioned, bounded leases, generation checks at dequeue and verify, one P22–P24 group and a composed warm-up / band / boost request. Stage 3: curve setting (`hp-curve-model`), which replaced the P23 slider, moves into the single dispatcher. |
 | H16 | Heat pump idle follow-ups (found by H0) | Open. (1) Done in #165. (2) Check why the stored owner curve may have been polluted (P23 27 vs 33). (3) A forced boiler cycle stopped after 7 min with “forced cycle safety stop pending”. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
 
 ## 4. Review follow-ups (deferred Low / Nit)

@@ -144,7 +144,8 @@ test('fresh Silent or a new DHW run resets the pause; cold protection bypasses i
 test('a routine Silent SET already in the queue is dropped and logged during backoff', () => {
     const { c, tick, logs } = silentRetryCycle();
     assert.deepEqual([tick(1), tick(2), tick(3)], [1, 1, 1]);
-    c.node.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'dhw',
+    c.node.context.set('hpModeLease', { generation: 4, until: NOW + 5 * MIN });
+    c.node.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'dhw', modeGeneration: 4,
         run: c.dhw().run, silentPhase: c.dhw().since, text: 'mode Silent' }]);
     c.node.context.set('pumping', true);
     c.node.context.set('pumpAt', NOW - 10 * MIN);

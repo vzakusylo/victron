@@ -272,6 +272,33 @@ test('a running DHW cycle does not qualify for a stuck-supply kick', () => {
     assert.ok(!c.writes.some(w => w.device === 'pump' && String(w.dps) === '2' && w.set === 'smart'));
 });
 
+test('a rejected Smart kick does not schedule a protection-priority Silent restore', () => {
+    const c = heating({ cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
+    const supply = { 102: 33, 108: 50 };
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, supply);
+    c.node.context.set('hpModeLease', { writer: 'dhw', priority: 4, generation: 1, until: NOW + 80 * S });
+    c.tick(NOW + 30 * S, supply);
+    assert.equal(c.node.context.get('kick').last, NOW + 30 * S);
+    assert.equal(c.node.context.get('kick').phase, null);
+    c.tick(NOW + 90 * S, { ...supply, 2: 'smart' });
+    assert.deepEqual(c.writes.filter(w => w.dps === 2), []);
+});
+
+test('a kick still in the queue at the end of its window cannot send Smart late', () => {
+    const c = heating({ cfg: { bandDown: 5, kickMin: 1, kickSec: 20 } });
+    const supply = { 102: 33, 108: 50 };
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, supply);
+    c.node.context.set('pumping', true);
+    c.node.context.set('pumpAt', NOW + 30 * S);
+    c.tick(NOW + 30 * S, supply);
+    assert.equal(c.node.context.get('kick').phase, 'smart');
+    assert.equal(c.node.context.get('queue').find(w => w.dps === 2)?.set, 'smart');
+    c.node.context.set('pumping', false);
+    c.tick(NOW + 50 * S, supply);
+    assert.equal(c.node.context.get('kick').phase, null);
+    assert.deepEqual(c.writes.filter(w => w.dps === 2), []);
+});
+
 test('forced DHW starts by ending an active heating kick and restoring Silent', () => {
     const c = heating({ dhw: 'live', cfg: { bandDown: 5, kickMin: 1, kickSec: 60 } });
     for (let i = 0; i <= 3; i++) c.tick(NOW + i * 10 * S, { 102: 33, 108: 50 });

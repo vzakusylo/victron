@@ -143,6 +143,7 @@
 // d#237: with fresh non-defrost readings and no recent defrost, seed DP 103 at restart and settle for 2 min.
 //    Keep the real defrost quiet/recovery hold; without reliable readings, keep the full startup hold.
 // HP-M3: attribute mode, curve and hysteresis observations to matching dispatched writes; alert on unexplained changes.
+// HP-M2 stage 2: enforce priority and short leases for DP 2 only.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -345,6 +346,7 @@ function send(out, m) {
 // #include lib/heat-pump/mode-confirm.js
 // #include lib/heat-pump/arbiter.js
 // #include lib/heat-pump/arbiter-shadow.js
+// #include lib/heat-pump/mode-writer.js
 // #include lib/heat-pump/write-attribution.js
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
@@ -354,8 +356,19 @@ function pump(allowOwner = false) {
     const q = context.get('queue') || [];
     if (!q.length) return;
     const at = Date.now();
-    const index = q.findIndex(item => !item.curveGroup);
+    let index = q.findIndex(item => !item.curveGroup);
+    // Discard stale mode intents without spending a device write slot.
+    while (index >= 0) {
+        const item = q[index];
+        const reason = modeLeaseProblem(item, at);
+        if (!reason) break;
+        q.splice(index, 1);
+        logEvent({ kind: 'step', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+            text: item.text + ' dropped (' + reason + ')' });
+        index = q.findIndex(item => !item.curveGroup);
+    }
     const owner = index < 0;
+    if (owner) context.set('queue', q);
     const item = !owner ? q.splice(index, 1)[0] : allowOwner ? takeOwnerCurveGroup(q, at) : null;
     if (!item) return;
     context.set('pumping', true); context.set('pumpAt', at);
@@ -378,6 +391,7 @@ function pump(allowOwner = false) {
             ? context.get('ownerCurveRequest').at + OWNER_CURVE_TIMEOUT_MS : at + VERIFY_MS);
         send(OUT[item.role], { payload: owner ? { operation: 'SET', multiple: true, data: item.curveGroup }
             : { operation: 'SET', dps: item.dps, set: item.set } });
+        if (verifyMode) context.set('lastKickSmartRun', item.intent === 'kick' && item.set === 'smart' ? item.run : null);
         if (attribution) logEvent({ kind: 'dispatch', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
             ...attribution, text: `${item.text} — dispatched by ${attribution.writer}` });
         if (item.role === 'hp') context.set('lastHpWrite', at);
@@ -439,7 +453,7 @@ function runStep(rule, token) {
         logEvent(Object.assign({ kind: 'step', text: 'notify: ' + s.note + stepTxt }, base));
     } else if (sq.live) {
         const q = context.get('queue') || [];
-        q.push(shadowTag({ rule: rule.id, cloud: rule.cloud, run: token, role: s.role, dps: s.dps, set: s.set, text: s.text }, 'recovery', Date.now()));
+        q.push(tagWrite({ rule: rule.id, cloud: rule.cloud, run: token, role: s.role, dps: s.dps, set: s.set, text: s.text }, 'recovery', Date.now()));
         context.set('queue', q);
         logEvent(Object.assign({ kind: 'write', text: s.text + stepTxt }, base));
         pump();
