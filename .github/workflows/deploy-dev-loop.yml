@@ -1,0 +1,32 @@
+name: Deploy dev loop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "tools/dev-loop/**"
+      - ".github/workflows/deploy-dev-loop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, omarchy]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install dev loop
+        run: bash tools/dev-loop/install.sh
+      - name: Dry-run once
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/victron-loop-state
+        run: |
+          ~/victron-loop/venv/bin/python -m victron_loop.main --config ~/victron-loop/config.toml run-once --dry-run > dev-loop-dry-run.log
+      - name: Upload dry-run log
+        uses: actions/upload-artifact@v7
+        with:
+          name: dev-loop-dry-run-log
+          path: dev-loop-dry-run.log
+          retention-days: 14
+

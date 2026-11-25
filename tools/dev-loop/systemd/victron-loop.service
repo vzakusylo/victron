@@ -1,0 +1,11 @@
+[Unit]
+Description=Victron dev loop run
+
+[Service]
+Type=oneshot
+Nice=19
+CPUWeight=10
+IOSchedulingClass=idle
+WorkingDirectory=%h/victron-loop
+ExecStart=%h/victron-loop/venv/bin/python -m victron_loop.main --config %h/victron-loop/config.toml run-once
+

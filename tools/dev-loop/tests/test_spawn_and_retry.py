@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import victron_loop.nodes as nodes
+from victron_loop.nodes import _retry_worker, _spawn_copilot, LoopConfig
+
+
+def fixed_clock():
+    return 4102444800.0
+
+
+def test_spawn_uses_nice_19_when_not_systemd(monkeypatch, tmp_path: Path):
+    calls = []
+    original_exists = Path.exists
+
+    class DummyProc:
+        pid = 123
+
+    monkeypatch.setattr(nodes.Path, "exists", lambda self: False if str(self) == "/run/systemd/system" else original_exists(self))
+    monkeypatch.setattr(nodes.subprocess, "Popen", lambda cmd: calls.append(cmd) or DummyProc())
+    pid = _spawn_copilot(tmp_path, "copilot -p x")
+    assert pid == 123
+    assert "nice -n 19" in calls[0][2]
+
+
+def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path):
+    models = tmp_path / "models.json"
+    models.write_text('{"tiers":{"standard":{"model":"gpt-x","effort":"low"}}}', encoding="utf-8")
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)
+    worker = {"tier": "standard", "worktree": str(tmp_path), "log_path": str(tmp_path / "w.log"), "retry_count": 0}
+    captured = {}
+    monkeypatch.setattr(nodes, "_spawn_copilot", lambda _wt, cmd: captured.setdefault("cmd", cmd) or 456)
+    _retry_worker({}, cfg, worker, "fix now")
+    assert " --allow-all " in captured["cmd"]
+    assert "--model gpt-x" in captured["cmd"]
+    assert "--reasoning-effort low" in captured["cmd"]
+    assert worker["retry_count"] == 1
+
