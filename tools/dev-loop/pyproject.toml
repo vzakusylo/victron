@@ -11,6 +11,9 @@ dependencies = [
   "langgraph==0.6.7",
 ]
 
+[project.scripts]
+victron-loop = "victron_loop.main:main"
+
 [tool.setuptools]
 package-dir = {"" = "."}
 

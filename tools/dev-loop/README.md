@@ -9,6 +9,8 @@ Small Python + LangGraph loop for autonomous backlog execution on the Omarchy bo
 
 Design doc: [`../../docs/dev-loop.md`](../../docs/dev-loop.md)
 
+Windows setup: [foreground loop with Herdr workers](../../docs/dev-loop-windows.md).
+
 ## Install (Omarchy user)
 
 ```bash

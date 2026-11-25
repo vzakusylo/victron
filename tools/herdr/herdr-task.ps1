@@ -21,7 +21,10 @@ param(
   [string]$Model = '',
   [ValidateSet('', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$Effort = '',
   [int]$Lines = 120,
-  [int]$TimeoutMin = 30
+  [int]$TimeoutMin = 30,
+  [switch]$Json,
+  [switch]$IfPresent,
+  [string]$PromptFailureFile
 )
 $ErrorActionPreference = 'Stop'
 
@@ -42,10 +45,10 @@ function Get-AgentName([string]$t) {
   $n = ('w-' + $t.ToLower() -replace '[^a-z0-9_-]', '-')
   $n.Substring(0, [Math]::Min(32, $n.Length))
 }
-function Get-TaskWorkspace([string]$t) {
+function Get-TaskWorkspace([string]$t, [switch]$AllowMissing) {
   $ws = (Invoke-Herdr workspace list | ConvertFrom-Json).result.workspaces |
     Where-Object { $_.label -eq $t -and $_.worktree }
-  if (-not $ws) { throw "No Herdr worktree workspace labelled '$t'. Run: new $t" }
+  if (-not $ws -and -not $AllowMissing) { throw "No Herdr worktree workspace labelled '$t'. Run: new $t" }
   $ws | Select-Object -First 1
 }
 
@@ -63,11 +66,17 @@ switch ($Action) {
     if ($Model) { $agentArgs += @('--model', $Model) }
     if ($Effort) { $agentArgs += @('--reasoning-effort', $Effort) }
     Invoke-Herdr agent start $agent --kind copilot --pane $pane --timeout 120000 @agentArgs | Out-Null
-    [pscustomobject]@{ task = $Task; agent = $agent; pane = $pane; worktree = $path; branch = $Task; tier = $Tier; model = $Model; effort = $Effort }
+    $result = [pscustomobject]@{ task = $Task; agent = $agent; pane = $pane; worktree = $path; branch = $Task; tier = $Tier; model = $Model; effort = $Effort }
+    if ($Json) { $result | ConvertTo-Json -Compress } else { $result }
   }
   'send' {
     if (-not $Text) { throw "Prompt text required." }
-    Invoke-Herdr agent prompt $agent $Text --wait --until idle --until blocked --until done --timeout $timeoutMs
+    try {
+      Invoke-Herdr agent prompt $agent $Text --wait --until idle --until blocked --until done --timeout $timeoutMs
+    } catch {
+      if ($PromptFailureFile) { [IO.File]::WriteAllText($PromptFailureFile, 'failed') }
+      throw
+    }
     Invoke-Herdr agent read $agent --source recent-unwrapped --lines $Lines
   }
   'read' { Invoke-Herdr agent read $agent --source recent-unwrapped --lines $Lines }
@@ -77,7 +86,7 @@ switch ($Action) {
   }
   'list' { Invoke-Herdr agent list }
   'close' {
-    $ws = Get-TaskWorkspace $Task
-    Invoke-Herdr worktree remove --workspace $ws.workspace_id
+    $ws = Get-TaskWorkspace $Task -AllowMissing:$IfPresent
+    if ($ws) { Invoke-Herdr worktree remove --workspace $ws.workspace_id }
   }
 }

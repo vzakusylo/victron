@@ -112,6 +112,8 @@ def test_stop_preserves_unverified_live_group(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("with_token", [False, True])
 def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
+    monkeypatch.setattr(control, "WINDOWS", False)
+    monkeypatch.setattr(web, "WINDOWS", False)
     cfg = LoopConfig(repo="test/repo", web_bind="127.0.0.1:0", token_file=None,
                      web_hosts=("omarchy", "omarchy.example-tailnet.ts.net"))
     if with_token:
@@ -161,6 +163,10 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
                 with_connection.close()
 
         try:
+            status, body, _ = request("GET", "/api/peer-status")
+            assert status == 200 and json.loads(body) == {
+                "instance_name": cfg.instance_name, "paused": False, "live": False,
+            }
             if with_token:
                 import re
 

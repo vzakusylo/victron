@@ -172,6 +172,10 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#201 AUTO1-WIN (`auto1-windows-herdr`, d#251 unchanged · i#71): run AUTO1 in a Windows
+terminal with the dashboard, Herdr workers, a peer guard, and scoped token rotation.
+Windows and Linux unit tests passed; the Windows launcher and dashboard completed dry cycles.
+
 #200 T1-GRID-LEAP (`t1-grid-leap`, d#251 · i#70): preview February 29 in leap years and March 1
 in non-leap years without changing tariff season control.
 

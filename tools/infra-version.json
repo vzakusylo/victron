@@ -1,5 +1,5 @@
 {
-  "i": 70,
+  "i": 71,
   "changes": [
     {
       "i": 1,
@@ -420,6 +420,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "T1-GRID-LEAP leap-day preview test"
+    },
+    {
+      "i": 71,
+      "date": "2026-11-25",
+      "pr": 201,
+      "what": "Run the dev loop on Windows with foreground scheduling and Herdr workers"
     }
   ]
 }

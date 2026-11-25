@@ -8,6 +8,10 @@
 4. Watch for merge + green checks + green deploy health, with one retry on failure.
 5. Notify only blockers (noisy success paths are suppressed).
 
+On Windows, run the same loop in a terminal with [Herdr workers](dev-loop-windows.md).
+Linux also supports `python -m victron_loop.main --config config.toml serve`
+as a foreground alternative to the existing systemd units.
+
 ## Guardrails
 
 - One worker and one PR at a time.

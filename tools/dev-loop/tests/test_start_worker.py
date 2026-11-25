@@ -7,7 +7,7 @@ import victron_loop.nodes as nodes
 
 
 def test_missing_copilot_blocks_worker_creation_and_notifies_once(monkeypatch, tmp_path):
-    cfg = LoopConfig(repo="test/repo", dry_run=False, notify_backend="none",
+    cfg = LoopConfig(repo="test/repo", dry_run=False, notify_backend="none", worker_backend="headless",
                      copilot_bin=str(tmp_path / "missing"))
     monkeypatch.setattr(nodes, "_ensure_repo", lambda _: (_ for _ in ()).throw(AssertionError("unexpected setup")))
     state = {}

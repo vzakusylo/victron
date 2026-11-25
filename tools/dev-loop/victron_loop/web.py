@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlsplit
 from .control import ROW_ACTIONS, apply_control, read_plan
 from .gh import read_token, token_details
 from .nodes import LoopConfig, _pid_alive, _today
+from . import herdr
+from .platform import WINDOWS
 from .state import LockBusyError, StateStore
 
 PHASES = ("idle", "picked", "worker running", "PR open", "checks", "merged", "Test GX", "deploy", "health", "done")
@@ -103,7 +105,7 @@ def event_details(entry: dict) -> str:
     return "; ".join(f"{key}: {value}" for key, value in errors.items())
 
 
-def read_logs(store: StateStore, source: str, limit: int) -> list[str]:
+def read_logs(store: StateStore, source: str, limit: int, cfg: LoopConfig | None = None) -> list[str]:
     if source in JOURNALS:
         output = subprocess.check_output(
             ["journalctl", "--user", "-u", JOURNALS[source], "-n", str(limit), "-o", "short-iso", "--no-pager"],
@@ -112,7 +114,10 @@ def read_logs(store: StateStore, source: str, limit: int) -> list[str]:
         return list(reversed(output.splitlines()[-limit:]))
     state = store.load()
     if source == "worker":
-        path = (state.get("active_worker") or {}).get("log_path")
+        worker = state.get("active_worker") or {}
+        if cfg and worker.get("backend") == "herdr" and not worker.get("herdr_closed"):
+            return list(reversed(herdr.read(cfg.repo_path, worker["branch"]).splitlines()[-limit:]))
+        path = worker.get("log_path")
         return list(reversed(tail(Path(path), limit))) if path else []
     if source == "last-run":
         logs = store.run_logs()
@@ -149,7 +154,7 @@ def snapshot(cfg: LoopConfig, store: StateStore, node: str = "") -> dict:
         except FileNotFoundError:
             age = None
         worker = {
-            **{key: worker.get(key) for key in ("row_id", "branch", "tier", "model", "pid", "started_at")},
+            **{key: worker.get(key) for key in ("row_id", "branch", "tier", "model", "pid", "started_at", "status", "backend")},
             "pid_alive": _pid_alive(int(worker.get("pid") or 0)),
             "last_output_age_seconds": age,
         }
@@ -179,8 +184,17 @@ def snapshot(cfg: LoopConfig, store: StateStore, node: str = "") -> dict:
     token = token_details(cfg.token_file, now, cfg.allow_gh_login_fallback)
     if observed.get("token_error") == "token-invalid" and token["status"] == "ok":
         token["status"] = "invalid"
+    scheduler = cfg.scheduler
+    timer = (
+        {"timer_state": "active", "timer_last": local_time(scheduler.last_at, now),
+         "timer_next": "Running" if scheduler.running_cycle else local_time(scheduler.next_at, now)}
+        if scheduler is not None else
+        {"timer_state": "inactive", "timer_last": "Not recorded", "timer_next": "Not scheduled"}
+        if WINDOWS else timer_times(now)
+    )
     return {
-        "paused": state.get("paused", False), "last_run": last_run, **timer_times(now),
+        "paused": state.get("paused", False), "last_run": last_run, **timer,
+        "instance_name": cfg.instance_name, "live": not cfg.dry_run and timer.get("timer_state") == "active",
         "now": now,
         "token_status": token,
         "worker": worker, "last_worker_status": (state.get("last_worker") or {}).get("status"),
@@ -362,9 +376,10 @@ def render(data: dict, csrf: str) -> str:
     pr_view = table(("PR", "Checks", "Review"), [(link, "<br>".join(checks) or "No checks", show(
         pr.get("reviewDecision"), "No review decision"))]) if pr else "No open PR"
     worker = data["worker"]
-    worker_view = table(("Row", "Branch", "Model", "PID", "Started", "Last output"), [(
+    worker_view = table(("Row", "Branch", "Model", "Worker", "Started", "Last output"), [(
         show(worker.get("row_id")), show(worker.get("branch")), show(worker.get("model")),
-        show(worker.get("pid")), show(local_time(worker.get("started_at"), data["now"])),
+        show(f"Herdr: {worker.get('status') or 'starting'}" if worker.get("backend") == "herdr" else worker.get("pid")),
+        show(local_time(worker.get("started_at"), data["now"])),
         show(f"{worker['last_output_age_seconds'] // 60} min ago" if worker.get("last_output_age_seconds") is not None else None),
     )]) if worker else "No active worker"
     errors = data["errors"]
@@ -405,7 +420,7 @@ def render(data: dict, csrf: str) -> str:
         for key, ts in sorted(data["notifications"].items(), key=lambda item: item[1], reverse=True)
     ]) if data["notifications"] else "None sent"
     tabs = " ".join(f'<button type="button" aria-pressed="false" data-log-source="{key}">{label}</button>'
-                    for key, label in LOG_SOURCES.items())
+                    for key, label in LOG_SOURCES.items() if not WINDOWS or key not in JOURNALS)
     stop = form("stop-worker", "Stop now", "yes")
     return f"""<!doctype html><html lang="en"><meta charset="utf-8">
 <title>Victron dev loop</title><link rel="stylesheet" href="/dashboard.css"><h1>Victron dev loop</h1>
@@ -515,6 +530,17 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
         def do_GET(self):
             if not self.valid_host():
                 return
+            if self.path == "/api/peer-status":
+                # Peers do not share dashboard credentials; expose only the coordination state.
+                live = not cfg.dry_run and (
+                    (cfg.scheduler.running_cycle or not cfg.scheduler.stopping) if cfg.scheduler is not None
+                    else not WINDOWS and timer_times().get("timer_state") == "active"
+                )
+                self.reply(200, json.dumps({
+                    "instance_name": cfg.instance_name, "live": live,
+                    "paused": store.load().get("paused", False),
+                }).encode())
+                return
             if token and self.path == "/login":
                 self.reply(200, (
                     '<!doctype html><meta charset="utf-8"><title>Victron loop sign-in</title>'
@@ -545,7 +571,7 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
                     self.error(400, "Invalid source, line limit, or filter")
                     return
                 try:
-                    lines = redact(read_logs(store, source, 500 if query else limit))
+                    lines = redact(read_logs(store, source, 500 if query else limit, cfg))
                 except (OSError, subprocess.SubprocessError):
                     self.error(503, "Could not read log source")
                     return

@@ -26,7 +26,12 @@ jobs:
       - name: Run all Node tests
         run: node --test "tests/*.test.js"
   dev-loop-tests:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os == 'ubuntu-latest' && 'dev-loop-tests' || 'dev-loop-tests-windows' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
