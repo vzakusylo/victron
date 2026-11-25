@@ -7,6 +7,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,11 @@ class LoopConfig:
     model_tiers_file: Path = Path.home() / "victron-loop" / "repo" / "tools" / "herdr" / "models.json"
     clock: Callable[[], float] = default_clock
     picker_tier: str = "review"
+    picker_backend: str = "copilot"
+    claude_bin: str | None = None
+    picker_model: str = "claude-opus-5-5"
+    picker_effort: str | None = None
+    picker_fallback: str | None = None
     copilot_bin: str | None = None
     web_bind: str = ""
     web_hosts: tuple[str, ...] = ("omarchy",)
@@ -326,11 +332,66 @@ def _safe_branch(row_id: str, candidate: str) -> str:
     return slug or "auto-task"
 
 
+CLAUDE_AUTH_HINT = "Run `claude` and /login, or `claude setup-token`"
+PICKER_TIMEOUT = 120
+
+
+class ClaudeAuthRequired(ValueError):
+    pass
+
+
+def _claude_json(cfg: LoopConfig, prompt: str, runner: Callable[..., Any]) -> Any:
+    candidate = cfg.claude_bin or shutil.which("claude") or str(
+        Path.home() / ".local" / "bin" / ("claude.exe" if WINDOWS else "claude")
+    )
+    executable = shutil.which(os.path.expanduser(candidate))
+    if not executable or (WINDOWS and Path(executable).suffix.lower() in {".cmd", ".bat"}):
+        raise FileNotFoundError("Native Claude CLI not found; configure claude_bin")
+    options = dict(capture_output=True, encoding="utf-8", timeout=PICKER_TIMEOUT, **priority_options())
+    command = [
+        os.path.abspath(executable), "-p", "--model", cfg.picker_model,
+        "--output-format", "json", "--max-turns", "1", "--permission-mode", "plan",
+        "--disallowedTools", "Bash,Edit,Write,WebFetch,WebSearch", "--tools", "",
+        "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence",
+    ]
+    if cfg.picker_effort:
+        help_out = runner([command[0], "--help"], check=True, **options)
+        if re.search(r"\s--effort(?:\s|[=,])", help_out.stdout):
+            command.extend(["--effort", cfg.picker_effort])
+    try:
+        with tempfile.TemporaryDirectory(prefix="victron-picker-") as cwd:
+            out = runner(command, input=prompt, cwd=cwd, check=True, **options).stdout
+    except subprocess.CalledProcessError as exc:
+        diagnostic = f"{exc.stdout or ''}\n{exc.stderr or ''}"
+        if re.search(r"\b(?:login|log in|authenticate|authentication|invalid api key|401)\b",
+                     diagnostic, re.IGNORECASE):
+            raise ClaudeAuthRequired(CLAUDE_AUTH_HINT) from exc
+        raise
+    envelope = json.loads(out)
+    if not isinstance(envelope, dict) or envelope.get("is_error") or not isinstance(envelope.get("result"), str):
+        raise ValueError("Invalid Claude CLI result envelope")
+    return json.loads(envelope["result"])
+
+
+def check_picker(cfg: LoopConfig, runner=None) -> int:
+    try:
+        data = _claude_json(cfg, 'Reply with JSON {"ok":true}', runner or subprocess.run)
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            raise ValueError("Unexpected picker reply")
+    except ClaudeAuthRequired:
+        print(f"claude-auth-required: {CLAUDE_AUTH_HINT}")
+        return 1
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"check-picker failed: {type(exc).__name__}")
+        return 1
+    print("ok")
+    return 0
+
+
 def _pick_llm(
     cfg: LoopConfig, row: dict[str, str], backlog_text: str, models_json_text: str,
-    copilot_runner: Callable[..., Any], executable: str,
+    copilot_runner: Callable[..., Any], executable: str | None,
 ) -> dict[str, str]:
-    model, effort = _tier_model_effort_from_text(models_json_text, cfg.picker_tier)
     prompt = (
         "Return strict JSON object with keys row_id, branch, tier, brief.\n"
         f"Backlog data: {json.dumps(backlog_text)}\n"
@@ -339,16 +400,21 @@ def _pick_llm(
         "(PR + gh pr merge N --auto --merge after review feedback is addressed and threads are resolved), "
         "and report must end with Branch: <name>."
     )
-    out = copilot_runner(
-        [executable, "-p", prompt, "--model", model, "--reasoning-effort", effort],
-        check=True,
-        capture_output=True,
-        encoding="utf-8",
-        **priority_options(),
-    ).stdout.strip()
-    data = json.loads(out)
+    if executable is None:
+        data = _claude_json(cfg, prompt, copilot_runner)
+    else:
+        model, effort = _tier_model_effort_from_text(models_json_text, cfg.picker_tier)
+        out = copilot_runner(
+            [executable, "-p", prompt, "--model", model, "--reasoning-effort", effort],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+            timeout=PICKER_TIMEOUT,
+            **priority_options(),
+        ).stdout
+        data = json.loads(out)
     if not isinstance(data, dict):
-        raise ValueError("copilot response is not an object")
+        raise ValueError("picker response is not an object")
     for key in ("row_id", "branch", "tier", "brief"):
         if key not in data or not isinstance(data[key], str) or not data[key].strip():
             raise ValueError(f"missing or invalid {key}")
@@ -420,19 +486,33 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
         return state
     if cfg.worker_backend == "herdr" and not _herdr_ready(state, cfg):
         return state
-    executable = _copilot_path(state, cfg)
-    if not executable:
-        state["pick"] = {"reason": "copilot-missing"}
-        return state
     try:
-        pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner, executable)
+        pick = None
+        if cfg.picker_backend == "claude":
+            try:
+                pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner, None)
+            except ClaudeAuthRequired:
+                state["picker_status"] = "auth required"
+                _enqueue_notification(state, "claude-auth-required", "cli", CLAUDE_AUTH_HINT)
+                if cfg.picker_fallback != "copilot":
+                    state["pick"] = {"reason": "claude-auth-required", "row_id": row["row_id"]}
+                    return state
+            else:
+                state["picker_status"] = "ok"
+                _resolve_notification(state, "claude-auth-required", "cli")
+        if pick is None:
+            executable = _copilot_path(state, cfg)
+            if not executable:
+                state["pick"] = {"reason": "copilot-missing"}
+                return state
+            pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner, executable)
         if pick["row_id"] != row["row_id"]:
             raise ValueError("picker returned a different row")
         if state.get("owner_note"):
             pick["brief"] += f"\n\n## Owner note\n\n{state['owner_note']}\n"
         state["pick"] = pick
         state["phase"] = "picked"
-    except (subprocess.CalledProcessError, ValueError) as exc:
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
         _enqueue_notification(state, "pick-task-error", row["row_id"], f"pick_task failed: {type(exc).__name__}")
         state["pick"] = {"reason": "pick-task-error", "row_id": row["row_id"]}
     return state

@@ -22,6 +22,19 @@ as a foreground alternative to the existing systemd units.
 
 ## Runtime layout
 
+The picker writes the worker brief; the worker remains Copilot. Linux defaults to
+`picker_backend = "copilot"` (review tier). To use Claude Code, set
+`picker_backend = "claude"` and optionally `claude_bin`, `picker_model` (default
+`claude-opus-5-5`), or `picker_effort` (used only when the CLI supports it).
+The CLI is discovered on PATH, then under `~/.local/bin`.
+
+On the loop machine, run `claude` and use `/login`, or run `claude setup-token`
+and supply the long-lived token as `CLAUDE_CODE_OAUTH_TOKEN` in the loop process's
+environment. Keep it out of TOML and commits. Run `victron-loop check-picker`
+with your loop config to check Claude independently. On authentication failure,
+the picker notifies once and skips the pick unless `picker_fallback = "copilot"`
+is configured. Opus runs once per picked task, not per cycle.
+
 - Config: `~/victron-loop/config.toml`
 - GitHub token file: `~/victron-loop/token` (passed as `GH_TOKEN` to the loop's `gh` calls; no fallback by default)
 - Venv: `~/victron-loop/venv`

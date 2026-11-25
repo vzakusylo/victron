@@ -12,6 +12,11 @@ allow_gh_login_fallback = false
 # npm installations also need node on the service PATH (use a systemd user unit drop-in if needed).
 # copilot_bin = "~/.local/bin/copilot"
 model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
+picker_backend = "copilot"
+# claude_bin = "~/.local/bin/claude"
+# picker_model = "claude-opus-5-5"
+# picker_effort = "low"
+# picker_fallback = "copilot"  # Opt in to fallback on Claude authentication failure.
 # Defaults to loopback. Set to your Omarchy Tailscale IPv4 and port for tailnet access.
 # web_bind = "127.0.0.1:8790"
 # Bare MagicDNS names accepted in addition to the bound IP. Defaults to ["omarchy"].
