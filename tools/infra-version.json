@@ -1,5 +1,5 @@
 {
-  "i": 69,
+  "i": 70,
   "changes": [
     {
       "i": 1,
@@ -414,6 +414,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Resolve Copilot CLI under Omarchy systemd"
+    },
+    {
+      "i": 70,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "T1-GRID-LEAP leap-day preview test"
     }
   ]
 }
