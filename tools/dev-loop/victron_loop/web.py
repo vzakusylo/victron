@@ -203,6 +203,10 @@ def snapshot(cfg: LoopConfig, store: StateStore, node: str = "") -> dict:
         "deploy_lookup": observed.get("deploy_lookup"),
         "errors": observed.get("errors", {}),
         "phase": state.get("phase", "idle"), "phases": PHASES,
+        "picker": (
+            f"Claude {cfg.picker_model.removeprefix('claude-')} · {state.get('picker_status', 'not checked')}"
+            if cfg.picker_backend == "claude" else "Copilot"
+        ),
         "budget": {"used": state.get("daily_counts", {}).get(_today(cfg.clock), 0), "cap": cfg.max_worker_runs_per_day},
         "plan": plan, "owner_note": state.get("owner_note", ""), "pinned_row": state.get("pinned_row"),
         "decisions": decisions, "worker_log": output, "notifications": state.get("notifications_sent", {}),
@@ -428,7 +432,7 @@ def render(data: dict, csrf: str) -> str:
 <button id="run-now" data-action="run-now">Run now</button>{stop}<span id="toast" role="status"></span>
 <section id="overview" data-paused="{str(data['paused']).lower()}" data-run-id="{show(last.get('id'), 'none')}"
  data-result="{show(last.get('result'), 'Unknown')}">
-<p>{phase}</p><p>Budget: {data["budget"]["used"]}/{data["budget"]["cap"]}</p>
+<p>{phase}</p><p>Picker: {escape(data["picker"])}</p><p>Budget: {data["budget"]["used"]}/{data["budget"]["cap"]}</p>
 <p>Last run: {last_text} · Last timer: {show(data["timer_last"])} · Next timer: {show(data["timer_next"])}</p>
 <p>Timer: {show(data.get("timer_state"))} {show(data.get("timer_error"), "")}</p>
 <p>GitHub loop token: {show(token_state)} · Last rotation: {show(rotated, "Not recorded")}

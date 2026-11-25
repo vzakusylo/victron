@@ -1,5 +1,5 @@
 {
-  "i": 72,
+  "i": 73,
   "changes": [
     {
       "i": 1,
@@ -432,6 +432,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Trim dashboard replay and stream history files"
+    },
+    {
+      "i": 73,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Use Claude Code for the dev-loop picker"
     }
   ]
 }

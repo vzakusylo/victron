@@ -14,7 +14,7 @@ from typing import TextIO
 
 from .gh import GhCli
 from .control import ROW_ACTIONS, apply_control
-from .nodes import LoopConfig, check_state, notify
+from .nodes import LoopConfig, check_picker, check_state, notify
 from .platform import WINDOWS, exclusive_lock
 from .scheduler import Scheduler, peer_blocker, stop_on_signal
 from .state import LockBusyError, StateStore
@@ -72,6 +72,12 @@ def load_config(config_path: Path) -> LoopConfig:
     backend = data.get("worker_backend", "herdr" if WINDOWS else "headless")
     if backend not in ("herdr", "headless"):
         raise ValueError("worker_backend must be herdr or headless")
+    picker_backend = data.get("picker_backend", "copilot")
+    picker_fallback = data.get("picker_fallback")
+    if picker_backend not in ("claude", "copilot"):
+        raise ValueError("picker_backend must be claude or copilot")
+    if picker_fallback not in (None, "copilot"):
+        raise ValueError("picker_fallback must be copilot when set")
     interval = float(data.get("interval_minutes", 10))
     if not math.isfinite(interval) or interval <= 0:
         raise ValueError("interval_minutes must be finite and positive")
@@ -90,6 +96,11 @@ def load_config(config_path: Path) -> LoopConfig:
         web_bind=data.get("web_bind", "127.0.0.1:8790"),
         web_hosts=tuple(web_hosts),
         copilot_bin=data.get("copilot_bin"),
+        picker_backend=picker_backend,
+        picker_fallback=picker_fallback,
+        claude_bin=data.get("claude_bin"),
+        picker_model=data.get("picker_model", "claude-opus-5-5"),
+        picker_effort=data.get("picker_effort", "low"),
         web_token_file=Path(data["web_token_file"]).expanduser() if data.get("web_token_file") else None,
         worker_backend=backend,
         instance_name=data.get("instance_name", "windows" if WINDOWS else "omarchy"),
@@ -177,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     run_once = sub.add_parser("run-once")
     run_once.add_argument("--dry-run", action="store_true")
     sub.add_parser("status")
+    sub.add_parser("check-picker")
     for action in ROW_ACTIONS:
         sub.add_parser(action).add_argument("value")
     sub.add_parser("note").add_argument("value")
@@ -186,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         args.command, args.once, args.live, args.dry_run = "serve", False, False, False
 
+    if args.command == "check-picker":
+        return check_picker(load_config(Path(args.config)))
     store = StateStore.open()
     if args.command == "status":
         state = store.load()

@@ -3,6 +3,7 @@ param(
   [string]$RepoPath = 'C:\learn\victron',
   [string]$WebBind = '127.0.0.1:8790',
   [switch]$Live,
+  [switch]$CheckPicker,
   [switch]$Once
 )
 
@@ -22,6 +23,7 @@ if (!(Test-Path -LiteralPath $config)) {
   $template = (Get-Content (Join-Path $PSScriptRoot 'config.example.toml') -Raw)
   $template = $template -replace '(?m)^repo_path = .+$', "repo_path = $repoToml"
   $template = $template -replace '(?m)^notify_backend = .+$', 'notify_backend = "windows"'
+  $template = $template -replace '(?m)^picker_backend = .+$', 'picker_backend = "claude"'
   $template = $template -replace '(?m)^model_tiers_file = .+\r?\n', ''
   $template += "`nworker_backend = `"herdr`"`ninstance_name = `"windows`"`nweb_bind = $bindToml`n"
   Set-Content -LiteralPath $config -Value $template -Encoding utf8NoBOM
@@ -49,5 +51,6 @@ try {
 $mode = if ($Live) { '--live' } else { '--dry-run' }
 $cliArgs = @('--config', $config, 'serve', $mode)
 if ($Once) { $cliArgs += '--once' }
+if ($CheckPicker) { $cliArgs = @('--config', $config, 'check-picker') }
 & $python -m victron_loop.main @cliArgs
 exit $LASTEXITCODE
