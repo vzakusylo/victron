@@ -69,6 +69,18 @@ test('unconfirmed curve state must persist beyond its threshold; a new request r
     assert.equal(check('curve-confirmation', [{ ...unconfirmed, ownerCurveResult: { ...ownerCurveResult, ok: true } }], {}, prior).level, 'OK');
 });
 
+test('curve health checks the actual pump target against the configured cap, even for an acknowledged override', () => {
+    const pump = { ...hp, dps: { 133: 40, 134: 7 } };
+    const stored = { ...view, heatCurve: { p23: 26, p24: 6 }, heat: { cfg: { maxCurveOffset: 3.6 } } };
+    const safe = { ...pump, dps: { 133: 32, 134: 6 } };
+    assert.equal(check('curve-offset', [stored, safe]).level, 'OK');
+    assert.equal(check('curve-offset', [stored, pump]).level, 'FAIL');
+    assert.equal(check('curve-offset', [{ ...stored, state: 'DHW' }, pump]).level, 'SKIP');
+    assert.equal(check('curve-offset', [{ ...stored, outHeld: true }, pump]).level, 'SKIP');
+    assert.equal(check('curve-offset', [{ ...stored, outAvg: null }, pump]).level, 'FAIL');
+    assert.equal(check('curve-offset', [{ ...stored, outAvg: -100 }, pump]).level, 'OK', 'both targets clamp at 60 °C');
+});
+
 test('BMS watchdog must be OK and recent and SerialBattery must be connected independently', () => {
     const watchdog = { status: 'ok', checkedAt: new Date(now - MIN).toISOString() };
     assert.equal(check('bms', [watchdog]).level, 'OK');

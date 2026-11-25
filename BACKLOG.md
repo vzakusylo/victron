@@ -160,6 +160,13 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#190 HP-B1 Heating curve cap (`d-r14-post-deploy-monitor`, d#245 · i#60): the old limit capped only the
+power boost, not the combined warm-up and band offset. The DHW coefficient solver could round up P23 and
+steepen P24 beyond P23 40. The old calculation used the owner baseline, so a restart did not directly add
+on top of the pump curve, but it could lose track of an offset the pump retained. Heating now reconciles
+the reported coefficients, caps the combined rise (4 °C by default), and never raises P24. D-R14 checks
+the observed pump target against the owner target. No live GX access.
+
 #190 D-R15 GX notification output (`d-r14-post-deploy-monitor`, d#244 · i#60): restore the custom output's
 missing string `pathObj`; palette v1.6.31 dereferenced `pathObj.disabled` on every incoming alert. The grid
 feedback alarm is consistent with the 15-minute cadence but the log excerpt does not identify the sender.

@@ -146,6 +146,7 @@
 // HP-M2 stage 2: enforce priority and short leases for DP 2 only.
 // HP-M2 stage 3: enforce the same priority for the ordered curve group and DP 121.
 // d#241 (H16): pump readback can initialize a missing owner curve, but only confirmed Apply replaces one.
+// d#245 (HP-B1): cap warm-up + band + boost against the owner's fixed slope; recover offsets from pump read-back.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -381,7 +382,21 @@ function pump(allowOwner = false) {
     const invalidCurveWrite = owner ? !validOwnerCurve(item.curveGroup[133], item.curveGroup[134]) : item.role === 'hp' &&
         ((dp === '133' && !inCurveRange(item.set, P23_MIN, P23_MAX)) ||
          (dp === '134' && !inCurveRange(item.set, P24_MIN, P24_MAX)));
-    if (invalidCurveWrite) {
+    const heatCurveWrite = !owner && item.rule === HEAT_ID && item.role === 'hp' && (dp === '133' || dp === '134');
+    let unsafeHeatCurve = false;
+    if (heatCurveWrite) {
+        const cfg = context.get('settings'), hc = cfg?.heatCurve;
+        const hp = flow.get('heatPump')?.hp;
+        const p23 = dhwMeasurement(hp?.dps?.['133']), p24 = dhwMeasurement(hp?.dps?.['134']);
+        unsafeHeatCurve = !hc || !freshAutomationDevice(hp, at) || !validHeatCurve(p23, p24) ||
+            (dp === '134' ? item.set > Math.min(p24, hc.p24)
+                : item.set > heatingP23Limit(hc, cfg.heat?.maxCurveOffset) || (p24 !== hc.p24 && item.set > p23));
+    }
+    if (unsafeHeatCurve) {
+        logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+            text: item.text + ' refused: no safe heating curve write against current read-back' });
+        cancelWriteLease('curve', lease => lease.generation === item.modeGeneration);
+    } else if (invalidCurveWrite) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
             text: (owner ? item.text : 'heat pump DP ' + dp + ' = ' + item.set) + ' refused (invalid heating curve value)' });
     } else if ((context.get('cancelledShowerRuns') || []).includes(item.run)) {
@@ -573,7 +588,7 @@ function ownerCurveTick() {
     settings.heatCurve = { p23: request.p23, p24: request.p24, at: now };
     const h = heatState();
     h.boost = 0; h.warmApplied = 0; h.warmDeltaApplied = 0; h.curveCmd = null;
-    h.p23At = 0; h.curvePartial = false; h.samples = []; h.offSince = 0; h.offWarned = false;
+    h.p23At = 0; h.curvePartial = false; h.curveReplan = false; h.samples = []; h.offSince = 0; h.offWarned = false;
     const d = dhwState();
     d.lagS = []; d.curveCaptureHeld = false;
     saveSettingsFile();

@@ -65,12 +65,12 @@ test('heating band: above the upper limit the boost comes down first, then the m
     assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'mute']]);
 });
 
-test('heating band: below the lower limit in Smart the curve goes up by 1 °C steps', () => {
+test('heating band: below the lower limit in Smart the boost stops at P23 headroom', () => {
     const c = plant({ heat: { bandDown: 1, bandUp: 1 }, mode: 'smart' });
     c.setSupply(33);
     c.run(NOW, NOW + 11 * MIN);
-    assert.ok(c.writes.length > 0 && c.writes.every((w) => [133, 134].includes(w.dps)), JSON.stringify(c.writes));
-    assert.equal(c.node.context.get('heat').boost, 1);
+    assert.deepEqual(c.writes.map(w => [w.dps, w.set]), [[133, 40]]);
+    assert.equal(c.node.context.get('heat').boost, 0.8);
 });
 
 test('old saved lagUp / overC become the band limits, also when the old band was on', () => {

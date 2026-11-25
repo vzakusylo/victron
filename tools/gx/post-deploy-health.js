@@ -83,6 +83,21 @@ const failed = (check, detail) => ({ level: check.severity, detail });
 const fresh = (at, age, state) => Number.isFinite(at) && at >= state.restartedAt &&
     state.now - at <= age * HEALTH_MIN && at <= state.now;
 
+function observedCurve(check, view, hp, state) {
+    if (!fresh(view?.at, check.maxAgeMin, state) || typeof view.state !== 'string' || typeof view.outHeld !== 'boolean') {
+        return { result: failed(check, 'No fresh heating or defrost state') };
+    }
+    if (view.state !== 'HEATING' || view.outHeld) return { result: { level: 'SKIP', detail: 'DHW or defrost/recovery active' } };
+    const owner = view.heatCurve;
+    if (![owner?.p23, owner?.p24].every(Number.isFinite)) return { result: failed(check, 'No stored owner curve') };
+    if (hp?.state !== 'CONNECTED' || !fresh(hp.lastData, check.deviceMaxAgeMin, state)) {
+        return { result: failed(check, 'No fresh heat pump data') };
+    }
+    const p23 = numeric(hp.dps?.['133']), p24 = numeric(hp.dps?.['134']);
+    if (![p23, p24].every(Number.isFinite)) return { result: failed(check, 'P23 or P24 unavailable') };
+    return { owner, p23, p24 };
+}
+
 const conditions = {
     fresh(check, [at], state) {
         return fresh(at, check.maxAgeMin, state) ? ok('Tick is fresh') : failed(check, 'Tick is missing or stale');
@@ -92,19 +107,23 @@ const conditions = {
             ? ok(`Outdoor average: ${view[check.field]} °C`) : failed(check, 'No fresh outdoor average');
     },
     ownerCurve(check, [view, hp, heat], state) {
-        if (!fresh(view?.at, check.maxAgeMin, state) || typeof view.state !== 'string' || typeof view.outHeld !== 'boolean') {
-            return failed(check, 'No fresh heating or defrost state');
-        }
-        if (view.state !== 'HEATING' || view.outHeld) return { level: 'SKIP', detail: 'DHW or defrost/recovery active' };
-        const owner = view.heatCurve;
-        if (![owner?.p23, owner?.p24].every(Number.isFinite)) return failed(check, 'No stored owner curve');
-        if (hp?.state !== 'CONNECTED' || !fresh(hp.lastData, check.deviceMaxAgeMin, state)) return failed(check, 'No fresh heat pump data');
-        const p23 = numeric(hp.dps?.['133']), p24 = numeric(hp.dps?.['134']);
-        if (![p23, p24].every(Number.isFinite)) return failed(check, 'P23 or P24 unavailable');
+        const { result, owner, p23, p24 } = observedCurve(check, view, hp, state);
+        if (result) return result;
         if (p23 === owner.p23 && p24 === owner.p24) return ok('P23/P24 match the owner curve');
         if (check.allowHeatingOverride && (heat?.boost > 0 || heat?.warmApplied > 0) &&
             p23 === heat.curveCmd?.p23 && p24 === heat.curveCmd?.p24) return ok('P23/P24 match the active heating override');
         return failed(check, `P23/P24 ${p23}/${p24} do not match owner ${owner.p23}/${owner.p24}`);
+    },
+    curveOffset(check, [view, hp], state) {
+        const { result, owner, p23, p24 } = observedCurve(check, view, hp, state);
+        if (result) return result;
+        const cap = view.heat?.cfg?.maxCurveOffset ?? check.defaultCap;
+        const outdoor = view.outAvg;
+        if (!Number.isFinite(outdoor) || !Number.isFinite(cap) || cap < 0) return failed(check, 'Outdoor average or curve cap unavailable');
+        const target = (p, slope) => Math.max(20, Math.min(60, 20 + slope / 10 * (p - outdoor)));
+        const excess = target(p23, p24) - target(owner.p23, owner.p24);
+        const detail = `Pump target minus owner: ${excess.toFixed(2)} °C (cap ${cap} °C)`;
+        return excess > cap + 1e-9 ? failed(check, detail) : ok(detail);
     },
     confirmed(check, [view], state) {
         if (!fresh(view?.at, check.maxAgeMin, state)) return failed(check, 'No fresh curve confirmation state');
@@ -252,18 +271,19 @@ function validate(config) {
     if (![config.intervalMin, config.durationMin].every(value => Number.isSafeInteger(value) && value > 0) ||
         config.durationMin % config.intervalMin || !Number.isSafeInteger(config.historyLimit) || config.historyLimit < 1 ||
         !Array.isArray(config.checks) || !config.checks.length) throw new Error('Invalid health monitor schedule or history');
-    const conditionsWithAges = ['fresh', 'finite', 'ownerCurve', 'confirmed', 'watchdogOk'];
+    const conditionsWithAges = ['fresh', 'finite', 'ownerCurve', 'curveOffset', 'confirmed', 'watchdogOk'];
     const logConditions = ['ownedErrors', 'stoppedTime', 'startCount'];
     const ids = new Set();
     for (const check of config.checks) {
         if (!/^[\w-]+$/.test(check.id || '') || ids.has(check.id) || typeof check.name !== 'string' ||
             !Object.hasOwn(conditions, check.condition) || !['FAIL', 'WARN'].includes(check.severity) || !minutes(check.graceMin) ||
-            sources(check).length !== (check.condition === 'ownerCurve' ? 3 : 1) ||
+            sources(check).length !== (check.condition === 'ownerCurve' ? 3 : check.condition === 'curveOffset' ? 2 : 1) ||
             sources(check).some(source => typeof source !== 'string' ||
                 !(logConditions.includes(check.condition) ? source === 'log' : CONTEXT.test(source) || DBUS.test(source))) ||
             (conditionsWithAges.includes(check.condition) && !minutes(check.maxAgeMin)) ||
             (check.condition === 'finite' && typeof check.field !== 'string') ||
-            (check.condition === 'ownerCurve' && !minutes(check.deviceMaxAgeMin)) ||
+            (['ownerCurve', 'curveOffset'].includes(check.condition) && !minutes(check.deviceMaxAgeMin)) ||
+            (check.condition === 'curveOffset' && !minutes(check.defaultCap)) ||
             (check.condition === 'confirmed' && !minutes(check.holdMin)) ||
             (['confirmed', 'ownedErrors'].includes(check.condition) && !check.pattern) ||
             (check.condition === 'ownedErrors' && (!Array.isArray(check.warningSources) ||

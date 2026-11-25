@@ -49,18 +49,18 @@ const step = (call, ms, i = 0) => {
     timer.cb();
 };
 
-function fixture(dhw = 'off') {
+function fixture(dhw = 'off', legacyCurve = false) {
     const heat = loadNode('40 Heat pump automations.js');
     heat.run({ topic: 'load', payload: JSON.stringify({
         master: true, modes: { heat: 'live', dhw, df_exchange_off: 'off', df_exchange_on: 'off', hp_er03_restart: 'off' },
-        heat: { kickMin: 0 }, dhw: { showerForce: false },
+        heat: { kickMin: 0, ...(legacyCurve ? { maxCurveOffset: 0.6 } : {}) }, dhw: { showerForce: false },
         heatCurve: { p23: 39, p24: 7 }, dhwLastEnd: NOW - 5 * 60 * MIN
     }) }, { now: NOW });
     const tick = (now, over = {}) => {
         heat.flow.set('heatPump', {
             hp: { state: 'CONNECTED', lastData: now, dps: {
                 1: true, 2: 'mute', 15: 0, 101: 31, 102: 36, 103: -2, 104: 60, 108: 50, 112: 3, 115: 69, 116: 596,
-                125: 36, 132: '1', 133: 39, 134: 7, ...over
+                125: 36, 132: '1', 133: legacyCurve ? 40 : 39, 134: legacyCurve ? 9 : 7, ...over
             } },
             valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
             bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } }
@@ -74,23 +74,23 @@ function fixture(dhw = 'off') {
     return { heat, tick, warm };
 }
 
-test('a pending owner group does not interrupt an already queued warm-up', () => {
-    const f = fixture();
+test('a pending owner group does not interrupt an already queued heating curve correction', () => {
+    const f = fixture('off', true);
     const call = f.warm(NOW + 20 * MIN);
-    assert.deepEqual(setters(call), [set(134, 9)]);
+    assert.deepEqual(setters(call), [set(134, 7)]);
     const apply = f.heat.run({ topic: 'ui', payload: { action: 'ownerCurve', p23: 30, p24: 4 } }, { now: NOW + 20 * MIN + 100 });
     assert.deepEqual(setters(apply), []);
     step(call, 1500);
-    assert.deepEqual(setters(call), [set(134, 9), set(133, 40)]);
+    assert.deepEqual(setters(call), [set(134, 7), set(133, 39)]);
     assert.equal(f.heat.flow.get('hpWriterShadow').owners.curve.writer, 'heat');
     assert.equal(f.heat.flow.get('hpWriterShadow').disagreements || 0, 0);
 });
 
 test('DHW supersedes the whole heating curve: drops its unsent tail and suppresses stale verification', () => {
-    const f = fixture('live');
+    const f = fixture('live', true);
     const t = NOW + 20 * MIN;
     const call = f.warm(t);
-    assert.deepEqual(setters(call), [set(134, 9)]);
+    assert.deepEqual(setters(call), [set(134, 7)]);
 
     // Prime the real DHW start condition; keep the write gap timer pending so FIFO still has the heat P23.
     const dhw = f.heat.context.get('dhw');
@@ -98,11 +98,11 @@ test('DHW supersedes the whole heating curve: drops its unsent tail and suppress
     f.tick(t + 100, { 108: 35 });
     assert.equal(f.heat.flow.get('hpWriterShadow').owners.curve.writer, 'dhw');
     step(call, 1500);
-    assert.deepEqual(setters(call), [set(134, 9), set(133, 0)]);
-    assert.match(call.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 40/);
+    assert.deepEqual(setters(call), [set(134, 7), set(133, 0)]);
+    assert.match(call.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 39/);
     step(call, 15000);
-    assert.match(call.logs.find(line => line.startsWith('HP shadow verify')), /DP 134=9 .*superseded generation/);
-    assert.ok(call.sent.some(m => m[5]?.event?.verificationSuperseded && /P24 9/.test(m[5].event.text)));
+    assert.match(call.logs.find(line => line.startsWith('HP shadow verify')), /DP 134=7 .*superseded generation/);
+    assert.ok(call.sent.some(m => m[5]?.event?.verificationSuperseded && /P24 7/.test(m[5].event.text)));
     assert.ok(!call.sent.some(m => m[5]?.event?.kind === 'fail'));
 });
 
@@ -110,16 +110,16 @@ test('a later intent from the same writer is counted separately from ownership d
     const f = fixture();
     const t = NOW + 20 * MIN;
     const first = f.warm(t);
-    assert.deepEqual(setters(first), [set(134, 9)]);
+    assert.deepEqual(setters(first), [set(133, 40)]);
     step(first, 1500);
     f.heat.run({ topic: 'ui', payload: { action: 'heatWarm', on: false } }, { now: t + 2000 });
-    f.tick(t + 3000, { 133: 40, 134: 9 });
+    f.tick(t + 3000, { 133: 40 });
     step(first, 15000);
     const shadow = f.heat.flow.get('hpWriterShadow');
     assert.equal(shadow.sameWriterSupersessions, 1);
     assert.equal(shadow.disagreements || 0, 0);
     assert.ok(!first.logs.some(line => line.startsWith('HP shadow')));
-    const model = f.tick(t + 4000, { 133: 40, 134: 9 }).result[0].payload;
+    const model = f.tick(t + 4000, { 133: 40 }).result[0].payload;
     assert.equal(model.shadowDisagreements, 0);
     assert.equal(model.shadowSameWriterSupersessions, 1);
 });
@@ -132,23 +132,19 @@ test('a denied warm-up leaves dispatch bookkeeping untouched and retries only af
     assert.equal(f.heat.context.get('heat').warmApplied || 0, 0);
     assert.deepEqual(f.heat.context.get('queue'), []);
     const accepted = f.tick(t + MIN);
-    assert.deepEqual(setters(accepted), [set(134, 9)]);
-    assert.equal(f.heat.context.get('heat').warmApplied || 0, 0, 'the first coefficient is not the whole request');
-    step(accepted, 1500);
-    assert.deepEqual(setters(accepted), [set(134, 9), set(133, 40)]);
-    assert.equal(f.heat.context.get('heat').warmApplied, 5);
+    assert.deepEqual(setters(accepted), [set(133, 40)]);
+    assert.equal(f.heat.context.get('heat').warmApplied, 0.7);
 });
 
-test('cancelling a partial warm-up restores even a coefficient not yet reflected in readback', () => {
+test('cancelling a warm-up restores P23 even before the raised value appears in read-back', () => {
     const f = fixture();
     const t = NOW + 20 * MIN;
     const call = f.warm(t);
-    assert.deepEqual(setters(call), [set(134, 9)]);
+    assert.deepEqual(setters(call), [set(133, 40)]);
     f.heat.run({ topic: 'ui', payload: { action: 'heatWarm', on: false } }, { now: t + 300 });
     f.tick(t + 1000); // cached telemetry still shows the owner curve
     step(call, 1500);
-    step(call, 1500, 1);
-    assert.deepEqual(setters(call), [set(134, 9), set(134, 7), set(133, 39)]);
+    assert.deepEqual(setters(call), [set(133, 40), set(133, 39)]);
 });
 
 test('DHW deploy recovery sends P22, P24, and P23 in order under one curve generation', () => {
@@ -165,17 +161,17 @@ test('DHW deploy recovery sends P22, P24, and P23 in order under one curve gener
 });
 
 test('a wall-clock jump between paced SETs neither expires nor duplicates a queued curve', () => {
-    const f = fixture();
+    const f = fixture('off', true);
     const t = NOW + 20 * MIN;
     const call = f.warm(t);
     const lease = f.heat.context.get('hpCurveLease');
     const later = f.tick(t + 75_000);
     assert.equal(f.heat.context.get('hpCurveLease').generation, lease.generation);
-    assert.deepEqual(setters(call).concat(setters(later)), [set(134, 9), set(133, 40)]);
+    assert.deepEqual(setters(call).concat(setters(later)), [set(134, 7), set(133, 39)]);
 });
 
 test('elapsed-time expiry drops an undelivered curve tail, not a newer generation', () => {
-    const f = fixture();
+    const f = fixture('off', true);
     const t = NOW + 20 * MIN;
     const old = f.warm(t);
     const expired = old.timers.find(timer => timer.ms === MIN);
@@ -187,5 +183,5 @@ test('elapsed-time expiry drops an undelivered curve tail, not a newer generatio
     expired.cb();
     assert.deepEqual(f.heat.context.get('hpCurveLease'), replacement);
     step(old, 1500);
-    assert.match(old.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 40/);
+    assert.match(old.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 39/);
 });

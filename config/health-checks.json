@@ -11,6 +11,7 @@
     { "id": "tick", "name": "Heat pump automation tick", "source": "context/node/hpa-fn-01/dhw.tickAt", "condition": "fresh", "maxAgeMin": 2, "severity": "FAIL", "graceMin": 2 },
     { "id": "outdoor", "name": "Outdoor average recovered", "source": "context/flow/dhwView", "condition": "finite", "field": "outAvg", "maxAgeMin": 2, "severity": "FAIL", "graceMin": 20 },
     { "id": "curve", "name": "Heating curve coefficients", "source": ["context/flow/dhwView", "context/flow/heatPump.hp", "context/node/hpa-fn-01/heat"], "condition": "ownerCurve", "maxAgeMin": 2, "deviceMaxAgeMin": 5, "allowHeatingOverride": true, "severity": "FAIL", "graceMin": 5 },
+    { "id": "curve-offset", "name": "Heating curve rise within cap", "source": ["context/flow/dhwView", "context/flow/heatPump.hp"], "condition": "curveOffset", "maxAgeMin": 2, "deviceMaxAgeMin": 5, "defaultCap": 4, "severity": "FAIL", "graceMin": 5 },
     { "id": "curve-confirmation", "name": "Heating curve confirmation", "source": "context/flow/dhwView", "condition": "confirmed", "maxAgeMin": 2, "pattern": "(?:not confirm|before confirmation)", "holdMin": 10, "severity": "FAIL", "graceMin": 0 },
     { "id": "bms", "name": "BMS watchdog", "source": "context/flow/bmsWatchdogState", "condition": "watchdogOk", "maxAgeMin": 2, "severity": "FAIL", "graceMin": 3 },
     { "id": "battery", "name": "SerialBattery connected", "source": "dbus:com.victronenergy.battery.tty*/Connected", "condition": "equals", "expected": 1, "severity": "FAIL", "graceMin": 3 },

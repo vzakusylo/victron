@@ -355,6 +355,8 @@ and samples every five minutes for an hour. Dry runs, no-ops, and applies that d
 not monitored. [`config/health-checks.json`](../config/health-checks.json) defines the sources, conditions,
 severity, thresholds, and per-restart grace. The curve check skips DHW and defrost/recovery and accepts an
 intentional heating override only when both reported coefficients match the controller's command.
+A separate check compares the actual pump and owner targets at the current outdoor average against
+the controller's configured total curve rise, even if the override was acknowledged.
 
 The read-only **Health** dashboard shows the latest sample, time remaining, and the last ten deploys from
 `/data/home/nodered/post-deploy-health.json`. The run publishes a table and a timestamped sample artifact.

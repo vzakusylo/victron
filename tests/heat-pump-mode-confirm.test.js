@@ -174,7 +174,7 @@ test('only observed changes without matching dispatched SETs enter the alert dig
     ];
     for (const [i, [dp, value, writer]] of writes.entries()) {
         const t = START + 4000 + i * 2000;
-        const call = f.enqueue(t, { dps: dp, set: value, shadow: { writer } });
+        const call = f.enqueue(t, { dps: dp, set: value, rule: writer === 'dhw' || writer === 'protection' ? 'dhw' : 'heat', shadow: { writer } });
         const tags = call.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
         assert.deepEqual([tags?.writer, tags?.values], [writer, { [dp]: value }]);
         f.observe({ [dp]: dp === 132 ? 0 : value }, t + 1000);
@@ -232,7 +232,7 @@ test('hysteresis is independently leased and lower-priority writes never replay'
     const writes = call => call.sent.flatMap(m => m[1]?.payload ? [[m[1].payload.dps, m[1].payload.set]] : []);
     f.enqueue(START, { dps: 121, set: 4, shadow: { writer: 'protection' } }, true);
     f.enqueue(START + 1, { dps: 121, set: 2 }, true);
-    f.enqueue(START + 2, { dps: 134, set: 9 }, true);
+    f.enqueue(START + 2, { dps: 134, set: 9, rule: 'dhw' }, true);
     const call = f.pump(START + 3);
     for (const timer of call.timers) if (timer.ms === 1500) timer.cb();
     assert.deepEqual(writes(call), [[121, 4], [134, 9]]);

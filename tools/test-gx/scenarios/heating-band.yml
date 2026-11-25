@@ -42,11 +42,6 @@
         writes:
           - device: "pump"
             operation: "SET"
-            dps: "134"
-            value: 5
-            applied: true
-          - device: "pump"
-            operation: "SET"
             dps: "133"
             value: 35
             applied: true
@@ -75,11 +70,6 @@
       settle: "4m"
       expect:
         writes:
-          - device: "pump"
-            operation: "SET"
-            dps: "134"
-            value: 5
-            applied: true
           - device: "pump"
             operation: "SET"
             dps: "133"
