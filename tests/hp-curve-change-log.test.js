@@ -56,6 +56,47 @@ test('disk rotation caps both segments and a fresh context restores the newest e
     assert.equal(restored.recent[49].new, 1961);
 });
 
+test('an unreadable curve log backs off across readers and recovers on the next attempt', () => {
+    const warnings = [];
+    let attempts = 0, denied = true;
+    const disk = {
+        readFileSync() {
+            attempts++;
+            if (denied) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+            return '';
+        }
+    };
+    const { log } = make(store(), { warn: msg => warnings.push(msg) }, disk);
+    assert.equal(log.view(at).error, 'Curve log unavailable');
+    for (let i = 1; i < 30; i++) assert.equal(log.recent(5, at + i * 10000), null);
+    assert.equal(attempts, 1);
+    assert.equal(warnings.length, 1);
+    denied = false;
+    assert.deepEqual(log.view(at + 300000), { counts: {}, recent: [] });
+    assert.equal(attempts, 3);
+});
+
+test('failed curve log rotation warns once, keeps writing and bounds the current file', () => {
+    let text = '';
+    const warnings = [];
+    const disk = {
+        readFileSync: file => file.endsWith('.1') ? '' : text,
+        appendFileSync: (_file, line) => { text += line; },
+        renameSync() { throw Object.assign(new Error('permission denied'), { code: 'EACCES' }); },
+        writeFileSync: (_file, content) => { text = content; }
+    };
+    const node = { warn: msg => warnings.push(msg) };
+    const { log } = make(store(), node, disk);
+    for (let i = 0; i < 4010; i++) {
+        log.append(at + i, 133, i, i + 1, 'heating controller');
+        if (i % 100 === 0) assert.ok(text.trimEnd().split('\n').length <= 2000);
+    }
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /rotation failed/);
+    const restored = make(store(), node, disk).log.recent(5, at + 4010);
+    assert.deepEqual(restored.map(row => row.new), [4010, 4009, 4008, 4007, 4006]);
+});
+
 test('pause protection fails open and retry limits require a clear fault and elapsed delay', () => {
     const { pauseProtection, retryDecision } = new Function('MIN', source('operator-controls') +
         '\nreturn { pauseProtection, retryDecision };')(60000);
