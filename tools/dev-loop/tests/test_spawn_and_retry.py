@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import victron_loop.nodes as nodes
+import shlex
 from victron_loop.nodes import _retry_worker, _spawn_copilot, LoopConfig
 
 
@@ -25,7 +26,7 @@ def test_spawn_uses_nice_19_when_not_systemd(monkeypatch, tmp_path: Path):
     assert calls[0][1]["start_new_session"]
 
 
-def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path):
+def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path, mock_copilot_path):
     models = tmp_path / "models.json"
     models.write_text('{"tiers":{"standard":{"model":"gpt-x","effort":"low"}}}', encoding="utf-8")
     cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)
@@ -34,6 +35,7 @@ def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(nodes, "_spawn_copilot", lambda _wt, cmd: captured.setdefault("cmd", cmd) or 456)
     _retry_worker({}, cfg, worker, "fix now")
     assert " --allow-all " in captured["cmd"]
+    assert shlex.split(captured["cmd"])[0] == mock_copilot_path
     assert "--model gpt-x" in captured["cmd"]
     assert "--reasoning-effort low" in captured["cmd"]
     assert worker["retry_count"] == 1

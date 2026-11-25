@@ -41,14 +41,15 @@ fi
 bash "$rotate" --ensure
 
 echo "3. Copilot CLI (workers run 'copilot' here)"
-if command -v copilot >/dev/null; then
-  if timeout 120 nice -n 19 copilot -p "Reply with the single word: ready" </dev/null 2>&1 | grep -qi ready; then
+copilot_bin="$(command -v copilot || printf '%s' "$HOME/.local/bin/copilot")"
+if [[ -f "$copilot_bin" && -x "$copilot_bin" ]]; then
+  if timeout 120 nice -n 19 "$copilot_bin" -p "Reply with the single word: ready" </dev/null 2>&1 | grep -qi ready; then
     ok "copilot answers"
   else
     fail "copilot did not answer; run 'copilot' once interactively and log in (/login)"
   fi
 else
-  fail "copilot not on PATH"
+  fail "Copilot executable not found: $copilot_bin"
 fi
 
 echo "4. Loop install and timer"

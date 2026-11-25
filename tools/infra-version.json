@@ -1,5 +1,5 @@
 {
-  "i": 68,
+  "i": 69,
   "changes": [
     {
       "i": 1,
@@ -408,6 +408,12 @@
       "date": "2026-11-25",
       "pr": 198,
       "what": "AUTO1 timer status and token rotation"
+    },
+    {
+      "i": 69,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Resolve Copilot CLI under Omarchy systemd"
     }
   ]
 }

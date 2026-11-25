@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+import pytest
 from pathlib import Path
 
 from victron_loop.gh import GhCli
 from victron_loop.nodes import LoopConfig, check_state, evaluate_plan, notify, parse_backlog, pick_task, requires_owner_approval
 import victron_loop.nodes as nodes
+
+pytestmark = pytest.mark.usefixtures("mock_copilot_path")
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
