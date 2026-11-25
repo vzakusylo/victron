@@ -85,13 +85,23 @@ test('only new owned-node errors count and only the meter reachability exception
         event(1, '[error] [function:Unowned] ignored'), event(2, `[error] ${meter} EHOSTUNREACH private-data`)];
     const stats = () => logStats(config, rows, startedAt, now);
     assert.deepEqual(check('node-errors', [stats()]), {
-        id: 'node-errors', name: 'Owned Node-RED errors', level: 'WARN', detail: '0 owned error(s), 1 meter reachability warning(s)'
+        id: 'node-errors', name: 'Owned Node-RED errors', level: 'WARN', detail: '0 owned error(s), 1 classified warning(s)'
     });
     rows.push(event(3, `[error] ${meter} authentication issue`));
     rows.push(event(4, '[error] [function:Heat pump automations] EHOSTUNREACH'));
     assert.match(check('node-errors', [stats()]).detail, /^2 owned error/);
     assert.equal(check('node-errors', [stats()]).level, 'FAIL');
     assert.equal(check('node-errors', [logStats(config, rows.slice(2), startedAt, now)]).level, 'FAIL');
+});
+
+test('the first health-file read can warn before the monitor writes any history', () => {
+    const prefix = '[error] [file in:Read saved health history] Error: ';
+    const file = '/data/home/nodered/post-deploy-health.json';
+    const rows = [baseline, event(1, `${prefix}ENOENT: no such file or directory, open '${file}'`)];
+    const sample = () => check('node-errors', [logStats(config, rows, startedAt, now)]);
+    assert.equal(sample().level, 'WARN');
+    rows.push(event(2, `${prefix}EACCES: permission denied, open '${file}'`));
+    assert.equal(sample().level, 'FAIL');
 });
 
 test('notification health fails only on new errors from the GX notification output', () => {

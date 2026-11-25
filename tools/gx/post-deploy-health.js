@@ -126,7 +126,7 @@ const conditions = {
     },
     ownedErrors(check, [log], state) {
         const { failures, warnings } = ownedErrors(log.entries, check, state.owned);
-        const counts = check.node ? `${failures} node error(s)` : `${failures} owned error(s), ${warnings} meter reachability warning(s)`;
+        const counts = check.node ? `${failures} node error(s)` : `${failures} owned error(s), ${warnings} classified warning(s)`;
         if (!log.covered) return failed(check, `${counts}; log does not cover the full deploy window`);
         return failures ? failed(check, counts) : warnings ? { level: 'WARN', detail: counts } : ok(counts);
     },
