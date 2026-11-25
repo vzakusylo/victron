@@ -216,7 +216,7 @@
           <polyline class="band-high" ng-if="hpCurvePlot.highShift !== null" ng-attr-transform="translate(0 {{hpCurvePlot.highShift}})" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="curve" ng-attr-points="{{hpStatic.curveChart.svg.line}}"></polyline>
           <polyline class="preview" ng-if="hpCurveChanged()" ng-attr-points="{{hpPreviewLine()}}"></polyline>
-          <g ng-if="msg.payload.curveChart.svg.now">
+          <g ng-if="hpFinite(msg.payload.curveChart.svg.now.x)">
             <line class="nowline" ng-attr-x1="{{msg.payload.curveChart.svg.now.x}}" ng-attr-x2="{{msg.payload.curveChart.svg.now.x}}" ng-attr-y1="{{hpCurvePlot.top}}" ng-attr-y2="{{hpCurvePlot.bottom}}"></line>
             <circle ng-repeat="point in hpCurvePlot.markers track by point.css" ng-class="point.css" ng-attr-cx="{{msg.payload.curveChart.svg.now.x}}" ng-attr-cy="{{point.y}}" ng-attr-r="{{point.radius}}"><title>{{point.label}}: {{point.value}} °C</title></circle>
           </g>
@@ -411,12 +411,12 @@
           <polyline class="dhw-supply" ng-attr-points="{{hpStatic.dhwChart.svg.supplyLine}}"><title>wanted supply during a cycle (target + {{msg.payload.dhwChart.cfg.supplyAdd}} °C, capped)</title></polyline>
           <polyline class="dhw-curve" ng-attr-points="{{hpStatic.dhwChart.svg.line}}"><title>tank target (the boiler curve)</title></polyline>
           <polyline class="preview" ng-if="hp.dhwDirty" ng-attr-points="{{hpDhwPreviewLine()}}"><title>edited curve, not saved</title></polyline>
-          <g ng-if="msg.payload.dhwChart.svg.now">
+          <g ng-if="hpFinite(msg.payload.dhwChart.svg.now.x)">
             <line class="nowline" ng-attr-x1="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-x2="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-y1="{{hpStatic.dhwChart.svg.top}}" ng-attr-y2="{{hpStatic.dhwChart.svg.bottom}}"></line>
-            <circle class="pt-dhw-target" ng-if="msg.payload.dhwChart.svg.now.yTarget !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTarget}}" r="6"><title>target now: {{msg.payload.dhwChart.target}} °C</title></circle>
-            <circle class="pt-tank" ng-if="msg.payload.dhwChart.svg.now.yTank !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTank}}" r="5"><title>tank now: {{msg.payload.dhwChart.tank}} °C</title></circle>
-            <circle class="pt-wanted" ng-if="msg.payload.dhwChart.svg.now.yWanted !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yWanted}}" r="4"></circle>
-            <circle class="pt-supply-now" ng-if="msg.payload.dhwChart.svg.now.ySupply !== null" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.ySupply}}" r="4"></circle>
+            <circle class="pt-dhw-target" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yTarget)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTarget}}" r="6"><title>target now: {{msg.payload.dhwChart.target}} °C</title></circle>
+            <circle class="pt-tank" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yTank)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yTank}}" r="5"><title>tank now: {{msg.payload.dhwChart.tank}} °C</title></circle>
+            <circle class="pt-wanted" ng-if="hpFinite(msg.payload.dhwChart.svg.now.yWanted)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.yWanted}}" r="4"></circle>
+            <circle class="pt-supply-now" ng-if="hpFinite(msg.payload.dhwChart.svg.now.ySupply)" ng-attr-cx="{{msg.payload.dhwChart.svg.now.x}}" ng-attr-cy="{{msg.payload.dhwChart.svg.now.ySupply}}" r="4"></circle>
           </g>
         </svg>
         <div class="hpw-legend">
@@ -668,6 +668,7 @@
     scope.hpCurveLogValue = function (value) {
         return value === null ? '—' : typeof value === 'object' ? 'P23 ' + value.p23 + ' / P24 ' + value.p24 : value;
     };
+    scope.hpFinite = Number.isFinite;
     scope.hpModeLabel = function (m) { return ({ off: 'Off', dry: 'Test', live: 'On' })[m] || m || '?'; };
     var sliderEditing = false, sliderKey = null, sliderKeyValue = null;
     function cc() { return scope.msg && scope.msg.payload && scope.msg.payload.curveChart; }

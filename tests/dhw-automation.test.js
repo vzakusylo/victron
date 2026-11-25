@@ -163,6 +163,17 @@ test('the DHW start curve uses the held average, not the instantaneous sensor', 
     }
 });
 
+test('the running boiler ramp uses the held average during defrost recovery', () => {
+    const { c, dps } = valveCycle();
+    c.tick(NOW + 30 * S, dps, true);
+    c.tick(NOW + 90 * S, { ...dps, 101: 36, 102: 38, 103: 40, 115: 40, 116: 550 }, true);
+    assert.equal(c.dhw().state, 'DHW', c.dhw().why);
+    assert.equal(c.dhw().outAvg, -6);
+    assert.equal(c.dhw().want, 12, '36 °C return + 5 °C gap at −6 °C, not at DP 103 = 40 °C');
+    assert.equal(c.dhw().p23Cmd, 11, 'raise P23 by just one step');
+    assert.match(c.dhw().why, /-6(?:\.0)? °C/);
+});
+
 test('while the compressor is off the ramp may ask startGap above the water, and only gap once it runs', () => {
     const { c, dps } = valveCycle({ outAvg: -1, recentDefrost: false });
     let t = NOW + 30 * S;
