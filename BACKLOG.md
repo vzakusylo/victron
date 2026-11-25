@@ -57,7 +57,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
-| T1 | Unit-test coverage of the control logic | 1–2 | Per function node: list every decision (input → expected write), add missing tests, list uncovered decisions. After the open PRs merge. |
+| T1 | Unit-test coverage of the control logic | 1–2 | Grid slice covered in #188. Heating, then boiler: list decisions, add missing tests and document any remaining gaps. |
 | B6 | Temperatures page: all sensors, day-by-day paging, motion sensor | 0–1 | Check first: a temperatures page with motion exists since `a4af86d`. |
 | B8 | Battery round-trip efficiency | 0.5–1 | |
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
@@ -83,6 +83,11 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | ID | Task | Depends on | State | Notes |
 |---|---|---|---|---|
 | G2-SAFE | Safe mode on stale critical inputs (Phase A expected_fails: grid-stale-inputs.yml ×3, grid-edges.yml midnight case). **Blocked 22 Nov:** the Victron input nodes repeat cached values every 5 s with no source timestamp, so "frozen" cannot be told from "healthy and constant". Design first: a real freshness signal per input (D-Bus `ItemsChanged` / value-change time, a device heartbeat path such as CT `/Ac/Energy/Forward` or a counter that always moves, battery `/Dc/0/Current` noise), then per-input limits and reactions | G2 design | blocked: needs freshness design | expected_fails stay until fixed; do not time the 5 s re-emits |
+| G3-COOLDOWN | Preserve the feedback alarm cooldown across wall-clock changes | G3 | open | A forward clock correction can bypass the 15-minute elapsed-time cooldown. |
+| G3-DAILY | Reset the feedback notice count at the Oslo day boundary | G3 | open | The dashboard currently shows a cumulative context count, not the daily count in the G3 plan. |
+| G3-TRACKING | Detect sustained physical import divergence separately from command read-back | G3 | open | The current read-back confirms the command paths, not sustained physical tracking; define the detection threshold before enabling alarms. |
+| T1-GRID-LEAP | Correct the next-season preview for a Feb 29 switch | T1 | open | A valid Feb 29 setting can display March 1 before the leap year even though control switches February 29. |
+| T1-GRID-FLAGS | Align fixed HV support and force-charge flags with the selected decision | T1 | open | Without CT, `GS` can show an unapplied cap; when manual discharge wins, `FC` can still show a force charge. Targets are unchanged by these flags. |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -155,6 +160,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#188 T1 grid slice (`t1-grid-coverage`, d#241 unchanged · i#58): inventory node `01` decisions and add 49 mutation-checked unit tests. Findings are tracked separately; no production changes.
 
 #187 H16(2) (`h16-owner-curve-boiler-stop`, d#241 · i#57): a partial DHW restore readback (P23/P24 27/5) can no longer overwrite the saved owner curve (33/5). Pump readings initialize a missing baseline; only a confirmed owner Apply replaces a saved one.
 
