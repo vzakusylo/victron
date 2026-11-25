@@ -145,6 +145,7 @@
 // HP-M3: attribute mode, curve and hysteresis observations to matching dispatched writes; alert on unexplained changes.
 // HP-M2 stage 2: enforce priority and short leases for DP 2 only.
 // HP-M2 stage 3: enforce the same priority for the ordered curve group and DP 121.
+// d#241 (H16): pump readback can initialize a missing owner curve, but only confirmed Apply replaces one.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
