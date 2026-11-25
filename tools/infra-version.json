@@ -1,5 +1,5 @@
 {
-  "i": 65,
+  "i": 66,
   "changes": [
     {
       "i": 1,
@@ -390,6 +390,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Track daily grid feedback alarms"
+    },
+    {
+      "i": 66,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Test grid decision status flags"
     }
   ]
 }

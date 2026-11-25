@@ -223,10 +223,12 @@ test('manual discharge holds above the AC ceiling and stops exactly at the volta
     assert.equal(running.windowName, 'MANUAL-DISCHARGE');
     assert.equal(running.finalGridSetpoint, 1900);
     assert.equal(running.finalChargeCurrent, 0);
+    assert.deepEqual(running.limitFlags, ['MD:20A']);
     const held = decide({ ...inputs, storedAcLoadPowerW: 3001 }, { manualDischarge });
     assert.equal(held.windowName, 'FORCE-CHARGE');
     assert.equal(held.manualDischarge.active, true);
     assert.ok(held.limitFlags.includes('MD-HOLD>3000W'));
+    assert.ok(held.limitFlags.includes('FC:1000W'));
     const stopped = decide({ ...inputs, batteryVoltage: 54 }, { manualDischarge });
     assert.equal(stopped.windowName, 'FORCE-CHARGE');
     assert.deepEqual(stopped.manualDischarge, { active: false, startedAt: '', source: 'auto-stop-low-voltage' });
@@ -315,12 +317,17 @@ test('fixed HV support floors the cap at MIN_GRID_SETPOINT and cannot cap withou
         batteryVoltage: 55.4, storedAcLoadPowerW: 350, previousGridSetpoint: 1000,
         protection: { gridSupportMode: 'hv-only', gridSupportW: 300 }
     };
-    assert.equal(decide(inputs).finalGridSetpoint, 200);
-    assert.equal(decide({ ...inputs, hasGridPowerReading: false }).finalGridSetpoint, 900);
+    const capped = decide(inputs);
+    assert.equal(capped.finalGridSetpoint, 200);
+    assert.deepEqual(capped.limitFlags, ['HV', 'GS:300W(HV)']);
+    const noCt = decide({ ...inputs, hasGridPowerReading: false });
+    assert.equal(noCt.finalGridSetpoint, 900);
+    assert.deepEqual(noCt.limitFlags, ['HV']);
     const manual = decide({
         ...inputs, storedAcLoadPowerW: 2000, C: getConstants({ MANUAL_DISCHARGE_MAX_CURRENT: 1 })
     }, { manualDischarge });
     assert.equal(manual.finalGridSetpoint, 1945);
+    assert.deepEqual(manual.limitFlags, ['MD:1A']);
 });
 
 test('day load cap applies only above its threshold, never overnight or during a priority mode', () => {

@@ -57,11 +57,36 @@ function replay({ protection, samples }) {
 }
 
 const cases = ['winter-night', 'summer-export', 'force-charge', 'high-voltage'];
+
+test('grid tick reports only selected flags and preserves pre-fix actuator outputs', () => {
+    const force = { forceChargeEnabled: true, forceChargeGridW: 1000 };
+    const cases = [
+        ['HV without CT', 55.4, { gridSupportW: 500, gridSupportMode: 'hv-only' }, false, [0, 0, 23.5], ['HV']],
+        ['manual over armed force', 55, { ...force, forceChargeLimiterEnabled: true }, true, [0, 900, null], ['MD:20A']],
+        ['manual over active force', 55, { ...force, forceChargeLimiterEnabled: false }, true, [0, 900, null], ['MD:20A']],
+        ['normal force', 55, { ...force, forceChargeLimiterEnabled: false }, false, [18, 3000, 23.5], ['FC:1000W']]
+    ];
+    for (const [label, voltage, settings, manual, actuators, flags] of cases) {
+        const node = controller();
+        node.flow.set('highVoltageSettings', { start: 55.2, full: 55.4, release: 55, ...settings });
+        const run = (topic, payload) => node.runRaw({ topic, payload }, { now: '2026-01-19T08:13:00' }).result;
+        run('battery-voltage', voltage);
+        run('battery-consumed-ah', -15);
+        run('ac-load-power', 2000);
+        if (manual) run('manual-discharge', true);
+        const result = run('grid-control-tick');
+        assert.deepEqual(result.slice(0, 3).map(output => output?.payload ?? null), actuators, label);
+        assert.deepEqual(snapshot(result).flags, flags, label);
+    }
+});
+
 {
     for (const name of cases) {
         test(`grid replay: ${name}`, () => {
             const baseline = read(`expected-${name}.json`).map(({ perInput, ...frame }) => ({
                 ...frame,
+                // The HV taper, not the fixed support cap, binds at this sample.
+                flags: name === 'high-voltage' && frame.at === '2026-01-19T08:14:00' ? ['HV'] : frame.flags,
                 currentLimit: frame.tick.vebusA ?? perInput.find(output => output?.vebusA != null)?.vebusA ?? null,
                 tick: { ...frame.tick, vebusA: null }
             }));
