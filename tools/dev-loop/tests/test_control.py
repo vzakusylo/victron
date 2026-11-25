@@ -106,8 +106,12 @@ def test_stop_preserves_unverified_live_group(tmp_path, monkeypatch):
     assert store.load()["active_worker"] == worker
 
 
-def test_http_page_status_and_write_guards(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_token", [False, True])
+def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
     cfg = LoopConfig(repo="test/repo", web_bind="127.0.0.1:0", token_file=None)
+    if with_token:
+        cfg.web_token_file = tmp_path / "web-token"
+        cfg.web_token_file.write_text("test-only-token-1234", encoding="utf-8")
     store = StateStore.open(tmp_path)
     monkeypatch.setattr(web, "next_timer", lambda: "unknown")
 
@@ -122,16 +126,31 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch):
         thread = Thread(target=server.serve_forever)
         thread.start()
 
+        auth = {}
+
         def request(method, path, headers=None, body=None):
             with_connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
             try:
-                with_connection.request(method, path, body=body, headers=headers or {})
+                with_connection.request(method, path, body=body, headers={**auth, **(headers or {})})
                 response = with_connection.getresponse()
-                return response.status, response.read(), response.getheader("X-CSRF-Token")
+                return response.status, response.read(), response.getheader("X-CSRF-Token") or response.getheader("Set-Cookie")
             finally:
                 with_connection.close()
 
         try:
+            if with_token:
+                import re
+
+                assert request("GET", "/api/status")[0] == 401
+                status, page, _ = request("GET", "/login")
+                assert status == 200 and b"test-only-token-1234" not in page
+                csrf = re.search(rb'name="csrf" value="([^"]+)"', page)[1].decode()
+                status, _, cookie = request(
+                    "POST", "/login", {"Content-Type": "application/x-www-form-urlencoded"},
+                    f"csrf={csrf}&value=test-only-token-1234",
+                )
+                assert status == 303 and "HttpOnly; SameSite=Strict" in cookie
+                auth["Cookie"] = cookie.split(";", 1)[0]
             assert request("POST", "/api/pause")[0] == 403
             assert request("GET", "/api/status", {"Host": "invalid"})[0] == 403
             status, body, csrf = request("GET", "/api/status")

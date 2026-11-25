@@ -33,8 +33,10 @@ refuses wildcard and public addresses. Start `victron-loop-web.service` with
 `http://<tailscale-ip>:8787/` from the tailnet. Use tailnet ACLs to restrict access.
 For optional extra authentication, set `web_token_file` to a mode-0600 file
 outside the install directory containing a random URL-safe token (at least 16
-characters). Supply it via `Authorization: Bearer …` or the `victron_loop`
-cookie; don't put it in a URL or an owner note.
+characters). In the browser, open `/login` to enter the token and set the
+session cookie. API clients can use `Authorization: Bearer …`. Don't put the
+token in a URL or an owner note. Without a token, anyone allowed to reach the
+port by your tailnet ACLs can read and operate the controls.
 
 **Pause** leaves the worker running but disables picks and retries; timer ticks
 only observe repo status. **Stop now** confirms, sends SIGTERM to the tracked

@@ -191,11 +191,14 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
         def error(self, code, message):
             self.reply(code, json.dumps({"error": message}).encode())
 
-        def authorized(self):
+        def valid_host(self):
             expected = f"{host}:{self.server.server_port}"
             if self.headers.get_all("Host") != [expected]:
                 self.error(403, "Invalid Host")
                 return False
+            return True
+
+        def authorized(self):
             if not token:
                 return True
             cookie = SimpleCookie()
@@ -211,6 +214,17 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
             return False
 
         def do_GET(self):
+            if not self.valid_host():
+                return
+            if token and self.path == "/login":
+                self.reply(200, (
+                    '<!doctype html><meta charset="utf-8"><title>Victron loop sign-in</title>'
+                    '<form method="post" action="/login">'
+                    f'<input type="hidden" name="csrf" value="{csrf}">'
+                    '<label>Access token <input type="password" name="value" required></label>'
+                    '<button>Sign in</button></form>'
+                ).encode(), "text/html; charset=utf-8")
+                return
             if not self.authorized():
                 return
             request = urlsplit(self.path)
@@ -225,10 +239,13 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
                 self.reply(200, render(data, csrf, redact(node)).encode(), "text/html; charset=utf-8")
 
         def do_POST(self):
-            if not self.authorized():
+            if not self.valid_host():
+                return
+            login = bool(token and self.path == "/login")
+            if not login and not self.authorized():
                 return
             action = urlsplit(self.path).path.removeprefix("/api/")
-            if self.path != f"/api/{action}" or action not in ACTIONS:
+            if not login and (self.path != f"/api/{action}" or action not in ACTIONS):
                 self.error(404, "Not found")
                 return
             try:
@@ -252,6 +269,15 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
                 return
             if not hmac.compare_digest(submitted.encode(), csrf.encode()):
                 self.error(403, "Invalid CSRF token")
+                return
+            if login:
+                if not hmac.compare_digest(value.encode(), token.encode()):
+                    self.error(401, "Invalid access token")
+                    return
+                self.reply(303, headers=(
+                    ("Location", "/"),
+                    ("Set-Cookie", f"victron_loop={token}; Path=/; HttpOnly; SameSite=Strict"),
+                ))
                 return
             try:
                 apply_control(store, cfg, action, value)
