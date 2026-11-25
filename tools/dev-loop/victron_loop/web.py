@@ -531,6 +531,7 @@ def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
             if not self.valid_host():
                 return
             if self.path == "/api/peer-status":
+                # Peers do not share dashboard credentials; expose only the coordination state.
                 live = not cfg.dry_run and (
                     (cfg.scheduler.running_cycle or not cfg.scheduler.stopping) if cfg.scheduler is not None
                     else not WINDOWS and timer_times().get("timer_state") == "active"
