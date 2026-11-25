@@ -1,3 +1,4 @@
+// #no-template-replay ["Analytics KPI panel","Analytics hourly table","Analytics diagnostics","Analytics pending metrics"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

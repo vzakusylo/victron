@@ -1,3 +1,6 @@
+// #libs [{"var":"fs","module":"fs"}]
+// #no-template-replay ["Automation log page"]
+// #bypass-exec ["Read automation log"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================
@@ -15,18 +18,17 @@
 //   against the device), done / stop (run ends), flag, setting, warn, info.
 // Input (msg.topic):
 // - 'ui'   (page 43)  -> payload { action: 'open' | 'day' | 'refresh', day: 'YYYY-MM-DD' }
-//                        -> output 2: shell command for the exec node "Read automation log"
-// - 'read' (exec out) -> msg.payload = stdout: the day file, then `#days` and `wc -l` of all files
 // - 'log'  (from 40)  -> msg.event = a new event; added live when the page shows today
-// Output (2):
-// - output 1 -> ui_template "Automation log page", msg.payload = page model
-// - output 2 -> exec node "Read automation log" (`sh -c <payload>`)
+// Output:
+// - output 1 -> ui_template "Automation log page", msg.log = page model
 // Retention: day files older than KEEP_DAYS are deleted when the page reads a day.
 // Change notes:
 // 1. Initial version (d#126).
 // 2. d#127: the shell script is quoted as one word for `sh -c` (the day file was never read);
 //    day files older than KEEP_DAYS are deleted.
+// 3. Stream the selected log and count lines only for days the selector can show.
 // ==========================
+// #include lib/history/lines.js
 
 const DIR = '/data/home/nodered/grid-control-logs/automations';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,13 +39,56 @@ function pad(x) { return String(x).padStart(2, '0'); }
 function dayKey(t) { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 const today = dayKey(Date.now());
 
-// The exec node runs `sh -c <payload>` unquoted, so the whole script must be one shell word.
-function shellQuote(script) { return "'" + String(script).replace(/'/g, "'\\''") + "'"; }
-// Day file + list of days; also deletes day files older than KEEP_DAYS (runs when the page reads a day).
-function readCmd(day) {
-    return shellQuote('f=' + DIR + '/' + day + '.jsonl; [ -f "$f" ] && cat "$f"; echo "#days"; '
-        + 'find ' + DIR + ' -maxdepth 1 -name "*.jsonl" -mtime +' + KEEP_DAYS + ' -delete 2>/dev/null; '
-        + 'cd ' + DIR + ' 2>/dev/null && wc -l *.jsonl 2>/dev/null | grep -v " total$" | tail -n ' + MAX_DAYS);
+async function readDay(day) {
+    const events = [];
+    let bad = 0;
+    for await (const { line } of historyLines(await openHistoryFile(`${DIR}/${day}.jsonl`))) {
+        if (!line.trim()) continue;
+        try {
+            const event = JSON.parse(line);
+            if (event && typeof event === 'object' && Number.isFinite(event.t)) events.push(event);
+            else bad++;
+        } catch (error) { bad++; }
+    }
+    events.sort((a, b) => a.t - b.t);
+    const files = new Map();
+    for (const entry of await historyNames(DIR)) {
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+        const filename = `${DIR}/${entry.name}`;
+        let stat;
+        try { stat = await fs.promises.stat(filename); }
+        catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        if (Date.now() - stat.mtimeMs >= (KEEP_DAYS + 1) * 86400000) {
+            try { await fs.promises.unlink(filename); }
+            catch (error) { if (error.code !== 'ENOENT') throw error; }
+        } else if (DAY_RE.test(entry.name.slice(0, -6))) files.set(entry.name, stat);
+    }
+    const days = [];
+    const cached = context.get('dayCounts') || {};
+    const dayCounts = {};
+    for (const name of [...files.keys()].sort().slice(-MAX_DAYS)) {
+        const key = name.slice(0, -6);
+        const { mtimeMs, size } = files.get(name);
+        const previous = cached[key];
+        if (key !== today && previous?.mtimeMs === mtimeMs && previous.size === size) {
+            dayCounts[key] = previous;
+            days.push({ day: key, count: previous.count });
+            continue;
+        }
+        const file = await openHistoryFile(`${DIR}/${name}`);
+        if (!file) continue;
+        let count = 0;
+        for await (const { newline } of historyLines(file)) if (newline) count++;
+        if (key !== today) dayCounts[key] = { mtimeMs, size, count };
+        days.push({ day: key, count });
+    }
+    if (day !== (context.get('day') || today)) return null;
+    context.set('events', events);
+    context.set('days', days);
+    context.set('dayCounts', dayCounts);
+    context.set('loaded', day);
+    node.status({ fill: 'green', shape: 'dot', text: day + ': ' + events.length + ' events' + (bad ? ', ' + bad + ' bad lines' : '') });
+    return page(bad ? bad + ' unreadable lines skipped' : '');
 }
 
 // Group events (oldest first) into items, newest first.
@@ -100,6 +145,11 @@ function model(note) {
     return { day, today, isToday: day === today, items, counts: counts(items), days, note: note || '', updated: Date.now() };
 }
 
+function page(note) {
+    // Dashboard stores msg.payload even without replay; this page requests its full model on open.
+    return [{ payload: null, log: model(note) }, null];
+}
+
 // ---- page request ---------------------------------------------------------------
 if (msg.topic === 'ui') {
     const p = msg.payload || {};
@@ -110,33 +160,7 @@ if (msg.topic === 'ui') {
         day = p.day;
     }
     context.set('day', day);
-    return [null, { topic: 'read', day, payload: readCmd(day) }];
-}
-
-// ---- exec result -----------------------------------------------------------------
-if (msg.topic === 'read') {
-    if (msg.day !== (context.get('day') || today)) return null;   // an older request
-    const text = String(msg.payload || '');
-    const cut = text.indexOf('#days');
-    const body = cut >= 0 ? text.slice(0, cut) : text;
-    const tail = cut >= 0 ? text.slice(cut + 5) : '';
-    const events = [];
-    let bad = 0;
-    for (const line of body.split('\n')) {
-        if (!line.trim()) continue;
-        try { events.push(JSON.parse(line)); } catch (e) { bad++; }
-    }
-    events.sort((a, b) => a.t - b.t);
-    const days = [];
-    for (const line of tail.split('\n')) {
-        const m = line.trim().match(/^(\d+)\s+(\d{4}-\d{2}-\d{2})\.jsonl$/);
-        if (m) days.push({ day: m[2], count: Number(m[1]) });
-    }
-    context.set('events', events);
-    context.set('days', days);
-    context.set('loaded', msg.day);
-    node.status({ fill: 'green', shape: 'dot', text: msg.day + ': ' + events.length + ' events' + (bad ? ', ' + bad + ' bad lines' : '') });
-    return [{ payload: model(bad ? bad + ' unreadable lines skipped' : '') }, null];
+    return readDay(day).catch(error => { node.error('Automation log: ' + error.message, msg); return null; });
 }
 
 // ---- live event from "Heat pump automations" ---------------------------------------
@@ -151,6 +175,6 @@ if (msg.topic === 'log' && msg.event) {
     const events = context.get('events') || [];
     events.push(e);
     context.set('events', events);
-    return [{ payload: model() }, null];
+    return page();
 }
 return null;

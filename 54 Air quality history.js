@@ -1,3 +1,4 @@
+// #no-template-replay ["Air quality page"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

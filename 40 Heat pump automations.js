@@ -1,4 +1,5 @@
 // #libs [{"var":"fs","module":"fs"}]
+// #no-template-replay ["Automations page"]
 // d#247: persistent curve history, timed standby, opt-in Er03 retries and gentle heating limits.
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES

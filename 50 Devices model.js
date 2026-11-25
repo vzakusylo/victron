@@ -1,3 +1,4 @@
+// #no-template-replay ["Devices page"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

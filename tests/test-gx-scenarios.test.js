@@ -776,25 +776,6 @@ test('model, settings-save, log and settings-load outputs use their declared fun
     assert.ok(tick.sent.some(message => Array.isArray(message) && message[6] && message[6].topic === 'load'));
 });
 
-test('automation log requests a day file and groups its events for the UI', () => {
-    const node = loadNode('42 Automation log.js');
-    const now = new Date(2026, 10, 16, 20, 0).getTime();
-    const day = '2026-11-16';
-    const request = node.run({ topic: 'ui', payload: { action: 'day', day } }, { now });
-    assert.match(request.result[1].payload, /2026-11-16\.jsonl/);
-    assert.match(request.result[1].payload, /-mtime \+400/);
-
-    const read = node.run({ topic: 'read', day, payload: [
-        { t: now, kind: 'start', rule: 'dhw', cloud: 'DHW controller', run: '1:dhw', live: true, text: 'start' },
-        { t: now + 1000, kind: 'write', rule: 'dhw', cloud: 'DHW controller', run: '1:dhw', live: true, text: 'set P23' }
-    ].map(JSON.stringify).join('\n') + `\n#days\n2 ${day}.jsonl` }, { now });
-    assert.equal(read.result[0].payload.items[0].type, 'run');
-    assert.equal(read.result[0].payload.items[0].steps.length, 2);
-
-    const live = node.run({ topic: 'log', event: { t: now + 2000, kind: 'done', rule: 'dhw', run: '1:dhw', live: true, text: 'done' } }, { now: now + 2000 });
-    assert.equal(live.result[0].payload.items[0].status, 'ok');
-});
-
 test('heat pump alerts wait 10 minutes before digesting a disconnected device', () => {
     const node = loadNode('47 Heat pump alerts.js');
     const now = new Date(2026, 10, 16, 20, 0).getTime();

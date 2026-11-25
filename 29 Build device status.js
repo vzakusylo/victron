@@ -1,3 +1,4 @@
+// #no-template-replay ["Device status"]
 // ==========================
 // LOGIC SUMMARY / CHANGE NOTES
 // ==========================

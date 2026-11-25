@@ -55,24 +55,24 @@
 
   <div class="hpl-nav">
     <button ng-click="hplShift(-1)">◀ previous day</button>
-    <span class="day">{{hplDate(msg.payload.day)}}<span ng-if="msg.payload.isToday"> · today</span></span>
-    <button ng-click="hplShift(1)" ng-disabled="msg.payload.isToday">next day ▶</button>
-    <button ng-click="hplGo(msg.payload.today)" ng-disabled="msg.payload.isToday">today</button>
+    <span class="day">{{hplDate(msg.log.day)}}<span ng-if="msg.log.isToday"> · today</span></span>
+    <button ng-click="hplShift(1)" ng-disabled="msg.log.isToday">next day ▶</button>
+    <button ng-click="hplGo(msg.log.today)" ng-disabled="msg.log.isToday">today</button>
     <input type="date" ng-model="hplPick" ng-change="hplPicked()">
     <button ng-click="hplRefresh()">refresh</button>
   </div>
 
-  <div class="hpl-days" ng-if="msg.payload.days.length">
-    <button ng-repeat="d in msg.payload.days | limitTo:21" ng-class="{sel: d.day == msg.payload.day}" ng-click="hplGo(d.day)">{{hplShort(d.day)}}<span class="cnt">{{d.count}}</span></button>
+  <div class="hpl-days" ng-if="msg.log.days.length">
+    <button ng-repeat="d in msg.log.days | limitTo:21" ng-class="{sel: d.day == msg.log.day}" ng-click="hplGo(d.day)">{{hplShort(d.day)}}<span class="cnt">{{d.count}}</span></button>
   </div>
 
   <div class="hpl-filter">
     <button ng-repeat="f in hplFilters" ng-class="{sel: hplF == f.id}" ng-click="hplSetF(f.id)">{{f.label}}</button>
-    <span class="small"><b style="color:#da3633" ng-if="msg.payload.counts.errors">errors {{msg.payload.counts.errors}} · </b>runs {{msg.payload.counts.runs}} · on {{msg.payload.counts.ok}} · failed / stopped {{msg.payload.counts.failed}} · test {{msg.payload.counts.test}} · other events {{msg.payload.counts.events}}</span>
+    <span class="small"><b style="color:#da3633" ng-if="msg.log.counts.errors">errors {{msg.log.counts.errors}} · </b>runs {{msg.log.counts.runs}} · on {{msg.log.counts.ok}} · failed / stopped {{msg.log.counts.failed}} · test {{msg.log.counts.test}} · other events {{msg.log.counts.events}}</span>
   </div>
-  <div class="small" ng-if="msg.payload.note">{{msg.payload.note}}</div>
+  <div class="small" ng-if="msg.log.note">{{msg.log.note}}</div>
 
-  <div ng-repeat="it in msg.payload.items | filter:hplMatch" class="hpl-item" ng-class="{run: it.type=='run', err: it.kind=='error' || it.kind=='fail' || it.status=='failed' || it.status=='stopped'}" ng-click="it.type=='run' && hplToggle(it)">
+  <div ng-repeat="it in msg.log.items | filter:hplMatch" class="hpl-item" ng-class="{run: it.type=='run', err: it.kind=='error' || it.kind=='fail' || it.status=='failed' || it.status=='stopped'}" ng-click="it.type=='run' && hplToggle(it)">
     <div class="hpl-head">
       <span class="hpl-time">{{it.t | date:'HH:mm:ss'}}</span>
       <span class="hpl-badge" ng-class="'b-' + (it.type=='run' ? it.status.replace(' ', '-') : it.kind)">{{it.type=='run' ? hplStatus(it.status) : it.kind}}</span>
@@ -85,7 +85,7 @@
       <tr ng-repeat="s in it.steps"><td class="num">{{s.t | date:'HH:mm:ss'}}</td><td ng-class="'k-' + s.kind" style="width:60px">{{s.kind}}</td><td>{{s.text}}</td></tr>
     </table>
   </div>
-  <div class="small" ng-if="msg.payload && !(msg.payload.items | filter:hplMatch).length">No events on this day.</div>
+  <div class="small" ng-if="msg.log && !(msg.log.items | filter:hplMatch).length">No events on this day.</div>
 </div>
 
 <script>
@@ -121,7 +121,7 @@
     scope.hplShort = function (d) { return parse(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
     scope.hplGo = function (d) { if (!d) return; scope.hplOpen = {}; scope.send({ topic: 'ui', payload: { action: 'day', day: d } }); };
     scope.hplShift = function (n) {
-        var p = scope.msg && scope.msg.payload; if (!p) return;
+        var p = scope.msg && scope.msg.log; if (!p) return;
         var dt = parse(p.day); dt.setDate(dt.getDate() + n);
         var k = key(dt); if (k > p.today) return;
         scope.hplGo(k);

@@ -268,8 +268,6 @@ function buildOutputs(state, listMsg, readMsg, persistMsg) {
         rootPath: ROOT_PATH,
         count: state.files.length,
         status,
-        selectedIndex: selectedFile ? state.selectedIndex : -1,
-        selectedName: selectedFile ? selectedFile.name : '',
         selectedPath: selectedFile ? selectedFile.path : '',
         canPrev: status !== 'loading-list' && state.selectedIndex > 0,
         canNext: status !== 'loading-list' && state.selectedIndex >= 0 && state.selectedIndex < state.files.length - 1,
