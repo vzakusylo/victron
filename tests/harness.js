@@ -47,7 +47,7 @@ function loadNode(file, sourceText, flow = store(), modules = {}) {
         };
         const timer = (cb, ms) => { call.timers.push({ cb, ms }); return call.timers.length; };
         call.result = fn(msg, node, context, flow, store(), store(opts?.env), fixedDate(now), Buffer, timer, () => {},
-            { hrtime: { bigint: () => BigInt(now) * 1000000n } }, ...Object.values(modules));
+            { hrtime: { bigint: () => BigInt(now) * 1000000n }, uptime: () => now / 1000 }, ...Object.values(modules));
         return call;
     }
 
