@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+import os
+import re
+import signal
+import subprocess
+
+from .nodes import LoopConfig, _fetch_origin_niced, _process_start, evaluate_plan
+from .state import StateStore
+
+ROW_ACTIONS = {"approve": "approved", "skip": "skipped_rows", "unskip": "skipped_rows", "pin": "pinned_row"}
+
+
+def read_plan(cfg: LoopConfig, state: dict) -> dict:
+    git = ["git", "-C", str(cfg.repo_path)]
+    commit = subprocess.check_output(git + ["rev-parse", "origin/master"], text=True, timeout=10).strip()
+    text = subprocess.check_output(git + ["show", f"{commit}:BACKLOG.md"], text=True, timeout=10)
+    return {"commit": commit, **evaluate_plan(state, text)}
+
+
+def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = "") -> None:
+    with store.lock():
+        state = store.load()
+        if action in ROW_ACTIONS:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", value):
+                raise ValueError("Invalid row ID")
+            field = ROW_ACTIONS[action]
+            if action == "pin":
+                state[field] = value
+            else:
+                rows = set(state.get(field, []))
+                (rows.discard if action == "unskip" else rows.add)(value)
+                state[field] = sorted(rows)
+        elif action in {"pause", "resume"}:
+            state["paused"] = action == "pause"
+        elif action == "stop-worker":
+            if value != "yes":
+                raise ValueError("Stop requires confirmation")
+            worker = state.get("active_worker")
+            if worker:
+                if not worker.get("process_group"):
+                    raise ValueError("Legacy worker has no tracked process group")
+                pid = int(worker["pid"])
+                started = worker.get("process_start")
+                if started and _process_start(pid) == started:
+                    try:
+                        os.killpg(pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                state["stopped_rows"] = sorted(set(state.get("stopped_rows", [])) | {worker["row_id"]})
+                state["last_worker"] = {**worker, "status": "stopped"}
+                state["active_worker"] = None
+                state["phase"] = "stopped"
+            state["paused"] = True
+        elif action == "note":
+            if len(value) > 4000:
+                raise ValueError("Owner note is limited to 4000 characters")
+            state["owner_note"] = value
+        elif action == "refresh":
+            if not _fetch_origin_niced(cfg):
+                raise RuntimeError("Could not fetch origin")
+        else:
+            raise ValueError("Unknown action")
+        store.save(state)
+        store.append_decision({"node": "control", "action": action})

@@ -25,3 +25,29 @@
 - Decision log: `${XDG_STATE_HOME:-~/.local/state}/victron-loop/decisions.jsonl`
 - Timer: `~/.config/systemd/user/victron-loop.timer`
 
+## Control page (AUTO2)
+
+Set `web_bind` to the Omarchy box's Tailscale IPv4 plus `:8787`; the server
+refuses wildcard and public addresses. Start `victron-loop-web.service` with
+`systemctl --user start victron-loop-web.service` and visit
+`http://<tailscale-ip>:8787/` from the tailnet. Use tailnet ACLs to restrict access.
+For optional extra authentication, set `web_token_file` to a mode-0600 file
+outside the install directory containing a random URL-safe token (at least 16
+characters). Supply it via `Authorization: Bearer …` or the `victron_loop`
+cookie; don't put it in a URL or an owner note.
+
+**Pause** leaves the worker running but disables picks and retries; timer ticks
+only observe repo status. **Stop now** confirms, sends SIGTERM to the tracked
+worker group, records `stopped`, and pauses. It doesn't undo pushes or close
+PRs. **Start** clears the pause flag; the timer still determines when the
+next tick runs. The page shows the current phase, checks, budget and recent
+logs. The next-task list is a deterministic preview, not a bypass for the
+tick's PR, deployment-health, worker or budget gates.
+
+Use **Approve** for a gated row, **Skip** / **Unskip** to override eligibility,
+and **Pin as next** to prioritize an eligible row for one launch. The owner note
+is used on the next launch. To change the plan, pause, edit `BACKLOG.md` through
+the normal PR process, select **Refresh plan** after merge, then start again.
+Over SSH, the equivalent CLI commands are `pause`, `resume`, `approve <row>`,
+`skip <row>`, `unskip <row>`, `pin <row>`, and `note "<text>"`.
+

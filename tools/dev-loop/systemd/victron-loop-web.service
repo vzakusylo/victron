@@ -1,0 +1,15 @@
+[Unit]
+Description=Victron dev loop control page
+After=network-online.target
+
+[Service]
+Nice=10
+CPUWeight=10
+MemoryMax=100M
+Restart=on-failure
+RestartSec=10
+WorkingDirectory=%h/victron-loop
+ExecStart=%h/victron-loop/venv/bin/python -m victron_loop.main --config %h/victron-loop/config.toml web
+
+[Install]
+WantedBy=default.target
