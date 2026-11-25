@@ -26,7 +26,7 @@ def run_tick(store: StateStore, cfg: LoopConfig, gh: GhCli) -> str:
         check_state(state, cfg, gh)
         errors = state["observed"]["errors"]
         if not cfg.dry_run:
-            notify(state, cfg)
+            notify(state, cfg, daily_summary=False)
         state["last_run"] = {"at": int(cfg.clock()), "result": "paused"}
         store.save(state)
         store.append_decision({"node": "check_state", "result": state["observed"].get("token_error") or "paused",

@@ -662,7 +662,7 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def notify(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
+def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True) -> dict[str, Any]:
     sent = state.setdefault("notifications_sent", {})
     observed = state.get("observed")
     if observed is not None and not observed.get("errors"):
@@ -680,7 +680,7 @@ def notify(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         sent[key] = int(cfg.clock())
 
     today = _today(cfg.clock)
-    if state.get("last_summary_date") != today:
+    if daily_summary and state.get("last_summary_date") != today:
         waiting = sorted(state.get("failed_rows", []))
         done = "yes" if not state.get("active_worker") else "no"
         message = f"done={done}; waiting={','.join(waiting) if waiting else 'none'}"
