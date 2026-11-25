@@ -228,12 +228,15 @@ try {
     }
     if ($AutoRetry) { Assert-AutoGate -Retry:($null -ne $autoDeadline) }
     $changed = $true
-    $out = & ssh @ssh $GxHost "DRY=0 node $remote/deploy.js $remote/plan.json 2>&1"
+    $out = & ssh @ssh $GxHost "date -u '+APPLY START: %s' && DRY=0 node $remote/deploy.js $remote/plan.json 2>&1"
     $code = $LASTEXITCODE
     Save 'deploy.txt' ($out -join "`n")
     $out | ForEach-Object { Write-Host $_ }
     if ($code -eq 0 -and ($out -match '^NOTHING TO DO:')) { exit 0 }
     if ($code -ne 0) { Stop-Run 'the deploy failed (ABORT line above). Read deploy.txt; the backup folder is named there.' }
+    $start = @($out | ForEach-Object { if ($_ -match '^APPLY START: (\d+)$') { [long]$Matches[1] * 1000 } })
+    if ($start.Count -eq 1) { Save 'apply-started.txt' ([string]$start[0]) }
+    elseif ($env:GITHUB_ACTIONS -eq 'true') { Stop-Run 'The flow was applied, but its GX start timestamp was not recorded.' }
 }
 finally { & ssh @ssh $GxHost "rm -f $remote/plan.json $remote/deploy.js $remote/verify.js $remote/whole-flow.js $remote/admin-api.js; rmdir $remote" 2>$null | Out-Null }
 

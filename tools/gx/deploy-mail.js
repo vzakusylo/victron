@@ -2,8 +2,7 @@
 // Builds the "GX deployed" mail ({subject, text}) that deploy-gx-code.yml pipes into
 // /data/home/nodered/tools/send-mail.js on the GX after a successful apply. Pure text, no secrets, no hosts.
 //
-// CLI: deploy-mail.js RUN_FOLDER   (env: DEPLOY_SHA, TRIGGER_EVENT, ACTOR, TEST_RUN_URL, DEPLOY_RUN_URL,
-//                                   OVERWRITE_DRIFT) -> mail JSON on stdout
+// CLI: deploy-mail.js RUN_FOLDER [TARGET_REPO] -> mail JSON on stdout
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -36,7 +35,8 @@ function buildMail(input) {
     const short = (sha) => (sha ? String(sha).slice(0, 7) : null);
     const version = (label, sha) => [label, short(sha) && `(${short(sha)})`].filter(Boolean).join(' ') || 'not recorded';
     const lines = [];
-    const subject = `GX deployed ${input.newLabel || 'd#?'} (${short(input.newCommit)})`;
+    const healthFailed = input.health?.status === 'FAIL';
+    const subject = `GX deployed ${input.newLabel || 'd#?'} (${short(input.newCommit)})${healthFailed ? ' — health FAIL' : ''}`;
 
     lines.push(`${version(input.oldLabel, input.oldCommit)} -> ${version(input.newLabel, input.newCommit)}`, '');
     if (input.trigger && input.trigger.kind === 'manual') {
@@ -45,6 +45,10 @@ function buildMail(input) {
         lines.push(`Trigger: automatic after Test GX run${input.trigger && input.trigger.testRunUrl ? ' ' + input.trigger.testRunUrl : ''}`);
     }
     if (input.overwriteDrift) lines.push('overwrite_drift: ENABLED');
+    if (input.health) {
+        lines.push('', `Post-deploy health: ${input.health.status}`);
+        for (const check of input.health.checks) lines.push(`  ${check.level} ${scrub(check.name)}: ${scrub(check.detail)}`);
+    }
     if (input.additions?.length) {
         lines.push('', `Added nodes (${input.additions.length}):`);
         for (const node of input.additions) lines.push('  ' + scrub(JSON.stringify(node)));
@@ -87,6 +91,13 @@ function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
     const oldCommit = [source.automations, source.dashboard].find((sha) => SHA.test(sha || '')) || null;
     const oldLabel = before && before.live && before.live.label ? (/d#\d+/.exec(before.live.label) || [null])[0] : null;
 
+    const report = env.HEALTH_REPORT && fs.existsSync(env.HEALTH_REPORT)
+        ? JSON.parse(fs.readFileSync(env.HEALTH_REPORT, 'utf8')) : null;
+    const health = env.HEALTH_OUTCOME === 'failure' || report
+        ? { status: env.HEALTH_OUTCOME === 'failure' ? 'FAIL' : report.status,
+            checks: report?.finishedAt ? report.samples.at(-1).checks
+                : [{ level: 'FAIL', name: 'Monitor', detail: 'No final health report available' }] }
+        : null;
     let commits = [];
     let files = null;
     if (oldCommit && SHA.test(newCommit || '')) {
@@ -104,14 +115,15 @@ function collect(runFolder, env, root = path.join(__dirname, '..', '..')) {
         testRunUrl: env.TEST_RUN_URL || '',
         deployRunUrl: env.DEPLOY_RUN_URL || '',
         overwriteDrift: env.TRIGGER_EVENT === 'workflow_dispatch' && env.OVERWRITE_DRIFT === 'true',
-        additions: plannedChanges(runFolder, newCommit, root)?.additions
+        additions: plannedChanges(runFolder, newCommit, root)?.additions,
+        health
     };
 }
 
 module.exports = { buildMail, collect, groupFiles, scrub, MAX_COMMITS };
 
 if (require.main === module) {
-    const runFolder = process.argv[2];
-    if (!runFolder) throw new Error('Usage: deploy-mail.js RUN_FOLDER');
-    process.stdout.write(JSON.stringify(buildMail(collect(runFolder, process.env))));
+    const [, , runFolder, targetRepo] = process.argv;
+    if (!runFolder) throw new Error('Usage: deploy-mail.js RUN_FOLDER [TARGET_REPO]');
+    process.stdout.write(JSON.stringify(buildMail(collect(runFolder, process.env, targetRepo))));
 }

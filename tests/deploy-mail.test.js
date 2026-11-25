@@ -45,6 +45,14 @@ test('the mail identifies an enabled drift override', () => {
     assert.match(buildMail({ ...base, overwriteDrift: true }).text, /overwrite_drift: ENABLED/);
 });
 
+test('a failed post-deploy check is visible in the subject and body of the deploy mail', () => {
+    const { subject, text } = buildMail({ ...base, health: { status: 'FAIL', checks: [
+        { level: 'FAIL', name: 'Outdoor average recovered', detail: 'No fresh outdoor average' }
+    ] } });
+    assert.match(subject, /health FAIL$/);
+    assert.match(text, /Post-deploy health: FAIL\n  FAIL Outdoor average recovered: No fresh outdoor average/);
+});
+
 test('empty commit list and unknown previous version', () => {
     const empty = buildMail({ ...base, commits: [], files: [] });
     assert.match(empty.text, /Commits \(0\):\n {2}none/);

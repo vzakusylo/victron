@@ -2,7 +2,7 @@
   {
     "id": "995ac4ed6222a706",
     "type": "tab",
-    "label": "d#242 Day / Night Grid Control",
+    "label": "d#243 Day / Night Grid Control",
     "disabled": false,
     "info": ""
   },
@@ -6457,5 +6457,126 @@
       []
     ],
     "g": "lay-g-ctrl"
+  },
+  {
+    "id": "health-tab-01",
+    "type": "ui_tab",
+    "name": "Health",
+    "icon": "health_and_safety",
+    "order": 17,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "health-group-01",
+    "type": "ui_group",
+    "name": "Health checks",
+    "tab": "health-tab-01",
+    "order": 1,
+    "disp": false,
+    "width": "24",
+    "collapse": false
+  },
+  {
+    "id": "health-poll-01",
+    "type": "inject",
+    "z": "995ac4ed6222a706",
+    "name": "Refresh deploy health",
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 1,
+    "topic": "health",
+    "x": 190,
+    "y": 3900,
+    "wires": [
+      [
+        "health-file-01"
+      ]
+    ]
+  },
+  {
+    "id": "health-file-01",
+    "type": "file in",
+    "z": "995ac4ed6222a706",
+    "name": "Read saved health history",
+    "filename": "/data/home/nodered/post-deploy-health.json",
+    "filenameType": "str",
+    "format": "utf8",
+    "chunk": false,
+    "sendError": false,
+    "encoding": "none",
+    "allProps": false,
+    "x": 430,
+    "y": 3900,
+    "wires": [
+      [
+        "health-read-01"
+      ]
+    ]
+  },
+  {
+    "id": "health-file-error-01",
+    "type": "catch",
+    "z": "995ac4ed6222a706",
+    "name": "Handle health file errors",
+    "scope": [
+      "health-file-01"
+    ],
+    "uncaught": false,
+    "x": 430,
+    "y": 3940,
+    "wires": [
+      [
+        "health-read-01"
+      ]
+    ]
+  },
+  {
+    "id": "health-read-01",
+    "type": "function",
+    "z": "995ac4ed6222a706",
+    "name": "Read deploy health",
+    "func": "// This page only reads the monitor's file. Never forward file errors, raw context or log lines to the browser.\nif (msg.error) {\n    const missing = String(msg.error.message || '').includes('ENOENT');\n    return { payload: { message: missing ? 'No deployments have been monitored yet.' : 'Health history could not be read.' } };\n}\ntry {\n    const { deploys } = JSON.parse(msg.payload);\n    if (!Array.isArray(deploys) || !deploys.length) throw new Error('Empty or invalid history');\n    return { payload: { deploys: deploys.map(deploy => {\n        const { id, version, startedAt, windowStartedAt, endsAt, finishedAt, samples } = deploy;\n        const { at, status, checks } = samples.at(-1);\n        return { id, version, startedAt, windowStartedAt, endsAt, finishedAt, at, status,\n            checks: checks.map(({ id, name, level, detail }) => ({ id, name, level, detail })) };\n    }) } };\n} catch (error) {\n    node.warn('Invalid post-deploy health history: ' + error.name);\n    return { payload: { message: 'Health history is invalid.' } };\n}",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 680,
+    "y": 3900,
+    "wires": [
+      [
+        "health-page-01"
+      ]
+    ]
+  },
+  {
+    "id": "health-page-01",
+    "type": "ui_template",
+    "z": "995ac4ed6222a706",
+    "group": "health-group-01",
+    "name": "Health page",
+    "order": 1,
+    "width": "24",
+    "height": "16",
+    "format": "<section class=\"victron-health\">\n    <h2>Post-deploy health</h2>\n    <p ng-if=\"!msg.payload\">Waiting for the health history…</p>\n    <p ng-if=\"msg.payload.message\">{{msg.payload.message}}</p>\n    <div ng-if=\"msg.payload.deploys.length\">\n        <p><strong>{{msg.payload.deploys[0].version}}</strong> — {{msg.payload.deploys[0].status}}</p>\n        <p>Apply started: {{msg.payload.deploys[0].startedAt | date:'medium'}}<br>\n            Monitor started: {{msg.payload.deploys[0].windowStartedAt | date:'medium'}}<br>\n            Last sample: {{msg.payload.deploys[0].at | date:'medium'}}<br>\n            <span ng-if=\"msg.payload.deploys[0].finishedAt\">Completed: {{msg.payload.deploys[0].finishedAt | date:'medium'}}</span>\n            <span ng-if=\"!msg.payload.deploys[0].finishedAt && remaining > 0\">{{remaining}} min remaining</span>\n            <strong ng-if=\"!msg.payload.deploys[0].finishedAt && remaining === 0\">Window ended; final sample not recorded</strong>\n        </p>\n        <table>\n            <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>\n            <tbody><tr ng-repeat=\"check in msg.payload.deploys[0].checks track by check.id\">\n                <td>{{check.name}}</td><td><strong>{{check.level}}</strong></td><td>{{check.detail}}</td>\n            </tr></tbody>\n        </table>\n        <h3>Deployment history</h3>\n        <table>\n            <thead><tr><th>Version</th><th>Apply started</th><th>Last sample</th><th>Result</th></tr></thead>\n            <tbody><tr ng-repeat=\"deploy in msg.payload.deploys track by deploy.id\">\n                <td>{{deploy.version}}</td><td>{{deploy.startedAt | date:'medium'}}</td><td>{{deploy.at | date:'medium'}}</td>\n                <td>{{deploy.status}}{{deploy.finishedAt ? '' : ($first && remaining > 0 ? ' (in progress)' : ' (no final sample)')}}</td>\n            </tr></tbody>\n        </table>\n    </div>\n</section>\n<style>\n    .victron-health { padding: 12px; }\n    .victron-health table { border-collapse: collapse; width: 100%; }\n    .victron-health th, .victron-health td { text-align: left; vertical-align: top; padding: 5px 8px; }\n</style>\n<script>\n(function (scope) {\n    function update() {\n        var current = scope.msg && scope.msg.payload && scope.msg.payload.deploys && scope.msg.payload.deploys[0];\n        scope.remaining = current ? Math.max(0, Math.ceil((current.endsAt - Date.now()) / 60000)) : null;\n    }\n    scope.$watch('msg', update);\n    var timer = setInterval(function () { scope.$evalAsync(update); }, 10000);\n    scope.$on('$destroy', function () { clearInterval(timer); });\n})(scope);\n</script>",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 900,
+    "y": 3900,
+    "wires": [
+      []
+    ]
   }
 ]
