@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { runInNewContext } = require('node:vm');
 const { loadNode, readSource } = require('./harness');
 
 const START = Date.UTC(2026, 10, 22, 12), MIN = 60000, CHECK = 15000;
@@ -60,6 +61,23 @@ test('mode verify uses only post-SET DP 2 and marks an older generation supersed
 });
 
 const externalEvents = call => call.sent.map(m => m[5]?.event).filter(e => e?.rule === 'hp_external_change');
+
+test('Node 16-compatible telemetry reaches the controller and credits the latest matching SET', () => {
+    const f = fixture();
+    const file = '34 Heat pump state.js';
+    const runState = runInNewContext(`delete Array.prototype.findLast;
+        (function (msg, node, context, flow, Date, setTimeout) { ${readSource(file)} })`);
+    const state = loadNode(file, 'return runState(msg, node, context, flow, Date, setTimeout);',
+        f.heat.flow, { runState });
+    const report = (value, now) => state.run({ topic: 'hp', payload: { data: { dps: { 2: value } } } }, { now });
+    report('smart', START);
+    f.enqueue(START + 1000, { shadow: { writer: 'heat' } });
+    f.enqueue(START + 3000, { shadow: { writer: 'kick' } });
+    report('mute', START + 4000);
+    assert.equal(f.heat.flow.get('heatPump').hp.dps[2], 'mute');
+    assert.equal(f.heat.flow.get('hpWriteAttribution').dps[2].lastWriter, 'kick');
+    assert.deepEqual(externalEvents(f.tick(START + 5000)), []);
+});
 
 test('only observed changes without matching dispatched SETs enter the alert digest', () => {
     const f = fixture();
