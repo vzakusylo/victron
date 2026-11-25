@@ -82,7 +82,6 @@ scenarios cover frequency/current separately; combined and actual field protecti
 
 | ID | Task | State | Notes |
 |---|---|---|---|
-| AUTO1-TIMER | Fix dashboard timer status and add scoped loop token rotation | In progress: `auto1-loop-timer` | Check recorded timer output, token validation and rollback, and dashboard redaction. |
 | R1 | `CLAUDE.md` + `AGENTS.md`, `.claude/settings.json` (allowed commands, `flows.json` edit deny), `flows-check` hook, root cleanup (`config/`, `docs/archive/`) | Done: #91 | Phase 1, docs / config only. |
 | R2 | Agent hand-off: owner decides: Claude implements in worktrees (Copilot optional reviewer), or Copilot only in one-shot mode (`copilot -p` from a brief, output to a log) | Done: #101, #102 | Decided: Copilot runs as Herdr workers (send / read / wait), `--allow-all --model gpt-6.2-sol`. |
 | R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | Done: #92 | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
@@ -173,6 +172,9 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#198 AUTO1-TIMER (`auto1-loop-timer`, d#250 unchanged · i#68): fix dashboard timer status
+and bus diagnostics, add scoped token rotation and expiry warnings, and document Omarchy setup.
 
 #197 AUTO1-FIX (`auto1-omarchy-setup`, d#250 unchanged · i#67): add the Omarchy installer,
 fix loop status and backlog selection, allow configured MagicDNS hosts, and ship the dashboard
