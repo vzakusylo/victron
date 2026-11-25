@@ -77,7 +77,7 @@ echo "4. Loop install and timer"
 if [[ -x "${HOME_DIR}/venv/bin/python" && -f "${CONFIG}" ]]; then
   ok "installed in ${HOME_DIR}"
 else
-  fail "not installed yet: run Actions -> Deploy dev loop (needs the runner from step 1)"
+  fail "not installed yet: dispatch victron-langchain-dev-dashboard with dry_run_only off (needs the runner from step 1)"
 fi
 systemctl --user is-enabled --quiet victron-loop.timer 2>/dev/null && ok "victron-loop.timer enabled" || warn "victron-loop.timer not enabled (the deploy enables it on first install)"
 systemctl --user list-timers victron-loop.timer --no-pager 2>/dev/null | sed -n '1,2p' || true

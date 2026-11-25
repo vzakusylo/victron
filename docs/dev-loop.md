@@ -48,14 +48,19 @@ refresh every 15 seconds, and redact recognized secrets before display. The
 loop keeps the last 50 run outputs under the state directory's `runs/` folder;
 these local files can contain raw output and should not be shared.
 
-**Deploy langchain dashboard** runs on the `omarchy` runner on manual dispatch
-or a master push that changes its web/control code, service unit, or workflow.
-It shares the `dev-loop-deploy` concurrency group with **Deploy dev loop**.
-Both refresh the unit and restart it if enabled. Only the first installation
-enables it automatically; subsequent deployments respect a disabled service.
-The dashboard workflow probes `/api/status` on the configured bind (default
-`127.0.0.1:8790`) and logs only `paused` and `phase`. The probe does not use
-credentials; enabling optional web token authentication makes it fail closed.
+**victron-langchain-dev-dashboard** deploys the loop and the page on the `omarchy`
+runner after a master push that changes `tools/dev-loop` or the workflow.
+Manual dispatch defaults to `dry_run_only: true`: it tests the checked-out
+code against an existing installation without refreshing or restarting services.
+Turn it off to install or deploy. Dry runs use temporary config and state and
+upload their output as an artifact.
+
+On the first install, the workflow enables and starts the timer and page.
+Later deploys leave the timer alone and restart the page only if enabled.
+The deployment probes the enabled page's `/api/status` on its configured bind
+(default `127.0.0.1:8790`) and summarizes `paused`, `phase`, and the last result.
+The probe does not use credentials; enabling optional web token authentication
+makes it fail closed.
 
 For optional extra authentication, set `web_token_file` to a mode-0600 file
 outside the install directory containing a random URL-safe token (at least 16
