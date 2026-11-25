@@ -7,7 +7,7 @@ dry_run = true
 notify_backend = "notify-send"
 token_file = "~/victron-loop/token"
 model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
-# Set to your Omarchy Tailscale IPv4 and port before starting the web service.
+# Defaults to loopback. Set to your Omarchy Tailscale IPv4 and port for tailnet access.
 # web_bind = "127.0.0.1:8790"
 # Bare MagicDNS names accepted in addition to the bound IP. Defaults to ["omarchy"].
 # web_hosts = ["omarchy", "omarchy.example-tailnet.ts.net"]
