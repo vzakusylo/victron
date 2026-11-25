@@ -327,7 +327,7 @@ function model() {
         updated: new Date(now).toISOString(),
         updatedMs: now,
         master: !!settings.master,
-        masterOffBlock: masterOffBlock(),
+        pauseStandby: !!settings.pauseStandby,
         devices: { hp: dev('hp'), valve: dev('valve'), bypass: dev('bypass') },
         flag: { on: f.on, since: f.since, by: f.by, maxMin: FLAG_MAX_MS / MIN },
         hold: HOLD,
@@ -393,7 +393,7 @@ function pump(allowOwner = false) {
     const devices = flow.get('heatPump') || {};
     const paused = pauseHolding(at, cfgNow, devices.hp);
     const pauseDps = devices.hp?.dps || {};
-    const pausedWrite = item.pauseCurve ? ((item.pauseCurve === 'standby') !== paused ||
+    const pausedWrite = item.pauseCurve ? (!cfgNow.pauseStandby || (item.pauseCurve === 'standby') !== paused ||
         !freshAutomationDevice(devices.valve, at) || !freshAutomationDevice(devices.bypass, at) ||
         devices.valve.dps['1'] !== false || devices.bypass.dps['1'] !== false ||
         defrostReading(pauseDps) !== false || pauseDps['1'] !== true || !heatCurveEnabled(pauseDps['132']) ||
@@ -636,6 +636,7 @@ if (msg.topic === 'load') {
             retryCount: Number.isInteger(s.retryCount) && s.retryCount > 0 ? s.retryCount : 0,
             pauseUntil: Number.isFinite(s.pauseUntil) ? s.pauseUntil : 0,
             pauseStandby: s.pauseStandby === true,
+            pauseRestoreBy: Number.isFinite(s.pauseRestoreBy) ? s.pauseRestoreBy : 0,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
@@ -757,17 +758,14 @@ if (msg.topic === 'ui') {
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'master' && typeof p.on === 'boolean') {
-        const block = !p.on && settings.master && masterOffBlock();
-        if (block) {
-            logEvent({ kind: 'warn', text: block });
-            return [{ payload: model() }, null, null, null, null, null];
-        }
+        if (!p.on) abandonPauseRestore('Local control switched OFF during heating standby');
         settings.master = p.on;
         persist();
         if (!p.on) { stopLive('local control OFF'); context.set('queue', []); }
         logEvent({ kind: 'setting', text: 'local control switched ' + (p.on ? 'ON — rules set to On write to the devices' : 'OFF — no local writes, running sequences stopped') });
         node.log('Heat pump automations: master ' + (p.on ? 'ON' : 'OFF'));
         node.status({ fill: p.on ? 'green' : 'grey', shape: 'dot', text: 'master ' + (p.on ? 'ON' : 'OFF') });
+        publishView();
         return [{ payload: model() }, null, saveMsg(), null, null, null];
     }
     if (p.action === 'mode' && p.id === DHW_ID) {
@@ -826,6 +824,7 @@ if (msg.topic === 'ui') {
             settings.pauseUntil = old || 0;
             node.warn('Heat pump pause: wait for the pending owner curve confirmation'); return null;
         }
+        if (p.action === 'hpPause') settings.pauseRestoreBy = 0;
         if (old !== (settings.pauseUntil || null)) {
             hpCurveLog.append(now, 'pause until', old ? new Date(old).toISOString() : null,
                 settings.pauseUntil ? new Date(settings.pauseUntil).toISOString() : null, 'owner (pause)');
