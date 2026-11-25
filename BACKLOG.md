@@ -88,7 +88,6 @@ scenarios cover frequency/current separately; combined and actual field protecti
 | R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | Done: #92 | Phase 2. |
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
 | AUTO1 | Autonomous dev loop on Omarchy (LangGraph + timer + CI/workflow + install path) | Done: #193 | `tools/dev-loop`, dry-run deploy workflow, blocker-only notifications, and test/CI coverage. |
-| AUTO1-FIX | Omarchy installer, loop workflow status, backlog parsing, MagicDNS hosts, and dashboard deployment | In progress: `auto1-loop-fixes` | Verify with recorded GitHub run fixtures, backlog fixtures, HTTP host-guard tests, and an Omarchy status smoke probe. |
 
 ### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
 
@@ -173,6 +172,10 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#197 AUTO1-FIX (`auto1-omarchy-setup`, d#250 unchanged · i#67): add the Omarchy installer,
+fix loop status and backlog selection, allow configured MagicDNS hosts, and ship the dashboard
+deploy workflow, control feedback, timer status, redacted logs, and readable status display.
 
 #196 T1-GRID-FLAGS (`t1-grid-flags`, d#250 · i#66): report only selected fixed HV support and force-charge flags without changing control outputs.
 
