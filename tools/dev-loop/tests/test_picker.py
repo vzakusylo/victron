@@ -56,7 +56,8 @@ def auth_error(command, **kwargs):
 
 
 @pytest.mark.parametrize("fallback", [None, "copilot"])
-def test_claude_auth_notifies_once_and_fallback_is_opt_in(picker, monkeypatch, fallback):
+@pytest.mark.parametrize("error_envelope", [False, True])
+def test_claude_auth_notifies_once_and_fallback_is_opt_in(picker, monkeypatch, fallback, error_envelope):
     cfg, state, path = picker
     cfg.picker_fallback = fallback
     notifications = []
@@ -65,6 +66,8 @@ def test_claude_auth_notifies_once_and_fallback_is_opt_in(picker, monkeypatch, f
 
     def run(command, **kwargs):
         if "input" in kwargs:
+            if error_envelope:
+                return SimpleNamespace(stdout='{"is_error":true,"result":"Please run /login"}')
             auth_error(command, **kwargs)
         copilot_calls.append(command)
         return SimpleNamespace(stdout=reply())

@@ -340,6 +340,16 @@ class ClaudeAuthRequired(ValueError):
     pass
 
 
+def _claude_auth_error(diagnostic: str) -> bool:
+    return bool(re.search(
+        r"/login\b|\b(?:claude auth login|please (?:log in|login|authenticate)|not logged in|"
+        r"authentication (?:failed|required|error)|invalid api key|token (?:has )?expired|"
+        r"(?:http|status(?: code)?|api error)[ :]+401|401 unauthorized)\b"
+        r"|^\s*401\s*$",
+        diagnostic, re.IGNORECASE | re.MULTILINE,
+    ))
+
+
 def _claude_json(cfg: LoopConfig, prompt: str, runner: Callable[..., Any]) -> Any:
     candidate = cfg.claude_bin or shutil.which("claude") or str(
         Path.home() / ".local" / "bin" / ("claude.exe" if WINDOWS else "claude")
@@ -359,14 +369,16 @@ def _claude_json(cfg: LoopConfig, prompt: str, runner: Callable[..., Any]) -> An
             out = runner(command, input=prompt, cwd=cwd, check=True, **options).stdout
     except subprocess.CalledProcessError as exc:
         diagnostic = f"{exc.stdout or ''}\n{exc.stderr or ''}"
-        if re.search(r"\b(?:login|log in|authenticate|authentication|invalid api key|"
-                     r"token (?:has )?expired|401)\b",
-                     diagnostic, re.IGNORECASE):
+        if _claude_auth_error(diagnostic):
             raise ClaudeAuthRequired(CLAUDE_AUTH_HINT) from exc
         raise
     envelope = json.loads(out)
-    if not isinstance(envelope, dict) or envelope.get("is_error") or not isinstance(envelope.get("result"), str):
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), str):
         raise ValueError("Invalid Claude CLI result envelope")
+    if envelope.get("is_error"):
+        if _claude_auth_error(envelope["result"]):
+            raise ClaudeAuthRequired(CLAUDE_AUTH_HINT)
+        raise ValueError("Claude CLI reported an error")
     return json.loads(envelope["result"])
 
 
