@@ -400,7 +400,7 @@
     {
       "i": 67,
       "date": "2026-11-25",
-      "pr": null,
+      "pr": 197,
       "what": "AUTO1 Omarchy setup script and dry-run deploy fix"
     }
   ]
