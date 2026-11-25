@@ -6,6 +6,8 @@ max_worker_runs_per_day = 3
 dry_run = true
 notify_backend = "notify-send"
 token_file = "~/victron-loop/token"
+# Do not use the machine's gh login if the scoped token is missing or empty.
+allow_gh_login_fallback = false
 model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
 # Defaults to loopback. Set to your Omarchy Tailscale IPv4 and port for tailnet access.
 # web_bind = "127.0.0.1:8790"

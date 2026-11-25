@@ -25,12 +25,16 @@ def run_tick(store: StateStore, cfg: LoopConfig, gh: GhCli) -> str:
     if state.get("paused"):
         check_state(state, cfg, gh)
         errors = state["observed"]["errors"]
-        if not cfg.dry_run and errors:
-            notify(state, cfg)
+        if not cfg.dry_run:
+            notify(state, cfg, daily_summary=False)
         state["last_run"] = {"at": int(cfg.clock()), "result": "paused"}
         store.save(state)
-        store.append_decision({"node": "check_state", "result": "paused", "errors": errors})
-        print('{"reason": "paused"}')
+        store.append_decision({"node": "check_state", "result": state["observed"].get("token_error") or "paused",
+                               "errors": errors})
+        paused_result = {"reason": "paused"}
+        if errors:
+            paused_result["github_status"] = state["observed"].get("token_error") or "gh-observation-error"
+        print(json.dumps(paused_result))
         return "paused"
 
     from .graph import build_graph
@@ -41,7 +45,7 @@ def run_tick(store: StateStore, cfg: LoopConfig, gh: GhCli) -> str:
             new_state[key] = state[key]
     observed = new_state.get("observed", {})
     if observed.get("errors"):
-        store.append_decision({"node": "check_state", "result": "gh-observation-error",
+        store.append_decision({"node": "check_state", "result": observed.get("token_error") or "gh-observation-error",
                                "errors": observed["errors"]})
     pick = new_state.get("pick") or {}
     result = pick.get("reason") or pick.get("row_id") or "idle"
@@ -68,6 +72,7 @@ def load_config(config_path: Path) -> LoopConfig:
         dry_run=bool(data.get("dry_run", True)),
         notify_backend=data.get("notify_backend", "notify-send"),
         token_file=Path(data.get("token_file", "~/victron-loop/token")).expanduser(),
+        allow_gh_login_fallback=data.get("allow_gh_login_fallback") is True,
         repo_path=Path(data.get("repo_path", "~/victron-loop/repo")).expanduser(),
         model_tiers_file=Path(data.get("model_tiers_file", "~/victron-loop/repo/tools/herdr/models.json")).expanduser(),
         web_bind=data.get("web_bind", "127.0.0.1:8790"),
@@ -114,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         cfg.dry_run = True
     gh = GhCli(repo=cfg.repo, token_file=cfg.token_file)
+    gh.allow_gh_login_fallback = cfg.allow_gh_login_fallback
     try:
         with store.lock():
             output, errors = io.StringIO(), io.StringIO()

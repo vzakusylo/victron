@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .gh import GhCli
+from .gh import GhCli, GhTokenError, token_details
 
 HARD_RE = re.compile(r"(heat pump|grid|bms|deploy|live control)", re.IGNORECASE)
 BRANCH_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -41,6 +41,7 @@ class LoopConfig:
     dry_run: bool = True
     notify_backend: str = "notify-send"
     token_file: Path | None = Path.home() / "victron-loop" / "token"
+    allow_gh_login_fallback: bool = False
     model_tiers_file: Path = Path.home() / "victron-loop" / "repo" / "tools" / "herdr" / "models.json"
     clock: Callable[[], float] = default_clock
     picker_tier: str = "review"
@@ -102,10 +103,19 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
             state["repo_refresh_failed"] = False
             _resolve_notification(state, "repo-fetch-failed", "origin")
     errors = {}
+    token_error = None
 
     def observe(key, operation, *args):
+        nonlocal token_error
+        if token_error:
+            return []
         try:
             result = operation(*args)
+        except GhTokenError as exc:
+            token_error = exc.condition
+            errors[key] = str(exc)
+            _enqueue_notification(state, token_error, "github", str(exc))
+            return []
         except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
             errors[key] = str(exc)
             _enqueue_notification(state, "gh-observation-error", key, f"{key}: {exc}")
@@ -136,6 +146,13 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
         break
     else:
         deploy = None
+    token = token_details(cfg.token_file, cfg.clock(), cfg.allow_gh_login_fallback)
+    days = token["expires_in_days"]
+    if not token_error and days is not None and days <= 14:
+        threshold = 3 if days <= 3 else 14
+        status = "has expired" if days < 0 else "expires today" if days == 0 else f"expires in {days} days"
+        _enqueue_notification(state, f"token-expiry-{threshold}", token["expires_at"],
+                              f"GitHub loop token {status}; rotate it on Omarchy")
     deploy_lookup = None
     if not deploy and "deploy" not in errors:
         deploy_lookup = "deploy-all-skipped" if deploy_runs else "deploy-no-runs"
@@ -147,6 +164,7 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
         "deploy_health": deploy_health,
         "deploy_lookup": deploy_lookup,
         "errors": errors,
+        "token_error": token_error,
     }
     if deploy and not errors and deploy_health not in {None, "pending", "skipped", "success"}:
         _enqueue_notification(state, "deploy-health-red", str(deploy["databaseId"]), "Deploy health is red")
@@ -300,6 +318,9 @@ def _pick_llm(
 
 def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilot_runner=subprocess.run) -> dict[str, Any]:
     observed = state.get("observed", {})
+    if observed.get("token_error"):
+        state["pick"] = {"reason": observed["token_error"]}
+        return state
     if observed.get("errors"):
         state["pick"] = {"reason": "gh-observation-error"}
         return state
@@ -527,6 +548,18 @@ def _touches_protected_paths(paths: list[str]) -> bool:
 
 
 def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
+    try:
+        return _watch_pr(state, cfg, gh)
+    except GhTokenError as exc:
+        observed = state.setdefault("observed", {})
+        observed["token_error"] = exc.condition
+        observed.setdefault("errors", {})["watch-pr"] = str(exc)
+        state["pick"] = {"reason": exc.condition}
+        _enqueue_notification(state, exc.condition, "github", str(exc))
+        return state
+
+
+def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
     worker = state.get("active_worker")
     if not worker or state.get("observed", {}).get("errors"):
         return state
@@ -629,8 +662,12 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def notify(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
+def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True) -> dict[str, Any]:
     sent = state.setdefault("notifications_sent", {})
+    observed = state.get("observed")
+    if observed is not None and not observed.get("errors"):
+        for condition in ("token-missing", "token-invalid"):
+            sent.pop(f"{condition}:github", None)
     for key in state.pop("resolved_notification_keys", []):
         sent.pop(key, None)
     queue = state.pop("pending_notifications", [])
@@ -643,7 +680,7 @@ def notify(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         sent[key] = int(cfg.clock())
 
     today = _today(cfg.clock)
-    if state.get("last_summary_date") != today:
+    if daily_summary and state.get("last_summary_date") != today:
         waiting = sorted(state.get("failed_rows", []))
         done = "yes" if not state.get("active_worker") else "no"
         message = f"done={done}; waiting={','.join(waiting) if waiting else 'none'}"

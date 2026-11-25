@@ -173,6 +173,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#198 AUTO1-TIMER (`auto1-loop-timer`, d#250 unchanged · i#68): fix dashboard timer status
+and bus diagnostics, add scoped token rotation and expiry warnings, and document Omarchy setup.
+
 #197 AUTO1-FIX (`auto1-omarchy-setup`, d#250 unchanged · i#67): add the Omarchy installer,
 fix loop status and backlog selection, allow configured MagicDNS hosts, and ship the dashboard
 deploy workflow, control feedback, timer status, redacted logs, and readable status display.

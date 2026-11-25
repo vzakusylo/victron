@@ -3,6 +3,9 @@ from __future__ import annotations
 import http.client
 import json
 import signal
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from threading import Thread
 
 import pytest
@@ -115,7 +118,11 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
         cfg.web_token_file = tmp_path / "web-token"
         cfg.web_token_file.write_text("test-only-token-1234", encoding="utf-8")
     store = StateStore.open(tmp_path)
-    monkeypatch.setattr(web, "timer_times", lambda: {"timer_last": "09:00", "timer_next": "09:10"})
+    monkeypatch.setattr(web, "timer_times", lambda _: {
+        "timer_last": "09:00", "timer_next": "09:10", "timer_error": "Failed to connect to bus",
+    })
+    cfg.token_file = tmp_path / "loop-token"
+    cfg.token_file.write_text("demo-loop-scoped-token-only", encoding="utf-8")
     store.append_dry_run({"result": "gh-observation-error", "observed": {
         "test_gx": {"databaseId": 2}, "deploy_health": "pending", "errors": {"deploy": "HTTP 403"}
     }})
@@ -181,11 +188,14 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch, with_token):
             assert data["test_gx"]["databaseId"] == 2 and data["health"] == "pending"
             assert data["errors"] == {"deploy": "HTTP 403"}
             assert data["timer_last"] == "09:00" and data["timer_next"] == "09:10"
+            assert data["token_status"]["status"] == "ok" and b"demo-loop-scoped-token-only" not in body
             assert data["budget"] == {"used": 0, "cap": 3}
             assert data["worker"] is None and data["phase"] == "idle"
             status, body, _ = request("GET", "/")
             assert status == 200 and b"Next task" in body and b"Save note" in body
             assert b"null" not in body and b"{" not in body
+            assert b"GitHub loop token: ok" in body and b"demo-loop-scoped-token-only" not in body
+            assert b"Failed to connect to bus" in body
             assert b"No active worker" in body and b"No open PR" in body and b"None sent" in body
             assert b'aria-current="step"' in body and b"HTTP 403" in body
             assert request("GET", "/dashboard.js")[0] == 200
@@ -226,9 +236,51 @@ def test_web_rejects_non_tailnet_bind(tmp_path, host):
 
 
 def test_timer_times_reads_last_and_next(monkeypatch):
-    output = ("Wed 2026-11-25 19:10:00 CET  4min left  Wed 2026-11-25 19:00:00 CET  6min ago"
-              "  victron-loop.timer  victron-loop.service\n")
-    monkeypatch.setattr(web.subprocess, "check_output", lambda *_, **__: output)
+    def show(command, **options):
+        assert command == ["systemctl", "--user", "--no-pager", "show", "victron-loop.timer",
+                           "-p", "NextElapseUSecRealtime", "-p", "LastTriggerUSec", "-p", "ActiveState"]
+        assert options["env"]["TZ"] == "UTC"
+        return "ActiveState=active\nNextElapseUSecRealtime=Wed 2026-11-25 19:10:00 UTC\nLastTriggerUSec=Wed 2026-11-25 19:00:00 UTC\n"
+
+    monkeypatch.setattr(web.subprocess, "check_output", show)
+    now = datetime(2026, 11, 25, 19, 4, tzinfo=timezone.utc).timestamp()
+    data = web.timer_times(now)
+    assert data["timer_state"] == "active"
+    assert data["timer_next"] == web.local_time(int(now + 360), now)
+    assert data["timer_last"] == web.local_time(int(now - 240), now)
+
+
+def test_monotonic_timer_uses_recorded_list_timers_json(monkeypatch):
+    fixtures = Path(__file__).with_name("fixtures")
+
+    def systemctl(command, **_):
+        if command[3] == "show":
+            return (fixtures / "systemctl-timer-show.txt").read_text(encoding="utf-8")
+        assert command[3:] == ["list-timers", "--all", "--output=json", "victron-loop.timer"]
+        return (fixtures / "systemctl-timer-list.json").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(web.subprocess, "check_output", systemctl)
     assert web.timer_times() == {
-        "timer_next": "Wed 2026-11-25 19:10:00 CET", "timer_last": "Wed 2026-11-25 19:00:00 CET",
+        "timer_state": "active",
+        "timer_next": web.local_time(1795685057),
+        "timer_last": web.local_time(1795598657),
+    }
+
+
+def test_inactive_timer_properties_are_unset(monkeypatch):
+    def show(command, **_):
+        assert command[3] == "show"
+        return "ActiveState=inactive\nNextElapseUSecRealtime=\nLastTriggerUSec=\n"
+
+    monkeypatch.setattr(web.subprocess, "check_output", show)
+    assert web.timer_times() == {"timer_state": "inactive", "timer_next": "Not scheduled", "timer_last": "Not recorded"}
+
+
+def test_timer_bus_failure_reports_stderr(monkeypatch):
+    def fail(command, **_):
+        raise subprocess.CalledProcessError(1, command, stderr="Failed to connect to bus: No medium found\n")
+
+    monkeypatch.setattr(web.subprocess, "check_output", fail)
+    assert web.timer_times() == {
+        "timer_next": "Unknown", "timer_last": "Unknown", "timer_error": "Failed to connect to bus: No medium found",
     }
