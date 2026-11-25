@@ -144,6 +144,7 @@
 //    Apply both owner coefficients through the paced queue; save the baseline after both are confirmed.
 // d#237: with fresh non-defrost readings and no recent defrost, seed DP 103 at restart and settle for 2 min.
 //    Keep the real defrost quiet/recovery hold; without reliable readings, keep the full startup hold.
+// HP-F1: retry a pending pause restore, use protection hysteresis, and hold P23 after gentle reductions.
 // HP-M3: attribute mode, curve and hysteresis observations to matching dispatched writes; alert on unexplained changes.
 // HP-M2 stage 2: enforce priority and short leases for DP 2 only.
 // HP-M2 stage 3: enforce the same priority for the ordered curve group and DP 121.
@@ -632,11 +633,12 @@ if (msg.topic === 'load') {
             heatCurve: validCurve ? curve : null,
             dhwLastEnd: Number(s.dhwLastEnd) || 0, heat: heatCfg(heatMigrate(s.heat)), dhwLastDone: Number(s.dhwLastDone) || 0,
             dhwBlock: s.dhwBlock && Number.isFinite(s.dhwBlock.at) ? { at: s.dhwBlock.at, why: String(s.dhwBlock.why || ''),
-                ...((s.dhwBlock.retryable === true || /^fault Er03\b/.test(s.dhwBlock.why)) && { retryable: true }) } : null,
+                ...(s.dhwBlock.retryable === true && { retryable: true }) } : null,
             retryCount: Number.isInteger(s.retryCount) && s.retryCount > 0 ? s.retryCount : 0,
             pauseUntil: Number.isFinite(s.pauseUntil) ? s.pauseUntil : 0,
             pauseStandby: s.pauseStandby === true,
             pauseRestoreBy: Number.isFinite(s.pauseRestoreBy) ? s.pauseRestoreBy : 0,
+            pauseRestoreWarned: s.pauseRestoreWarned === true,
             dhwRetry: s.dhwRetry && Number.isFinite(s.dhwRetry.at) ? s.dhwRetry : null,
             defrostStarts: Array.isArray(s.defrostStarts) ? s.defrostStarts.filter(Number.isFinite).slice(-8) : [],
             showerHistory: Array.isArray(s.showerHistory) ? s.showerHistory.filter(e => e && Number.isFinite(e.at) && Number.isFinite(e.motionAt) && Number.isFinite(e.dropC) && e.dropC >= 2).slice(-64) : [],
@@ -824,7 +826,7 @@ if (msg.topic === 'ui') {
             settings.pauseUntil = old || 0;
             node.warn('Heat pump pause: wait for the pending owner curve confirmation'); return null;
         }
-        if (p.action === 'hpPause') settings.pauseRestoreBy = 0;
+        if (!settings.pauseUntil || old <= now) context.set('pauseProtection', null);
         if (old !== (settings.pauseUntil || null)) {
             hpCurveLog.append(now, 'pause until', old ? new Date(old).toISOString() : null,
                 settings.pauseUntil ? new Date(settings.pauseUntil).toISOString() : null, 'owner (pause)');
@@ -1021,6 +1023,7 @@ for (const r of RULES) {
 }
 if (context.get('defRecPrev') && !defRecovering && !recentDefrost) context.set('recoveredAt', now);
 context.set('defRecPrev', defRecovering || recentDefrost);
+updatePauseProtection();
 dhwTick();
 heatTick();
 kickTick();

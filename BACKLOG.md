@@ -172,6 +172,11 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#192 HP-F1 (`hp-f1-pause-followups`, d#248 / i#62): keep retrying safe pause restores and warn once;
+add frost/tank hysteresis with a ten-minute recovery dwell, bound the curve log during I/O failures,
+hold P23 raises after gentle reductions, and leave legacy DHW blocks non-retryable. Unit tests cover
+those transitions and match the d#247 default-settings write trace.
+
 #191 HP-L1 (`hp-l1-curve-change-log`, d#247 · i#61): persistent, rotating P23/P24 and owner curve change history,
 with writer attribution and heating details. The Heat Pump page shows the latest 50 rows and 24-hour writer counts;
 D-R14 and the deploy mail carry the latest five. AI1 remains open for off-GX explanations only.

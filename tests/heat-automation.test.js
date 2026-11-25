@@ -106,19 +106,44 @@ test('local control turns off with an expired pause and an unavailable heating c
     assert.equal(c.node.context.get('ownerCurveRequest')?.requestId, 'restore');
 });
 
-test('an unconfirmed standby restore times out even across a settings reload', () => {
-    const c = heating({ extra: { pauseStandby: true, pauseUntil: NOW - 1 } });
-    const unavailable = { 1: false, 103: 5, 108: 50, 133: 0 };
-    c.tick(NOW, unavailable);
+test('pause restore warns once across reload and retries after a frost defrost window', () => {
+    const c = heating({ extra: { pauseStandby: true, pauseUntil: NOW + 2 * MIN } });
+    const frost = { 103: -3, 108: 50, 133: 0 };
+    c.node.context.set('lastDefrost', NOW - 30 * MIN);
+    c.tick(NOW, { ...frost, 116: 0 });
+    c.tick(NOW + MIN, frost);
+    c.tick(NOW + 5 * MIN, frost);
     assert.equal(c.node.flow.get('dhwView').pauseStandby, true);
+    assert.deepEqual(c.writes, []);
+    const warnings = run => run.node.context.get('log').filter(e => /pause restore is still pending/.test(e.text));
+    assert.equal(warnings(c).length, 1);
     const saved = JSON.parse(JSON.stringify(c.node.context.get('settings')));
     const restarted = heating({ extra: saved });
-    restarted.tick(NOW + 119 * S, unavailable);
+    restarted.node.context.set('lastDefrost', NOW);
+    restarted.tick(NOW + 10 * MIN, frost);
     assert.equal(restarted.node.flow.get('dhwView').pauseStandby, true);
-    restarted.tick(NOW + 2 * MIN, unavailable);
+    assert.equal(warnings(restarted).length, 0);
+    restarted.tick(NOW + 16 * MIN, frost);
+    assert.deepEqual(restarted.writes.map(w => [w.dps, w.set]), [[133, 38]]);
+    assert.equal(restarted.node.flow.get('dhwView').pauseStandby, true, 'wait for read-back');
+    restarted.tick(NOW + 17 * MIN, { ...frost, 133: 38 });
     assert.equal(restarted.node.flow.get('dhwView').pauseStandby, false);
-    assert.deepEqual(restarted.writes, []);
-    assert.ok(restarted.node.context.get('log').some(e => /restore timed out.*not confirmed/.test(e.text)));
+    restarted.tick(NOW + 30 * MIN, { ...frost, 133: 38, 116: 0 });
+    assert.equal(restarted.writes.length, 1);
+});
+
+test('pause protection needs ten continuous minutes above both recovery thresholds', () => {
+    const c = heating({ extra: { pauseUntil: NOW + 60 * MIN }, cfg: { kickMin: 0 } });
+    const tick = (minute, outdoor, tank, p23) => c.tick(NOW + minute * MIN, { 103: outdoor, 108: tank, 133: p23 });
+    tick(0, 5, 50, 38);    // pause immediately
+    tick(1, 0, 50, 0);     // frost protection immediately
+    for (let i = 2; i < 13; i++) tick(i, i % 2 ? -0.1 : 0.1, 50, 38);
+    for (let i = 13; i < 18; i++) tick(i, 1, 36, 38);
+    tick(18, 1, 35, 38);   // above the tank floor, but below its recovery threshold
+    for (let i = 19; i < 29; i++) tick(i, 1, 36, 38);
+    assert.deepEqual(c.writes.map(w => w.set), [0, 38]);
+    tick(29, 1, 36, 38);
+    assert.deepEqual(c.writes.map(w => w.set), [0, 38, 0]);
 });
 
 test('gentle heating waits for sustained high Hz, then uses the configured P23 step and spacing', () => {
@@ -133,6 +158,20 @@ test('gentle heating waits for sustained high Hz, then uses the configured P23 s
     assert.equal(c.writes.length, 1);
 });
 
+test('a gentle P23 reduction holds off raises for at least ten minutes, even with no configured spacing', () => {
+    for (const spacing of [0, 12]) {
+        const c = heating({ cfg: { ...GX_HEAT, kickMin: 0, maxHz: 60, gentleStepMin: spacing } });
+        for (let i = 0; i <= 18; i++) c.tick(NOW + i * 10 * S, { 115: 70 });
+        assert.deepEqual(c.writes.map(w => w.set), [36]);
+        const loweredAt = NOW + 3 * MIN;
+        const dwell = Math.max(10, spacing);
+        for (let i = 1; i < 6 * dwell; i++) c.tick(loweredAt + i * 10 * S, { 115: 55, 133: 36 });
+        assert.deepEqual(c.writes.map(w => w.set), [36]);
+        c.tick(loweredAt + dwell * MIN, { 115: 55, 133: 36 });
+        assert.deepEqual(c.writes.map(w => w.set), [36, 38]);
+    }
+});
+
 test('DHW retries only with clear fault, after the delay, and never past the persisted limit', () => {
     for (const [elapsed, fault, count, starts] of [[29, 0, 0, false], [31, 1, 0, false], [31, 0, 1, true], [31, 0, 2, false]]) {
         const c = heating({ dhw: 'live', extra: { dhw: { autoRetry: true, retryMax: 2 },
@@ -142,6 +181,54 @@ test('DHW retries only with clear fault, after the delay, and never past the per
         assert.equal(!s.dhwBlock, starts);
         assert.equal(s.retryCount, count + Number(starts));
     }
+});
+
+test('a pre-d#247 Er03 block loaded without an explicit retry flag stays blocked', () => {
+    const dhwBlock = { at: NOW - 90 * MIN, why: 'fault Er03 (water flow)' };
+    const c = heating({ dhw: 'live', extra: { dhw: { autoRetry: true }, dhwBlock } });
+    for (let i = 0; i < 3; i++) c.tick(NOW + i * 10 * S, { 103: 5, 108: 33 });
+    assert.deepEqual(c.node.context.get('settings').dhwBlock, dhwBlock);
+    assert.equal(c.node.context.get('dhw').state, 'HEATING');
+    assert.deepEqual(c.writes, []);
+});
+
+test('Er03 abort retries after the wait, then mails at the limit and resets on Allow DHW again', () => {
+    const c = heating({ dhw: 'live', extra: { dhw: { autoRetry: true, retryMax: 1, retryWait: 30 } } });
+    const alerts = loadNode('47 Heat pump alerts.js', undefined, c.node.flow);
+    const demand = { 103: 5, 108: 33 };
+    const state = () => c.node.context.get('dhw').state;
+    const settings = () => c.node.context.get('settings');
+    const start = t => { for (let i = 0; i < 3; i++) c.tick(t + i * 10 * S, demand); };
+    function abort(t) {
+        assert.equal(state(), 'STOP');
+        c.tick(t, { ...demand, 115: 0, 133: 0 });
+        assert.equal(state(), 'VALVE');
+        const at = t + 10 * S;
+        const call = c.tick(at, { ...demand, 15: 1, 115: 0, 133: 0 }, true);
+        assert.equal(state(), 'HEATING');
+        assert.equal(settings().dhwBlock.retryable, true);
+        for (const out of call.sent) if (out[5]?.event?.rule === 'dhw') alerts.run(out[5], { now: at });
+        for (const timer of call.timers) if (timer.ms === MIN) timer.cb(); // Expire the wall-clock curve lease before the next simulated tick.
+        return at;
+    }
+    start(NOW);
+    const first = abort(NOW + 40 * S);
+    assert.equal(alerts.context.get('st').pending.length, 0, 'retryable abort does not mail');
+    start(first + 29 * MIN);
+    assert.equal(state(), 'HEATING');
+    start(first + 30 * MIN);
+    assert.equal(settings().dhwBlock, null, c.node.context.get('dhw').why);
+    assert.equal(settings().retryCount, 1);
+    const terminal = abort(first + 30 * MIN + 40 * S);
+    const mail = alerts.run({ topic: 'tick' }, { now: terminal + 5 * MIN }).result;
+    assert.match(JSON.parse(mail.payload).text, /Er03.*DHW blocked until allowed again/);
+    start(terminal + 31 * MIN);
+    assert.equal(state(), 'HEATING');
+    assert.equal(settings().retryCount, 1);
+    assert.ok(settings().dhwBlock);
+    c.node.run({ topic: 'ui', payload: { action: 'dhwResume' } }, { now: terminal + 32 * MIN });
+    assert.equal(settings().retryCount, 0);
+    assert.equal(settings().dhwBlock, null);
 });
 
 test('a clean restart seeds the outdoor curve and resumes heating evaluation after two minutes', () => {
@@ -309,6 +396,19 @@ test('a redeployed heating controller collects a full window before its first an
     assert.deepEqual(c.writes.map((w) => [w.dps, w.set]), [[2, 'smart']]);
     assert.ok(c.writes[0].t - NOW >= 9 * MIN, 'no step before 9 min of samples');
     assert.ok(c.heat().samples.length < 20, 'the window starts again after a step');
+});
+
+test('default gentle settings preserve the d#247 lag-and-recovery write trace', () => {
+    const c = heating({ cfg: { ...GX_HEAT, kickMin: 0 } });
+    for (let i = 0; i <= 198; i++) {
+        c.tick(NOW + i * 10 * S, {
+            2: i <= 54 ? 'mute' : 'smart', 102: i <= 126 ? 33 : 43,
+            115: 78, 133: i <= 126 ? 38 : 40
+        });
+    }
+    assert.deepEqual(c.writes.map(w => [(w.t - NOW) / S, w.dps, w.set]), [
+        [540, 2, 'smart'], [1260, 133, 40], [1980, 133, 38]
+    ]);
 });
 
 test('a heating mode step denied by DHW keeps its samples and retries when the lease expires', () => {
