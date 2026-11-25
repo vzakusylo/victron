@@ -150,8 +150,9 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
     days = token["expires_in_days"]
     if not token_error and days is not None and days <= 14:
         threshold = 3 if days <= 3 else 14
+        status = "has expired" if days < 0 else "expires today" if days == 0 else f"expires in {days} days"
         _enqueue_notification(state, f"token-expiry-{threshold}", token["expires_at"],
-                              f"GitHub loop token expires in {max(0, days)} days; rotate it on Omarchy")
+                              f"GitHub loop token {status}; rotate it on Omarchy")
     deploy_lookup = None
     if not deploy and "deploy" not in errors:
         deploy_lookup = "deploy-all-skipped" if deploy_runs else "deploy-no-runs"
