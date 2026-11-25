@@ -220,11 +220,24 @@ test('queued and expired SETs cannot explain reported changes', () => {
     assert.deepEqual(events.map(e => [e.old, e.value]), [['smart', 'mute'], ['mute', 'smart']]);
 });
 
-test('untagged writes use the rule label rather than a guessed recovery writer', () => {
+test('untagged controllable SETs fail closed instead of guessing a writer', () => {
     const f = fixture();
     const call = f.enqueue(START + 1000, { dps: 121, set: 4, rule: 'future-rule', force: true, raw: true });
-    const tag = call.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
-    assert.equal(tag?.writer, 'future-rule');
+    assert.ok(!call.sent.some(m => m[1]));
+    assert.match(call.sent.find(m => m[5]?.event)?.[5].event.text, /unclaimed hysteresis request/);
+});
+
+test('hysteresis is independently leased and lower-priority writes never replay', () => {
+    const f = fixture();
+    const writes = call => call.sent.flatMap(m => m[1]?.payload ? [[m[1].payload.dps, m[1].payload.set]] : []);
+    f.enqueue(START, { dps: 121, set: 4, shadow: { writer: 'protection' } }, true);
+    f.enqueue(START + 1, { dps: 121, set: 2 }, true);
+    f.enqueue(START + 2, { dps: 134, set: 9 }, true);
+    const call = f.pump(START + 3);
+    for (const timer of call.timers) if (timer.ms === 1500) timer.cb();
+    assert.deepEqual(writes(call), [[121, 4], [134, 9]]);
+    assert.deepEqual(writes(f.pump(START + MIN)), []);
+    assert.deepEqual(writes(f.enqueue(START + MIN + 1, { dps: 121, set: 2 })), [[121, 2]]);
 });
 
 test('telemetry bursts keep recent changes and report overflow if ticks stall', () => {

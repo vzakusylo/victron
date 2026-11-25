@@ -86,7 +86,7 @@ test('a pending owner group does not interrupt an already queued warm-up', () =>
     assert.equal(f.heat.flow.get('hpWriterShadow').disagreements || 0, 0);
 });
 
-test('DHW claim supersedes an already sent and queued heating curve command without enforcing it', () => {
+test('DHW supersedes the whole heating curve: drops its unsent tail and suppresses stale verification', () => {
     const f = fixture('live');
     const t = NOW + 20 * MIN;
     const call = f.warm(t);
@@ -98,13 +98,12 @@ test('DHW claim supersedes an already sent and queued heating curve command with
     f.tick(t + 100, { 108: 35 });
     assert.equal(f.heat.flow.get('hpWriterShadow').owners.curve.writer, 'dhw');
     step(call, 1500);
-    assert.deepEqual(setters(call), [set(134, 9), set(133, 40)]);
-    assert.match(call.logs.find(line => line.startsWith('HP shadow dequeue')), /DP 133=40 .*superseded generation/);
+    assert.deepEqual(setters(call), [set(134, 9), set(133, 0)]);
+    assert.match(call.sent.find(m => /dropped \(superseded generation\)/.test(m[5]?.event?.text))?.[5].event.text, /P23 40/);
     step(call, 15000);
     assert.match(call.logs.find(line => line.startsWith('HP shadow verify')), /DP 134=9 .*superseded generation/);
-    step(call, 15000, 1);
-    assert.equal(call.logs.filter(line => line.startsWith('HP shadow verify')).length, 1, 'repeats are rate limited');
-    assert.equal(f.heat.flow.get('hpWriterShadow').disagreements, 3, 'suppressed lines still count');
+    assert.ok(call.sent.some(m => m[5]?.event?.verificationSuperseded && /P24 9/.test(m[5].event.text)));
+    assert.ok(!call.sent.some(m => m[5]?.event?.kind === 'fail'));
 });
 
 test('a later intent from the same writer is counted separately from ownership disagreements', () => {
@@ -123,4 +122,44 @@ test('a later intent from the same writer is counted separately from ownership d
     const model = f.tick(t + 4000, { 133: 40, 134: 9 }).result[0].payload;
     assert.equal(model.shadowDisagreements, 0);
     assert.equal(model.shadowSameWriterSupersessions, 1);
+});
+
+test('a denied warm-up leaves dispatch bookkeeping untouched and retries only after expiry', () => {
+    const f = fixture();
+    const t = NOW + 20 * MIN;
+    f.heat.context.set('hpCurveLease', { writer: 'dhw', priority: 4, generation: 1, until: t + MIN });
+    assert.deepEqual(setters(f.warm(t)), []);
+    assert.equal(f.heat.context.get('heat').warmApplied || 0, 0);
+    assert.deepEqual(f.heat.context.get('queue'), []);
+    const accepted = f.tick(t + MIN);
+    assert.deepEqual(setters(accepted), [set(134, 9)]);
+    assert.equal(f.heat.context.get('heat').warmApplied || 0, 0, 'the first coefficient is not the whole request');
+    step(accepted, 1500);
+    assert.deepEqual(setters(accepted), [set(134, 9), set(133, 40)]);
+    assert.equal(f.heat.context.get('heat').warmApplied, 5);
+});
+
+test('cancelling a partial warm-up restores even a coefficient not yet reflected in readback', () => {
+    const f = fixture();
+    const t = NOW + 20 * MIN;
+    const call = f.warm(t);
+    assert.deepEqual(setters(call), [set(134, 9)]);
+    f.heat.run({ topic: 'ui', payload: { action: 'heatWarm', on: false } }, { now: t + 300 });
+    f.tick(t + 1000); // cached telemetry still shows the owner curve
+    step(call, 1500);
+    step(call, 1500, 1);
+    assert.deepEqual(setters(call), [set(134, 9), set(134, 7), set(133, 39)]);
+});
+
+test('DHW deploy recovery sends P22, P24, and P23 in order under one curve generation', () => {
+    const f = fixture('live');
+    const call = f.tick(NOW + 20 * MIN, { 132: '0', 133: 0, 134: 12 });
+    const lease = f.heat.context.get('hpCurveLease');
+    assert.equal(lease.writer, 'dhw');
+    assert.deepEqual(setters(call), [set(132, '1')]);
+    assert.deepEqual(f.heat.context.get('queue').map(item => [item.dps, item.modeGeneration]),
+        [[134, lease.generation], [133, lease.generation]]);
+    step(call, 1500);
+    step(call, 1500, 1);
+    assert.deepEqual(setters(call), [set(132, '1'), set(134, 7), set(133, 39)]);
 });

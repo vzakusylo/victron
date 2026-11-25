@@ -114,3 +114,18 @@ test('an unconfirmed group is reported on the page and cannot become the saved b
     assert.deepEqual(f.settings(), OLD);
     assert.equal(f.chart(NOW + 4 * MIN).differsFromPump, true);
 });
+
+test('fresh matching owner readbacks cannot save a superseded generation', () => {
+    const f = fixture({ liveDhw: true });
+    f.tick(NOW);
+    f.apply();
+    const sentAt = NOW + 1000;
+    const sent = f.tick(sentAt);
+    assert.deepEqual(sets(sent), [groupSet]);
+    const owner = f.node.context.get('hpCurveLease');
+    f.node.context.set('hpCurveLease', { writer: 'heat', priority: 1, generation: owner.generation + 1, until: sentAt + MIN });
+    f.tick(sentAt + 2000, { over: groupSet.data, seen: { 133: sentAt + 1000, 134: sentAt + 1000 } });
+    assert.match(f.chart(sentAt + 2000).ownerCurveResult.text, /higher-priority/);
+    assert.deepEqual(f.settings(), OLD);
+    assert.equal(f.node.context.get('hpCurveLease').until, sentAt + MIN, 'owner cleanup does not release the winner');
+});

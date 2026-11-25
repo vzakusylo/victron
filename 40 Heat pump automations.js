@@ -144,6 +144,7 @@
 //    Keep the real defrost quiet/recovery hold; without reliable readings, keep the full startup hold.
 // HP-M3: attribute mode, curve and hysteresis observations to matching dispatched writes; alert on unexplained changes.
 // HP-M2 stage 2: enforce priority and short leases for DP 2 only.
+// HP-M2 stage 3: enforce the same priority for the ordered curve group and DP 121.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -295,7 +296,7 @@ function logEvent(e) {
     arr[OUT_LOG] = { topic: 'log', filename: LOG_DIR + '/' + dayKey(e.t) + '.jsonl', payload: JSON.stringify(e) + '\n', event: e };
     node.send(arr);
 }
-function saveMsg() { return { filename: CONFIG_PATH, payload: JSON.stringify(settings, null, 2) }; }
+function saveMsg(cfg = settings) { return { filename: CONFIG_PATH, payload: JSON.stringify(cfg, null, 2) }; }
 function persist() {
     context.set('settings', settings); context.set('runtime', runtime);
     context.set('flag', flag); context.set('queue', queue); context.set('seqs', seqs);
@@ -346,7 +347,7 @@ function send(out, m) {
 // #include lib/heat-pump/mode-confirm.js
 // #include lib/heat-pump/arbiter.js
 // #include lib/heat-pump/arbiter-shadow.js
-// #include lib/heat-pump/mode-writer.js
+// #include lib/heat-pump/write-dispatcher.js
 // #include lib/heat-pump/write-attribution.js
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
@@ -357,10 +358,10 @@ function pump(allowOwner = false) {
     if (!q.length) return;
     const at = Date.now();
     let index = q.findIndex(item => !item.curveGroup);
-    // Discard stale mode intents without spending a device write slot.
+    // Discard stale intents without spending a device write slot.
     while (index >= 0) {
         const item = q[index];
-        const reason = modeLeaseProblem(item, at);
+        const reason = writeLeaseProblem(item, at);
         if (!reason) break;
         q.splice(index, 1);
         logEvent({ kind: 'step', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
@@ -398,6 +399,23 @@ function pump(allowOwner = false) {
             context.set('lastKickSmartRun', item.intent === 'kick' && item.set === 'smart' ? item.run : null);
             if (item.heatStep) recordHeatModeStep(item, at);
         }
+        if (item.commitCurve) recordHeatCurve(item, at);
+        else if (item.curveChange || (item.rule === DHW_ID && writeResource(item) === 'curve')) {
+            const h = heatState();
+            h.curvePartial = !!item.curveChange;
+            context.set('heat', h);
+        }
+        if (item.rule === HEAT_ID && dp === '121') {
+            const h = heatState();
+            h.hystAt = at;
+            context.set('heat', h);
+            const cfg = context.get('settings') || settings;
+            if (Number.isFinite(item.originalHyst) && !Number.isFinite(cfg.heatBandSaved)) {
+                cfg.heatBandSaved = item.originalHyst;
+                context.set('settings', cfg);
+                sendSettingsFile(cfg);
+            }
+        }
         if (attribution) logEvent({ kind: 'dispatch', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
             ...attribution, text: `${item.text} — dispatched by ${attribution.writer}` });
         if (item.role === 'hp') context.set('lastHpWrite', at);
@@ -407,6 +425,11 @@ function pump(allowOwner = false) {
                 logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
                     verificationSuperseded: true,
                     text: item.text + ' — verification superseded by forced-cycle stop' });
+                return;
+            }
+            if (writeLeaseProblem(item, Date.now())) {
+                logEvent({ kind: 'stop', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+                    verificationSuperseded: true, text: item.text + ' — verification superseded' });
                 return;
             }
             const dev = (flow.get('heatPump') || {})[item.role];
@@ -422,7 +445,9 @@ function pump(allowOwner = false) {
     } else if (!(context.get('settings') || {}).master) {
         logEvent({ kind: 'warn', rule: item.rule, cloud: item.cloud, run: item.run, live: true, text: item.text + ' dropped (master OFF)' });
     }
-    if (modeItem && !dispatched) cancelModeLease(lease => lease.generation === item.modeGeneration);
+    if (!dispatched && writeResource(item)) {
+        cancelWriteLease(writeResource(item), lease => lease.generation === item.modeGeneration);
+    }
     setTimeout(() => { context.set('pumping', false); pump(); }, owner ? OWNER_CURVE_GAP_MS : WRITE_GAP_MS);
 }
 function endSeq(rule) { const all = context.get('seqs') || {}; delete all[rule.id]; context.set('seqs', all); }
@@ -506,10 +531,11 @@ function finishOwnerCurve(request, reason) {
     if (reason) node.warn(text);
     context.set('ownerCurveResult', { requestId: request.requestId, text, ok: !reason });
     if (request.run) {
+        cancelWriteLease('curve', lease => lease.writer === 'owner' && lease.run === request.run);
         context.set('ownerCurveRequest', null);
         const q = context.get('queue') || [];
         const index = q.findIndex(item => item.curveGroup && item.run === request.run);
-        if (index >= 0) q.splice(index, 1);
+        if (index >= 0) { q.splice(index, 1); context.set('queue', q); }
         if (reason && request.sentAt) dhwState().curveCaptureHeld = true;
     }
     logEvent({ kind: reason ? 'warn' : 'setting', rule: 'owner_curve', cloud: 'Owner heating curve', run: request.run, text });
@@ -518,10 +544,10 @@ function takeOwnerCurveGroup(q, at) {
     const request = context.get('ownerCurveRequest'), group = q[0];
     if (!request || group.run !== request.run) { q.shift(); return null; }
     if (at - (context.get('lastHpWrite') || 0) < OWNER_CURVE_GAP_MS) return null;
-    const owners = (flow.get(HP_SHADOW_KEY) || {}).owners || {};
-    if (owners.curve && owners.curve.writer !== 'owner' && at < owners.curve.until) return null;
-    const item = shadowTag(q.shift(), 'owner', at);
-    context.set('ownerCurveRequest', { ...request, shadow: item.shadow, sentAt: at });
+    const item = tagWriteGroup([group], 'owner', at, request.at + OWNER_CURVE_TIMEOUT_MS)[0];
+    if (item.writeRejection) return null;
+    q.shift();
+    context.set('ownerCurveRequest', { ...request, modeGeneration: item.modeGeneration, sentAt: at });
     return item;
 }
 function ownerCurveTick() {
@@ -532,8 +558,7 @@ function ownerCurveTick() {
         finishOwnerCurve(request, block || 'heat pump did not confirm both coefficients within 90 seconds');
         return;
     }
-    const claim = (flow.get(HP_SHADOW_KEY) || {}).owners?.curve;
-    if (request.shadow && (claim?.writer !== 'owner' || claim.version !== request.shadow.token)) {
+    if (request.sentAt && writeLeaseProblem({ ...request, role: 'hp', dps: 133 }, now)) {
         finishOwnerCurve(request, 'a higher-priority curve write took over');
         return;
     }
@@ -547,7 +572,7 @@ function ownerCurveTick() {
     settings.heatCurve = { p23: request.p23, p24: request.p24, at: now };
     const h = heatState();
     h.boost = 0; h.warmApplied = 0; h.warmDeltaApplied = 0; h.curveCmd = null;
-    h.p23At = 0; h.samples = []; h.offSince = 0; h.offWarned = false;
+    h.p23At = 0; h.curvePartial = false; h.samples = []; h.offSince = 0; h.offWarned = false;
     const d = dhwState();
     d.lagS = []; d.curveCaptureHeld = false;
     saveSettingsFile();

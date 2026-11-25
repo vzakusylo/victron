@@ -424,12 +424,11 @@ test('a DHW cycle aborted by Er03 writes the owner heating curve back and the he
 
     // 14 Nov 19:56: Er03, 0 Hz, valve on the tank, boiler curve P23 22 / P24 12
     const fault = { 15: 1, 115: 0, 116: 0, 101: 36, 102: 36, 108: 44, 133: 22, 134: 12 };
-    c.tick(NOW, fault, true);
+    const restored = c.tick(NOW, fault, true);
     assert.equal(c.node.context.get('dhw').state, 'HEATING');
     assert.equal(c.node.context.get('settings').dhwBlock.why, 'fault Er03 (water flow)');
-    // the three writes leave one by one; keep ticking until the queue is empty
-    for (let i = 1; i <= 12 && (c.node.context.get('queue') || []).length; i++) c.tick(NOW + i * 10 * S, fault, true);
-    const queued = c.writes.concat((c.node.context.get('queue') || []).map((w) => ({ dps: w.dps, set: w.set })));
+    for (const timer of restored.timers) if (timer.ms === 1500) timer.cb();
+    const queued = restored.sent.flatMap(m => [m[1]?.payload, m[4]?.payload].filter(Boolean));
     const has = (dps, set) => queued.some((w) => String(w.dps) === String(dps) && w.set === set);
     assert.ok(has(1, false), 'valve back to heating');
     assert.ok(has(134, 4), 'owner P24');
@@ -492,16 +491,19 @@ test('valid saved curves at both ends of the pump ranges are still restored on D
 
 test('pump dispatch refuses out-of-range queued curve commands and still sends a valid one', () => {
     const c = heating({ dhw: 'live' });
-    c.node.context.set('queue', [[133, -1], ['134', 31], [133, 0]].map(([dps, set]) =>
-        ({ rule: 'dhw', cloud: 'DHW controller', role: 'hp', dps, set })));
-    c.node.context.set('pumping', true);
-    c.node.context.set('pumpAt', NOW - 5 * MIN); // Resume a queue whose gap timer was lost.
-    const call = c.tick(NOW);
-    for (let i = 0; i < call.timers.length; i++) call.timers[i].cb();
-    assert.deepEqual(call.sent.map(m => m[1]?.payload).filter(Boolean), [{ operation: 'SET', dps: 133, set: 0 }]);
-    const warnings = call.sent.map(m => m[5]?.event).filter(e => e?.kind === 'warn').map(e => e.text);
-    assert.ok(warnings.some(text => text.includes('DP 133') && text.includes('-1')));
-    assert.ok(warnings.some(text => text.includes('DP 134') && text.includes('31')));
+    const run = (dps, set, at) => {
+        c.node.context.set('hpCurveLease', { generation: at, until: at + MIN });
+        c.node.context.set('queue', [{ rule: 'dhw', cloud: 'DHW controller', role: 'hp', dps, set, modeGeneration: at }]);
+        c.node.context.set('pumping', true);
+        c.node.context.set('pumpAt', at - 5 * MIN);
+        return c.tick(at).sent;
+    };
+    for (const [dp, value] of [[133, -1], ['134', 31]]) {
+        const messages = run(dp, value, NOW);
+        assert.ok(messages.some(m => m[5]?.event?.kind === 'warn' && m[5].event.text.includes(`DP ${dp} = ${value}`)));
+        assert.ok(!messages.some(m => m[1]));
+    }
+    assert.deepEqual(run(133, 0, NOW + S).map(m => m[1]?.payload).filter(Boolean), [{ operation: 'SET', dps: 133, set: 0 }]);
     assert.deepEqual(c.node.context.get('queue'), []);
 });
 
