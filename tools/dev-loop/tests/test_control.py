@@ -137,3 +137,10 @@ def test_http_page_status_and_write_guards(tmp_path, monkeypatch):
         finally:
             server.shutdown()
             thread.join()
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.1", "8.8.8.8"])
+def test_web_rejects_non_tailnet_bind(tmp_path, host):
+    cfg = LoopConfig(repo="test/repo", web_bind=f"{host}:0", token_file=None)
+    with pytest.raises(ValueError, match="Tailscale IPv4 or loopback"):
+        web.make_server(cfg, StateStore.open(tmp_path))

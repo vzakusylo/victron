@@ -149,7 +149,8 @@ td{{padding:.35rem}} textarea{{display:block;width:min(36rem,90vw)}} strong{{col
 def make_server(cfg: LoopConfig, store: StateStore) -> ThreadingHTTPServer:
     host, _, port = cfg.web_bind.rpartition(":")
     ip = ipaddress.IPv4Address(host)
-    if not (ip.is_loopback or ip in ipaddress.IPv4Network("100.64.0.0/10")):
+    # RFC 6598 shared address space is neither private nor globally reachable.
+    if not (ip.is_loopback or (not ip.is_private and not ip.is_global)):
         raise ValueError("web_bind must use a Tailscale IPv4 or loopback address")
     token = cfg.web_token_file.read_text(encoding="utf-8").strip() if cfg.web_token_file else ""
     if cfg.web_token_file and not re.fullmatch(r"[a-zA-Z0-9._~-]{16,}", token):
