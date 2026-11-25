@@ -159,7 +159,7 @@ test('feedback gives a changed target a fresh retry budget and reports the read 
 function controller(bus, ready = true) {
     let elapsed = 0;
     // Keep writer pacing independent of the tick's wall clock, including hour changes.
-    const gridClock = { hrtime: { bigint: () => BigInt(elapsed) * 1000000n } };
+    const gridClock = { hrtime: { bigint: () => BigInt(elapsed) * 1000000n }, uptime: () => elapsed / 1000 };
     const node = loadNode(file, undefined, undefined, { dbus: { systemBus: () => bus }, gridClock });
     const run = (topic, wall, payload, ms = elapsed) => {
         elapsed = ms;
@@ -303,6 +303,39 @@ test('write failures surface one combined alarm, then matching probes clear stat
     assert.equal(recovered.result[9].payload.feedbackAlerts, 1);
     assert.deepEqual(recovered.result[9].payload.outputs[0].read, { value: values.get(dvccPath), state: 'Match' });
     assert.equal(recovered.result[9].payload.outputs[0].fault, '');
+});
+
+for (const [label, jump] of [['forward', 1200000], ['backward', -1200000], ['steady', 0]]) {
+    test(`notification cooldown follows elapsed time with a ${label} wall clock`, () => {
+        const control = controller(undefined, false);
+        const step = (ms, fault) => {
+            control.context.set('gridWriteFeedback', fault ? [{ phase: 'failed', value: 25, fault, due: Infinity }] : []);
+            return control.tick(ms, ms + (ms >= 4000 ? jump : 0)).result;
+        };
+        assert.ok(step(0, 'first incident')[3]);
+        assert.equal(step(2000)[3], null);
+        const early = step(4000, 'second incident');
+        assert.deepEqual([early[3], early[8]], [null, null]);
+        assert.match(early[9].payload.outputs[0].fault, /second incident/);
+        assert.equal(step(899999, 'second incident')[3], null);
+        const due = step(900000, 'second incident');
+        assert.match(due[3].payload, /second incident/);
+        assert.equal(due[8].event.t, date + 900000 + jump, 'events retain wall timestamps');
+    });
+}
+
+test('legacy wall-clock notice conservatively starts an elapsed cooldown once', () => {
+    const control = controller(undefined, false);
+    control.context.set('gridFeedbackNotice', { notified: true, lastAlert: date - 1200000 });
+    const step = (ms, fault) => {
+        control.context.set('gridWriteFeedback', fault ? [{ phase: 'failed', value: 25, fault, due: Infinity }] : []);
+        return control.tick(ms).result[3];
+    };
+    assert.equal(step(0, 'ongoing incident'), null);
+    assert.equal(step(2000), null);
+    assert.equal(step(4000, 'new incident'), null);
+    assert.equal(step(899999, 'new incident'), null);
+    assert.match(step(900000, 'new incident').payload, /new incident/);
 });
 
 test('waiting dashboard omits targets, retains sensor arrival times and includes loop health', () => {

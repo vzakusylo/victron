@@ -110,10 +110,23 @@ test('a newer decision replaces an obsolete retry at the next permitted write', 
 
 test('one alert per incident and a 15 minute gap between incidents', () => {
     const faults = ['VE.Bus: expected 10; read 25'];
-    const first = notice(undefined, faults, 0);
+    const step = (state, activeFaults, now) => notice(state, activeFaults, now, 0);
+    const first = step(undefined, faults, 0);
     assert.match(first.text, /grid not following setpoint: VE.Bus/);
-    assert.equal(notice(first.state, faults, 3600000).text, undefined);
-    const recovered = notice(first.state, [], 10);
-    assert.equal(notice(recovered.state, faults, 20).text, undefined);
-    assert.match(notice(recovered.state, faults, 900000).text, /VE.Bus/);
+    assert.equal(step(first.state, faults, 3600000).text, undefined);
+    const recovered = step(first.state, [], 10);
+    assert.equal(step(recovered.state, faults, 20).text, undefined);
+    assert.match(step(recovered.state, faults, 900000).text, /VE.Bus/);
+});
+
+test('persisted notice stamps outside the current process lifetime start a cooldown once', () => {
+    const faults = ['VE.Bus: expected 10; read 25'];
+    const clockStart = 1000000;
+    const now = clockStart + 2000;
+    for (const lastAlertElapsed of [100, now + 10000000]) {
+        const restored = notice({ lastAlertElapsed }, faults, now, clockStart);
+        assert.equal(restored.text, undefined);
+        assert.equal(notice(restored.state, faults, now + 899999, clockStart).text, undefined);
+        assert.match(notice(restored.state, faults, now + 900000, clockStart).text, /VE.Bus/);
+    }
 });

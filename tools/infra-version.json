@@ -1,5 +1,5 @@
 {
-  "i": 58,
+  "i": 59,
   "changes": [
     {
       "i": 1,
@@ -348,6 +348,12 @@
       "date": "2026-11-25",
       "pr": 188,
       "what": "T1 grid decision coverage"
+    },
+    {
+      "i": 59,
+      "date": "2026-11-25",
+      "pr": 189,
+      "what": "G3 feedback cooldown"
     }
   ]
 }
