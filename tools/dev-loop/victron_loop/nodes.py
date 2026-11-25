@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from .gh import GhCli
 
 HARD_RE = re.compile(r"(heat pump|grid|bms|deploy|live control)", re.IGNORECASE)
 BRANCH_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-SKIP_RE = re.compile(r"(done|blocked|in progress|owner|decision|waiting)", re.IGNORECASE)
+SKIP_RE = re.compile(r"\b(done|blocked|in progress|owner decision|waiting)\b", re.IGNORECASE)
 LIVE_CONTROL_RE = re.compile(
     r"(battery|charge|dvcc|setpoint|tariff|multiplus|grid|bms|heat pump|dhw|boiler|curve|deploy|flows\.json|\bNN\s|\blib/)",
     re.IGNORECASE,
@@ -44,6 +45,7 @@ class LoopConfig:
     clock: Callable[[], float] = default_clock
     picker_tier: str = "review"
     web_bind: str = ""
+    web_hosts: tuple[str, ...] = ("omarchy",)
     web_token_file: Path | None = None
 
 
@@ -99,27 +101,50 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
         else:
             state["repo_refresh_failed"] = False
             _resolve_notification(state, "repo-fetch-failed", "origin")
-    open_prs = gh.list_open_prs()
-    test_gx_runs = gh.list_runs("test-gx.yml", cfg.branch, 1)
-    deploy_runs = gh.list_runs("deploy-gx-code.yml", cfg.branch, 1)
-    deploy = deploy_runs[0] if deploy_runs else None
+    errors = {}
+
+    def observe(key, operation, *args):
+        try:
+            result = operation(*args)
+        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+            errors[key] = str(exc)
+            _enqueue_notification(state, "gh-observation-error", key, f"{key}: {exc}")
+            return []
+        _resolve_notification(state, "gh-observation-error", key)
+        return result
+
+    open_prs = observe("open-prs", gh.list_open_prs)
+    test_gx_runs = observe("test-gx", gh.list_runs, "test-gx.yml", cfg.branch, 1)
+    deploy_runs = observe("deploy", gh.list_runs, "deploy-gx-code.yml", cfg.branch, 10)
+    deploy = None
     deploy_health = None
     deploy_applied = False
-    if deploy:
-        jobs = gh.view_run_jobs(int(deploy["databaseId"]))
-        for job in jobs:
-            for step in job.get("steps", []):
-                if step.get("name") == "Monitor post-deploy health":
-                    deploy_health = step.get("conclusion")
-                    deploy_applied = step.get("conclusion") is not None
+    for deploy in deploy_runs:
+        if deploy.get("status", "completed") != "completed":
+            deploy_health = "pending"
+            break
+        jobs = observe("deploy-jobs", gh.view_run_jobs, int(deploy["databaseId"]))
+        steps = {step["name"]: step.get("conclusion") for job in jobs for step in job.get("steps", [])}
+        deploy_health = steps.get("Monitor post-deploy health")
+        if deploy.get("conclusion") == "success" and (
+            deploy_health == "skipped"
+            or any(job.get("name") == "deploy" and job.get("conclusion") == "skipped" for job in jobs)
+        ):
+            deploy_health = None
+            continue
+        deploy_applied = steps.get("Deploy from master") == "success" and deploy_health not in {None, "skipped"}
+        break
+    else:
+        deploy = None
     state["observed"] = {
         "open_prs": open_prs,
         "test_gx": test_gx_runs[0] if test_gx_runs else None,
         "deploy": deploy,
         "deploy_applied": deploy_applied,
         "deploy_health": deploy_health,
+        "errors": errors,
     }
-    if deploy and deploy_health not in {None, "success"}:
+    if deploy and not errors and deploy_health not in {None, "pending", "skipped", "success"}:
         _enqueue_notification(state, "deploy-health-red", str(deploy["databaseId"]), "Deploy health is red")
     if deploy and deploy_health == "success":
         _resolve_notification(state, "deploy-health-red", str(deploy["databaseId"]))
@@ -128,31 +153,69 @@ def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, 
 
 def parse_backlog(backlog_text: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    section = ""
-    in_table = False
-    for line in backlog_text.splitlines():
-        if line.startswith("## ") or line.startswith("### "):
-            section = line.lstrip("#").strip()
-            in_table = False
+    sections = {}
+    work_section = None
+    header = []
+    seen = set()
+    priority_ids = []
+    reading_order = False
+    lines = backlog_text.splitlines()
+    for index, line in enumerate(lines):
+        heading = re.match(r"^(#{2,6}) (.*)", line)
+        if heading:
+            level, title = len(heading[1]), heading[2]
+            if level == 2:
+                work_section = bool(re.match(r"^[345]\.", title))
+            sections = {depth: name for depth, name in sections.items() if depth < level}
+            sections[level] = title
+            header = []
+            reading_order = False
             continue
-        if not SECTION_ALLOW_RE.search(section):
+        section = " / ".join(sections.values())
+        if not (work_section if work_section is not None else SECTION_ALLOW_RE.search(section)):
             continue
-        if line.startswith("| ID ") or line.startswith("| # ") or line.startswith("| PR "):
-            in_table = True
+        if not line.startswith("|"):
+            if "priority plan" in section.lower():
+                if "Order:" in line:
+                    line = line.split("Order:", 1)[1]
+                    reading_order = True
+                if reading_order:
+                    order, stop, _ = line.partition(".")
+                    priority_ids.extend(re.findall(r"\b[A-Z][A-Z0-9-]*\d+[a-z]?(?:-[A-Z]+)?\b", order))
+                    reading_order = bool(order.strip()) and not stop
             continue
-        if not in_table or not line.startswith("|"):
+        cols = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        if index + 1 < len(lines) and re.fullmatch(r"\|[\s:|-]+\|", lines[index + 1]):
+            candidate = [col.lower() for col in cols]
+            if "task" in candidate or "item" in candidate:
+                header = candidate
             continue
-        cols = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cols) < 4:
+        if len(cols) != len(header) or re.fullmatch(r"\|[\s:|-]+\|", line):
             continue
-        if cols[0] in {"---", "ID", "#", "PR"}:
+        data = dict(zip(header, cols))
+        task = data.get("task") or data.get("item")
+        if not task:
             continue
-        if len(cols) >= 5:
-            task, state_col, notes = cols[2], cols[3], cols[4]
-        else:
-            task, state_col, notes = cols[1], cols[2], cols[3]
-        rows.append({"row_id": cols[0], "task": task, "state": state_col, "notes": notes, "section": section})
-    return rows
+        row_id = cols[0] if header[0] in {"id", "#", "pr"} else ""
+        if not row_id or row_id == "—":
+            slug = re.sub(r"[^a-z0-9]+", "-", task.lower()).strip("-")[:30].rstrip("-")
+            digest = hashlib.sha256(f"{cols[0]}:{task}".encode()).hexdigest()[:8]
+            row_id = f"{slug or 'task'}-{digest}"
+        if row_id in seen:
+            continue
+        seen.add(row_id)
+        rows.append({"row_id": row_id, "task": task, "state": data.get("state", data.get("state / notes", "")),
+                     "notes": data.get("notes", ""), "section": section})
+    rank = {key: index for index, key in enumerate(dict.fromkeys(priority_ids))}
+
+    def priority(row):
+        if row["row_id"] in rank:
+            return (0, rank[row["row_id"]])
+        if "approved follow-up queue" in row["section"].lower():
+            return (1, 0)
+        return (2, 0)
+
+    return sorted(rows, key=priority)
 
 
 def is_skippable(row: dict[str, str], failed_rows: set[str]) -> bool:
@@ -233,11 +296,17 @@ def _pick_llm(
 
 def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilot_runner=subprocess.run) -> dict[str, Any]:
     observed = state.get("observed", {})
+    if observed.get("errors"):
+        state["pick"] = {"reason": "gh-observation-error"}
+        return state
     if observed.get("open_prs"):
         state["pick"] = {"reason": "open-pr-exists"}
         return state
     if state.get("repo_refresh_failed"):
         state["pick"] = {"reason": "repo-refresh-failed"}
+        return state
+    if observed.get("deploy_health") == "pending":
+        state["pick"] = {"reason": "deploy-pending"}
         return state
     if not observed.get("deploy_applied") or observed.get("deploy_health") != "success":
         state["pick"] = {"reason": "deploy-not-healthy"}
@@ -452,7 +521,7 @@ def _touches_protected_paths(paths: list[str]) -> bool:
 
 def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
     worker = state.get("active_worker")
-    if not worker:
+    if not worker or state.get("observed", {}).get("errors"):
         return state
 
     open_prs = gh.list_prs("open", head_branch=worker["branch"])
@@ -465,7 +534,8 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
         if pr.get("number") and row_id and row_id not in approved:
             files = gh.list_pr_files(int(pr["number"]))
             if _touches_protected_paths(files):
-                gh.disable_pr_auto_merge(int(pr["number"]))
+                if not cfg.dry_run:
+                    gh.disable_pr_auto_merge(int(pr["number"]))
                 _enqueue_notification(
                     state,
                     "unapproved-live-control-pr",

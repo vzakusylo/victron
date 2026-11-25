@@ -27,10 +27,36 @@
 
 ## Control page (AUTO2)
 
-Set `web_bind` to the Omarchy box's Tailscale IPv4 plus `:8787`; the server
+Set `web_bind` to the Omarchy box's Tailscale IPv4 plus `:8790`; the server
 refuses wildcard and public addresses. Start `victron-loop-web.service` with
 `systemctl --user start victron-loop-web.service` and visit
 `http://<tailscale-ip>:8787/` from the tailnet. Use tailnet ACLs to restrict access.
+The Host header must match the bound IP or an exact name in `web_hosts`, with
+the configured port. The default allows `http://omarchy:8790/`; add your actual
+MagicDNS FQDN with `web_hosts = ["omarchy", "omarchy.example-tailnet.ts.net"]`.
+Use `web_hosts = []` for IP-only access.
+
+Dry runs preserve worker state but record GitHub observations for the dashboard.
+Pending approval is shown as pending, and GitHub read errors appear in status
+and the decision log (with a deduplicated blocker notification in live mode).
+
+The dashboard's Start/Pause toggle reports the result immediately. **Run now**
+queues the same systemd unit as the timer and refuses to start while a tick is
+active; it does not resume a paused loop. The page shows the timer's last and
+next activation. The Logs tabs filter the most recent 500 lines per source,
+refresh every 15 seconds, and redact recognized secrets before display. The
+loop keeps the last 50 run outputs under the state directory's `runs/` folder;
+these local files can contain raw output and should not be shared.
+
+**Deploy langchain dashboard** runs on the `omarchy` runner on manual dispatch
+or a master push that changes its web/control code, service unit, or workflow.
+It shares the `dev-loop-deploy` concurrency group with **Deploy dev loop**.
+Both refresh the unit and restart it if enabled. Only the first installation
+enables it automatically; subsequent deployments respect a disabled service.
+The dashboard workflow probes `/api/status` on the configured bind (default
+`127.0.0.1:8790`) and logs only `paused` and `phase`. The probe does not use
+credentials; enabling optional web token authentication makes it fail closed.
+
 For optional extra authentication, set `web_token_file` to a mode-0600 file
 outside the install directory containing a random URL-safe token (at least 16
 characters). In the browser, open `/login` to enter the token and set the

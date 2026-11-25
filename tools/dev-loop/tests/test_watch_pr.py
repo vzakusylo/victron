@@ -132,7 +132,7 @@ def test_watch_pr_idle_for_30_minutes_notifies(tmp_path: Path):
 
 
 def test_watch_pr_unapproved_live_control_disables_auto_merge():
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=True, clock=fixed_clock)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock)
     state = {"approved": [], "active_worker": {"branch": "b1", "row_id": "R1", "retry_count": 0, "worktree": "/tmp/x", "log_path": "/tmp/x.log"}}
 
     class FilesGh(FakeGh):
@@ -140,6 +140,8 @@ def test_watch_pr_unapproved_live_control_disables_auto_merge():
             return ["flows.json"]
 
     gh = FilesGh(open_prs=[{"number": 10, "reviewDecision": "APPROVED", "statusCheckRollup": []}])
+    watch_pr(dict(state), LoopConfig(repo=cfg.repo, dry_run=True), gh)
+    assert gh.disabled_auto == []
     watch_pr(state, cfg, gh)
     assert gh.disabled_auto == [10]
     assert state["pending_notifications"][0]["condition"] == "unapproved-live-control-pr"

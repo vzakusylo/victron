@@ -6,9 +6,10 @@ import signal
 import subprocess
 
 from .nodes import LoopConfig, _fetch_origin_niced, _process_start, evaluate_plan
-from .state import StateStore
+from .state import LockBusyError, StateStore
 
 ROW_ACTIONS = {"approve": "approved", "skip": "skipped_rows", "unskip": "skipped_rows", "pin": "pinned_row"}
+LOOP_UNIT = "victron-loop.service"
 
 
 def read_plan(cfg: LoopConfig, state: dict) -> dict:
@@ -18,9 +19,10 @@ def read_plan(cfg: LoopConfig, state: dict) -> dict:
     return {"commit": commit, **evaluate_plan(state, text)}
 
 
-def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = "") -> None:
+def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = "") -> dict:
     with store.lock():
         state = store.load()
+        message = "Saved"
         if action in ROW_ACTIONS:
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", value):
                 raise ValueError("Invalid row ID")
@@ -32,7 +34,23 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
                 (rows.discard if action == "unskip" else rows.add)(value)
                 state[field] = sorted(rows)
         elif action in {"pause", "resume"}:
-            state["paused"] = action == "pause"
+            paused = action == "pause"
+            if paused == state.get("paused", False):
+                message = "Already paused" if paused else "Already running"
+            else:
+                message = "Paused" if paused else "Resumed"
+            state["paused"] = paused
+        elif action == "run-now":
+            prefix = ["systemctl", "--user"]
+            status = subprocess.check_output(
+                [*prefix, "show", "--property=ActiveState", "--value", LOOP_UNIT],
+                text=True, timeout=5,
+            ).strip()
+            if status not in {"inactive", "failed"}:
+                raise LockBusyError("Loop run is already active")
+            subprocess.run([*prefix, "start", "--no-block", LOOP_UNIT], check=True, timeout=5)
+            store.append_decision({"node": "control", "action": action, "result": "started"})
+            return {"ok": True, "message": "Run started", "paused": state.get("paused", False)}
         elif action == "stop-worker":
             if value != "yes":
                 raise ValueError("Stop requires confirmation")
@@ -66,3 +84,4 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
             raise ValueError("Unknown action")
         store.save(state)
         store.append_decision({"node": "control", "action": action})
+        return {"ok": True, "message": message, "paused": state.get("paused", False)}

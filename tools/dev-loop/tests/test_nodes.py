@@ -1,10 +1,78 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
-from victron_loop.nodes import LoopConfig, check_state, notify, parse_backlog, pick_task, requires_owner_approval
+from victron_loop.gh import GhCli
+from victron_loop.nodes import LoopConfig, check_state, evaluate_plan, notify, parse_backlog, pick_task, requires_owner_approval
 import victron_loop.nodes as nodes
+
+FIXTURES = Path(__file__).with_name("fixtures")
+
+
+def test_real_backlog_tables_and_approval():
+    text = (FIXTURES / "BACKLOG.sample.md").read_text(encoding="utf-8")
+    plan = evaluate_plan({}, text)
+    eligible = [row["row_id"] for row in plan["eligible"]]
+    assert len(eligible) == 2 and len(set(eligible)) == 2
+    assert all(row_id.startswith(("worst-case-", "an-interrupted-")) for row_id in eligible)
+    skipped = {row["row_id"]: row["reason"] for row in plan["skipped"]}
+    assert skipped["AUTO1"] == skipped["P-R1"] == skipped["2"] == "done"
+    assert skipped["NR8"] == skipped["B6"] == skipped["G3-TRACKING"] == skipped["H9"] == "needs-owner-go"
+    assert skipped["G3-DAILY"] == "in progress"
+    assert "#195" not in skipped and "EXCLUDED" not in skipped
+    approved = evaluate_plan({"approved": ["NR8", "G3-TRACKING", "AI1", "B6"]}, text)
+    assert [row["row_id"] for row in approved["eligible"][:4]] == ["G3-TRACKING", "NR8", "AI1", "B6"]
+
+
+def test_check_state_recorded_runs_show_pending_then_applied(tmp_path):
+    fixtures = json.loads((FIXTURES / "gh-runs.json").read_text(encoding="utf-8"))
+
+    def run(cmd, _env):
+        if cmd[1:3] == ["pr", "list"]:
+            return "[]"
+        if cmd[1:3] == ["run", "list"]:
+            assert cmd[cmd.index("--branch") + 1] == "master"
+            return json.dumps(fixtures[cmd[cmd.index("--workflow") + 1]])
+        assert cmd[1:3] == ["run", "view"]
+        return json.dumps(fixtures[cmd[3]])
+
+    cfg = LoopConfig(repo="test/repo")
+    gh = GhCli(cfg.repo, runner=run)
+    state = check_state({}, cfg, gh)
+    assert state["observed"]["test_gx"]["conclusion"] == "success"
+    assert state["observed"]["deploy_health"] == "pending"
+    assert not state["observed"]["deploy_applied"]
+    assert not state.get("pending_notifications")
+    assert pick_task(state, cfg, tmp_path / "BACKLOG.md")["pick"]["reason"] == "deploy-pending"
+    fixtures["deploy-gx-code.yml"].pop(0)
+    observed = check_state({}, cfg, gh)["observed"]
+    assert observed["deploy"]["databaseId"] == 45635100399
+    assert observed["deploy_applied"] and observed["deploy_health"] == "success"
+    fixtures["45635100399"]["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+    assert not check_state({}, cfg, gh)["observed"]["deploy_applied"]
+
+
+def test_gh_failure_blocks_picking_and_notifies_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _: True)
+    sent = []
+    monkeypatch.setattr(nodes.subprocess, "run", lambda command, **_: sent.append(command))
+
+    def run(cmd, _env):
+        if "test-gx.yml" in cmd:
+            raise RuntimeError("HTTP 403: Actions read permission required")
+        return "[]"
+
+    cfg = LoopConfig(repo="test/repo", dry_run=False)
+    gh = GhCli(cfg.repo, runner=run)
+    state = {}
+    for _ in range(2):
+        check_state(state, cfg, gh)
+        assert "HTTP 403" in state["observed"]["errors"]["test-gx"]
+        assert pick_task(state, cfg, tmp_path / "BACKLOG.md")["pick"]["reason"] == "gh-observation-error"
+        notify(state, cfg)
+    assert sum("HTTP 403" in command[-1] for command in sent) == 1
 
 
 def fixed_clock():

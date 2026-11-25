@@ -22,6 +22,7 @@ rsync -a --delete \
   --exclude "logs" \
   --exclude "worktrees" \
   --exclude "repo" \
+  --exclude ".enabled-once" \
   "${SRC}/" "${TARGET}/"
 
 if [[ ! -d "${TARGET}/venv" ]]; then
@@ -46,7 +47,7 @@ install -m 0644 "${TARGET}/systemd/victron-loop-web.service" "${HOME}/.config/sy
 systemctl --user daemon-reload
 if [[ ! -f "${ENABLE_MARKER}" ]]; then
   systemctl --user enable --now victron-loop.timer
-  systemctl --user enable victron-loop-web.service
+  systemctl --user enable --now victron-loop-web.service
   touch "${ENABLE_MARKER}"
 fi
 
