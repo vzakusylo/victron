@@ -44,9 +44,11 @@ next tick runs. The page shows the current phase, checks, budget and recent
 logs. The next-task list is a deterministic preview, not a bypass for the
 tick's PR, deployment-health, worker or budget gates.
 
-Use **Approve** for a gated row, **Skip** / **Unskip** to override eligibility,
+Hard rows and other owner-gated rows require **Approve** before they become
+eligible. Use **Skip** / **Unskip** to override the manual skip,
 and **Pin as next** to prioritize an eligible row for one launch. The owner note
-is used on the next launch. To change the plan, pause, edit `BACKLOG.md` through
+is used on the next launch. Dry-run ticks never launch a worker, so they leave
+the pin and note pending. To change the plan, pause, edit `BACKLOG.md` through
 the normal PR process, select **Refresh plan** after merge, then start again.
 Over SSH, the equivalent CLI commands are `pause`, `resume`, `approve <row>`,
 `skip <row>`, `unskip <row>`, `pin <row>`, and `note "<text>"`.
