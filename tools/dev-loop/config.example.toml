@@ -1,0 +1,10 @@
+repo = "vzakusylo/victron"
+branch = "master"
+loop_home = "~/victron-loop"
+repo_path = "~/victron-loop/repo"
+max_worker_runs_per_day = 3
+dry_run = true
+notify_backend = "notify-send"
+token_file = "~/victron-loop/token"
+model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
+

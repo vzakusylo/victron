@@ -1,5 +1,5 @@
 {
-  "i": 62,
+  "i": 63,
   "changes": [
     {
       "i": 1,
@@ -372,6 +372,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Cover heat pump pause and retry follow-ups"
+    },
+    {
+      "i": 63,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "AUTO1 dev loop on Omarchy"
     }
   ]
 }

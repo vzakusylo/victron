@@ -20,3 +20,8 @@ tools/test-gx/fixture-synthetic/nodered/tools/
 # Claude Code: personal settings and worktrees stay local
 .claude/settings.local.json
 .claude/worktrees/
+
+# Dev loop Python artifacts
+tools/dev-loop/.pytest_cache/
+tools/dev-loop/**/__pycache__/
+tools/dev-loop/**/*.egg-info/
