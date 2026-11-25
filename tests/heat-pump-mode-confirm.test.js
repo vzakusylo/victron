@@ -116,6 +116,26 @@ test('queued and expired SETs cannot explain reported changes', () => {
     assert.deepEqual(events.map(e => [e.old, e.value]), [['smart', 'mute'], ['mute', 'smart']]);
 });
 
+test('untagged writes use the rule label rather than a guessed recovery writer', () => {
+    const f = fixture();
+    const call = f.enqueue(START + 1000, { rule: 'future-rule', force: true });
+    const tag = call.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
+    assert.equal(tag?.writer, 'future-rule');
+});
+
+test('telemetry bursts keep recent changes and report overflow if ticks stall', () => {
+    const f = fixture();
+    f.observe({ 2: 'mute' }, START);
+    for (let i = 1; i <= 52; i++) f.observe({ 2: i % 2 ? 'smart' : 'mute' }, START + i);
+    const events = externalEvents(f.tick(START + 1000));
+    assert.equal(events.length, 50);
+    assert.match(events[0].text, /overflow: omitted 3 earlier changes/);
+    assert.equal(events[0].t, START + 1);
+    assert.equal(events[1].t, START + 4);
+    assert.equal(events.at(-1).t, START + 52);
+    assert.deepEqual(externalEvents(f.tick(START + 2000)), []);
+});
+
 test('unexplained changes deduplicate in the existing digest and respect its send gap', () => {
     const f = fixture();
     const change = (value, at) => f.observe({ 2: value }, at);
