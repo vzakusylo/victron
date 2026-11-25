@@ -86,16 +86,21 @@ node tools/test-gx/run-scenarios.js --file heating-review.yml   # scenarios of o
 ## Agents
 
 Claude plans, reviews and may implement when the owner asks; GitHub Copilot CLI implements from a brief file.
-**Copilot model: `gpt-6.2-sol`** for every new task (exact id; `gpt-sol-6.2` is rejected, and without `--model`
-Copilot uses its own default). One agent per worktree. Copilot's rules: `.github/copilot-instructions.md`; the loop:
-`docs/agent-workflow.md`. Every report ends with the branch name.
+Claude picks a [Copilot worker tier](docs/agent-workflow.md#copilot-worker-tiers) per task with
+[`tools/herdr/herdr-task.ps1`](tools/herdr/herdr-task.ps1) and `new <branch> -Tier <tier>`. The repo's
+[`tools/herdr/models.json`](tools/herdr/models.json) defines the tiers; the owner's skill copy is kept in sync.
+New workers use low reasoning effort unless the tier specifies otherwise;
+`-Model` and `-Effort` override the tier. One agent per worktree. Copilot's rules: `.github/copilot-instructions.md`.
+Every report ends with the branch name.
 
 **Every new Copilot task runs as a Herdr worker** (since 2026-11-21), so Claude can send corrections and ask for
 progress instead of the owner relaying text:
 1. `herdr status` must say `running` (else start `herdr` in its own terminal; never restart a running server without
    the owner: it kills all workers).
-2. `herdr-task.ps1 new <branch> -Base origin/master` → worktree `~\.herdr\worktrees\victron\<branch>`, Copilot on
-   `gpt-6.2-sol` **with `--allow-all`** as agent `w-<branch>`. Without `--allow-all` the worker stops at a
+2. From the main checkout, run `.\tools\herdr\herdr-task.ps1 new <branch> -Repo (Get-Location).Path -Base origin/master -Tier <tier>`
+   → worktree `~\.herdr\worktrees\victron\<branch>`,
+   Copilot **with `--allow-all`** as agent `w-<branch>`. Check the status bar shows the intended model; an unknown
+   model ID falls back to Copilot's default. Without `--allow-all` the worker stops at a
    permission prompt for every command and nobody can answer it through the harness (21 Nov: a worker waited 6 min on
    `git fetch`). Check the first `read` after `send`: a "Do you want to run this command?" box means it was started
    without it; close and start it again with the current script.
@@ -103,9 +108,9 @@ progress instead of the owner relaying text:
 4. `herdr-task.ps1 send <branch> "Read .copilot-brief-<branch>.md and do all of it."`; later `send` for corrections /
    "progress?", `read <branch>` to look without interrupting, `wait <branch>` until idle / blocked.
 5. After the PR merges: `herdr-task.ps1 close <branch>`.
-`herdr-task.ps1` is the owner's `herdr-worker` skill script (`~\.claude\skills\herdr-worker\`). A plain
-`copilot --allow-all --model gpt-6.2-sol -i 'Read <brief> and do it'` in a terminal is the fallback when Herdr is not
-available; then nobody can type into it except the owner.
+The owner's `herdr-worker` skill (`~\.claude\skills\herdr-worker\`) also provides the launcher. A plain
+`copilot --allow-all --model gpt-6.2-sol --reasoning-effort low -i 'Read <brief> and do it'` in a terminal is the
+standard-tier fallback when Herdr is not available; then nobody can type into it except the owner.
 
 Project skills (`.claude/skills/`): `ship-pr` (sync, test, backlog, PR, review before auto-merge), `test-gx-local` (Docker
 scenarios), `deploy-gx` (dry run, GX-only lines, apply, confirm), `victron-status` (live status via MCP), `gx-reach`

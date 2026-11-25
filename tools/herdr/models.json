@@ -1,0 +1,12 @@
+{
+  "_note": "Claude picks a tier per task when it starts a Herdr worker (herdr-task.ps1 new <branch> -Tier <tier>). Ids follow Copilot's naming; an id the CLI rejects makes Copilot fall back to its default, so check the status bar of a new worker. Default effort is low (owner, 25 Nov 2026).",
+  "default": "standard",
+  "tiers": {
+    "small":    { "model": "gpt-6-luna",      "effort": "low",    "use": "docs, backlog rows, one-file fixes, test-only changes, renames" },
+    "standard": { "model": "gpt-6.2-sol",     "effort": "low",    "use": "normal feature or bug fix across a few files with tests" },
+    "code":     { "model": "gpt-5.3-codex",   "effort": "low",    "use": "mechanical refactors, CI / workflow / script plumbing, large test rewrites" },
+    "hard":     { "model": "gpt-6.2-sol",     "effort": "medium", "use": "live-control logic (heat pump, grid, BMS, deploy gates), debugging with unclear cause" },
+    "review":   { "model": "claude-sonnet-5", "effort": "low",    "use": "second opinion or review-only tasks" }
+  },
+  "available": ["claude-sonnet-5", "gpt-6-luna", "gpt-5.6-luna", "gpt-6.1-sol", "gpt-6-sol", "gpt-6.2-sol", "gpt-5.3-codex"]
+}

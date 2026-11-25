@@ -441,11 +441,11 @@ test('40: after the top mode the heating controller raises the curve (P23 boost)
     };
     let t = T0;
     for (let i = 0; i < 63; i++, t += 10000) tick(t, 33, 'smart');     // Smart (top), lag −4.2 → boost
-    // +1 °C at −5 °C: P23 would be 41 > 40 → P23 40 with P24 5
-    assert.deepEqual(sets, [{ operation: 'SET', dps: 134, set: 5 }, { operation: 'SET', dps: 133, set: 40 }]);
+    // P23 reaches 40; heating cannot raise P24 to make up the remaining 0.2 °C.
+    assert.deepEqual(sets, [{ operation: 'SET', dps: 133, set: 40 }]);
     assert.equal(node.context.get('settings').heatCurve.p23, 38, 'the boost is not stored as the owner curve');
     for (let i = 0; i < 63; i++, t += 10000) tick(t, 39, 'smart');     // above the point → boost off first
-    assert.deepEqual(sets.slice(2), [{ operation: 'SET', dps: 134, set: 4 }, { operation: 'SET', dps: 133, set: 38 }]);
+    assert.deepEqual(sets.slice(1), [{ operation: 'SET', dps: 133, set: 38 }]);
 });
 
 test('40: a defrost after 30 % of a DHW cycle ends it and plans the next one 60 min later', () => {
@@ -538,15 +538,19 @@ test('40: a boosted curve is not stored as the owner curve when the pump goes st
     node.context.set('settings', { master: true, modes: { heat: 'live', dhw: 'live' }, heatCurve: { p23: 38, p24: 4, at: 0 } });
     node.context.set('heat', { samples: [], boost: 1, curveCmd: { p23: 40, p24: 5 }, p23At: T0 - 30 * 60000, lastStep: T0 - 30 * 60000, target: 37.2 });
     node.context.set('dhw', { state: 'HEATING', since: 0, outS: [], outAvg: -5, lagS: [], lastEnd: 0 });
+    const curveWrites = [];
     for (let i = 0; i < 40; i++) {
         const t = T0 + i * 10000;
         const stale = i < 20;   // valve relay stale for 200 s → hold
         node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: t, dps: { 1: true, 2: 'smart', 101: 34, 102: 37, 103: -5, 108: 47, 115: 60, 116: 594, 125: 38, 112: 3, 132: '1', 133: 40, 134: 5, 15: 0 } },
             valve: { state: stale ? 'DISCONNECTED' : 'CONNECTED', lastData: stale ? T0 - 600000 : t, dps: { 1: false } }, bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } } });
-        node.run({ topic: 'tick' }, { now: t });
+        for (const message of node.run({ topic: 'tick' }, { now: t }).sent) {
+            const write = message?.[1]?.payload;
+            if (write?.operation === 'SET' && [133, 134].includes(write.dps)) curveWrites.push([write.dps, write.set]);
+        }
     }
     assert.deepEqual([node.context.get('settings').heatCurve.p23, node.context.get('settings').heatCurve.p24], [38, 4]);
-    assert.equal(node.context.get('heat').boost, 1, 'the boost is still known');
+    assert.ok(curveWrites.some(([dp, set]) => dp === 134 && set === 4), 'the legacy raised slope is corrected');
 });
 test('50: a mains device without an IP at setup but read by MAC shows no "IP not found" note (d#178)', () => {
     const node = loadNode('50 Devices model.js');

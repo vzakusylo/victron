@@ -39,7 +39,10 @@ One planning agent, many implementation workers in Herdr, one open PR at a time.
      its rebase.
    - **Dependencies:** the task must not need an unmerged result.
    - If any check fails, queue the task or narrow it.
-2. **Create the worker** from a fresh main branch: `herdr-task.ps1 new <branch> -Base origin/main -Model <id>`.
+2. **Create the worker** from a fresh main branch. From the main checkout, use the repository launcher,
+   [`tools/herdr/herdr-task.ps1`](../tools/herdr/herdr-task.ps1): `.\tools\herdr\herdr-task.ps1 new <branch> -Repo (Get-Location).Path -Base origin/main -Tier <tier>`.
+   Use the project's main branch name (`origin/master` for Victron). See [`tools/herdr/models.json`](../tools/herdr/models.json)
+   for the model and effort options; the owner's skill copy is kept in sync. `-Model` and `-Effort` override the tier.
 3. **Write the brief** as a file in the worktree, `.brief-<branch>.md`:
    - **Step 0:** `git fetch`, then branch from the latest main.
    - **Goal or incident:** with the evidence (run IDs, log lines, exact data).

@@ -1,4 +1,4 @@
-- name: "Warm-up raises both coefficients, expires after one hour, and can be cancelled"
+- name: "Warm-up uses only available P23 headroom, expires after one hour, and can be cancelled"
   faketime: "@2026-11-16 20:00:00 x60"
   settings: {"master":true,"modes":{"dhw":"off","heat":"live"},"heat":{"kickMin":0,"maxBoost":0},"heatCurve":{"p23":38,"p24":4},"dhw":{"supplyReady":5}}
   initial:
@@ -26,17 +26,12 @@
         writes:
           - device: "pump"
             operation: "SET"
-            dps: "134"
-            value: 5
-            applied: true
-          - device: "pump"
-            operation: "SET"
             dps: "133"
             value: 40
             applied: true
         view:
           - path: "heat.warm.applied"
-            equals: 2
+            equals: 0.8
     - when: 78m
       expect:
         writes: []
@@ -47,11 +42,6 @@
       settle: "2m"
       expect:
         writes:
-          - device: "pump"
-            operation: "SET"
-            dps: "134"
-            value: 4
-            applied: true
           - device: "pump"
             operation: "SET"
             dps: "133"
@@ -67,11 +57,6 @@
         writes:
           - device: "pump"
             operation: "SET"
-            dps: "134"
-            value: 5
-            applied: true
-          - device: "pump"
-            operation: "SET"
             dps: "133"
             value: 40
             applied: true
@@ -80,11 +65,6 @@
       settle: "2m"
       expect:
         writes:
-          - device: "pump"
-            operation: "SET"
-            dps: "134"
-            value: 4
-            applied: true
           - device: "pump"
             operation: "SET"
             dps: "133"

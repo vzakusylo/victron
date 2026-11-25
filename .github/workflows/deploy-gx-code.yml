@@ -74,7 +74,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'workflow_run' && 180 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_run' && 250 || 135 }}
     concurrency:
       group: deploy-gx-code
       cancel-in-progress: false
@@ -101,6 +101,13 @@ jobs:
           sparse-checkout: |
             scripts/gx-deploy.ps1
             tools/gx/deploy-gate.js
+            tools/gx/post-deploy-health.js
+            tools/gx/admin-api.js
+            tools/gx/deploy-mail.js
+            tools/gx/deploy-report.js
+            tools/gx/whole-flow.js
+            tools/infra-version.js
+            config/health-checks.json
           sparse-checkout-cone-mode: false
 
       - name: Recheck the selected green commit
@@ -211,15 +218,33 @@ jobs:
           if ($env:AUTO -ne 'true' -and $env:OVERWRITE_DRIFT -eq 'true') { $arguments += '-OverwriteDrift' }
           & pwsh @arguments
           $code = $LASTEXITCODE
+          $applied = Join-Path $runFolder 'apply-started.txt'
+          if (Test-Path $applied) {
+            $started = (Get-Content $applied -Raw).Trim()
+            "apply_started=$started" >> $env:GITHUB_OUTPUT
+          }
           if ($env:AUTO -eq 'true') {
             if ($code -eq 75) { "result=skipped" >> $env:GITHUB_OUTPUT; exit 0 }
             if ($code -eq 78) { "result=window-closed" >> $env:GITHUB_OUTPUT }
           }
           exit $code
 
-      # Mail failures are warnings only; dry runs and failed applies send nothing.
+      - name: Monitor post-deploy health
+        id: health
+        if: ${{ !cancelled() && steps.deploy.outputs.apply_started != '' }}
+        env:
+          GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
+          APPLY_STARTED: ${{ steps.deploy.outputs.apply_started }}
+          HEALTH_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          HEALTH_REPORT: ${{ runner.temp }}/gx-post-deploy-health.json
+        run: |
+          set -euo pipefail
+          if [[ "$AUTO" == "true" ]]; then prefix=.gate/; else prefix=; fi
+          node "${prefix}tools/gx/post-deploy-health.js"
+
+      # Mail failures are warnings only. An applied flow gets mail even when its monitor fails.
       - name: Send deploy mail
-        if: steps.deploy.outcome == 'success' && env.MODE == 'apply' && steps.deploy.outputs.result != 'skipped'
+        if: ${{ !cancelled() && steps.deploy.outputs.apply_started != '' }}
         continue-on-error: true
         env:
           GX_SSH_HOST: ${{ secrets.GX_SSH_HOST }}
@@ -228,6 +253,8 @@ jobs:
           ACTOR: ${{ github.actor }}
           TEST_RUN_URL: ${{ github.event.workflow_run.html_url }}
           DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+          HEALTH_REPORT: ${{ runner.temp }}/gx-post-deploy-health.json
         run: |
           set -uo pipefail
           note() {
@@ -236,7 +263,8 @@ jobs:
             exit 0
           }
           mail="$RUNNER_TEMP/deploy-mail.json"
-          node ./tools/gx/deploy-mail.js "$RUN_FOLDER" > "$mail" || note "could not build the mail"
+          if [[ "$AUTO" == "true" ]]; then prefix=.gate/; else prefix=; fi
+          node "${prefix}tools/gx/deploy-mail.js" "$RUN_FOLDER" "$GITHUB_WORKSPACE" > "$mail" || note "could not build the mail"
           result="$(ssh -i "$HOME/.ssh/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
             "$GX_SSH_HOST" 'node /data/home/nodered/tools/send-mail.js' < "$mail" 2>&1)" || note "ssh failed"
           error="$(printf '%s' "$result" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s.trim().split("\n").pop());console.log(r.ok?"":String(r.error||"unknown").replace(/[\r\n]+/g," ").slice(0,200))}catch{console.log("unreadable send-mail output")}})')"
@@ -262,7 +290,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: gx-deploy-reports-${{ github.run_id }}
-          path: ${{ runner.temp }}/gx-deploy-public-summary.json
+          path: |
+            ${{ runner.temp }}/gx-deploy-public-summary.json
+            ${{ runner.temp }}/gx-post-deploy-health.json
           if-no-files-found: error
           retention-days: 30
 

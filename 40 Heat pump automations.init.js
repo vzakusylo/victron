@@ -7,6 +7,8 @@ context.set('settingsLoaded', context.get('settings') !== undefined);
 context.set('saveHeldNoted', false);
 const old = Object.keys(context.get('seqs') || {}); const oldQ = (context.get('queue') || []).length;
 context.set('seqs', {}); context.set('queue', []); context.set('pumping', false);
+const heat = context.get('heat');
+if (heat) context.set('heat', { ...heat, curveSynced: false, p23At: 0, samples: [] });
 const curveLease = context.get('hpCurveLease');
 if (curveLease) context.set('hpCurveLease', { ...curveLease, until: 0 });
 const ownerRequest = context.get('ownerCurveRequest');

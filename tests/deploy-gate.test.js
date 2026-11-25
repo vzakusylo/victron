@@ -169,9 +169,13 @@ test('deploy workflow: manual path keeps master check and confirm', () => {
 });
 
 test('deploy workflow: the mail step is apply-only, after the apply, and never fails the deploy', () => {
+  const monitor = deploy.split('- name: Monitor post-deploy health')[1].split('\n      - name:')[0];
   const step = deploy.split('- name: Send deploy mail')[1].split('\n      - name:')[0];
-  assert.ok(deploy.indexOf('- name: Deploy from master') < deploy.indexOf('- name: Send deploy mail'));
-  assert.match(step, /if: steps\.deploy\.outcome == 'success' && env\.MODE == 'apply' && steps\.deploy\.outputs\.result != 'skipped'/);
+  assert.ok(deploy.indexOf('- name: Deploy from master') < deploy.indexOf('- name: Monitor post-deploy health'));
+  assert.ok(deploy.indexOf('- name: Monitor post-deploy health') < deploy.indexOf('- name: Send deploy mail'));
+  for (const stage of [monitor, step]) assert.match(stage, /!cancelled\(\) && steps\.deploy\.outputs\.apply_started != ''/);
+  assert.doesNotMatch(monitor, /continue-on-error/);
+  assert.match(step, /HEALTH_OUTCOME: \$\{\{ steps\.health\.outcome \}\}/);
   assert.match(step, /continue-on-error: true/);
   assert.match(step, /node \/data\/home\/nodered\/tools\/send-mail\.js/);
   assert.match(step, /::warning::deploy mail: failed/);

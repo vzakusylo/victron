@@ -160,6 +160,27 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#190 Copilot worker model tiers (`d-r14-post-deploy-monitor`, d#246 · i#60): checked in the launcher and
+tier definitions; documented low reasoning effort by default, overrides, and the status-bar model check.
+
+#190 HP-B1 Heating curve cap (`d-r14-post-deploy-monitor`, d#246 · i#60): the old limit capped only the
+power boost, not the combined warm-up and band offset. The DHW coefficient solver could round up P23 and
+steepen P24 beyond P23 40. The old calculation used the owner baseline, so a restart did not directly add
+on top of the pump curve, but it could lose track of an offset the pump retained. Heating now reconciles
+the reported coefficients, caps the combined rise (4 °C by default), and never raises P24. D-R14 checks
+the observed pump target against the owner target. Test mode or local control OFF is explained before
+the curve limit. No live GX access.
+
+#190 D-R15 GX notification output (`d-r14-post-deploy-monitor`, d#244 · i#60): restore the custom output's
+missing string `pathObj`; palette v1.6.31 dereferenced `pathObj.disabled` on every incoming alert. The grid
+feedback alarm is consistent with the 15-minute cadence but the log excerpt does not identify the sender.
+D-R14 now reports new notification-output errors as their own check. No live GX access.
+
+#190 D-R14 Post-deploy health (`d-r14-post-deploy-monitor`, d#243 · i#60): configurable checks every five
+minutes for one hour after a Deploy GX code apply; saved health history and a read-only Health page. A final
+failure turns the deploy job red and is included in its mail. Verified with fake GX readings and a simulated
+clock; live GX and local dashboard rendering were not checked.
+
 #189 G3-COOLDOWN (`g3-cooldown`, d#242 · i#59): use elapsed time for the 15-minute grid feedback notice cooldown. Forward and backward clock changes no longer alter it; legacy persisted notices start a conservative cooldown.
 
 #188 T1 grid slice (`t1-grid-coverage`, d#241 unchanged · i#58): inventory node `01` decisions and add 49 mutation-checked unit tests. Findings are tracked separately; no production changes.

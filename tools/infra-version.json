@@ -1,5 +1,5 @@
 {
-  "i": 59,
+  "i": 60,
   "changes": [
     {
       "i": 1,
@@ -354,6 +354,12 @@
       "date": "2026-11-25",
       "pr": 189,
       "what": "G3 feedback cooldown"
+    },
+    {
+      "i": 60,
+      "date": "2026-11-25",
+      "pr": 190,
+      "what": "Add configuration-driven post-deploy health monitoring; document Copilot model tiers and low effort"
     }
   ]
 }

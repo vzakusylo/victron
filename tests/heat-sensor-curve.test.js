@@ -78,8 +78,8 @@ test('capacity defers a new warm-up and band offset; a falling supply releases t
     assert.match(dv.heat.warm.note, /capacity-limited/);
     assert.deepEqual(c.writes, []);
     dv = c.tick(7, { 2: 'mute', 103: 0, 133: 38, 102: 39 });
-    assert.equal(dv.heat.target, 59.2);
-    assert.ok(c.writes.some(w => w.dps === 133 || w.dps === 134));
+    assert.equal(dv.heat.target, 56);
+    assert.deepEqual(c.writes.map(w => [w.dps, w.set]), [[133, 40]]);
 });
 
 test('flat supply does not kick at 85 Hz, but can kick below capacity', () => {

@@ -221,7 +221,7 @@ test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manua
                         $global:LASTEXITCODE = $env:GX_TEST_MODE -eq 'window-error' ? 3 : 1
                         return 'WINDOW ERROR: read failed'
                     }
-                    if ($env:GX_TEST_MODE -eq 'dry' -or ($env:GX_TEST_MODE -eq 'opens' -and $global:snapshots -gt 1)) {
+                    if ($env:GX_TEST_MODE -in 'dry', 'applied' -or ($env:GX_TEST_MODE -eq 'opens' -and $global:snapshots -gt 1)) {
                         return 'SAFE for deploy'
                     }
                     $global:LASTEXITCODE = 1
@@ -229,7 +229,12 @@ test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manua
                 }
                 '*mktemp*' { return '/tmp/gx-deploy.Test' }
                 'node /tmp/gx-deploy.Test/deploy.js*' { return 'DRY RUN - nothing changed' }
-                'DRY=0 node /tmp/gx-deploy.Test/deploy.js*' { Write-Host 'probe: apply'; return 'NOTHING TO DO: test' }
+                'date *DRY=0 node /tmp/gx-deploy.Test/deploy.js*' {
+                    Write-Host 'probe: apply'
+                    if ($env:GX_TEST_MODE -eq 'applied') { return 'APPLY START: 1795500000', 'DEPLOYED: test' }
+                    return 'APPLY START: 1795500000', 'NOTHING TO DO: test'
+                }
+                '*node - ' { return 'verified' }
                 'rm -f /tmp/gx-deploy.Test/*' { return }
                 default { throw "Unexpected SSH arguments: $args" }
             }
@@ -243,7 +248,7 @@ test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manua
             $global:LASTEXITCODE = 0
         }
         $mode = $env:GX_TEST_MODE
-        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -RunDirectory $env:GX_TEST_RUN -Apply:($mode -ne 'dry') -AutoRetry:($mode -notin 'dry', 'manual')
+        & $env:GX_TEST_RUNNER -GxHost 'root@fake-host' -SshKey 'unused' -Commit HEAD -UseWorkTreeScripts -RunDirectory $env:GX_TEST_RUN -Apply:($mode -ne 'dry') -AutoRetry:($mode -notin 'dry', 'manual', 'applied')
         exit $LASTEXITCODE
         `], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GX_TEST_SNAPSHOT: snapshotFile,
             GX_TEST_RUNNER: path.join(ROOT, 'scripts', 'gx-deploy.ps1'), GX_TEST_RUN: run,
@@ -265,6 +270,7 @@ test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manua
         assert.match(stdout, /DRY RUN - nothing changed/);
     });
     for (const [mode, code, expected] of [
+        ['applied', 0, [...probe, 'apply']],
         ['opens', 0, [...probe, ...retry, ...probe, 'gate --retry', 'apply']],
         ['superseded', 75, [...probe, ...retry]],
         ['drift', 1, [...probe, ...retry, 'snapshot', 'compare']],
@@ -274,12 +280,15 @@ test('deploy runner uses a fresh plan for automatic WAIT retries and keeps manua
         ['manual', 1, probe],
     ]) {
         await t.test(mode, () => {
-            const { status, trace, stdout, stderr, summary } = invoke(mode);
+            const { status, trace, stdout, stderr, summary, run } = invoke(mode);
             assert.equal(status, code, stdout + stderr);
             assert.deepEqual(trace, expected);
             if (mode === 'expires') {
                 assert.match(fs.readFileSync(summary, 'utf8'), /Not deployed: window never opened within 2 hours/);
             }
+            const marker = path.join(run, 'apply-started.txt');
+            if (mode === 'applied') assert.equal(fs.readFileSync(marker, 'utf8').trim(), '1795500000000');
+            else assert.equal(fs.existsSync(marker), false);
             if (code !== 0) assert.doesNotMatch(stdout, /DRY RUN - nothing changed/);
         });
     }

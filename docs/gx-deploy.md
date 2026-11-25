@@ -348,9 +348,26 @@ it from a deploy error. Manual runs keep their existing 30-minute wait and appro
 
 Automatic runs use the environment **`victron-gx-auto`**; manual runs keep `victron-gx`. The owner creates `victron-gx-auto` once: same five secrets as `victron-gx` (or rely on the repository secrets), deployment branch `master` only, and no required reviewer (otherwise the deploy waits for approval).
 
-## Deploy mail
+## Post-deploy health and mail
 
-After every successful **apply** (manual or automatic) the deploy job sends one mail through the GX's own mail path: it builds the message with [`tools/gx/deploy-mail.js`](../tools/gx/deploy-mail.js) and pipes it over the existing SSH connection into `node /data/home/nodered/tools/send-mail.js` (recipient and SMTP settings come from `email.json` on the GX; nothing is stored in the repository or CI).
+After a real **apply** in Deploy GX code (manual dispatch or automatic), the same job holds the deploy queue
+and samples every five minutes for an hour. Dry runs, no-ops, and applies that did not verify the target are
+not monitored. [`config/health-checks.json`](../config/health-checks.json) defines the sources, conditions,
+severity, thresholds, and per-restart grace. The curve check skips DHW and defrost/recovery and accepts an
+intentional heating override only when both reported coefficients match the controller's command.
+A separate check compares the actual pump and owner targets at the current outdoor average against
+the controller's configured total curve rise, even if the override was acknowledged.
+
+The read-only **Health** dashboard shows the latest sample, time remaining, and the last ten deploys from
+`/data/home/nodered/post-deploy-health.json`. The run publishes a table and a timestamped sample artifact.
+Log counts cover the deploy and its monitoring window, so an owned error remains visible in the final verdict;
+live checks can recover during the hour. `WAIT` means a grace or confirmation timer is still active, and `WARN`
+does not fail the job. A final `FAIL` (including an unavailable final sample) fails the monitor step; it does not
+roll back the deployment.
+
+After the monitor, the job sends one deployment mail, even if health failed. It builds the message with
+[`tools/gx/deploy-mail.js`](../tools/gx/deploy-mail.js) and uses the existing GX `tools/send-mail.js` path.
+Recipient and SMTP settings stay on the GX.
 
 ### Camera alert mail: restricted SSH key
 

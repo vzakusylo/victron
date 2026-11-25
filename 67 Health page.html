@@ -1,0 +1,45 @@
+<section class="victron-health">
+    <h2>Post-deploy health</h2>
+    <p ng-if="!msg.payload">Waiting for the health history…</p>
+    <p ng-if="msg.payload.message">{{msg.payload.message}}</p>
+    <div ng-if="msg.payload.deploys.length">
+        <p><strong>{{msg.payload.deploys[0].version}}</strong> — {{msg.payload.deploys[0].status}}</p>
+        <p>Apply started: {{msg.payload.deploys[0].startedAt | date:'medium'}}<br>
+            Monitor started: {{msg.payload.deploys[0].windowStartedAt | date:'medium'}}<br>
+            Last sample: {{msg.payload.deploys[0].at | date:'medium'}}<br>
+            <span ng-if="msg.payload.deploys[0].finishedAt">Completed: {{msg.payload.deploys[0].finishedAt | date:'medium'}}</span>
+            <span ng-if="!msg.payload.deploys[0].finishedAt && remaining > 0">{{remaining}} min remaining</span>
+            <strong ng-if="!msg.payload.deploys[0].finishedAt && remaining === 0">Window ended; final sample not recorded</strong>
+        </p>
+        <table>
+            <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+            <tbody><tr ng-repeat="check in msg.payload.deploys[0].checks track by check.id">
+                <td>{{check.name}}</td><td><strong>{{check.level}}</strong></td><td>{{check.detail}}</td>
+            </tr></tbody>
+        </table>
+        <h3>Deployment history</h3>
+        <table>
+            <thead><tr><th>Version</th><th>Apply started</th><th>Last sample</th><th>Result</th></tr></thead>
+            <tbody><tr ng-repeat="deploy in msg.payload.deploys track by deploy.id">
+                <td>{{deploy.version}}</td><td>{{deploy.startedAt | date:'medium'}}</td><td>{{deploy.at | date:'medium'}}</td>
+                <td>{{deploy.status}}{{deploy.finishedAt ? '' : ($first && remaining > 0 ? ' (in progress)' : ' (no final sample)')}}</td>
+            </tr></tbody>
+        </table>
+    </div>
+</section>
+<style>
+    .victron-health { padding: 12px; }
+    .victron-health table { border-collapse: collapse; width: 100%; }
+    .victron-health th, .victron-health td { text-align: left; vertical-align: top; padding: 5px 8px; }
+</style>
+<script>
+(function (scope) {
+    function update() {
+        var current = scope.msg && scope.msg.payload && scope.msg.payload.deploys && scope.msg.payload.deploys[0];
+        scope.remaining = current ? Math.max(0, Math.ceil((current.endsAt - Date.now()) / 60000)) : null;
+    }
+    scope.$watch('msg', update);
+    var timer = setInterval(function () { scope.$evalAsync(update); }, 10000);
+    scope.$on('$destroy', function () { clearInterval(timer); });
+})(scope);
+</script>

@@ -49,7 +49,7 @@ test('warm-up raises the followed point and writes a raised curve at once', () =
     assert.deepEqual(c.writes, [], 'on the curve: nothing written');
     c.ui({ on: true, deltaC: 2, hours: 1 }, NOW + 5 * MIN);
     c.run(NOW + 5 * MIN, NOW + 7 * MIN);
-    assert.equal(c.view().target, 38, 'owner point 36 + 2');
+    assert.equal(c.view().target, 36.8, 'owner point 36 + available P23 headroom');
     assert.ok(c.writes.length > 0, 'raised curve written without waiting for a 10-min step');
     assert.ok(c.pump[133] > 38 || c.pump[134] > 4, 'pump curve above the owner curve');
     assert.equal(c.view().warm.active, true);
@@ -89,19 +89,20 @@ test('controller Off during a warm-up puts the owner curve back', () => {
     assert.equal(c.pump[134], 4);
 });
 
-test('warm-up in Test mode or with local control OFF writes nothing and says why', () => {
+test('warm-up in Test mode or with local control OFF explains the mode before the curve limit', () => {
     for (const opt of [{ heatMode: 'dry' }, { master: false }]) {
         const c = heating(opt);
         c.ui({ on: true, deltaC: 2, hours: 1 });
         c.run(NOW, NOW + 3 * MIN);
         assert.deepEqual(c.writes, [], JSON.stringify(opt));
+        assert.equal(c.view().warm.note, 'warm-up needs the heating controller On and local control ON', JSON.stringify(opt));
     }
 });
 
 test('a running warm-up survives a restart; malformed ones are dropped', () => {
     const kept = heating({ saved: { heatWarm: { at: NOW - 10 * MIN, until: NOW + 50 * MIN, deltaC: 2 } } });
     kept.run(NOW, NOW + 2 * MIN);
-    assert.equal(kept.view().target, 38);
+    assert.equal(kept.view().target, 36.8);
     assert.ok(kept.writes.length > 0);
     for (const bad of [{ at: NOW, until: NOW + H, deltaC: 9 }, { at: NOW, until: NOW - 1, deltaC: 2 }, { at: NOW, until: NOW + 7 * H, deltaC: 2 }, { at: 'x' }]) {
         const c = heating({ saved: { heatWarm: bad } });
@@ -163,22 +164,44 @@ test('boost step-down log names the warm-up curve, not "yours" (PR #65 review)',
     assert.doesNotMatch(text, /curve back to yours/);
 });
 
-test('a power boost composes with the warm-up and band in the same curve', () => {
+test('warm-up and band consume the total budget before boost without rounding above the cap', () => {
     const c = heating({ saved: { heat: { ...GX_HEAT, lagUp: undefined, overC: undefined, band: true, bandUp: 2, bandDown: 0 },
-        heatCurve: { p23: 30, p24: 4, at: NOW - H } }, pump0: { 121: 2, 133: 30, 134: 4 } });
+        heatCurve: { p23: 26, p24: 6, at: NOW - H } }, pump0: { 121: 2, 133: 26, 134: 6 } });
     c.ui({ on: true, deltaC: 2, hours: 2 });
-    c.run(NOW, NOW + MIN);
-    assert.deepEqual([c.pump[133], c.pump[134]], [40, 4], 'owner curve plus 4 °C');
-    assert.equal(c.node.context.get('heat').warmApplied, 4);
-    let t = NOW + MIN;
-    while (!c.node.context.get('heat').boost && t < NOW + 30 * MIN) {
-        t += 10 * S;
+    for (let t = NOW; t <= NOW + 45 * MIN; t += 10 * S) {
         c.tick(t, { 2: 'smart', 102: 19, 101: 17 });
     }
-    assert.equal(c.node.context.get('heat').boost, 1);
-    assert.equal(c.node.context.get('heat').warmApplied, 4);
-    assert.deepEqual([c.pump[133], c.pump[134]], [40, 5], 'the extra boost steepens the curve after P23 reaches its limit');
-    assert.equal(c.settings().heatCurve.p23, 30);
+    assert.equal(c.node.context.get('heat').boost, 0);
+    assert.equal(c.node.context.get('heat').warmApplied, 3.6);
+    assert.deepEqual(c.writes.filter(w => [133, 134].includes(w.dps)).map(w => [w.dps, w.set]), [[133, 32]]);
+    assert.equal(c.settings().heatCurve.p23, 26);
+});
+
+test('on restart the controller accounts for the live offset before adding a boost', () => {
+    const c = heating({ saved: { heat: { maxCurveOffset: 4, maxBoost: 4, kickMin: 0 },
+        heatCurve: { p23: 26, p24: 6 }, dhwBlock: { at: NOW - H, why: 'Er03' } },
+    pump0: { 133: 32, 134: 6 } });
+    for (let t = NOW; t <= NOW + 45 * MIN; t += 10 * S) {
+        c.tick(t, { 2: 'smart', 102: 22, 101: 19, 103: -9 });
+    }
+    assert.equal(c.node.context.get('heat').boost, 3.6);
+    assert.deepEqual(c.writes, [], 'no stacked boost or slipped higher slope');
+});
+
+test('a warm-up that expired while stopped is removed rather than reclassified as boost', () => {
+    const c = heating({ saved: { heatCurve: { p23: 26, p24: 6 },
+        heatWarm: { at: NOW - 2 * H, until: NOW - H, deltaC: 3 } }, pump0: { 133: 31, 134: 6 } });
+    c.run(NOW, NOW + MIN);
+    assert.equal(c.node.context.get('heat').boost, 0);
+    assert.deepEqual(c.writes.filter(w => [133, 134].includes(w.dps)).map(w => [w.dps, w.set]), [[133, 26]]);
+});
+
+test('restart lowers a legacy steepened curve but heating never raises a lower reported P24', () => {
+    for (const [slope, expected] of [[7, [[134, 6], [133, 32]]], [5, [[133, 32]]]]) {
+        const c = heating({ saved: { heatCurve: { p23: 26, p24: 6 } }, pump0: { 133: 40, 134: slope } });
+        c.run(NOW, NOW + 5 * MIN);
+        assert.deepEqual(c.writes.filter(w => [133, 134].includes(w.dps)).map(w => [w.dps, w.set]), expected);
+    }
 });
 
 test('a DHW cycle that ended during a warm-up: the warm-up curve is written only after the hold clears', () => {
