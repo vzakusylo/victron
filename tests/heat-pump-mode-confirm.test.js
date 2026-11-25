@@ -59,6 +59,84 @@ test('mode verify uses only post-SET DP 2 and marks an older generation supersed
     assert.ok(after.modeCheck.sendId > before.modeCheck.sendId);
 });
 
+const externalEvents = call => call.sent.map(m => m[5]?.event).filter(e => e?.rule === 'hp_external_change');
+
+test('only observed changes without matching dispatched SETs enter the alert digest', () => {
+    const f = fixture();
+    f.observe({ 2: 'smart', 121: 3, 132: '1', 133: 23, 134: 7 }, START);
+    assert.deepEqual(externalEvents(f.tick(START + 1000)), [], 'initial telemetry is a baseline');
+    const writes = [
+        [2, 'mute', 'kick'], [121, 4, 'heat'], [132, '0', 'recovery'], [133, 24, 'dhw'], [134, 8, 'protection']
+    ];
+    for (const [i, [dp, value, writer]] of writes.entries()) {
+        const t = START + 4000 + i * 2000;
+        const call = f.enqueue(t, { dps: dp, set: value, shadow: { writer } });
+        const tags = call.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
+        assert.deepEqual([tags?.writer, tags?.values], [writer, { [dp]: value }]);
+        f.observe({ [dp]: dp === 132 ? 0 : value }, t + 1000);
+    }
+    assert.deepEqual(externalEvents(f.tick(START + 15000)), [], 'fresh matching read-backs are local');
+    assert.equal(f.mail(START + 3 * MIN), null);
+    const at = START + 4 * MIN;
+    f.observe({ 2: 'smart', 121: 3, 132: 1, 133: 23, 134: 7, 102: 38 }, at);
+    f.observe({ 2: 'mute' }, at + 1000);
+    const events = externalEvents(f.tick(at + 2000));
+    assert.deepEqual(events.map(e => [e.dp, e.old, e.value, e.t]), [
+        ['2', 'mute', 'smart', at], ['121', '4', '3', at], ['132', '0', '1', at],
+        ['133', '24', '23', at], ['134', '8', '7', at], ['2', 'smart', 'mute', at + 1000]
+    ], 'a consumed SET cannot explain a later transition; two reports between ticks are retained');
+    for (const event of events) f.alerts.run({ event }, { now: at + 2000 });
+    const digest = JSON.parse(f.mail(at + 3 * MIN).payload).text;
+    assert.match(digest, /\d\d:\d\d\s+DP 2 \(mode\) changed mute → smart — changed outside Node-RED \(app \/ cloud \/ pump\)/);
+    assert.match(digest, /P24 changed 8 → 7/);
+});
+
+test('mismatch mail names the requesting writer and the last observed writer, not the queue owner', () => {
+    const f = fixture();
+    f.observe({ 2: 'smart' }, START);
+    f.enqueue(START + 1000, { set: 'strong', shadow: { writer: 'protection' } });
+    f.observe({ 2: 'strong' }, START + 2000);
+    const t = START + 4000;
+    const call = f.enqueue(t, { shadow: { writer: 'kick' } });
+    f.observe({ 2: 'strong' }, t + 1000);
+    assert.equal(f.verify(call, t).modeCheck.outcome, 'fresh mismatch');
+    const digest = JSON.parse(f.mail(t + 3 * MIN).payload).text;
+    assert.match(digest, /requesting writer: kick; last writer: protection/);
+});
+
+test('queued and expired SETs cannot explain reported changes', () => {
+    const f = fixture();
+    f.observe({ 2: 'smart' }, START);
+    f.heat.context.set('queue', [{ role: 'hp', dps: 2, set: 'mute', rule: 'heat', text: 'mode Silent' }]);
+    f.observe({ 2: 'mute' }, START + 1000);
+    const sentAt = START + 2000;
+    f.enqueue(sentAt, { set: 'smart' });
+    f.observe({ 2: 'smart' }, sentAt + CHECK + 1);
+    const events = externalEvents(f.tick(sentAt + CHECK + 2000));
+    assert.deepEqual(events.map(e => [e.old, e.value]), [['smart', 'mute'], ['mute', 'smart']]);
+});
+
+test('unexplained changes deduplicate in the existing digest and respect its send gap', () => {
+    const f = fixture();
+    const change = (value, at) => f.observe({ 2: value }, at);
+    const deliver = t => {
+        const events = externalEvents(f.tick(t));
+        for (const event of events) assert.equal(f.alerts.run({ event }, { now: t }).result, null);
+    };
+    change('mute', START);
+    change('smart', START + 1000);
+    change('mute', START + 2000);
+    change('smart', START + 3000);
+    deliver(START + 4000);
+    assert.equal(f.mail(START + MIN), null);
+    const first = START + 3 * MIN;
+    assert.match(JSON.parse(f.mail(first).payload).text, /changed mute → smart .*×2/);
+    change('mute', START + 4 * MIN);
+    deliver(START + 4 * MIN);
+    assert.equal(f.mail(first + 14 * MIN), null);
+    assert.match(JSON.parse(f.mail(first + 15 * MIN).payload).text, /changed smart → mute/);
+});
+
 test('three unsuccessful ordinary SETs pause retries, but not DHW or protection writes', () => {
     const f = fixture();
     for (let i = 1; i <= 3; i++) {

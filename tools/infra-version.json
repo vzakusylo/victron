@@ -1,5 +1,5 @@
 {
-  "i": 53,
+  "i": 54,
   "changes": [
     {
       "i": 1,
@@ -318,6 +318,12 @@
       "date": "2026-11-24",
       "pr": 183,
       "what": "Restore heat-pump curve after a clean restart"
+    },
+    {
+      "i": 54,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "HP-M3 mode change attribution"
     }
   ]
 }

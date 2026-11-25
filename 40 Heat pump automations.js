@@ -142,6 +142,7 @@
 //    Apply both owner coefficients through the paced queue; save the baseline after both are confirmed.
 // d#237: with fresh non-defrost readings and no recent defrost, seed DP 103 at restart and settle for 2 min.
 //    Keep the real defrost quiet/recovery hold; without reliable readings, keep the full startup hold.
+// HP-M3: attribute mode, curve and hysteresis observations to matching dispatched writes; alert on unexplained changes.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
 //    owner). The page sets only the two ends; a saved curve of more points still works.
@@ -344,6 +345,7 @@ function send(out, m) {
 // #include lib/heat-pump/mode-confirm.js
 // #include lib/heat-pump/arbiter.js
 // #include lib/heat-pump/arbiter-shadow.js
+// #include lib/heat-pump/write-attribution.js
 
 // Device write queue: one SET every WRITE_GAP_MS; every write is checked VERIFY_MS later
 // against the value the device reports (ok / fail in the log, like the Smart Life log).
@@ -372,8 +374,12 @@ function pump(allowOwner = false) {
     } else if (owner || ((context.get('settings') || {}).master && !modeBlocked(item))) {
         const verifyMode = !owner && isModeWrite(item) ? startModeVerification(item) : null;
         shadowCheck(item, 'dequeue', Date.now());
+        const attribution = hpAttribution.sent(item, at, owner
+            ? context.get('ownerCurveRequest').at + OWNER_CURVE_TIMEOUT_MS : at + VERIFY_MS);
         send(OUT[item.role], { payload: owner ? { operation: 'SET', multiple: true, data: item.curveGroup }
             : { operation: 'SET', dps: item.dps, set: item.set } });
+        if (attribution) logEvent({ kind: 'dispatch', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
+            ...attribution, text: `${item.text} — dispatched by ${attribution.writer}` });
         if (item.role === 'hp') context.set('lastHpWrite', at);
         node.log('Heat pump automations: ' + (owner ? item.text : item.cloud + ' -> ' + item.role + ' DP ' + item.dps + ' = ' + item.set));
         const verify = verifyMode || (() => {
@@ -387,7 +393,7 @@ function pump(allowOwner = false) {
             const v = dev && dev.dps ? dev.dps[item.dps] : undefined;
             const good = String(v) === String(item.set);
             logEvent({ kind: good ? 'ok' : 'fail', rule: item.rule, cloud: item.cloud, run: item.run, live: true,
-                text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v) });
+                text: item.text + (good ? ' — confirmed' : ' — NOT confirmed, device reports ' + v + hpAttribution.mismatch(item, dp)) });
         });
         if (!owner) setTimeout(() => {
             shadowCheck(item, 'verify', Date.now());
@@ -740,6 +746,7 @@ if (msg.topic === 'ui') {
 }
 
 // ---- tick: evaluate every rule ----------------------------------------------------
+for (const event of hpAttribution.drain()) logEvent(event);
 // DF safe 10min: the flag never stays ON longer than FLAG_MAX_MS
 if (flag.on && now - flag.since >= FLAG_MAX_MS) setFlag(false, 'DF safe 10min');
 
