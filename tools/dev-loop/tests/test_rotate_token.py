@@ -65,6 +65,13 @@ esac
         assert submitted and value.encode() not in output
         return os.waitstatus_to_exitcode(status)
 
+    ensured = subprocess.run(["bash", str(script), "--ensure"], env=env, capture_output=True, timeout=10)
+    assert ensured.returncode == 0
+    assert token.read_text().strip() == old
+    assert json.loads((home / "token.meta").read_text()) == {
+        "token_rotated_at": None, "expires_at": "2030-01-01T01:23:45Z",
+    }
+    assert not (home / "token.prev").exists()
     assert rotate(valid) == 0
     previous = home / "token.prev"
     assert token.read_text().strip() == valid and previous.read_text().strip() == old

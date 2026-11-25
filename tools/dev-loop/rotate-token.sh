@@ -81,6 +81,12 @@ mkdir -p "$home"
 exec 9>"$home/.token-rotation.lock"
 flock -n 9 || fail "Another token rotation is in progress."
 if [[ "${1:-}" == --ensure && -s "$file" ]] && validate "$(cat "$file")"; then
+  if [[ ! -s "$meta" && -n "$expires" ]]; then
+    metadata="$(mktemp "$home/.token-rotation.meta.XXXXXX")"
+    trap 'rm -f -- "$metadata"' EXIT
+    printf '{"token_rotated_at":null,"expires_at":"%s"}\n' "$expires" > "$metadata"
+    mv -fT -- "$metadata" "$meta"
+  fi
   echo "Existing loop token validated."
   report_expiry
   exit 0
