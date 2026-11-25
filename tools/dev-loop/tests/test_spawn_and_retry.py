@@ -40,3 +40,13 @@ def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path, mock_copilot_path):
     assert "--reasoning-effort low" in captured["cmd"]
     assert worker["retry_count"] == 1
 
+
+def test_missing_copilot_does_not_replace_active_worker_pick(tmp_path):
+    state = {"pick": {"reason": "worker-active"}}
+    worker = {"retry_count": 0}
+    cfg = LoopConfig(repo="test/repo", copilot_bin=str(tmp_path / "missing"))
+    _retry_worker(state, cfg, worker, "fix now")
+    assert state["pick"] == {"reason": "worker-active"}
+    assert worker["retry_count"] == 0
+    assert state["pending_notifications"][0]["condition"] == "copilot-missing"
+

@@ -37,7 +37,6 @@ def _copilot_path(state: dict[str, Any], cfg: LoopConfig) -> str | None:
     executable = shutil.which(os.path.normpath(os.path.expanduser(candidate)))
     if not executable:
         _enqueue_notification(state, "copilot-missing", "cli", f"Copilot executable not found: {candidate}")
-        state["pick"] = {"reason": "copilot-missing"}
         return None
     _resolve_notification(state, "copilot-missing", "cli")
     return os.path.abspath(executable)
@@ -394,6 +393,7 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
         return state
     executable = _copilot_path(state, cfg)
     if not executable:
+        state["pick"] = {"reason": "copilot-missing"}
         return state
     try:
         pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner, executable)
@@ -464,6 +464,7 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         return state
     executable = _copilot_path(state, cfg)
     if not executable:
+        state["pick"] = {"reason": "copilot-missing"}
         return state
     _ensure_repo(cfg)
     worktree = cfg.loop_home / "worktrees" / branch
