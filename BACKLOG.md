@@ -57,7 +57,7 @@ NR3 / NR4 / NR5 / NR8 / NR9 → T1b. I1, P-D1 and P-R1 are done; P-A1, P-H1 and 
 
 | ID | Task | Size (days) | Notes |
 |---|---|---|---|
-| T1 | Unit-test coverage of the control logic | 1–2 | Grid control in progress: `t1-grid-coverage`. Per function node: list every decision (input → expected write), add missing tests, list uncovered decisions. Heating and boiler follow separately. |
+| T1 | Unit-test coverage of the control logic | 1–2 | Grid slice covered in #188. Heating, then boiler: list decisions, add missing tests and document any remaining gaps. |
 | B6 | Temperatures page: all sensors, day-by-day paging, motion sensor | 0–1 | Check first: a temperatures page with motion exists since `a4af86d`. |
 | B8 | Battery round-trip efficiency | 0.5–1 | |
 | B4 | Automation log page: main system events + audit of page usage | 1–1.5 | |
@@ -160,6 +160,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#188 T1 grid slice (`t1-grid-coverage`, d#241 unchanged · i#58): inventory node `01` decisions and add 49 mutation-checked unit tests. Findings are tracked separately; no production changes.
 
 #187 H16(2) (`h16-owner-curve-boiler-stop`, d#241 · i#57): a partial DHW restore readback (P23/P24 27/5) can no longer overwrite the saved owner curve (33/5). Pump readings initialize a missing baseline; only a confirmed owner Apply replaces a saved one.
 
