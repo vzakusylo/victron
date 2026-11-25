@@ -86,7 +86,7 @@ scenarios cover frequency/current separately; combined and actual field protecti
 | R3 | Real review gate for live control: CODEOWNERS + 1 approval on PRs touching `NN *`, `flows.json`, `.github/workflows`, or the review bot fails on High findings | Done: #92 | #80 / #81 / #86 merged before a human / Claude review. Needs the owner's GitHub settings. |
 | R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | Done: #92 | Phase 2. |
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
-| AUTO1 | Autonomous dev loop on Omarchy (LangGraph + timer + CI/workflow + install path) | in progress: `auto1-dev-loop` | Build `tools/dev-loop`, dry-run deploy workflow, and blocker-only notification path. |
+| AUTO1 | Autonomous dev loop on Omarchy (LangGraph + timer + CI/workflow + install path) | Done: #193 | `tools/dev-loop`, dry-run deploy workflow, blocker-only notifications, and test/CI coverage. |
 
 ### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
 
@@ -172,6 +172,10 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#193 AUTO1 (`auto1-dev-loop`, d#248 unchanged · i#63): add a LangGraph-based autonomous dev loop under
+`tools/dev-loop` with state locking, dry-run safety, backlog selection guardrails, worker orchestration,
+blocker notifications, install/systemd assets, deploy workflow wiring, and dedicated pytest coverage.
 
 #192 HP-F1 (`hp-f1-pause-followups`, d#248 / i#62): keep retrying safe pause restores and warn once;
 add frost/tank hysteresis with a ten-minute recovery dwell, bound the curve log during I/O failures,
