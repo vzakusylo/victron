@@ -155,6 +155,7 @@ def test_watch_pr_uses_merge_base_not_string_compare(monkeypatch):
         health="success",
     )
     monkeypatch.setattr(nodes, "_is_run_for_or_after_merge", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _cfg: True)
     watch_pr(state, cfg, gh)
     assert state["active_worker"] is None
 
@@ -196,4 +197,14 @@ def test_watch_pr_checks_dead_pid_before_idle(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(nodes, "_retry_worker", lambda _s, _c, w, _t: w.update({"retry_count": 1}))
     watch_pr(state, cfg, FakeGh())
     assert state["active_worker"]["retry_count"] == 1
+
+
+def test_watch_pr_fetches_before_ancestry_and_skips_on_failure(monkeypatch):
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock)
+    state = {"active_worker": {"branch": "b1", "row_id": "R1", "retry_count": 0, "worktree": "/tmp/x", "log_path": "/tmp/x.log"}}
+    gh = FakeGh(merged_prs=[{"mergeCommit": {"oid": "a"}}])
+    monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _cfg: False)
+    watch_pr(state, cfg, gh)
+    assert state["pending_notifications"][0]["condition"] == "repo-fetch-failed"
+    assert state["active_worker"] is not None
 

@@ -54,6 +54,12 @@ def _tier_model_effort(models_file: Path, tier: str) -> tuple[str, str]:
     return item["model"], item["effort"]
 
 
+def _tier_model_effort_from_text(models_json_text: str, tier: str) -> tuple[str, str]:
+    data = json.loads(models_json_text)
+    item = data["tiers"][tier]
+    return item["model"], item["effort"]
+
+
 def _enqueue_notification(state: dict[str, Any], condition: str, subject_id: str, message: str) -> None:
     state.setdefault("pending_notifications", []).append(
         {"condition": condition, "subject_id": subject_id, "message": message}
@@ -64,7 +70,32 @@ def _resolve_notification(state: dict[str, Any], condition: str, subject_id: str
     state.setdefault("resolved_notification_keys", []).append(f"{condition}:{subject_id}")
 
 
+def _fetch_origin_niced(cfg: LoopConfig, timeout_seconds: int = 60) -> bool:
+    cmd = [
+        "bash",
+        "-lc",
+        f"nice -n 19 git -C {shlex.quote(str(cfg.repo_path))} fetch origin",
+    ]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout_seconds)
+    return result.returncode == 0
+
+
+def _git_show_origin_file(cfg: LoopConfig, rel_path: str, timeout_seconds: int = 30) -> str:
+    cmd = ["git", "-C", str(cfg.repo_path), "show", f"origin/master:{rel_path}"]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout_seconds)
+    if result.returncode != 0:
+        raise RuntimeError(f"git show failed for {rel_path}: {result.stderr.strip()}")
+    return result.stdout
+
+
 def check_state(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
+    if not cfg.dry_run:
+        if not _fetch_origin_niced(cfg):
+            state["repo_refresh_failed"] = True
+            _enqueue_notification(state, "repo-fetch-failed", "origin", "Could not fetch origin in repo clone")
+        else:
+            state["repo_refresh_failed"] = False
+            _resolve_notification(state, "repo-fetch-failed", "origin")
     open_prs = gh.list_open_prs()
     test_gx_runs = gh.list_runs("test-gx.yml", cfg.branch, 1)
     deploy_runs = gh.list_runs("deploy-gx-code.yml", cfg.branch, 1)
@@ -149,9 +180,9 @@ def _safe_branch(row_id: str, candidate: str) -> str:
 
 
 def _pick_llm(
-    cfg: LoopConfig, row: dict[str, str], backlog_text: str, copilot_runner: Callable[..., Any]
+    cfg: LoopConfig, row: dict[str, str], backlog_text: str, models_json_text: str, copilot_runner: Callable[..., Any]
 ) -> dict[str, str]:
-    model, effort = _tier_model_effort(cfg.model_tiers_file, cfg.picker_tier)
+    model, effort = _tier_model_effort_from_text(models_json_text, cfg.picker_tier)
     prompt = (
         "Return strict JSON object with keys row_id, branch, tier, brief.\n"
         f"Backlog data: {json.dumps(backlog_text)}\n"
@@ -181,6 +212,9 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
     if observed.get("open_prs"):
         state["pick"] = {"reason": "open-pr-exists"}
         return state
+    if state.get("repo_refresh_failed"):
+        state["pick"] = {"reason": "repo-refresh-failed"}
+        return state
     if not observed.get("deploy_applied") or observed.get("deploy_health") != "success":
         state["pick"] = {"reason": "deploy-not-healthy"}
         return state
@@ -192,7 +226,17 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
         state["pick"] = {"reason": "daily-budget-cap"}
         return state
 
-    backlog_text = backlog_path.read_text(encoding="utf-8")
+    if cfg.dry_run:
+        backlog_text = backlog_path.read_text(encoding="utf-8")
+        models_json_text = ""
+    else:
+        try:
+            backlog_text = _git_show_origin_file(cfg, "BACKLOG.md")
+            models_json_text = _git_show_origin_file(cfg, "tools/herdr/models.json")
+        except Exception as exc:
+            _enqueue_notification(state, "repo-read-failed", "origin-master", f"Could not read origin/master files: {exc}")
+            state["pick"] = {"reason": "repo-read-failed"}
+            return state
     failed_rows = set(state.get("failed_rows", []))
     approved = set(state.get("approved", []))
     rows = [r for r in parse_backlog(backlog_text) if not is_skippable(r, failed_rows)]
@@ -213,7 +257,7 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
             }
             return state
         try:
-            state["pick"] = _pick_llm(cfg, row, backlog_text, copilot_runner)
+            state["pick"] = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner)
             return state
         except (subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as exc:
             _enqueue_notification(state, "pick-task-error", row["row_id"], f"pick_task failed: {exc}")
@@ -388,6 +432,9 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
 
     merged = gh.list_prs("merged", head_branch=worker["branch"])
     if merged:
+        if not cfg.dry_run and not _fetch_origin_niced(cfg):
+            _enqueue_notification(state, "repo-fetch-failed", "origin", "Could not fetch origin for ancestry check")
+            return state
         pr = merged[0]
         merge_sha = ((pr.get("mergeCommit") or {}).get("oid") or "").strip()
         if not merge_sha:
