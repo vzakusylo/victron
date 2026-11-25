@@ -100,7 +100,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 | G3-DAILY | Reset the feedback notice count at the Oslo day boundary | G3 | in progress (`g3-daily` / #195) | The dashboard currently shows a cumulative context count, not the daily count in the G3 plan. |
 | G3-TRACKING | Detect sustained physical import divergence separately from command read-back | G3 | open | The current read-back confirms the command paths, not sustained physical tracking; define the detection threshold before enabling alarms. |
 | T1-GRID-LEAP | Correct the next-season preview for a Feb 29 switch | T1 | open | A valid Feb 29 setting can display March 1 before the leap year even though control switches February 29. |
-| T1-GRID-FLAGS | Align fixed HV support and force-charge flags with the selected decision | T1 | in progress: `t1-grid-flags` | Without CT, `GS` can show an unapplied cap; when manual discharge wins, `FC` can still show a force charge. Targets are unchanged by these flags. |
 | NR7 | Optional: tabs per area; more big nodes into `lib/` (backup 775, heat pump state 586, device status 523 lines) | NR6 | open | |
 
 ### Heat pump batch H0–H12 (one PR, branch `heat-pump-ux-batch`, not started; P1 / P2 shipped in d#204)
@@ -173,6 +172,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#196 T1-GRID-FLAGS (`t1-grid-flags`, d#250 · i#66): report only selected fixed HV support and force-charge flags without changing control outputs.
 
 #194 AUTO2 (`auto2-loop-control`, d#248 unchanged · i#64): add the Omarchy dev loop
 control page and CLI controls, plan preview, worker status and logs.
