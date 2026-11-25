@@ -173,6 +173,9 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#194 AUTO2 (`auto2-loop-control`, d#248 unchanged · i#64): add the Omarchy dev loop
+control page and CLI controls, plan preview, worker status and logs.
+
 #193 AUTO1 (`auto1-dev-loop`, d#248 unchanged · i#63): add a LangGraph-based autonomous dev loop under
 `tools/dev-loop` with state locking, dry-run safety, backlog selection guardrails, worker orchestration,
 blocker notifications, install/systemd assets, deploy workflow wiring, and dedicated pytest coverage.

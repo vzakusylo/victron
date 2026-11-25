@@ -42,9 +42,11 @@ fi
 mkdir -p "${HOME}/.config/systemd/user"
 install -m 0644 "${TARGET}/systemd/victron-loop.service" "${HOME}/.config/systemd/user/victron-loop.service"
 install -m 0644 "${TARGET}/systemd/victron-loop.timer" "${HOME}/.config/systemd/user/victron-loop.timer"
+install -m 0644 "${TARGET}/systemd/victron-loop-web.service" "${HOME}/.config/systemd/user/victron-loop-web.service"
 systemctl --user daemon-reload
 if [[ ! -f "${ENABLE_MARKER}" ]]; then
   systemctl --user enable --now victron-loop.timer
+  systemctl --user enable victron-loop-web.service
   touch "${ENABLE_MARKER}"
 fi
 

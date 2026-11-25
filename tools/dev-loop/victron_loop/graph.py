@@ -21,6 +21,12 @@ class LoopState(TypedDict, total=False):
     resolved_notification_keys: list[str]
     daily_counts: dict[str, int]
     last_summary_date: str | None
+    skipped_rows: list[str]
+    stopped_rows: list[str]
+    pinned_row: str | None
+    owner_note: str
+    phase: str
+    worker_pr: dict[str, Any] | None
 
 
 def build_graph(cfg: LoopConfig, gh: GhCli, backlog_path: Path):

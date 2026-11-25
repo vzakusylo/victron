@@ -7,4 +7,7 @@ dry_run = true
 notify_backend = "notify-send"
 token_file = "~/victron-loop/token"
 model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
+# Set to your Omarchy Tailscale IPv4 and port before starting the web service.
+# web_bind = "100.x.y.z:8787"
+# web_token_file = "~/.config/victron-loop/web-token"
 

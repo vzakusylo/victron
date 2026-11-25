@@ -1,5 +1,5 @@
 {
-  "i": 63,
+  "i": 64,
   "changes": [
     {
       "i": 1,
@@ -378,6 +378,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "AUTO1 dev loop on Omarchy"
+    },
+    {
+      "i": 64,
+      "date": "2026-11-25",
+      "pr": 194,
+      "what": "AUTO2 dev loop control page"
     }
   ]
 }

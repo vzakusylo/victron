@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -42,6 +43,8 @@ class LoopConfig:
     model_tiers_file: Path = Path.home() / "victron-loop" / "repo" / "tools" / "herdr" / "models.json"
     clock: Callable[[], float] = default_clock
     picker_tier: str = "review"
+    web_bind: str = ""
+    web_token_file: Path | None = None
 
 
 def _today(clock: Callable[[], float]) -> str:
@@ -158,13 +161,34 @@ def is_skippable(row: dict[str, str], failed_rows: set[str]) -> bool:
     return SKIP_RE.search(" ".join([row["state"], row["notes"]])) is not None
 
 
+def evaluate_plan(state: dict[str, Any], text: str) -> dict[str, Any]:
+    eligible, skipped = [], []
+    for row in parse_backlog(text):
+        key = row["row_id"]
+        match = SKIP_RE.search(f"{row['state']} {row['notes']}")
+        reason = (
+            "failed" if key in state.get("failed_rows", []) else
+            "stopped" if key in state.get("stopped_rows", []) else
+            "skipped" if key in state.get("skipped_rows", []) else
+            match.group().lower() if match else
+            "needs-owner-go" if requires_owner_approval(row) and key not in state.get("approved", []) else
+            None
+        )
+        if reason:
+            skipped.append({**row, "reason": reason})
+        else:
+            eligible.append(row)
+    eligible.sort(key=lambda row: row["row_id"] != state.get("pinned_row"))
+    return {"eligible": eligible, "skipped": skipped, "next": eligible[0] if eligible else None}
+
+
 def is_hard(row: dict[str, str]) -> bool:
     return HARD_RE.search(" ".join([row["row_id"], row["task"], row["notes"]])) is not None
 
 
 def requires_owner_approval(row: dict[str, str]) -> bool:
     combined = " ".join([row["row_id"], row["task"], row["notes"]])
-    if LIVE_CONTROL_RE.search(combined):
+    if is_hard(row) or LIVE_CONTROL_RE.search(combined):
         return True
     if SAFE_SECTION_RE.search(row.get("section", "")):
         return False
@@ -237,34 +261,37 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
             _enqueue_notification(state, "repo-read-failed", "origin-master", f"Could not read origin/master files: {exc}")
             state["pick"] = {"reason": "repo-read-failed"}
             return state
-    failed_rows = set(state.get("failed_rows", []))
-    approved = set(state.get("approved", []))
-    rows = [r for r in parse_backlog(backlog_text) if not is_skippable(r, failed_rows)]
-    if not rows:
-        state["pick"] = {"reason": "no-candidate"}
+    plan = evaluate_plan(state, backlog_text)
+    for item in plan["skipped"]:
+        if item["reason"] == "needs-owner-go":
+            key = item["row_id"]
+            _enqueue_notification(state, "needs-owner-go", key, f"Task {key} needs owner go")
+    row = plan["next"]
+    if not row:
+        state["pick"] = {
+            "reason": "needs-owner-go" if any(r["reason"] == "needs-owner-go" for r in plan["skipped"]) else "no-candidate"
+        }
         return state
 
-    for row in rows:
-        if requires_owner_approval(row) and row["row_id"] not in approved:
-            _enqueue_notification(state, "needs-owner-go", row["row_id"], f"Task {row['row_id']} needs owner go")
-            continue
-        if cfg.dry_run:
-            state["pick"] = {
-                "row_id": row["row_id"],
-                "branch": _safe_branch(row["row_id"], row["row_id"].lower()),
-                "tier": "standard",
-                "brief": "Dry run stub brief.",
-            }
-            return state
-        try:
-            state["pick"] = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner)
-            return state
-        except (subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as exc:
-            _enqueue_notification(state, "pick-task-error", row["row_id"], f"pick_task failed: {exc}")
-            state["pick"] = {"reason": "pick-task-error", "row_id": row["row_id"]}
-            return state
-
-    state["pick"] = {"reason": "needs-owner-go"}
+    if cfg.dry_run:
+        state["pick"] = {
+            "row_id": row["row_id"],
+            "branch": _safe_branch(row["row_id"], row["row_id"].lower()),
+            "tier": "standard",
+            "brief": "Dry run stub brief.",
+        }
+        return state
+    try:
+        pick = _pick_llm(cfg, row, backlog_text, models_json_text, copilot_runner)
+        if pick["row_id"] != row["row_id"]:
+            raise ValueError("picker returned a different row")
+        if state.get("owner_note"):
+            pick["brief"] += f"\n\n## Owner note\n\n{state['owner_note']}\n"
+        state["pick"] = pick
+        state["phase"] = "picked"
+    except (subprocess.CalledProcessError, ValueError) as exc:
+        _enqueue_notification(state, "pick-task-error", row["row_id"], f"pick_task failed: {type(exc).__name__}")
+        state["pick"] = {"reason": "pick-task-error", "row_id": row["row_id"]}
     return state
 
 
@@ -291,11 +318,26 @@ def _spawn_copilot(worktree: Path, command: str) -> int:
                 "bash",
                 "-lc",
                 f"cd {shlex.quote(str(worktree))} && {command}",
-            ]
+            ],
+            start_new_session=True,
         )
         return proc.pid
-    proc = subprocess.Popen(["bash", "-lc", f"cd {shlex.quote(str(worktree))} && nice -n 19 {command}"])
+
+
+    proc = subprocess.Popen(
+        ["bash", "-lc", f"cd {shlex.quote(str(worktree))} && nice -n 19 {command}"],
+        start_new_session=True,
+    )
     return proc.pid
+
+
+def _process_start(pid: int) -> str | None:
+    if not isinstance(pid, int) or pid <= 0 or os.name != "posix":
+        return None
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (FileNotFoundError, ProcessLookupError):
+        return None
 
 
 def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
@@ -329,6 +371,9 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         "row_id": pick.get("row_id"),
         "branch": branch,
         "tier": pick.get("tier", "standard"),
+        "model": model,
+        "process_group": True,
+        "process_start": _process_start(pid),
         "worktree": str(worktree),
         "pid": pid,
         "started_at": int(cfg.clock()),
@@ -336,6 +381,11 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         "retry_count": 0,
         "last_log_mtime": 0,
     }
+    if state.get("pinned_row") == pick.get("row_id"):
+        state["pinned_row"] = None
+    state["owner_note"] = ""
+    state["phase"] = "worker running"
+    state["worker_pr"] = None
     return state
 
 
@@ -346,6 +396,8 @@ def _retry_worker(state: dict[str, Any], cfg: LoopConfig, worker: dict[str, Any]
         f"--reasoning-effort {shlex.quote(effort)} >> {shlex.quote(worker['log_path'])} 2>&1"
     )
     worker["pid"] = _spawn_copilot(Path(worker["worktree"]), cmd)
+    worker["process_group"] = True
+    worker["process_start"] = _process_start(worker["pid"])
     worker["retry_count"] = int(worker.get("retry_count", 0)) + 1
 
 
@@ -406,6 +458,8 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
     open_prs = gh.list_prs("open", head_branch=worker["branch"])
     if open_prs:
         pr = open_prs[0]
+        state["worker_pr"] = pr
+        state["phase"] = "checks" if pr.get("statusCheckRollup") else "PR open"
         row_id = str(worker.get("row_id") or "")
         approved = set(state.get("approved", []))
         if pr.get("number") and row_id and row_id not in approved:
@@ -436,6 +490,8 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
             _enqueue_notification(state, "repo-fetch-failed", "origin", "Could not fetch origin for ancestry check")
             return state
         pr = merged[0]
+        state["worker_pr"] = pr
+        state["phase"] = "merged"
         merge_sha = ((pr.get("mergeCommit") or {}).get("oid") or "").strip()
         if not merge_sha:
             return state
@@ -455,7 +511,9 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
             None,
         )
         health_ok = False
+        state["phase"] = "deploy" if test_ok else "Test GX"
         if deploy_ok_run:
+            state["phase"] = "health"
             jobs = gh.view_run_jobs(int(deploy_ok_run["databaseId"]))
             for job in jobs:
                 for step in job.get("steps", []):
@@ -463,6 +521,7 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
                         health_ok = True
         if test_ok and deploy_ok_run and health_ok:
             state["active_worker"] = None
+            state["phase"] = "done"
         return state
 
     if worker.get("pid") and not _pid_alive(int(worker["pid"])):

@@ -18,10 +18,11 @@ def test_spawn_uses_nice_19_when_not_systemd(monkeypatch, tmp_path: Path):
         pid = 123
 
     monkeypatch.setattr(nodes.Path, "exists", lambda self: False if str(self) == "/run/systemd/system" else original_exists(self))
-    monkeypatch.setattr(nodes.subprocess, "Popen", lambda cmd: calls.append(cmd) or DummyProc())
+    monkeypatch.setattr(nodes.subprocess, "Popen", lambda cmd, **kwargs: calls.append((cmd, kwargs)) or DummyProc())
     pid = _spawn_copilot(tmp_path, "copilot -p x")
     assert pid == 123
-    assert "nice -n 19" in calls[0][2]
+    assert "nice -n 19" in calls[0][0][2]
+    assert calls[0][1]["start_new_session"]
 
 
 def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path):
