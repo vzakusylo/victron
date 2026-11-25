@@ -12,6 +12,7 @@ HOME_DIR="${HOME}/victron-loop"
 TOKEN_FILE="${HOME_DIR}/token"
 CONFIG="${HOME_DIR}/config.toml"
 LIVE=0
+RUNNER_UNIT="actions-runner-victron.service"
 [[ "${1:-}" == "--live" ]] && LIVE=1
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
@@ -20,11 +21,11 @@ warn() { printf '  \033[33mWARN\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; }
 
 echo "1. GitHub Actions runner (label omarchy)"
-if systemctl --user is-active --quiet actions-runner.service; then
-  ok "actions-runner.service is active"
+if systemctl --user is-active --quiet "${RUNNER_UNIT}"; then
+  ok "${RUNNER_UNIT} is active"
 else
-  warn "actions-runner.service is not active; starting it"
-  systemctl --user start actions-runner.service && ok "started" || fail "could not start; check: journalctl --user -u actions-runner -n 50"
+  warn "${RUNNER_UNIT} is not active; starting it"
+  systemctl --user start "${RUNNER_UNIT}" && ok "started" || fail "could not start; check: journalctl --user -u ${RUNNER_UNIT} -n 50"
 fi
 if command -v loginctl >/dev/null && [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]]; then
   warn "linger is off: user units stop when you log out. Enable with: sudo loginctl enable-linger $USER"
