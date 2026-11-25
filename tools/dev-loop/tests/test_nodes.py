@@ -288,7 +288,7 @@ def test_failed_rows_excluded_from_pick(tmp_path: Path):
     assert result["pick"]["row_id"] == "R2"
 
 
-def test_pick_task_uses_models_file_from_repo_clone_path(tmp_path: Path):
+def test_pick_task_uses_models_file_from_repo_clone_path(tmp_path: Path, mock_copilot_path):
     path = tmp_path / "BACKLOG.md"
     path.write_text(
         """### Process and repo
@@ -326,6 +326,7 @@ def test_pick_task_uses_models_file_from_repo_clone_path(tmp_path: Path):
     finally:
         n._git_show_origin_file = old
     assert "--model" in called["cmd"]
+    assert called["cmd"][0] == mock_copilot_path
     assert "from-repo-clone" in called["cmd"]
 
 

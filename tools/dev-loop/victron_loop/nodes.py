@@ -692,8 +692,10 @@ def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True
     if observed is not None and not observed.get("errors"):
         for condition in ("token-missing", "token-invalid"):
             sent.pop(f"{condition}:github", None)
-    for key in state.pop("resolved_notification_keys", []):
+    for key in state.get("resolved_notification_keys", []):
         sent.pop(key, None)
+    if "resolved_notification_keys" in state:
+        state["resolved_notification_keys"] = []
     queue = state.pop("pending_notifications", [])
     for item in queue:
         key = f"{item['condition']}:{item['subject_id']}"
