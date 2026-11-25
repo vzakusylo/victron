@@ -94,6 +94,18 @@ def test_stop_requires_confirmation_and_marks_stopped(tmp_path, monkeypatch):
     assert not state.get("failed_rows")
 
 
+def test_stop_preserves_unverified_live_group(tmp_path, monkeypatch):
+    store = StateStore.open(tmp_path)
+    worker = {"row_id": "A", "pid": 42, "process_group": True, "process_start": None}
+    store.save({"active_worker": worker})
+    calls = []
+    monkeypatch.setattr(control.os, "killpg", lambda pid, sig: calls.append((pid, sig)), raising=False)
+    with pytest.raises(ValueError, match="Cannot verify worker process group"):
+        control.apply_control(store, LoopConfig(repo="test/repo"), "stop-worker", "yes")
+    assert calls == [(42, 0)]
+    assert store.load()["active_worker"] == worker
+
+
 def test_http_page_status_and_write_guards(tmp_path, monkeypatch):
     cfg = LoopConfig(repo="test/repo", web_bind="127.0.0.1:0", token_file=None)
     store = StateStore.open(tmp_path)

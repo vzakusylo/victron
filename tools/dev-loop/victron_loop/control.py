@@ -42,11 +42,14 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
                     raise ValueError("Legacy worker has no tracked process group")
                 pid = int(worker["pid"])
                 started = worker.get("process_start")
-                if started and _process_start(pid) == started:
-                    try:
+                try:
+                    if started and _process_start(pid) == started:
                         os.killpg(pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
+                    else:
+                        os.killpg(pid, 0)
+                        raise ValueError("Cannot verify worker process group; stop it manually")
+                except ProcessLookupError:
+                    pass
                 state["stopped_rows"] = sorted(set(state.get("stopped_rows", [])) | {worker["row_id"]})
                 state["last_worker"] = {**worker, "status": "stopped"}
                 state["active_worker"] = None
