@@ -53,6 +53,8 @@ test('Apply queues one low-priority batch; both fresh readbacks save the owner c
     const sentAt = NOW + 5000;
     const sent = f.tick(sentAt);
     assert.deepEqual(sets(sent), [groupSet]);
+    const tag = sent.sent.map(m => m[5]?.event).find(e => e?.kind === 'dispatch');
+    assert.deepEqual([tag?.writer, tag?.values], ['owner', groupSet.data]);
     assert.equal(f.node.flow.get('hpWriterShadow').owners.curve.writer, 'owner');
     assert.deepEqual(sent.timers.map(t => t.ms), [5000]);
     assert.equal(f.node.context.get('queue').length, 0);

@@ -187,7 +187,7 @@ function isAlert(e) {
     const tx = String(e.text || '');
     if (e.kind === 'fail' || e.kind === 'error') return true;
     if (e.rule === 'dhw' && (e.kind === 'warn' || (e.kind === 'stop' && !/controller Off|local control OFF/.test(tx)))) return true;
-    if (e.rule === 'hp_fault' || e.rule === 'hp_device') return true;   // 'info' when a fault / device is back
+    if (e.rule === 'hp_fault' || e.rule === 'hp_device' || e.rule === 'hp_external_change') return true;
     if (e.rule === 'hp_er03_restart' && e.kind === 'start') return true;
     if (/compressor protection|hard limit/.test(tx) && e.rule === 'dhw') return true;
     if (e.kind === 'warn' && /sequence dropped|write queue released|settings file unreadable/.test(tx)) return true;
