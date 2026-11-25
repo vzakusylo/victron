@@ -89,12 +89,13 @@ test('controller Off during a warm-up puts the owner curve back', () => {
     assert.equal(c.pump[134], 4);
 });
 
-test('warm-up in Test mode or with local control OFF writes nothing and says why', () => {
+test('warm-up in Test mode or with local control OFF explains the mode before the curve limit', () => {
     for (const opt of [{ heatMode: 'dry' }, { master: false }]) {
         const c = heating(opt);
         c.ui({ on: true, deltaC: 2, hours: 1 });
         c.run(NOW, NOW + 3 * MIN);
         assert.deepEqual(c.writes, [], JSON.stringify(opt));
+        assert.equal(c.view().warm.note, 'warm-up needs the heating controller On and local control ON', JSON.stringify(opt));
     }
 });
 

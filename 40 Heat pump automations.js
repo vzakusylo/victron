@@ -146,6 +146,7 @@
 // HP-M2 stage 2: enforce priority and short leases for DP 2 only.
 // HP-M2 stage 3: enforce the same priority for the ordered curve group and DP 121.
 // d#241 (H16): pump readback can initialize a missing owner curve, but only confirmed Apply replaces one.
+// d#246 (HP-B1): explain disabled warm-up before reporting curve limits.
 // d#245 (HP-B1): cap warm-up + band + boost against the owner's fixed slope; recover offsets from pump read-back.
 // INIT — the node's On Start code is `40 Heat pump automations.init.js` (synced into `initialize`).
 // 20. d#161: default boiler curve = a straight line [[-20, 37], [1, 50]] (40 °C at -15, 50 °C at 1;
