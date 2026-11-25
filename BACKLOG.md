@@ -97,10 +97,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 ### Approved follow-up queue after HP-C1 (2026-11-24, in priority order)
 
-| ID | Task | State |
-|---|---|---|
-| D-R14 | Configurable post-deploy health monitor and read-only Health page | In progress: `d-r14-post-deploy-monitor` |
-
 | ID | Task | State / notes |
 |---|---|---|
 | H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) Done in #187. (3) Blocked: the seven-minute stop warning does not identify the failing input; see below. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
@@ -163,6 +159,11 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#190 D-R14 Post-deploy health (`d-r14-post-deploy-monitor`, d#243 · i#60): configurable checks every five
+minutes for one hour after a Deploy GX code apply; saved health history and a read-only Health page. A final
+failure turns the deploy job red and is included in its mail. Verified with fake GX readings and a simulated
+clock; live GX and local dashboard rendering were not checked.
 
 #189 G3-COOLDOWN (`g3-cooldown`, d#242 · i#59): use elapsed time for the 15-minute grid feedback notice cooldown. Forward and backward clock changes no longer alter it; legacy persisted notices start a conservative cooldown.
 
