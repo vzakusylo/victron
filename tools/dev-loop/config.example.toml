@@ -9,6 +9,7 @@ token_file = "~/victron-loop/token"
 # Do not use the machine's gh login if the scoped token is missing or empty.
 allow_gh_login_fallback = false
 # Defaults to Copilot on PATH, then ~/.local/bin/copilot.
+# npm installations also need node on the service PATH (use a systemd user unit drop-in if needed).
 # copilot_bin = "~/.local/bin/copilot"
 model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
 # Defaults to loopback. Set to your Omarchy Tailscale IPv4 and port for tailnet access.

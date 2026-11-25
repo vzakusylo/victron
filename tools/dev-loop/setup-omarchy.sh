@@ -41,9 +41,10 @@ fi
 bash "$rotate" --ensure
 
 echo "3. Copilot CLI (workers run 'copilot' here)"
-copilot_bin="$(command -v copilot || printf '%s' "$HOME/.local/bin/copilot")"
+service_path="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+copilot_bin="$(PATH="$service_path" command -v copilot || printf '%s' "$HOME/.local/bin/copilot")"
 if [[ -f "$copilot_bin" && -x "$copilot_bin" ]]; then
-  if timeout 120 nice -n 19 "$copilot_bin" -p "Reply with the single word: ready" </dev/null 2>&1 | grep -qi ready; then
+  if timeout 120 nice -n 19 env PATH="$service_path" "$copilot_bin" -p "Reply with the single word: ready" </dev/null 2>&1 | grep -qi ready; then
     ok "copilot answers"
   else
     fail "copilot did not answer; run 'copilot' once interactively and log in (/login)"
