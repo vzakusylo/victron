@@ -8,8 +8,9 @@ import sys
 import threading
 import time
 import traceback
-from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from typing import TextIO
 
 from .gh import GhCli
 from .control import ROW_ACTIONS, apply_control
@@ -97,10 +98,23 @@ def load_config(config_path: Path) -> LoopConfig:
     )
 
 
+class CycleStderr(io.StringIO):
+    def __init__(self, terminal: TextIO | None):
+        super().__init__()
+        self.terminal = terminal
+
+    def write(self, text: str) -> int:
+        if self.terminal is not None:
+            self.terminal.write(text)
+            self.terminal.flush()
+        return super().write(text)
+
+
 def run_cycle(store: StateStore, cfg: LoopConfig, gh: GhCli, *, echo: bool) -> tuple[int, str]:
     try:
         with store.lock():
-            output, errors = io.StringIO(), io.StringIO()
+            output = io.StringIO()
+            errors = CycleStderr(sys.stderr if WINDOWS and not echo else None)
             run = {"id": str(time.time_ns()), "result": "failed", "dry_run": cfg.dry_run}
             status = 0
             try:
@@ -110,8 +124,7 @@ def run_cycle(store: StateStore, cfg: LoopConfig, gh: GhCli, *, echo: bool) -> t
                     print(json.dumps({"reason": blocker}), file=output)
                     store.append_decision({"node": "peer-guard", "result": blocker})
                 else:
-                    stderr = nullcontext() if cfg.notify_backend == "windows" else redirect_stderr(errors)
-                    with redirect_stdout(output), stderr:
+                    with redirect_stdout(output), redirect_stderr(errors):
                         run["result"] = run_tick(store, cfg, gh)
             except Exception:
                 traceback.print_exc(file=errors)

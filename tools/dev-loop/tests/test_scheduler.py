@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 from types import SimpleNamespace
 from urllib.error import URLError
 
@@ -76,3 +77,17 @@ def test_configured_peer_outage_blocks_live_not_dry_run(monkeypatch):
     assert scheduler.peer_blocker(cfg) == "peer-status-unavailable"
     cfg.dry_run = True
     assert scheduler.peer_blocker(cfg) is None
+
+
+def test_windows_foreground_stderr_reaches_console_and_run_log(tmp_path, monkeypatch, capsys):
+    def tick(*_):
+        print("cycle diagnostic", file=sys.stderr)
+        return "observed"
+
+    monkeypatch.setattr(main, "WINDOWS", True)
+    monkeypatch.setattr(main, "run_tick", tick)
+    cfg = LoopConfig(repo="test/repo", notify_backend="none")
+    store = StateStore.open(tmp_path)
+    assert main.run_cycle(store, cfg, SimpleNamespace(), echo=False) == (0, "observed")
+    assert capsys.readouterr().err == "cycle diagnostic\n"
+    assert store.run_logs()[0].read_text(encoding="utf-8") == "cycle diagnostic\n"
