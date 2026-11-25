@@ -435,7 +435,9 @@ test('40: after the top mode the heating controller raises the curve (P23 boost)
         const dps = { 1: true, 2: mode, 101: sup - 3, 102: sup, 103: -5, 108: 47, 115: 69, 116: 594, 125: 36, 112: 3, 132: '1', 133: p23, 134: p24, 15: 0 };
         node.flow.set('heatPump', { hp: { state: 'CONNECTED', lastData: now, dps }, valve: { state: 'CONNECTED', lastData: now, dps: { 1: false } },
             bypass: { state: 'CONNECTED', lastData: now, dps: { 1: false } } });
-        node.run({ topic: 'tick' }, { now }).sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') { sets.push(m[1].payload); if (m[1].payload.dps === 133) p23 = m[1].payload.set; if (m[1].payload.dps === 134) p24 = m[1].payload.set; } });
+        const call = node.run({ topic: 'tick' }, { now });
+        for (const timer of call.timers) if (timer.ms === 1500) timer.cb();
+        call.sent.forEach((m) => { if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') { sets.push(m[1].payload); if (m[1].payload.dps === 133) p23 = m[1].payload.set; if (m[1].payload.dps === 134) p24 = m[1].payload.set; } });
     };
     let t = T0;
     for (let i = 0; i < 63; i++, t += 10000) tick(t, 33, 'smart');     // Smart (top), lag −4.2 → boost

@@ -95,7 +95,6 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
-| HP-M2 | Single writer with leases, stage 3 (curve and owner control) | Open; stage 2 shipped in #185. Extend enforced ownership to P22–P24 and DP 121, with one P22–P24 group and a composed warm-up / band / boost request. Move the owner curve setting (`hp-curve-model`), which replaced the P23 slider, into the single dispatcher. |
 | H16 | Heat pump idle follow-ups (found by H0) | Open. (1) Done in #165. (2) Check why the stored owner curve may have been polluted (P23 27 vs 33). (3) A forced boiler cycle stopped after 7 min with “forced cycle safety stop pending”. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
 
 ## 4. Review follow-ups (deferred Low / Nit)
@@ -154,6 +153,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#186 HP-M2 stage 3 (`hp-m2-curve-owner`, d#240 · i#56): enforce a shared P22–P24 lease and an independent DP 121 lease. Keep automatic curve SETs paced and ordered under one generation, compose warm-up / band / boost against the owner's curve, and confirm both owner Apply coefficients under the same live lease before saving them. Automatic curve leases use elapsed time so a wall-clock jump cannot split a queued curve group.
 
 #185 HP-M2 stage 2 (`hp-m2-mode-writer`, d#239 · i#55): enforce DP 2 writer priority (protection > DHW > recovery > kick > heat > owner) with bounded leases and generation checks at dequeue and verification. Rejected requests are not replayed; a kick that never sent Smart cannot restore Silent. Curve and hysteresis enforcement remain stage 3.
 

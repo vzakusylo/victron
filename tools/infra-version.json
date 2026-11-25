@@ -1,5 +1,5 @@
 {
-  "i": 55,
+  "i": 56,
   "changes": [
     {
       "i": 1,
@@ -330,6 +330,12 @@
       "date": "2026-11-25",
       "pr": 185,
       "what": "HP-M2 stage 2 mode writer"
+    },
+    {
+      "i": 56,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "HP-M2 stage 3"
     }
   ]
 }

@@ -27,6 +27,7 @@ function heating({ heatMode = 'live', master = true, saved = {}, pump0 = {} } = 
             bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } }
         });
         const call = node.run({ topic: 'tick' }, { now: t });
+        for (const timer of call.timers) if (timer.ms === 1500) timer.cb();
         for (const m of call.sent) {
             if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') {
                 writes.push({ t, dps: m[1].payload.dps, set: m[1].payload.set });
@@ -160,6 +161,24 @@ test('boost step-down log names the warm-up curve, not "yours" (PR #65 review)',
     const { text } = boostThenStepDown();
     assert.match(text, /curve back to warm-up \+2 °C \(P23 \d+ \/ P24 \d+\)/);
     assert.doesNotMatch(text, /curve back to yours/);
+});
+
+test('a power boost composes with the warm-up and band in the same curve', () => {
+    const c = heating({ saved: { heat: { ...GX_HEAT, lagUp: undefined, overC: undefined, band: true, bandUp: 2, bandDown: 0 },
+        heatCurve: { p23: 30, p24: 4, at: NOW - H } }, pump0: { 121: 2, 133: 30, 134: 4 } });
+    c.ui({ on: true, deltaC: 2, hours: 2 });
+    c.run(NOW, NOW + MIN);
+    assert.deepEqual([c.pump[133], c.pump[134]], [40, 4], 'owner curve plus 4 °C');
+    assert.equal(c.node.context.get('heat').warmApplied, 4);
+    let t = NOW + MIN;
+    while (!c.node.context.get('heat').boost && t < NOW + 30 * MIN) {
+        t += 10 * S;
+        c.tick(t, { 2: 'smart', 102: 19, 101: 17 });
+    }
+    assert.equal(c.node.context.get('heat').boost, 1);
+    assert.equal(c.node.context.get('heat').warmApplied, 4);
+    assert.deepEqual([c.pump[133], c.pump[134]], [40, 5], 'the extra boost steepens the curve after P23 reaches its limit');
+    assert.equal(c.settings().heatCurve.p23, 30);
 });
 
 test('a DHW cycle that ended during a warm-up: the warm-up curve is written only after the hold clears', () => {

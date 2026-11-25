@@ -28,6 +28,7 @@ function heating({ heat = {}, heatMode = 'live', saved = {}, hyst = 5, wholeHyst
             bypass: { state: 'CONNECTED', lastData: t, dps: { 1: false } }
         });
         const call = node.run({ topic: 'tick' }, { now: t });
+        for (const timer of call.timers) if (timer.ms === 1500) timer.cb();
         for (const m of call.sent) {
             if (m && m[1] && m[1].payload && m[1].payload.operation === 'SET') {
                 writes.push({ t, dps: m[1].payload.dps, set: m[1].payload.set });
