@@ -137,6 +137,16 @@ test('non-wrapping tariff dates and forced profiles retain the automatic next sw
     assert.equal(getTariffSeason(march, { ...c, SUMMER_START_MMDD: 301 }).nextSwitchKey, '');
 });
 
+test('Feb 29 tariff preview uses the switch date in the target year', () => {
+    const c = getConstants({ WINTER_START_MMDD: 229, SUMMER_START_MMDD: 601 });
+    assert.equal(getTariffSeason(new Date(2027, 5, 1), c).nextSwitchKey, '2028-02-29');
+    assert.equal(getTariffSeason(new Date(2026, 0, 10), c).nextSwitchKey, '2026-03-01');
+
+    const afterSwitch = new Date(2028, 1, 29, 12);
+    assert.equal(getTariffSeason(afterSwitch, c).nextSwitchKey, '2028-06-01');
+    assert.equal(getTariffSeason(new Date(2028, 2, 1, 12), { ...c, SUMMER_START_MMDD: 301 }).nextSwitchKey, '2029-03-01');
+});
+
 test('tariff backstop clips VE.Bus current and reports a night profile over tier', () => {
     const profile = buildSeasonProfile(true, getConstants({
         WINTER_TARIFF_TIER: 6, WINTER_NIGHT_BONUS_PCT: 60, TARIFF_NIGHT_BILLING_PCT: 100, GRID_CURRENT_MAX_A: 20
