@@ -65,7 +65,7 @@ class LoopConfig:
     picker_backend: str = "copilot"
     claude_bin: str | None = None
     picker_model: str = "claude-opus-5-5"
-    picker_effort: str | None = None
+    picker_effort: str = "low"
     picker_fallback: str | None = None
     copilot_bin: str | None = None
     web_bind: str = ""
@@ -332,7 +332,7 @@ def _safe_branch(row_id: str, candidate: str) -> str:
     return slug or "auto-task"
 
 
-CLAUDE_AUTH_HINT = "Run `claude` and /login, or `claude setup-token`"
+CLAUDE_AUTH_HINT = "Run claude auth login"
 PICKER_TIMEOUT = 120
 
 
@@ -349,21 +349,18 @@ def _claude_json(cfg: LoopConfig, prompt: str, runner: Callable[..., Any]) -> An
         raise FileNotFoundError("Native Claude CLI not found; configure claude_bin")
     options = dict(capture_output=True, encoding="utf-8", timeout=PICKER_TIMEOUT, **priority_options())
     command = [
-        os.path.abspath(executable), "-p", "--model", cfg.picker_model,
+        os.path.abspath(executable), "-p", "--model", cfg.picker_model, "--effort", cfg.picker_effort,
         "--output-format", "json", "--max-turns", "1", "--permission-mode", "plan",
         "--disallowedTools", "Bash,Edit,Write,WebFetch,WebSearch", "--tools", "",
         "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence",
     ]
-    if cfg.picker_effort:
-        help_out = runner([command[0], "--help"], check=True, **options)
-        if re.search(r"\s--effort(?:\s|[=,])", help_out.stdout):
-            command.extend(["--effort", cfg.picker_effort])
     try:
         with tempfile.TemporaryDirectory(prefix="victron-picker-") as cwd:
             out = runner(command, input=prompt, cwd=cwd, check=True, **options).stdout
     except subprocess.CalledProcessError as exc:
         diagnostic = f"{exc.stdout or ''}\n{exc.stderr or ''}"
-        if re.search(r"\b(?:login|log in|authenticate|authentication|invalid api key|401)\b",
+        if re.search(r"\b(?:login|log in|authenticate|authentication|invalid api key|"
+                     r"token (?:has )?expired|401)\b",
                      diagnostic, re.IGNORECASE):
             raise ClaudeAuthRequired(CLAUDE_AUTH_HINT) from exc
         raise

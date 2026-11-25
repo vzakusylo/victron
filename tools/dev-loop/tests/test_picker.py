@@ -25,21 +25,16 @@ def reply():
     return json.dumps(dict(row_id="R4", branch="../../bad", tier="standard", brief="Do the work"))
 
 
-@pytest.mark.parametrize("supports_effort", [True, False])
-def test_claude_picker_stdin_and_envelope(picker, supports_effort):
+def test_claude_picker_stdin_and_envelope(picker):
     cfg, state, path = picker
-    cfg.picker_effort = "low"
 
     def run(command, **kwargs):
-        if command[1:] == ["--help"]:
-            return SimpleNamespace(stdout="  --effort <level>" if supports_effort else "")
-        assert command[1:12] == [
-            "-p", "--model", "claude-opus-5-5", "--output-format", "json",
+        assert command[1:14] == [
+            "-p", "--model", "claude-opus-5-5", "--effort", "low", "--output-format", "json",
             "--max-turns", "1", "--permission-mode", "plan", "--disallowedTools",
             "Bash,Edit,Write,WebFetch,WebSearch",
         ]
         assert command[command.index("--tools") + 1] == ""
-        assert ("--effort" in command) is supports_effort
         assert "Backlog data: " in kwargs["input"] and "Process task" in kwargs["input"]
         assert not any("Process task" in arg for arg in command)
         return SimpleNamespace(stdout=json.dumps({"result": reply()}))
@@ -79,7 +74,7 @@ def test_claude_auth_notifies_once_and_fallback_is_opt_in(picker, monkeypatch, f
         nodes.notify(state, cfg, daily_summary=False)
 
     assert state["picker_status"] == "auth required"
-    assert notifications == [nodes.CLAUDE_AUTH_HINT]
+    assert notifications == ["Run claude auth login"]
     if fallback:
         assert len(copilot_calls) == 2
         assert state["pick"]["row_id"] == "R4"
@@ -103,5 +98,5 @@ def test_check_picker_cli(tmp_path, monkeypatch, capsys, authenticated):
     monkeypatch.setattr(nodes.subprocess, "run", run)
     assert main.main(["--config", str(config), "check-picker"]) == (0 if authenticated else 1)
     assert capsys.readouterr().out.strip() == (
-        "ok" if authenticated else f"claude-auth-required: {nodes.CLAUDE_AUTH_HINT}"
+        "ok" if authenticated else "claude-auth-required: Run claude auth login"
     )

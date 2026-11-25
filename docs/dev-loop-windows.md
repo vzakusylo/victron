@@ -28,13 +28,14 @@ MagicDNS names in `web_hosts` if needed.
 
 ## Set up the token
 
-New Windows configs use `picker_backend = "claude"` with `claude-opus-5-5`.
+New Windows configs use `picker_backend = "claude"` with `claude-opus-5-5`
+and `picker_effort = "low"`.
 Set `picker_backend = "claude"` yourself in an existing config to switch it;
 `"copilot"` keeps the old picker. Workers still run Copilot via Herdr.
 Claude is discovered on PATH or at `%USERPROFILE%\.local\bin\claude.exe`;
 set `claude_bin` to override it.
 
-On the loop machine, run `claude` and use `/login`, or run `claude setup-token`
+On the loop machine, run `claude auth login` (or `claude` and then `/login`), or run `claude setup-token`
 and provide `CLAUDE_CODE_OAUTH_TOKEN` in the loop process's environment.
 Do not put the token in the config. Run
 `.\tools\dev-loop\run-windows.ps1 -CheckPicker` to verify access. The dashboard

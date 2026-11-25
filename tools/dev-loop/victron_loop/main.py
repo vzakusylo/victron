@@ -100,7 +100,7 @@ def load_config(config_path: Path) -> LoopConfig:
         picker_fallback=picker_fallback,
         claude_bin=data.get("claude_bin"),
         picker_model=data.get("picker_model", "claude-opus-5-5"),
-        picker_effort=data.get("picker_effort"),
+        picker_effort=data.get("picker_effort", "low"),
         web_token_file=Path(data["web_token_file"]).expanduser() if data.get("web_token_file") else None,
         worker_backend=backend,
         instance_name=data.get("instance_name", "windows" if WINDOWS else "omarchy"),
