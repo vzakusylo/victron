@@ -4,7 +4,7 @@ import http.client
 import json
 import signal
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
 
@@ -236,16 +236,18 @@ def test_web_rejects_non_tailnet_bind(tmp_path, host):
 
 
 def test_timer_times_reads_last_and_next(monkeypatch):
-    def show(command, **_):
+    def show(command, **options):
         assert command == ["systemctl", "--user", "--no-pager", "show", "victron-loop.timer",
                            "-p", "NextElapseUSecRealtime", "-p", "LastTriggerUSec", "-p", "ActiveState"]
-        return "ActiveState=active\nNextElapseUSecRealtime=Wed 2026-11-25 19:10:00 CET\nLastTriggerUSec=Wed 2026-11-25 19:00:00 CET\n"
+        assert options["env"]["TZ"] == "UTC"
+        return "ActiveState=active\nNextElapseUSecRealtime=Wed 2026-11-25 19:10:00 UTC\nLastTriggerUSec=Wed 2026-11-25 19:00:00 UTC\n"
 
     monkeypatch.setattr(web.subprocess, "check_output", show)
-    data = web.timer_times(datetime(2026, 11, 25, 19, 4).timestamp())
+    now = datetime(2026, 11, 25, 19, 4, tzinfo=timezone.utc).timestamp()
+    data = web.timer_times(now)
     assert data["timer_state"] == "active"
-    assert "19:10:00" in data["timer_next"] and data["timer_next"].endswith("(in 6 min)")
-    assert "19:00:00" in data["timer_last"] and data["timer_last"].endswith("(4 min ago)")
+    assert data["timer_next"] == web.local_time(int(now + 360), now)
+    assert data["timer_last"] == web.local_time(int(now - 240), now)
 
 
 def test_monotonic_timer_uses_recorded_list_timers_json(monkeypatch):
@@ -261,7 +263,7 @@ def test_monotonic_timer_uses_recorded_list_timers_json(monkeypatch):
     assert web.timer_times() == {
         "timer_state": "active",
         "timer_next": web.local_time(1795685057),
-        "timer_last": web.local_time(int(datetime(2026, 11, 25, 10, 24, 17).timestamp())),
+        "timer_last": web.local_time(1795598657),
     }
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -44,7 +45,7 @@ def tail(path: Path, limit: int) -> list[str]:
 def timer_times(now: float | None = None) -> dict[str, str]:
     unit = "victron-loop.timer"
     command = ["systemctl", "--user", "--no-pager"]
-    options = {"text": True, "timeout": 5, "stderr": subprocess.PIPE}
+    options = {"text": True, "timeout": 5, "stderr": subprocess.PIPE, "env": {**os.environ, "TZ": "UTC", "LC_ALL": "C"}}
     unknown = {"timer_next": "Unknown", "timer_last": "Unknown"}
 
     def error_text(exc: Exception) -> str:
@@ -55,7 +56,7 @@ def timer_times(now: float | None = None) -> dict[str, str]:
         if not value:
             return None
         match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value)
-        return local_time(int(datetime.fromisoformat(match[0]).timestamp()), now) if match else value
+        return local_time(int(datetime.fromisoformat(match[0]).replace(tzinfo=timezone.utc).timestamp()), now) if match else value
 
     try:
         output = subprocess.check_output(
