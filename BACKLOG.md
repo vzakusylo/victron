@@ -88,7 +88,6 @@ scenarios cover frequency/current separately; combined and actual field protecti
 | R4 | Project skills: `deploy-gx` (dry run, compare, apply), `test-gx-local`, `ship-pr` (sync, bump, test, PR, auto-merge) | Done: #92 | Phase 2. |
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
 | AUTO1 | Autonomous dev loop on Omarchy (LangGraph + timer + CI/workflow + install path) | Done: #193 | `tools/dev-loop`, dry-run deploy workflow, blocker-only notifications, and test/CI coverage. |
-| AUTO1-WIN | Run AUTO1 in a Windows terminal with Herdr workers | In progress: `auto1-windows-herdr` | Unit tests on Windows and Linux; Windows launcher dry run; no live worker or GX access. |
 
 ### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
 
@@ -172,6 +171,10 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#201 AUTO1-WIN (`auto1-windows-herdr`, d#251 unchanged · i#71): run AUTO1 in a Windows
+terminal with the dashboard, Herdr workers, a peer guard, and scoped token rotation.
+Windows and Linux unit tests passed; the Windows launcher and dashboard completed dry cycles.
 
 #200 T1-GRID-LEAP (`t1-grid-leap`, d#251 · i#70): preview February 29 in leap years and March 1
 in non-leap years without changing tariff season control.
