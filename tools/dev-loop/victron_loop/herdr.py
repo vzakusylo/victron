@@ -51,7 +51,8 @@ def read(repo: Path, branch: str) -> str:
 def close(repo: Path, worker: dict) -> None:
     brief = Path(worker["worktree"]) / f".copilot-brief-{worker['branch']}.md"
     brief.unlink(missing_ok=True)
-    subprocess.run(task(repo, "close", worker["branch"]), check=True, timeout=30, capture_output=True, **priority_options())
+    subprocess.run(task(repo, "close", worker["branch"], "-IfPresent"),
+                   check=True, timeout=30, capture_output=True, **priority_options())
 
 
 def interrupt(agent: str) -> bool:

@@ -22,7 +22,8 @@ param(
   [ValidateSet('', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$Effort = '',
   [int]$Lines = 120,
   [int]$TimeoutMin = 30,
-  [switch]$Json
+  [switch]$Json,
+  [switch]$IfPresent
 )
 $ErrorActionPreference = 'Stop'
 
@@ -43,10 +44,10 @@ function Get-AgentName([string]$t) {
   $n = ('w-' + $t.ToLower() -replace '[^a-z0-9_-]', '-')
   $n.Substring(0, [Math]::Min(32, $n.Length))
 }
-function Get-TaskWorkspace([string]$t) {
+function Get-TaskWorkspace([string]$t, [switch]$AllowMissing) {
   $ws = (Invoke-Herdr workspace list | ConvertFrom-Json).result.workspaces |
     Where-Object { $_.label -eq $t -and $_.worktree }
-  if (-not $ws) { throw "No Herdr worktree workspace labelled '$t'. Run: new $t" }
+  if (-not $ws -and -not $AllowMissing) { throw "No Herdr worktree workspace labelled '$t'. Run: new $t" }
   $ws | Select-Object -First 1
 }
 
@@ -79,7 +80,7 @@ switch ($Action) {
   }
   'list' { Invoke-Herdr agent list }
   'close' {
-    $ws = Get-TaskWorkspace $Task
-    Invoke-Herdr worktree remove --workspace $ws.workspace_id
+    $ws = Get-TaskWorkspace $Task -AllowMissing:$IfPresent
+    if ($ws) { Invoke-Herdr worktree remove --workspace $ws.workspace_id }
   }
 }

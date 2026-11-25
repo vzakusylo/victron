@@ -701,9 +701,13 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
     merged = gh.list_prs("merged", head_branch=worker["branch"])
     if merged:
         if (is_herdr and not cfg.dry_run and not worker.get("herdr_closed")
-                and worker.get("status") in {"idle", "done", "missing"}):
-            herdr.close(cfg.repo_path, worker)
+                and worker.get("status") in {"idle", "done", "blocked", "missing"}):
+            if worker["status"] != "missing" or Path(worker["worktree"]).exists():
+                herdr.close(cfg.repo_path, worker)
             worker["herdr_closed"] = True
+        elif is_herdr and not worker.get("herdr_closed") and cfg.clock() - worker.get("status_since", cfg.clock()) > 1800:
+            _enqueue_notification(state, "herdr-cleanup-pending", worker["branch"],
+                                  f"Merged worker {worker['branch']} has not settled; check its Herdr pane")
         if not cfg.dry_run and not _fetch_origin_niced(cfg):
             _enqueue_notification(state, "repo-fetch-failed", "origin", "Could not fetch origin for ancestry check")
             return state

@@ -92,9 +92,26 @@ def test_herdr_retry_and_close_after_merge(tmp_path, monkeypatch):
     merged = SimpleNamespace(list_prs=lambda pr_state, **_: [{"number": 2}] if pr_state == "merged" else [])
     nodes.watch_pr(state, cfg, merged)
     nodes.watch_pr(state, cfg, merged)
-    assert calls[1][-2:] == ["close", "fix"]
+    assert calls[1][-3:] == ["close", "fix", "-IfPresent"]
     assert len(calls) == 2 and worker["herdr_closed"]
     assert not brief.exists()
+
+
+def test_merged_worker_already_closed_by_owner_reaches_done(tmp_path, monkeypatch):
+    cfg = nodes.LoopConfig(repo="test/repo", dry_run=False)
+    worker = {"branch": "fix", "agent": "w-fix", "worktree": str(tmp_path / "removed"), "backend": "herdr"}
+    state = {"active_worker": worker}
+    monkeypatch.setattr(herdr, "status", lambda _: "missing")
+    monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _: True)
+    monkeypatch.setattr(nodes, "_is_run_for_or_after_merge", lambda *_: True)
+    gh = SimpleNamespace(
+        list_prs=lambda pr_state, **_: [{"number": 2, "mergeCommit": {"oid": "merged"}}] if pr_state == "merged" else [],
+        list_runs=lambda *_: [{"conclusion": "success", "headSha": "merged", "databaseId": 1}],
+        view_run_jobs=lambda _: [{"steps": [{"name": "Monitor post-deploy health", "conclusion": "success"}]}],
+    )
+    nodes.watch_pr(state, cfg, gh)
+    assert state["active_worker"] is None
+    assert state["phase"] == "done"
 
 
 def test_herdr_blocked_after_thirty_minutes_and_stop_preserves_pane(tmp_path, monkeypatch):
