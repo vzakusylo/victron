@@ -30,7 +30,7 @@
 Set `web_bind` to the Omarchy box's Tailscale IPv4 plus `:8790`; the server
 refuses wildcard and public addresses. Start `victron-loop-web.service` with
 `systemctl --user start victron-loop-web.service` and visit
-`http://<tailscale-ip>:8787/` from the tailnet. Use tailnet ACLs to restrict access.
+`http://<tailscale-ip>:8790/` from the tailnet. Use tailnet ACLs to restrict access.
 The Host header must match the bound IP or an exact name in `web_hosts`, with
 the configured port. The default allows `http://omarchy:8790/`; add your actual
 MagicDNS FQDN with `web_hosts = ["omarchy", "omarchy.example-tailnet.ts.net"]`.
