@@ -1,5 +1,5 @@
 {
-  "i": 57,
+  "i": 58,
   "changes": [
     {
       "i": 1,
@@ -342,6 +342,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Protect the saved owner heating curve"
+    },
+    {
+      "i": 58,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "T1 grid decision coverage"
     }
   ]
 }
