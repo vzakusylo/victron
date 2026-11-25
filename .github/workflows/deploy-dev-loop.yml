@@ -33,7 +33,7 @@ jobs:
               text += "\ndry_run = true\n"
           cfg.write_text(text, encoding="utf-8")
           PY
-          ~/victron-loop/venv/bin/python -m victron_loop.main --config ~/victron-loop/config.ci-dryrun.toml run-once > dev-loop-dry-run.log
+          cd ~/victron-loop && ./venv/bin/python -m victron_loop.main --config config.ci-dryrun.toml run-once --dry-run > "$GITHUB_WORKSPACE/dev-loop-dry-run.log"
       - name: Upload dry-run log
         uses: actions/upload-artifact@v7
         with:

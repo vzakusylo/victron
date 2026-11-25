@@ -1,5 +1,5 @@
 {
-  "i": 66,
+  "i": 67,
   "changes": [
     {
       "i": 1,
@@ -396,6 +396,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Test grid decision status flags"
+    },
+    {
+      "i": 67,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "AUTO1 Omarchy setup script and dry-run deploy fix"
     }
   ]
 }
