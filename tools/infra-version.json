@@ -1,5 +1,5 @@
 {
-  "i": 71,
+  "i": 72,
   "changes": [
     {
       "i": 1,
@@ -426,6 +426,12 @@
       "date": "2026-11-25",
       "pr": 201,
       "what": "Run the dev loop on Windows with foreground scheduling and Herdr workers"
+    },
+    {
+      "i": 72,
+      "date": "2026-11-25",
+      "pr": null,
+      "what": "Trim dashboard replay and stream history files"
     }
   ]
 }
