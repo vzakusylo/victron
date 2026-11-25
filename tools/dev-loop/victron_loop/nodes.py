@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .gh import GhCli, GhTokenError, token_details
+from . import herdr
+from .platform import WINDOWS, background_options, desktop_notify, pid_alive as _pid_alive, priority_options
 
 HARD_RE = re.compile(r"(heat pump|grid|bms|deploy|live control)", re.IGNORECASE)
 BRANCH_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -38,6 +40,9 @@ def _copilot_path(state: dict[str, Any], cfg: LoopConfig) -> str | None:
     if not executable:
         _enqueue_notification(state, "copilot-missing", "cli", f"Copilot executable not found: {candidate}")
         return None
+    if WINDOWS and Path(executable).suffix.lower() in {".cmd", ".bat"}:
+        _enqueue_notification(state, "copilot-missing", "cli", "Configure the native Copilot executable, not a batch shim")
+        return None
     _resolve_notification(state, "copilot-missing", "cli")
     return os.path.abspath(executable)
 
@@ -60,6 +65,11 @@ class LoopConfig:
     web_bind: str = ""
     web_hosts: tuple[str, ...] = ("omarchy",)
     web_token_file: Path | None = None
+    worker_backend: str = "herdr" if WINDOWS else "headless"
+    instance_name: str = "windows" if WINDOWS else "omarchy"
+    peer_status_url: str | None = None
+    interval_minutes: float = 10
+    scheduler: Any = None
 
 
 def _today(clock: Callable[[], float]) -> str:
@@ -88,7 +98,22 @@ def _resolve_notification(state: dict[str, Any], condition: str, subject_id: str
     state.setdefault("resolved_notification_keys", []).append(f"{condition}:{subject_id}")
 
 
+def _herdr_ready(state: dict, cfg: LoopConfig) -> bool:
+    if not herdr.running():
+        state["pick"] = {"reason": "herdr-not-running"}
+        _enqueue_notification(state, "herdr-not-running", cfg.instance_name, "Herdr server is not running")
+        return False
+    _resolve_notification(state, "herdr-not-running", cfg.instance_name)
+    return True
+
+
 def _fetch_origin_niced(cfg: LoopConfig, timeout_seconds: int = 60) -> bool:
+    if WINDOWS:
+        result = subprocess.run(
+            ["git", "-C", str(cfg.repo_path), "fetch", "origin"],
+            check=False, capture_output=True, timeout=timeout_seconds, **priority_options(),
+        )
+        return result.returncode == 0
     cmd = [
         "bash",
         "-lc",
@@ -100,7 +125,8 @@ def _fetch_origin_niced(cfg: LoopConfig, timeout_seconds: int = 60) -> bool:
 
 def _git_show_origin_file(cfg: LoopConfig, rel_path: str, timeout_seconds: int = 30) -> str:
     cmd = ["git", "-C", str(cfg.repo_path), "show", f"origin/master:{rel_path}"]
-    result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout_seconds)
+    result = subprocess.run(cmd, check=False, capture_output=True, encoding="utf-8",
+                            timeout=timeout_seconds, **priority_options())
     if result.returncode != 0:
         raise RuntimeError(f"git show failed for {rel_path}: {result.stderr.strip()}")
     return result.stdout
@@ -317,7 +343,8 @@ def _pick_llm(
         [executable, "-p", prompt, "--model", model, "--reasoning-effort", effort],
         check=True,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        **priority_options(),
     ).stdout.strip()
     data = json.loads(out)
     if not isinstance(data, dict):
@@ -391,6 +418,8 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
             "brief": "Dry run stub brief.",
         }
         return state
+    if cfg.worker_backend == "herdr" and not _herdr_ready(state, cfg):
+        return state
     executable = _copilot_path(state, cfg)
     if not executable:
         state["pick"] = {"reason": "copilot-missing"}
@@ -445,6 +474,17 @@ def _spawn_copilot(worktree: Path, command: str) -> int:
     return proc.pid
 
 
+def _launch_headless(worktree: Path, log_path: Path, executable: str, prompt: str,
+                     model: str, effort: str, *, append: bool = False) -> int:
+    args = [executable, "-p", prompt, "--allow-all", "--model", model, "--reasoning-effort", effort]
+    if WINDOWS:
+        with log_path.open("ab" if append else "wb") as output:
+            return subprocess.Popen(args, cwd=worktree, stdin=subprocess.DEVNULL,
+                                    stdout=output, stderr=subprocess.STDOUT, **background_options()).pid
+    redirect = ">>" if append else ">"
+    return _spawn_copilot(worktree, f"{shlex.join(args)} {redirect} {shlex.quote(str(log_path))} 2>&1")
+
+
 def _process_start(pid: int) -> str | None:
     if not isinstance(pid, int) or pid <= 0 or os.name != "posix":
         return None
@@ -462,6 +502,20 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
     if cfg.dry_run:
         state["active_worker"] = None
         return state
+    if cfg.worker_backend == "herdr":
+        if not _herdr_ready(state, cfg):
+            return state
+        tier = pick.get("tier", "standard")
+        log_path = cfg.loop_home / "logs" / f"{branch}.log"
+        try:
+            worker = herdr.start(cfg.repo_path, branch, tier, pick["brief"], log_path)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
+            state["pick"] = {"reason": "herdr-start-failed"}
+            _enqueue_notification(state, "herdr-start-failed", branch, f"Could not start worker {branch}: {exc}")
+            return state
+        return _record_worker(state, cfg, pick, {
+            **worker, "backend": "herdr", "log_path": str(log_path),
+        })
     executable = _copilot_path(state, cfg)
     if not executable:
         state["pick"] = {"reason": "copilot-missing"}
@@ -477,27 +531,25 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
     (worktree / brief_name).write_text(pick["brief"], encoding="utf-8")
     model, effort = _tier_model_effort(cfg.model_tiers_file, pick.get("tier", "standard"))
     prompt = f"Read {brief_name} and do all of it."
-    command = (
-        f"{shlex.quote(executable)} -p {shlex.quote(prompt)} --allow-all --model {shlex.quote(model)} "
-        f"--reasoning-effort {shlex.quote(effort)} > {shlex.quote(str(log_path))} 2>&1"
-    )
-    pid = _spawn_copilot(worktree, command)
-    day = _today(cfg.clock)
-    counts = state.setdefault("daily_counts", {})
-    counts[day] = int(counts.get(day, 0)) + 1
-    state["active_worker"] = {
-        "row_id": pick.get("row_id"),
-        "branch": branch,
-        "tier": pick.get("tier", "standard"),
+    pid = _launch_headless(worktree, log_path, executable, prompt, model, effort)
+    return _record_worker(state, cfg, pick, {
         "model": model,
         "process_group": True,
         "process_start": _process_start(pid),
         "worktree": str(worktree),
         "pid": pid,
-        "started_at": int(cfg.clock()),
         "log_path": str(log_path),
-        "retry_count": 0,
         "last_log_mtime": 0,
+    })
+
+
+def _record_worker(state: dict, cfg: LoopConfig, pick: dict, worker: dict) -> dict:
+    day = _today(cfg.clock)
+    counts = state.setdefault("daily_counts", {})
+    counts[day] = int(counts.get(day, 0)) + 1
+    state["active_worker"] = {
+        **worker, "row_id": pick.get("row_id"), "branch": pick["branch"],
+        "tier": pick.get("tier", "standard"), "started_at": int(cfg.clock()), "retry_count": 0,
     }
     if state.get("pinned_row") == pick.get("row_id"):
         state["pinned_row"] = None
@@ -508,21 +560,27 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
 
 
 def _retry_worker(state: dict[str, Any], cfg: LoopConfig, worker: dict[str, Any], text: str) -> None:
+    if worker.get("backend") == "herdr":
+        herdr.send(cfg.repo_path, worker["branch"], text, Path(worker["log_path"]))
+        worker["retry_count"] = int(worker.get("retry_count", 0)) + 1
+        worker["status_since"] = int(cfg.clock())
+        return
     executable = _copilot_path(state, cfg)
     if not executable:
         return
     model, effort = _tier_model_effort(cfg.model_tiers_file, worker.get("tier", "standard"))
-    cmd = (
-        f"{shlex.quote(executable)} -p {shlex.quote(text)} --allow-all --model {shlex.quote(model)} "
-        f"--reasoning-effort {shlex.quote(effort)} >> {shlex.quote(worker['log_path'])} 2>&1"
-    )
-    worker["pid"] = _spawn_copilot(Path(worker["worktree"]), cmd)
+    worker["pid"] = _launch_headless(Path(worker["worktree"]), Path(worker["log_path"]),
+                                     executable, text, model, effort, append=True)
     worker["process_group"] = True
     worker["process_start"] = _process_start(worker["pid"])
     worker["retry_count"] = int(worker.get("retry_count", 0)) + 1
 
 
 def _check_worker_idle(state: dict[str, Any], cfg: LoopConfig, worker: dict[str, Any]) -> bool:
+    if worker.get("backend") == "herdr":
+        return worker.get("status") in {"idle", "done", "blocked", "missing"} and (
+            cfg.clock() - worker.get("status_since", cfg.clock()) > 1800
+        )
     log_path = Path(worker["log_path"])
     if not log_path.exists():
         return False
@@ -581,12 +639,29 @@ def watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any
         state["pick"] = {"reason": exc.condition}
         _enqueue_notification(state, exc.condition, "github", str(exc))
         return state
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
+        worker = state.get("active_worker") or {}
+        if worker.get("backend") != "herdr":
+            raise
+        _enqueue_notification(state, "herdr-watch-failed", worker["branch"], f"Could not update Herdr worker: {exc}")
+        return state
 
 
 def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, Any]:
     worker = state.get("active_worker")
     if not worker or state.get("observed", {}).get("errors"):
         return state
+    is_herdr = worker.get("backend") == "herdr"
+    if is_herdr and not worker.get("herdr_closed"):
+        status = herdr.status(worker["agent"])
+        if status != worker.get("status"):
+            if not (status in {"idle", "done"} and worker.get("status") in {"idle", "done"}):
+                worker["status_since"] = int(cfg.clock())
+            worker["status"] = status
+        if _check_worker_idle(state, cfg, worker):
+            _enqueue_notification(state, "worker-idle", worker["branch"], f"Worker {worker['branch']} {status} >30m")
+        else:
+            _resolve_notification(state, "worker-idle", worker["branch"])
 
     open_prs = gh.list_prs("open", head_branch=worker["branch"])
     if open_prs:
@@ -607,6 +682,11 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
                     f"PR #{pr['number']} touches live-control files without approval",
                 )
         if pr.get("reviewDecision") == "CHANGES_REQUESTED" or _check_rollup_failing(pr.get("statusCheckRollup", [])):
+            if is_herdr and (
+                worker.get("status") not in {"idle", "done"}
+                or (worker.get("retry_count") and not _check_worker_idle(state, cfg, worker))
+            ):
+                return state
             if int(worker.get("retry_count", 0)) == 0 and not cfg.dry_run:
                 _retry_worker(state, cfg, worker, "PR checks/review failed. Fix and continue.")
             else:
@@ -620,6 +700,10 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
 
     merged = gh.list_prs("merged", head_branch=worker["branch"])
     if merged:
+        if (is_herdr and not cfg.dry_run and not worker.get("herdr_closed")
+                and worker.get("status") in {"idle", "done", "missing"}):
+            herdr.close(cfg.repo_path, worker)
+            worker["herdr_closed"] = True
         if not cfg.dry_run and not _fetch_origin_niced(cfg):
             _enqueue_notification(state, "repo-fetch-failed", "origin", "Could not fetch origin for ancestry check")
             return state
@@ -653,7 +737,9 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
                 for step in job.get("steps", []):
                     if step.get("name") == "Monitor post-deploy health" and step.get("conclusion") == "success":
                         health_ok = True
-        if test_ok and deploy_ok_run and health_ok:
+        if test_ok and deploy_ok_run and health_ok and (
+            not is_herdr or cfg.dry_run or worker.get("herdr_closed")
+        ):
             state["active_worker"] = None
             state["phase"] = "done"
         return state
@@ -674,18 +760,6 @@ def _watch_pr(state: dict[str, Any], cfg: LoopConfig, gh: GhCli) -> dict[str, An
     return state
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        if pid <= 0:
-            return False
-        import os
-
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True) -> dict[str, Any]:
     sent = state.setdefault("notifications_sent", {})
     observed = state.get("observed")
@@ -701,8 +775,8 @@ def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True
         key = f"{item['condition']}:{item['subject_id']}"
         if key in sent:
             continue
-        if not cfg.dry_run and cfg.notify_backend == "notify-send":
-            subprocess.run(["notify-send", "Victron loop blocker", item["message"]], check=False)
+        if not cfg.dry_run:
+            desktop_notify(cfg.notify_backend, "Victron loop blocker", item["message"])
         sent[key] = int(cfg.clock())
 
     today = _today(cfg.clock)
@@ -710,8 +784,8 @@ def notify(state: dict[str, Any], cfg: LoopConfig, *, daily_summary: bool = True
         waiting = sorted(state.get("failed_rows", []))
         done = "yes" if not state.get("active_worker") else "no"
         message = f"done={done}; waiting={','.join(waiting) if waiting else 'none'}"
-        if not cfg.dry_run and cfg.notify_backend == "notify-send":
-            subprocess.run(["notify-send", "Victron loop daily summary", message], check=False)
+        if not cfg.dry_run:
+            desktop_notify(cfg.notify_backend, "Victron loop daily summary", message)
         state["last_summary_date"] = today
     return state
 

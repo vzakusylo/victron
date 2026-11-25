@@ -188,7 +188,8 @@ def test_pick_task_copilot_error_notifies(tmp_path: Path):
     models = tmp_path / "models.json"
     models.write_text('{"tiers":{"review":{"model":"m1","effort":"low"}}}', encoding="utf-8")
     state = {"observed": {"open_prs": [], "deploy_applied": True, "deploy_health": "success"}, "approved": [], "daily_counts": {}}
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models,
+                     worker_backend="headless")
     origin_backlog = path.read_text(encoding="utf-8")
     origin_models = models.read_text(encoding="utf-8")
 
@@ -219,7 +220,8 @@ def test_pick_task_non_json_notifies(tmp_path: Path):
     models = tmp_path / "models.json"
     models.write_text('{"tiers":{"review":{"model":"m1","effort":"low"}}}', encoding="utf-8")
     state = {"observed": {"open_prs": [], "deploy_applied": True, "deploy_health": "success"}, "approved": [], "daily_counts": {}}
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models,
+                     worker_backend="headless")
     origin_backlog = path.read_text(encoding="utf-8")
     origin_models = models.read_text(encoding="utf-8")
 
@@ -249,7 +251,8 @@ def test_pick_task_branch_sanitising(tmp_path: Path):
     models = tmp_path / "models.json"
     models.write_text('{"tiers":{"review":{"model":"m1","effort":"low"}}}', encoding="utf-8")
     state = {"observed": {"open_prs": [], "deploy_applied": True, "deploy_health": "success"}, "approved": [], "daily_counts": {}}
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models,
+                     worker_backend="headless")
     origin_backlog = path.read_text(encoding="utf-8")
     origin_models = models.read_text(encoding="utf-8")
 
@@ -303,7 +306,8 @@ def test_pick_task_uses_models_file_from_repo_clone_path(tmp_path: Path, mock_co
     models_file = repo_models / "models.json"
     models_file.write_text('{"tiers":{"review":{"model":"from-repo-clone","effort":"low"}}}', encoding="utf-8")
     state = {"observed": {"open_prs": [], "deploy_applied": True, "deploy_health": "success"}, "approved": [], "daily_counts": {}}
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models_file)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models_file,
+                     worker_backend="headless")
     called = {}
 
     class Out:
@@ -369,7 +373,7 @@ def test_pick_task_reads_backlog_and_models_from_origin_master(monkeypatch, tmp_
         "daily_counts": {},
         "repo_refresh_failed": False,
     }
-    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock)
+    cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, worker_backend="headless")
     calls = []
 
     def fake_show(_cfg, rel):
@@ -397,11 +401,16 @@ def test_fetch_origin_niced_uses_nice_and_timeout(monkeypatch, tmp_path: Path):
     def fake_run(cmd, **kwargs):
         seen["cmd"] = cmd
         seen["timeout"] = kwargs.get("timeout")
+        seen["creationflags"] = kwargs.get("creationflags", 0)
         return Result()
 
     monkeypatch.setattr(nodes.subprocess, "run", fake_run)
     assert nodes._fetch_origin_niced(cfg, timeout_seconds=77) is True
-    assert seen["cmd"][0] == "bash"
-    assert "nice -n 19" in seen["cmd"][2]
+    if nodes.WINDOWS:
+        assert seen["cmd"] == ["git", "-C", str(tmp_path), "fetch", "origin"]
+        assert seen["creationflags"] & subprocess.BELOW_NORMAL_PRIORITY_CLASS
+    else:
+        assert seen["cmd"][0] == "bash"
+        assert "nice -n 19" in seen["cmd"][2]
     assert seen["timeout"] == 77
 

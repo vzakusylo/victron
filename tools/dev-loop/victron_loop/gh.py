@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .platform import priority_options
+
 
 JsonRunner = Callable[[list[str], dict[str, str] | None], str]
 
@@ -59,7 +61,8 @@ def token_details(path: Path | None, now: float, allow_fallback: bool = False) -
 
 
 def _default_runner(cmd: list[str], env: dict[str, str] | None) -> str:
-    out = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env, timeout=30)
+    out = subprocess.run(cmd, check=False, capture_output=True, encoding="utf-8",
+                         env=env, timeout=30, **priority_options())
     if out.returncode:
         if re.search(r"\bHTTP\s+401\b|\b401\s+Unauthorized\b", out.stderr, re.IGNORECASE):
             raise GhTokenError("token-invalid", "GitHub rejected the loop token (HTTP 401)")

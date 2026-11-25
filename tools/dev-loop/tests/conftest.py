@@ -15,19 +15,22 @@ def _head_token(cmd) -> str:
 
 
 @pytest.fixture(autouse=True)
-def block_real_gh_copilot_git_subprocess(monkeypatch):
+def block_real_external_subprocesses(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
     original_run = subprocess.run
     original_popen = subprocess.Popen
+    blocked = {"gh", "copilot", "git", "herdr", "pwsh"}
 
     def guarded_run(cmd, *args, **kwargs):
         head = _head_token(cmd)
-        if head in {"gh", "copilot", "git"}:
+        if head in blocked:
             raise AssertionError(f"real subprocess call is blocked in tests: {head}")
         return original_run(cmd, *args, **kwargs)
 
     def guarded_popen(cmd, *args, **kwargs):
         head = _head_token(cmd)
-        if head in {"gh", "copilot", "git"}:
+        if head in blocked:
             raise AssertionError(f"real subprocess call is blocked in tests: {head}")
         return original_popen(cmd, *args, **kwargs)
 

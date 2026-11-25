@@ -21,7 +21,8 @@ param(
   [string]$Model = '',
   [ValidateSet('', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$Effort = '',
   [int]$Lines = 120,
-  [int]$TimeoutMin = 30
+  [int]$TimeoutMin = 30,
+  [switch]$Json
 )
 $ErrorActionPreference = 'Stop'
 
@@ -63,7 +64,8 @@ switch ($Action) {
     if ($Model) { $agentArgs += @('--model', $Model) }
     if ($Effort) { $agentArgs += @('--reasoning-effort', $Effort) }
     Invoke-Herdr agent start $agent --kind copilot --pane $pane --timeout 120000 @agentArgs | Out-Null
-    [pscustomobject]@{ task = $Task; agent = $agent; pane = $pane; worktree = $path; branch = $Task; tier = $Tier; model = $Model; effort = $Effort }
+    $result = [pscustomobject]@{ task = $Task; agent = $agent; pane = $pane; worktree = $path; branch = $Task; tier = $Tier; model = $Model; effort = $Effort }
+    if ($Json) { $result | ConvertTo-Json -Compress } else { $result }
   }
   'send' {
     if (-not $Text) { throw "Prompt text required." }

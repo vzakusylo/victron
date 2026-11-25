@@ -1,5 +1,7 @@
 # Omarchy loop token
 
+On Windows, use the same token scope with [the Windows rotation script](dev-loop-windows.md#set-up-the-token).
+
 ## Create
 
 1. In GitHub, open **Settings → Developer settings → Personal access tokens

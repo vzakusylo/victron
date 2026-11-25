@@ -10,8 +10,7 @@ from victron_loop.state import StateStore
 
 
 def test_dry_run_state_file_unchanged(tmp_path: Path, monkeypatch):
-    state_dir = tmp_path / "state" / "victron-loop"
-    state_dir.mkdir(parents=True)
+    state_dir = main_mod.StateStore.open().root
     state_file = state_dir / "state.json"
     state_file.write_text(
         json.dumps(
@@ -67,7 +66,6 @@ model_tiers_file = "missing-models.json"
 
     monkeypatch.setattr(main_mod, "GhCli", FakeGh)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     code = main(["--config", str(config), "run-once", "--dry-run"])
     assert code == 0
     assert state_file.read_bytes() == before

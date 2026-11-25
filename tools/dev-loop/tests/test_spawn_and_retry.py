@@ -27,6 +27,7 @@ def test_spawn_uses_nice_19_when_not_systemd(monkeypatch, tmp_path: Path):
 
 
 def test_retry_uses_nice_spawn(monkeypatch, tmp_path: Path, mock_copilot_path):
+    monkeypatch.setattr(nodes, "WINDOWS", False)
     models = tmp_path / "models.json"
     models.write_text('{"tiers":{"standard":{"model":"gpt-x","effort":"low"}}}', encoding="utf-8")
     cfg = LoopConfig(repo="vzakusylo/victron", dry_run=False, clock=fixed_clock, model_tiers_file=models)

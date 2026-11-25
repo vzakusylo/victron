@@ -17,4 +17,9 @@ model_tiers_file = "~/victron-loop/repo/tools/herdr/models.json"
 # Bare MagicDNS names accepted in addition to the bound IP. Defaults to ["omarchy"].
 # web_hosts = ["omarchy", "omarchy.example-tailnet.ts.net"]
 # web_token_file = "~/.config/victron-loop/web-token"
+# Foreground scheduler interval (minutes); the Linux systemd timer is independent.
+# interval_minutes = 10
+# worker_backend = "headless"  # Windows defaults to "herdr".
+# instance_name = "omarchy"    # Windows defaults to "windows".
+# peer_status_url = "http://other-loop:8790/api/peer-status"
 

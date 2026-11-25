@@ -6,6 +6,8 @@ import signal
 import subprocess
 
 from .nodes import LoopConfig, _fetch_origin_niced, _process_start, evaluate_plan
+from . import herdr
+from .platform import WINDOWS
 from .state import LockBusyError, StateStore
 
 ROW_ACTIONS = {"approve": "approved", "skip": "skipped_rows", "unskip": "skipped_rows", "pin": "pinned_row"}
@@ -15,11 +17,14 @@ LOOP_UNIT = "victron-loop.service"
 def read_plan(cfg: LoopConfig, state: dict) -> dict:
     git = ["git", "-C", str(cfg.repo_path)]
     commit = subprocess.check_output(git + ["rev-parse", "origin/master"], text=True, timeout=10).strip()
-    text = subprocess.check_output(git + ["show", f"{commit}:BACKLOG.md"], text=True, timeout=10)
+    text = subprocess.check_output(git + ["show", f"{commit}:BACKLOG.md"], encoding="utf-8", timeout=10)
     return {"commit": commit, **evaluate_plan(state, text)}
 
 
 def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = "") -> dict:
+    if action == "run-now" and cfg.scheduler is not None:
+        cfg.scheduler.request_run()
+        return {"ok": True, "message": "Run queued", "paused": store.load().get("paused", False)}
     with store.lock():
         state = store.load()
         message = "Saved"
@@ -41,6 +46,8 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
                 message = "Paused" if paused else "Resumed"
             state["paused"] = paused
         elif action == "run-now":
+            if WINDOWS:
+                raise ValueError("Run now requires foreground serve on Windows")
             prefix = ["systemctl", "--user"]
             status = subprocess.check_output(
                 [*prefix, "show", "--property=ActiveState", "--value", LOOP_UNIT],
@@ -56,18 +63,22 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
                 raise ValueError("Stop requires confirmation")
             worker = state.get("active_worker")
             if worker:
-                if not worker.get("process_group"):
-                    raise ValueError("Legacy worker has no tracked process group")
-                pid = int(worker["pid"])
-                started = worker.get("process_start")
-                try:
-                    if started and _process_start(pid) == started:
-                        os.killpg(pid, signal.SIGTERM)
-                    else:
-                        os.killpg(pid, 0)
-                        raise ValueError("Cannot verify worker process group; stop it manually")
-                except ProcessLookupError:
-                    pass
+                if worker.get("backend") == "herdr":
+                    interrupted = not worker.get("herdr_closed") and herdr.interrupt(worker["agent"])
+                    message = "Worker interrupted; pane retained" if interrupted else "Worker marked stopped; check its Herdr pane"
+                else:
+                    if not worker.get("process_group") or not hasattr(os, "killpg"):
+                        raise ValueError("Worker has no supported process group; stop it manually")
+                    pid = int(worker["pid"])
+                    started = worker.get("process_start")
+                    try:
+                        if started and _process_start(pid) == started:
+                            os.killpg(pid, signal.SIGTERM)
+                        else:
+                            os.killpg(pid, 0)
+                            raise ValueError("Cannot verify worker process group; stop it manually")
+                    except ProcessLookupError:
+                        pass
                 state["stopped_rows"] = sorted(set(state.get("stopped_rows", [])) | {worker["row_id"]})
                 state["last_worker"] = {**worker, "status": "stopped"}
                 state["active_worker"] = None

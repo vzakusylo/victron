@@ -10,21 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-try:
-    import fcntl
-except ModuleNotFoundError:  # pragma: no cover
-    fcntl = None  # type: ignore
-
-
-class LockBusyError(RuntimeError):
-    pass
-
-
-def _state_root() -> Path:
-    xdg = os.environ.get("XDG_STATE_HOME")
-    if xdg:
-        return Path(xdg) / "victron-loop"
-    return Path.home() / ".local" / "state" / "victron-loop"
+from .platform import WINDOWS, LockBusyError, exclusive_lock, state_root
 
 
 @dataclass
@@ -37,7 +23,7 @@ class StateStore:
 
     @classmethod
     def open(cls, root: Path | None = None) -> "StateStore":
-        base = root or _state_root()
+        base = root or state_root()
         base.mkdir(parents=True, exist_ok=True)
         return cls(
             root=base,
@@ -85,7 +71,7 @@ class StateStore:
         directory.mkdir(mode=0o700, exist_ok=True)
         with NamedTemporaryFile("w", delete=False, dir=directory, encoding="utf-8") as temp:
             temp.write(output)
-        os.replace(temp.name, directory / f"{run['id']}.log")
+        _replace_file(temp.name, directory / f"{run['id']}.log")
         _atomic_write_json(self.root / "last-run.json", run)
         for path in self.run_logs()[50:]:
             path.unlink()
@@ -100,25 +86,8 @@ class StateStore:
     @contextmanager
     def lock(self) -> Any:
         self.lock_file.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock_file.open("a+", encoding="utf-8") as f:
-            if fcntl is None:  # pragma: no cover
-                yield
-                return
-            try:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as exc:
-                raise LockBusyError("lock is busy") from exc
-            f.seek(0)
-            f.truncate()
-            f.write(str(os.getpid()))
-            f.flush()
-            try:
-                yield
-            finally:
-                f.seek(0)
-                f.truncate()
-                if fcntl is not None:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        with exclusive_lock(self.lock_file):
+            yield
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
@@ -128,5 +97,21 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
         temp.flush()
         os.fsync(temp.fileno())
         temp_name = temp.name
-    os.replace(temp_name, path)
+    _replace_file(temp_name, path)
+
+
+def _replace_file(source: str, destination: Path) -> None:
+    try:
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                os.replace(source, destination)
+                return
+            except PermissionError as exc:
+                # Windows readers and scanners can briefly hold files without delete sharing.
+                if not WINDOWS or getattr(exc, "winerror", None) not in {5, 32, 33} or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.02)
+    finally:
+        Path(source).unlink(missing_ok=True)
 
