@@ -95,7 +95,7 @@ after on the GX (NR1 table). Grid control (energy controller) is the top priorit
 
 | ID | Task | State / notes |
 |---|---|---|
-| H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) In progress: `h16-owner-curve-boiler-stop`. Reproduced saved P23/P24 33/5 being overwritten by 27/5 after the DHW settling window on #186. Fix: only bootstrap a missing baseline from pump readings; only a confirmed owner Apply replaces a saved baseline. (3) Blocked: the seven-minute stop warning does not identify the failing input; see below. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
+| H16 | Heat pump idle follow-ups (found by H0) | (1) Done in #165. (2) Done in #187. (3) Blocked: the seven-minute stop warning does not identify the failing input; see below. (4) Most idle time (484 of 685 min in Nov 14–21) followed the pump's 3-min restart protection after defrost and waiting for the restart level (set − DP 121). Lowering DP 121 or raising the point would shorten the wait; owner decision. |
 
 **H16(3), forced boiler stop:** `lib/heat-pump/dhw-tick.js` (`showerMeasurementsOk` and `showerSafetyStopRequested`) latches on one tick with an unavailable/stale HP, valve or bypass, or an invalid tank, cycle DP or relay reading. It cancels old-run writes immediately and waits for devices to become available before restoring heating. `lib/heat-pump/kick.js` yields to pending or active DHW and writes only DP 2, which this guard does not validate. A reported fan speed of zero is valid and does not by itself cause this stop. To identify the seven-minute incident, obtain the timestamped device connection states and `lastData`, raw HP DPs 15, 101–104, 108, 112, 115–116, 132–134, and valve/bypass DP 1 at the first warning tick. If that snapshot was not retained, add first-trigger diagnostics before changing the safety policy. No stop behavior was changed.
 
@@ -155,6 +155,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+#187 H16(2) (`h16-owner-curve-boiler-stop`, d#241 · i#57): a partial DHW restore readback (P23/P24 27/5) can no longer overwrite the saved owner curve (33/5). Pump readings initialize a missing baseline; only a confirmed owner Apply replaces a saved one.
 
 #186 HP-M2 stage 3 (`hp-m2-curve-owner`, d#240 · i#56): enforce a shared P22–P24 lease and an independent DP 121 lease. Keep automatic curve SETs paced and ordered under one generation, compose warm-up / band / boost against the owner's curve, and confirm both owner Apply coefficients under the same live lease before saving them. Automatic curve leases use elapsed time so a wall-clock jump cannot split a queued curve group.
 
