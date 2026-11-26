@@ -38,6 +38,11 @@ def apply_control(store: StateStore, cfg: LoopConfig, action: str, value: str = 
                 rows = set(state.get(field, []))
                 (rows.discard if action == "unskip" else rows.add)(value)
                 state[field] = sorted(rows)
+                pending = state.get("pending_herdr_start")
+                if action == "skip" and pending and pending["row_id"] == value:
+                    state["pending_herdr_start"] = None
+                    for condition in ("herdr-start-failed", "herdr-start-blocked"):
+                        state.get("notifications_sent", {}).pop(f"{condition}:{pending['branch']}", None)
         elif action in {"pause", "resume"}:
             paused = action == "pause"
             if paused == state.get("paused", False):

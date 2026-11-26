@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from victron_loop import herdr, nodes, web
+import pytest
+
+from victron_loop import herdr, main, nodes, web
 from victron_loop.control import apply_control
 from victron_loop.state import StateStore
 
@@ -13,13 +18,18 @@ def test_herdr_launch_commands_and_brief(tmp_path, monkeypatch):
     repo, worktree = tmp_path / "main checkout", tmp_path / "worker"
     worktree.mkdir()
     log = tmp_path / "logs" / "fix.log"
-    prefix = ["pwsh", "-NoProfile", "-File", str(repo / "tools" / "herdr" / "herdr-task.ps1")]
+    prefix = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(repo / "tools" / "herdr" / "herdr-task.ps1")]
     calls = []
 
     def launch(cmd, **kwargs):
         calls.append(cmd)
         assert kwargs["timeout"] == 150
-        return json.dumps({"agent": "w-fix", "worktree": str(worktree), "model": "gpt-x"})
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["capture_output"] is True
+        assert kwargs.get("creationflags") == herdr.priority_options().get("creationflags")
+        return subprocess.CompletedProcess(cmd, 0, json.dumps({
+            "agent": "w-fix", "worktree": str(worktree), "model": "gpt-x",
+        }), "")
 
     def detached(cmd, **kwargs):
         calls.append(cmd)
@@ -27,7 +37,7 @@ def test_herdr_launch_commands_and_brief(tmp_path, monkeypatch):
         assert kwargs["stderr"] == herdr.subprocess.STDOUT
         assert kwargs.get("start_new_session") or kwargs.get("creationflags")
 
-    monkeypatch.setattr(herdr.subprocess, "check_output", launch)
+    monkeypatch.setattr(herdr.subprocess, "run", launch)
     monkeypatch.setattr(herdr.subprocess, "Popen", detached)
     assert herdr.start(repo, "fix", "standard", "A brief", log) == {
         "agent": "w-fix", "worktree": str(worktree), "model": "gpt-x",
@@ -38,6 +48,87 @@ def test_herdr_launch_commands_and_brief(tmp_path, monkeypatch):
     ]
 
 
+def test_herdr_launch_failure_includes_both_output_tails(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **_: subprocess.CompletedProcess(
+        cmd, 64, "discard-me" + "x" * 2048 + "usage tail", "script not found",
+    ))
+    with pytest.raises(subprocess.SubprocessError, match=r"exited 64") as error:
+        herdr.start(tmp_path, "fix", "standard", "brief", tmp_path / "fix.log")
+    assert "usage tail" in str(error.value)
+    assert "stderr: script not found" in str(error.value)
+    assert "discard-me" not in str(error.value)
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
+                    reason="requires Windows PowerShell 7")
+@pytest.mark.parametrize("script_exists", [True, False])
+def test_foreground_cycle_captures_native_pwsh_stderr(
+    tmp_path, monkeypatch, block_real_external_subprocesses, script_exists,
+):
+    repo = tmp_path / "main checkout"
+    script = repo / "tools" / "herdr" / "herdr-task.ps1"
+    script.parent.mkdir(parents=True)
+    if script_exists:
+        script.write_text("[Console]::Error.WriteLine('fake launcher diagnostic')\nexit 64\n", encoding="utf-8")
+    cfg = nodes.LoopConfig(repo="test/repo", repo_path=repo)
+    store = StateStore.open(tmp_path / "state")
+
+    def tick(*_):
+        herdr.start(repo, "fix", "standard", "brief", tmp_path / "fix.log")
+
+    block_real_external_subprocesses.add((
+        "pwsh", "-NoProfile", "-NonInteractive", "-File", str(script),
+        "new", "fix", "-Repo", str(repo), "-Base", "origin/master", "-Tier", "standard", "-Json",
+    ))
+    monkeypatch.setattr(main, "run_tick", tick)
+    assert main.run_cycle(store, cfg, None, echo=False) == (1, "failed")
+    log = store.run_logs()[0].read_text(encoding="utf-8")
+    assert "exited 64" in log
+    expected = "stderr: fake launcher diagnostic" if script_exists else "is not recognized as the name of a script file"
+    assert expected in log
+
+
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_herdr_start_retries_saved_pick(tmp_path, monkeypatch, succeeds):
+    cfg = nodes.LoopConfig(repo="test/repo", repo_path=tmp_path, worker_backend="herdr",
+                           dry_run=False, loop_home=tmp_path)
+    observed = {"deploy_applied": True, "deploy_health": "success"}
+    pick = {"row_id": "FIX", "branch": "fix", "brief": "same brief", "tier": "standard"}
+    store = StateStore.open(tmp_path)
+    store.save({"pick": pick, "observed": observed})
+    calls, messages = [], []
+
+    def launch(repo, branch, tier, brief, log):
+        calls.append((branch, tier, brief))
+        if succeeds and len(calls) == 2:
+            return {"agent": "w-fix", "worktree": str(repo), "model": "gpt-x"}
+        raise subprocess.SubprocessError(f"stderr: launch error {len(calls)}")
+
+    monkeypatch.setattr(herdr, "running", lambda: True)
+    monkeypatch.setattr(herdr, "start", launch)
+    monkeypatch.setattr(nodes, "desktop_notify", lambda _, title, message: messages.append(message))
+    for cycle in range(2 if succeeds else 4):
+        state = store.load()
+        if cycle:
+            nodes.pick_task(state, cfg, tmp_path / "missing-backlog.md")
+        nodes.start_worker(state, cfg)
+        nodes.notify(state, cfg, daily_summary=False)
+        store.save(state)
+    assert calls == [("fix", "standard", "same brief")] * (2 if succeeds else 3)
+    if succeeds:
+        assert state["pending_herdr_start"] is None
+        assert state["active_worker"]["branch"] == "fix"
+        assert len(messages) == 1
+    else:
+        assert state["pick"]["reason"] == "herdr-start-blocked"
+        assert state["pending_herdr_start"]["attempts"] == 3
+        assert len(messages) == 3
+        assert "operator intervention required" in messages[-1]
+        apply_control(store, cfg, "skip", "FIX")
+        assert store.load()["pending_herdr_start"] is None
+    assert all(f"stderr: launch error {i}" in msg for i, msg in enumerate(messages, 1))
+
+
 def test_herdr_status_and_read(tmp_path, monkeypatch):
     # Trimmed from Herdr 0.9.5 agent list.
     sample = '{"result":{"agents":[{"agent":"copilot","agent_status":"idle","name":"w-fix","pane_id":"w4:p1"}]}}'
@@ -45,9 +136,9 @@ def test_herdr_status_and_read(tmp_path, monkeypatch):
 
     def command(cmd, **_):
         calls.append(cmd)
-        return sample if cmd[0] == "herdr" else "first\nsecond\n"
+        return subprocess.CompletedProcess(cmd, 0, sample if cmd[0] == "herdr" else "first\nsecond\n", "")
 
-    monkeypatch.setattr(herdr.subprocess, "check_output", command)
+    monkeypatch.setattr(herdr.subprocess, "run", command)
     assert herdr.status("w-fix") == "idle"
     assert herdr.status("w-missing") == "missing"
     assert calls[0] == ["herdr", "agent", "list"]
@@ -85,7 +176,8 @@ def test_herdr_retry_and_close_after_merge(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(herdr, "status", lambda _: "done")
     monkeypatch.setattr(herdr, "send", lambda *args, **kwargs: calls.append((args, kwargs)))
-    monkeypatch.setattr(herdr.subprocess, "run", lambda cmd, **_: calls.append(cmd))
+    monkeypatch.setattr(herdr.subprocess, "run",
+                        lambda cmd, **_: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
     monkeypatch.setattr(nodes, "_fetch_origin_niced", lambda _: True)
     failing = SimpleNamespace(list_prs=lambda *_args, **_kw: [{"reviewDecision": "CHANGES_REQUESTED"}])
     nodes.watch_pr(state, cfg, failing)

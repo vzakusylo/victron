@@ -1,5 +1,5 @@
 {
-  "i": 74,
+  "i": 75,
   "changes": [
     {
       "i": 1,
@@ -444,6 +444,12 @@
       "date": "2026-11-26",
       "pr": null,
       "what": "Dev-loop picker JSON and alert fixes"
+    },
+    {
+      "i": 75,
+      "date": "2026-11-26",
+      "pr": null,
+      "what": "Diagnose and retry Herdr worker starts"
     }
   ]
 }

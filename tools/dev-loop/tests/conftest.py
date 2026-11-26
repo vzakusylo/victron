@@ -21,21 +21,23 @@ def block_real_external_subprocesses(monkeypatch, tmp_path):
     original_run = subprocess.run
     original_popen = subprocess.Popen
     blocked = {"gh", "copilot", "git", "herdr", "pwsh"}
+    allowed = set()
 
     def guarded_run(cmd, *args, **kwargs):
         head = _head_token(cmd)
-        if head in blocked:
+        if head in blocked and tuple(cmd) not in allowed:
             raise AssertionError(f"real subprocess call is blocked in tests: {head}")
         return original_run(cmd, *args, **kwargs)
 
     def guarded_popen(cmd, *args, **kwargs):
         head = _head_token(cmd)
-        if head in blocked:
+        if head in blocked and tuple(cmd) not in allowed:
             raise AssertionError(f"real subprocess call is blocked in tests: {head}")
         return original_popen(cmd, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", guarded_run)
     monkeypatch.setattr(subprocess, "Popen", guarded_popen)
+    return allowed
 
 
 @pytest.fixture

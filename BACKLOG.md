@@ -133,6 +133,7 @@ scenarios cover frequency/current separately; combined and actual field protecti
 | R5 | Split `40 Heat pump automations.js` (1.9k lines) and `01 Battery + Grid Controller.js` (1.2k): pure decisions into `lib/*.js` loaded by the node | Done: #93 | Build-time `#include`; 40 → 725 lines + 6 lib files, 01 → 900 + 2; flows.json byte-identical. |
 | AUTO1 | Autonomous dev loop on Omarchy (LangGraph + timer + CI/workflow + install path) | Done: #193 | `tools/dev-loop`, dry-run deploy workflow, blocker-only notifications, and test/CI coverage. |
 | AUTO1-PICKER | Use Claude Code Opus for the dev-loop picker | In progress: `auto1-claude-picker` / #203 | Tested with fake CLIs; workers remain Copilot (d#252 unchanged). |
+| AUTO1-HERDR-START | Diagnose Windows Herdr launch failures and retry retained picks | In progress: `auto1-herdr-start` | A missing `-File` script reproduces exit 64; the incident's stderr was lost, so the exact cause remains unconfirmed. Capture both streams and block after three failed starts without repicking. |
 
 ### Node-RED refactoring, grid control first (plan: [docs/node-red-refactoring-plan.md](docs/node-red-refactoring-plan.md))
 
