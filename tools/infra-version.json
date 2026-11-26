@@ -1,5 +1,5 @@
 {
-  "i": 73,
+  "i": 74,
   "changes": [
     {
       "i": 1,
@@ -438,6 +438,12 @@
       "date": "2026-11-25",
       "pr": null,
       "what": "Use Claude Code for the dev-loop picker"
+    },
+    {
+      "i": 74,
+      "date": "2026-11-26",
+      "pr": null,
+      "what": "Dev-loop picker JSON and alert fixes"
     }
   ]
 }

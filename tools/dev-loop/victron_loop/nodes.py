@@ -334,10 +334,41 @@ def _safe_branch(row_id: str, candidate: str) -> str:
 
 CLAUDE_AUTH_HINT = "Run claude auth login"
 PICKER_TIMEOUT = 120
+TOKEN_RE = re.compile(r"""(?i)(?:gh[pousr]_\w+|github_pat_\w+|sk-ant-[\w-]+|(?:bearer\s+|\b[\w-]*(?:token|api[_-]?key|password|secret)["']?\s*[:=]\s*["']?)[^\s,;"']+)""")
+ANSI_RE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-_])")
 
 
 class ClaudeAuthRequired(ValueError):
     pass
+
+
+class PickerReplyError(ValueError):
+    def __init__(self, message: str, reply: str):
+        reply = TOKEN_RE.sub("[redacted]", ANSI_RE.sub("", reply))
+        preview = reply.encode("utf-8", errors="replace")[:4096].decode("utf-8", errors="ignore")
+        super().__init__(f"{message}; raw reply: {preview}")
+
+
+def _parse_picker_reply(reply: str) -> Any:
+    text = re.sub(r"\s*```\s*$", "", re.sub(r"^```(?:json)?\s*", "", reply.strip(), flags=re.IGNORECASE))
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        if start >= 0:
+            depth = 0
+            for match in re.finditer(r'"(?:\\.|[^"\\])*"|[{}]', text[start:], re.DOTALL):
+                token = match.group()
+                if token == "{":
+                    depth += 1
+                elif token == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(text[start:start + match.end()])
+                        except json.JSONDecodeError:
+                            break
+        raise PickerReplyError("Invalid picker JSON", reply) from None
 
 
 def _claude_auth_error(diagnostic: str) -> bool:
@@ -372,14 +403,19 @@ def _claude_json(cfg: LoopConfig, prompt: str, runner: Callable[..., Any]) -> An
         if _claude_auth_error(diagnostic):
             raise ClaudeAuthRequired(CLAUDE_AUTH_HINT) from exc
         raise
-    envelope = json.loads(out)
-    if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), str):
-        raise ValueError("Invalid Claude CLI result envelope")
+    try:
+        envelope = json.loads(out)
+    except json.JSONDecodeError:
+        raise PickerReplyError("Invalid Claude CLI JSON envelope", out) from None
+    if not isinstance(envelope, dict):
+        raise PickerReplyError("Invalid Claude CLI result envelope", out)
     if envelope.get("is_error"):
-        if _claude_auth_error(envelope["result"]):
+        if _claude_auth_error(str(envelope.get("result") or out)):
             raise ClaudeAuthRequired(CLAUDE_AUTH_HINT)
-        raise ValueError("Claude CLI reported an error")
-    return json.loads(envelope["result"])
+        raise PickerReplyError("Claude CLI reported an error", out)
+    if not isinstance(envelope.get("result"), str):
+        raise PickerReplyError("Claude CLI envelope missing a string result", out)
+    return _parse_picker_reply(envelope["result"])
 
 
 def check_picker(cfg: LoopConfig, runner=None) -> int:
@@ -403,6 +439,7 @@ def _pick_llm(
 ) -> dict[str, str]:
     prompt = (
         "Return strict JSON object with keys row_id, branch, tier, brief.\n"
+        "Reply with only the JSON object, no code fence, no other text.\n"
         f"Backlog data: {json.dumps(backlog_text)}\n"
         f"Selected row: {json.dumps(row)}\n"
         "Brief must include: goal, files, tests, delivery "
@@ -421,7 +458,7 @@ def _pick_llm(
             timeout=PICKER_TIMEOUT,
             **priority_options(),
         ).stdout
-        data = json.loads(out)
+        data = _parse_picker_reply(out)
     if not isinstance(data, dict):
         raise ValueError("picker response is not an object")
     for key in ("row_id", "branch", "tier", "brief"):
@@ -475,7 +512,7 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
             return state
     plan = evaluate_plan(state, backlog_text)
     for item in plan["skipped"]:
-        if item["reason"] == "needs-owner-go":
+        if item["reason"] == "needs-owner-go" and item["row_id"] == state.get("pinned_row"):
             key = item["row_id"]
             _enqueue_notification(state, "needs-owner-go", key, f"Task {key} needs owner go")
     row = plan["next"]
@@ -524,6 +561,8 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
     except (subprocess.SubprocessError, OSError, ValueError) as exc:
         _enqueue_notification(state, "pick-task-error", row["row_id"], f"pick_task failed: {type(exc).__name__}")
         state["pick"] = {"reason": "pick-task-error", "row_id": row["row_id"]}
+        if isinstance(exc, PickerReplyError):
+            state["pick"]["error"] = str(exc)
     return state
 
 

@@ -16,15 +16,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from .control import ROW_ACTIONS, apply_control, read_plan
 from .gh import read_token, token_details
-from .nodes import LoopConfig, _pid_alive, _today
+from .nodes import ANSI_RE, TOKEN_RE, LoopConfig, _pid_alive, _today
 from . import herdr
 from .platform import WINDOWS
 from .state import LockBusyError, StateStore
 
 PHASES = ("idle", "picked", "worker running", "PR open", "checks", "merged", "Test GX", "deploy", "health", "done")
 ACTIONS = {*ROW_ACTIONS, "pause", "resume", "run-now", "stop-worker", "note", "refresh"}
-TOKEN_RE = re.compile(r"""(?i)(?:gh[pousr]_\w+|github_pat_\w+|(?:bearer\s+|(?:gh_token|github_token|api_key|token|password)["']?\s*[:=]\s*["']?)[^\s,;"']+)""")
-ANSI_RE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-_])")
 JOURNALS = {
     "loop": "victron-loop.service", "page": "victron-loop-web.service", "runners": "actions-runner-victron.service",
 }

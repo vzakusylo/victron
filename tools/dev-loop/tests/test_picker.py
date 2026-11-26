@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from victron_loop import main, nodes
+from victron_loop.state import StateStore
 
 
 @pytest.fixture
@@ -22,10 +23,11 @@ def picker(monkeypatch, tmp_path):
 
 
 def reply():
-    return json.dumps(dict(row_id="R4", branch="../../bad", tier="standard", brief="Do the work"))
+    return json.dumps(dict(row_id="R4", branch="../../bad", tier="standard", brief='Do the {work} with "quotes"'))
 
 
-def test_claude_picker_stdin_and_envelope(picker):
+@pytest.mark.parametrize("wrapper", ["{}", "```json\n{}\n```", "Here you go:\n{}\nThanks!"])
+def test_claude_picker_stdin_and_envelope(picker, wrapper):
     cfg, state, path = picker
 
     def run(command, **kwargs):
@@ -36,19 +38,62 @@ def test_claude_picker_stdin_and_envelope(picker):
         ]
         assert command[command.index("--tools") + 1] == ""
         assert "Backlog data: " in kwargs["input"] and "Process task" in kwargs["input"]
+        assert "no code fence, no other text" in kwargs["input"]
         assert not any("Process task" in arg for arg in command)
-        return SimpleNamespace(stdout=json.dumps({"result": reply()}))
+        return SimpleNamespace(stdout=json.dumps({"result": wrapper.format(reply())}))
 
     nodes.pick_task(state, cfg, path, run)
     assert state["picker_status"] == "ok"
     assert state["pick"]["branch"] == "r4"
 
 
-@pytest.mark.parametrize("stdout", ["not JSON", '{"result":"not JSON"}'])
-def test_claude_bad_json(picker, stdout):
+@pytest.mark.parametrize("wrapper", ["{}", "```json\n{}\n```", "Here you go:\n{}\nThanks!"])
+def test_copilot_picker_reply(picker, wrapper):
     cfg, state, path = picker
-    nodes.pick_task(state, cfg, path, lambda *_a, **_kw: SimpleNamespace(stdout=stdout))
+    cfg.picker_backend = "copilot"
+    nodes.pick_task(state, cfg, path, lambda *_a, **_kw: SimpleNamespace(stdout=wrapper.format(reply())))
+    assert state["pick"]["branch"] == "r4"
+
+
+@pytest.mark.parametrize(("stdout", "message"), [
+    ("not JSON", "Invalid Claude CLI JSON envelope"),
+    ('{"result":"not JSON"}', "Invalid picker JSON"),
+    ('{"is_error":true}', "Claude CLI reported an error"),
+    ('{"type":"result"}', "Claude CLI envelope missing a string result"),
+])
+def test_claude_bad_json(picker, stdout, message):
+    cfg, state, path = picker
+    cfg.picker_fallback = "copilot"
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(stdout=stdout)
+
+    nodes.pick_task(state, cfg, path, run)
     assert state["pick"]["reason"] == "pick-task-error"
+    assert state["pick"]["error"].startswith(message)
+    assert "raw reply:" in state["pick"]["error"]
+    assert len(calls) == 1
+
+
+def test_picker_diagnostic_reaches_cycle_output_and_decisions(picker, tmp_path, monkeypatch, capsys):
+    from victron_loop import graph
+
+    cfg, state, path = picker
+    raw = "garbage ghp_fakecredential " + "\u00f8" * 4096 + " beyond limit"
+    monkeypatch.setattr(graph, "build_graph", lambda *_: SimpleNamespace(invoke=lambda _: nodes.pick_task(
+        state, cfg, path, lambda *_a, **_kw: SimpleNamespace(stdout=json.dumps({"result": raw}))
+    )))
+    store = StateStore.open(tmp_path)
+
+    assert main.run_tick(store, cfg, gh=None) == "pick-task-error"
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "garbage [redacted]" in error
+    assert "fakecredential" not in error
+    assert "beyond limit" not in error
+    assert len(error.split("raw reply: ", 1)[1].encode("utf-8")) <= 4096
+    assert json.loads(store.log_file.read_text(encoding="utf-8"))["errors"] == {"picker": error}
 
 
 def auth_error(command, **kwargs):
