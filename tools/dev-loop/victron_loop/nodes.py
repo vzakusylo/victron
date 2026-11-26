@@ -501,9 +501,9 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
     pending = state.get("pending_herdr_start")
     if pending and not cfg.dry_run and cfg.worker_backend == "herdr":
         if pending["attempts"] >= 3:
-            state["pick"] = {key: value for key, value in pending.items() if key != "brief"}
+            state["pick"] = {key: value for key, value in pending.items() if key not in ("brief", "first_error")}
         else:
-            state["pick"] = {key: value for key, value in pending.items() if key not in ("reason", "error")}
+            state["pick"] = {key: value for key, value in pending.items() if key not in ("reason", "error", "first_error")}
         return state
 
     if cfg.dry_run:
@@ -648,9 +648,14 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
             attempts = pick.get("attempts", 0) + 1
             reason = "herdr-start-blocked" if attempts >= 3 else "herdr-start-failed"
             action = "Automatic retries stopped; operator intervention required." if attempts >= 3 else "Will retry next eligible cycle."
+            pending = state.get("pending_herdr_start") or {}
+            first_error = pending.get("first_error") or pending.get("error") or str(exc)
             error = f"Could not start worker {branch} (attempt {attempts}/3). {action}\n{exc}"
-            state["pending_herdr_start"] = {**pick, "attempts": attempts, "reason": reason, "error": error}
-            state["pick"] = {key: value for key, value in state["pending_herdr_start"].items() if key != "brief"}
+            if attempts >= 3 and first_error != str(exc):
+                error += f"\nFirst launch failure:\n{first_error}"
+            outcome = {**pick, "attempts": attempts, "reason": reason, "error": error}
+            state["pending_herdr_start"] = {**outcome, "first_error": first_error}
+            state["pick"] = {key: value for key, value in outcome.items() if key != "brief"}
             _resolve_notification(state, reason, branch)
             _enqueue_notification(state, reason, branch, error)
             return state

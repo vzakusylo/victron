@@ -124,6 +124,8 @@ def test_herdr_start_retries_saved_pick(tmp_path, monkeypatch, succeeds):
         assert state["pending_herdr_start"]["attempts"] == 3
         assert len(messages) == 3
         assert "operator intervention required" in messages[-1]
+        assert "First launch failure:\nstderr: launch error 1" in messages[-1]
+        assert "First launch failure:\nstderr: launch error 1" in state["pick"]["error"]
         apply_control(store, cfg, "skip", "FIX")
         assert store.load()["pending_herdr_start"] is None
     assert all(f"stderr: launch error {i}" in msg for i, msg in enumerate(messages, 1))
