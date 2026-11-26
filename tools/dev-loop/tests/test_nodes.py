@@ -112,13 +112,14 @@ def test_requires_owner_approval_allowlist_and_production_block():
     assert requires_owner_approval(risky) is True
 
 
-def test_pick_task_skips_hard_needs_owner_go(tmp_path: Path):
+def test_pick_task_only_notifies_for_pinned_owner_go(tmp_path: Path, monkeypatch):
     path = tmp_path / "BACKLOG.md"
     path.write_text(
         """### Process and repo
 | ID | Task | State | Notes |
 |---|---|---|---|
 | G4 | Grid control work | open | ready |
+| G5 | BMS work | open | ready |
 | R4 | Process task | open | ready |
 """,
         encoding="utf-8",
@@ -131,7 +132,15 @@ def test_pick_task_skips_hard_needs_owner_go(tmp_path: Path):
     cfg = LoopConfig(repo="vzakusylo/victron", dry_run=True, clock=fixed_clock)
     result = pick_task(state, cfg, path, copilot_runner=None)
     assert result["pick"]["row_id"] == "R4"
-    assert result["pending_notifications"][0]["condition"] == "needs-owner-go"
+    assert not result.get("pending_notifications")
+
+    sent = []
+    monkeypatch.setattr("victron_loop.nodes.desktop_notify", lambda *args: sent.append(args[-1]))
+    state["pinned_row"] = "G4"
+    for _ in range(2):
+        pick_task(state, cfg, path, copilot_runner=None)
+        notify(state, LoopConfig(repo=cfg.repo, dry_run=False, clock=fixed_clock), daily_summary=False)
+    assert sent == ["Task G4 needs owner go"]
 
 
 def test_pick_task_budget_cap_with_injected_clock(tmp_path: Path):

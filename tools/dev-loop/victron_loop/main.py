@@ -59,7 +59,10 @@ def run_tick(store: StateStore, cfg: LoopConfig, gh: GhCli) -> str:
     else:
         new_state["last_run"] = {"at": int(cfg.clock()), "result": result}
         store.save(new_state)
-        store.append_decision({"node": "run-once", "result": result})
+        decision = {"node": "run-once", "result": result}
+        if "error" in pick:
+            decision["errors"] = {"picker": pick["error"]}
+        store.append_decision(decision)
     print(json.dumps({key: value for key, value in pick.items() if key != "brief"}, sort_keys=True))
     return result
 
