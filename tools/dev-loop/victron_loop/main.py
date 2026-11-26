@@ -61,7 +61,8 @@ def run_tick(store: StateStore, cfg: LoopConfig, gh: GhCli) -> str:
         store.save(new_state)
         decision = {"node": "run-once", "result": result}
         if "error" in pick:
-            decision["errors"] = {"picker": pick["error"]}
+            source = "herdr" if result in ("herdr-start-failed", "herdr-start-blocked") else "picker"
+            decision["errors"] = {source: pick["error"]}
         store.append_decision(decision)
     print(json.dumps({key: value for key, value in pick.items() if key != "brief"}, sort_keys=True))
     return result

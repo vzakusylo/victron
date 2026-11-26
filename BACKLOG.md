@@ -217,6 +217,10 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+#205 AUTO1-HERDR-START (`auto1-herdr-start`, d#252 unchanged, i#75): capture PowerShell output and retry
+the retained pick up to three times. A missing `-File` script reproduces exit 64; the original failure's
+stderr was lost, so its exact cause remains unconfirmed.
+
 #204 AUTO1-PICKER-JSON (`auto1-picker-json`, d#252 unchanged · i#74): recover fenced and prose-wrapped
 picker JSON, surface bounded and redacted diagnostics, and only alert for pinned owner-go rows.
 

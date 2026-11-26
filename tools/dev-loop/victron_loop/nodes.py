@@ -498,6 +498,13 @@ def pick_task(state: dict[str, Any], cfg: LoopConfig, backlog_path: Path, copilo
     if int(state.get("daily_counts", {}).get(day, 0)) >= cfg.max_worker_runs_per_day:
         state["pick"] = {"reason": "daily-budget-cap"}
         return state
+    pending = state.get("pending_herdr_start")
+    if pending and not cfg.dry_run and cfg.worker_backend == "herdr":
+        if pending["attempts"] >= 3:
+            state["pick"] = {key: value for key, value in pending.items() if key not in ("brief", "first_error")}
+        else:
+            state["pick"] = {key: value for key, value in pending.items() if key not in ("reason", "error", "first_error")}
+        return state
 
     if cfg.dry_run:
         backlog_text = backlog_path.read_text(encoding="utf-8")
@@ -625,7 +632,7 @@ def _process_start(pid: int) -> str | None:
 def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
     pick = state.get("pick") or {}
     branch = pick.get("branch")
-    if not branch:
+    if not branch or pick.get("reason"):
         return state
     if cfg.dry_run:
         state["active_worker"] = None
@@ -637,10 +644,23 @@ def start_worker(state: dict[str, Any], cfg: LoopConfig) -> dict[str, Any]:
         log_path = cfg.loop_home / "logs" / f"{branch}.log"
         try:
             worker = herdr.start(cfg.repo_path, branch, tier, pick["brief"], log_path)
-        except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
-            state["pick"] = {"reason": "herdr-start-failed"}
-            _enqueue_notification(state, "herdr-start-failed", branch, f"Could not start worker {branch}: {exc}")
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            attempts = pick.get("attempts", 0) + 1
+            reason = "herdr-start-blocked" if attempts >= 3 else "herdr-start-failed"
+            action = "Automatic retries stopped; operator intervention required." if attempts >= 3 else "Will retry next eligible cycle."
+            pending = state.get("pending_herdr_start") or {}
+            first_error = pending.get("first_error") or pending.get("error") or str(exc)
+            error = f"Could not start worker {branch} (attempt {attempts}/3). {action}\n{exc}"
+            if attempts >= 3 and first_error != str(exc):
+                error += f"\nFirst launch failure:\n{first_error}"
+            outcome = {**pick, "attempts": attempts, "reason": reason, "error": error}
+            state["pending_herdr_start"] = {**outcome, "first_error": first_error}
+            state["pick"] = {key: value for key, value in outcome.items() if key != "brief"}
+            _resolve_notification(state, reason, branch)
+            _enqueue_notification(state, reason, branch, error)
             return state
+        state["pending_herdr_start"] = None
+        _resolve_notification(state, "herdr-start-failed", branch)
         return _record_worker(state, cfg, pick, {
             **worker, "backend": "herdr", "log_path": str(log_path),
         })

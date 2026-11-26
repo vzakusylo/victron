@@ -84,3 +84,10 @@ worker** requests an interrupt and pauses the loop; it retains the pane.
 Check the pane yourself if Herdr could not interrupt it. After its PR
 merges, the loop closes its Herdr worktree; unrelated uncommitted changes
 can block cleanup.
+
+If a worker cannot start, the cycle log and blocker notification include
+the PowerShell output. The loop retains the pick and retries on the next
+eligible cycle, up to three total attempts. After `herdr-start-blocked`,
+inspect the log and Herdr for a partially created worker before taking
+action. In the plan, skip the blocked row to clear the retained launch;
+unskip it when it is safe for the picker to select it again.

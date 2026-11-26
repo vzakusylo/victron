@@ -22,6 +22,7 @@ class LoopState(TypedDict, total=False):
     observed: dict[str, Any]
     repo_refresh_failed: bool
     pick: dict[str, Any]
+    pending_herdr_start: dict[str, Any] | None
     picker_status: str
     active_worker: dict[str, Any] | None
     approved: list[str]
