@@ -217,6 +217,8 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
+- **Windows dev loop token rotation** — Added the `loop-token` skill and token page helper (#206, d#252, i#76).
+
 #205 AUTO1-HERDR-START (`auto1-herdr-start`, d#252 unchanged, i#75): capture PowerShell output and retry
 the retained pick up to three times. A missing `-File` script reproduces exit 64; the original failure's
 stderr was lost, so its exact cause remains unconfirmed.
