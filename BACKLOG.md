@@ -44,8 +44,6 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 ## 3. Production backlog
 
-- **In progress (`loop-token-skill`):** Add the Windows dev loop token rotation skill and token page helper.
-
 ### Priority plan: test first, then split (decision 2026-11-21, [docs/test-first-performance-plan.md](docs/test-first-performance-plan.md))
 
 Priority: **grid control → heating → boiler**. A module is covered by green Test GX scenarios on master before it is
@@ -218,6 +216,8 @@ production code unchanged; a found bug is marked `expected_fail` and fixed in it
 scenarios to the CI job.
 
 ## 6. Done (for reference)
+
+- **Windows dev loop token rotation** — Added the `loop-token` skill and token page helper (#206, d#252, i#76).
 
 #205 AUTO1-HERDR-START (`auto1-herdr-start`, d#252 unchanged, i#75): capture PowerShell output and retry
 the retained pick up to three times. A missing `-File` script reproduces exit 64; the original failure's
