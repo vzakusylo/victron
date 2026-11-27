@@ -1,5 +1,5 @@
 {
-  "i": 75,
+  "i": 76,
   "changes": [
     {
       "i": 1,
@@ -450,6 +450,12 @@
       "date": "2026-11-26",
       "pr": null,
       "what": "Diagnose and retry Herdr worker starts"
+    },
+    {
+      "i": 76,
+      "date": "2026-11-27",
+      "pr": null,
+      "what": "Loop token rotation skill and token page script"
     }
   ]
 }

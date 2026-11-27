@@ -44,6 +44,8 @@ Updated 2026-11-21 (master `8bf1d37`, flows `d#204`, GX `d#204`).
 
 ## 3. Production backlog
 
+- **In progress (`loop-token-skill`):** Add the Windows dev loop token rotation skill and token page helper.
+
 ### Priority plan: test first, then split (decision 2026-11-21, [docs/test-first-performance-plan.md](docs/test-first-performance-plan.md))
 
 Priority: **grid control → heating → boiler**. A module is covered by green Test GX scenarios on master before it is
