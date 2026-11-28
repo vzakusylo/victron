@@ -217,7 +217,7 @@ scenarios to the CI job.
 
 ## 6. Done (for reference)
 
-- **SA1 meter offline health warning** — Treat `Device not connected` as WARN only for the SA1 meter (`sa1-health-warn`, d#252 unchanged, i#77; PR pending).
+- **SA1 meter offline health warning** — Treat `Device not connected` as WARN only for the SA1 meter (#207, d#252 unchanged, i#77).
 
 - **Windows dev loop token rotation** — Added the `loop-token` skill and token page helper (#206, d#252, i#76).
 
