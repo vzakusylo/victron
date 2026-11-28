@@ -1,5 +1,5 @@
 {
-  "i": 76,
+  "i": 77,
   "changes": [
     {
       "i": 1,
@@ -456,6 +456,12 @@
       "date": "2026-11-27",
       "pr": null,
       "what": "Loop token rotation skill and token page script"
+    },
+    {
+      "i": 77,
+      "date": "2026-11-28",
+      "pr": null,
+      "what": "SA1 meter offline errors are health warnings"
     }
   ]
 }

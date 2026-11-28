@@ -91,17 +91,21 @@ test('BMS watchdog must be OK and recent and SerialBattery must be connected ind
     assert.equal(check('battery', [undefined], { restartedAt: now - MIN }).level, 'WAIT');
 });
 
-test('only new owned-node errors count and only the meter reachability exception is WARN', () => {
+test('only new owned-node errors count and meter connectivity errors are WARN', () => {
     const meter = '[tuya-smart-device:SA1 power meter (heat pump)]';
+    const disconnected = "Device not connected. Can't send the GET commmand";
     const rows = [baseline, { ...baseline, line: '[error] [function:Heat pump automations] predeploy' },
-        event(1, '[error] [function:Unowned] ignored'), event(2, `[error] ${meter} EHOSTUNREACH private-data`)];
+        event(1, '[error] [function:Unowned] ignored'), event(2, `[error] ${meter} EHOSTUNREACH private-data`),
+        event(3, `[error] ${meter} ${disconnected}`)];
     const stats = () => logStats(config, rows, startedAt, now);
     assert.deepEqual(check('node-errors', [stats()]), {
-        id: 'node-errors', name: 'Owned Node-RED errors', level: 'WARN', detail: '0 owned error(s), 1 classified warning(s)'
+        id: 'node-errors', name: 'Owned Node-RED errors', level: 'WARN', detail: '0 owned error(s), 2 classified warning(s)'
     });
-    rows.push(event(3, `[error] ${meter} authentication issue`));
-    rows.push(event(4, '[error] [function:Heat pump automations] EHOSTUNREACH'));
-    assert.match(check('node-errors', [stats()]).detail, /^2 owned error/);
+    rows.push(event(4, `[error] [function:Heat pump automations] ${disconnected}`));
+    assert.equal(check('node-errors', [stats()]).level, 'FAIL');
+    rows.push(event(5, `[error] ${meter} authentication issue`));
+    rows.push(event(6, '[error] [function:Heat pump automations] EHOSTUNREACH'));
+    assert.match(check('node-errors', [stats()]).detail, /^3 owned error/);
     assert.equal(check('node-errors', [stats()]).level, 'FAIL');
     assert.equal(check('node-errors', [logStats(config, rows.slice(2), startedAt, now)]).level, 'FAIL');
 });
